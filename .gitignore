@@ -47,3 +47,16 @@ resources/docker/graphrag/.env
 ### Tmp Out ###
 .output/
 docs/temp
+
+### macOS ###
+.DS_Store
+
+### 本地密钥配置（API 密钥本地注入，不入库；`local` profile 激活）###
+bootstrap/src/main/resources/application-local.yaml
+
+### 开发流程内部文档（AI 协作配置 / 阶段规划与审计，暂不入公开仓库；开源前统一提炼整理）###
+.claude/
+/CLAUDE.md
+/CHANGES.md
+/project-docs/
+/docs/agents/
