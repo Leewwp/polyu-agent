@@ -68,4 +68,6 @@ bootstrap/src/main/resources/application-local.yaml
 # 本机专用中间件栈（端口随本机环境定制）
 /resources/docker/polyu-local-*.compose.yaml
 
-### CHANGES.md 保留公开：README 公开引用的改动清单（相对上游基线的差异记录，无敏感信息）###
+# 本地项目文档：开发变更记录与领域词汇表不入公开仓库
+/CHANGES.md
+/CONTEXT.md
