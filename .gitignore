@@ -13,12 +13,8 @@ temp
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
-.idea
-!.idea/dictionaries/
-!.idea/inspectionProfiles/
-!.idea/scopes/
-!.idea/icon.png
+### IntelliJ IDEA（IDE 本地配置完全不入库；上游基线曾跟踪 .idea/，已于 2026-09-04 退出版本控制）###
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -35,7 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
-scripts/logs/
 
 ### Frontend ###
 node_modules/
@@ -54,11 +49,23 @@ docs/temp
 ### 本地密钥配置（API 密钥本地注入，不入库；`local` profile 激活）###
 bootstrap/src/main/resources/application-local.yaml
 
-### 开发流程内部文档（AI 协作配置，暂不入公开仓库；开源前统一提炼整理）###
+### 开源仓库边界（2026-09-04 起执行，详见 CLAUDE.md「开源仓库边界」）：以下内部开发产物仅保留本地，不入公开仓库 ###
+
+# 开发流程内部文档与 AI 协作配置
 .claude/
 /CLAUDE.md
 /docs/agents/
 
-### CHANGES.md 已于 0B-2C 解除忽略：README 公开引用的改动清单，内容为相对上游基线的差异记录，无敏感信息 ###
+# 内部项目文档：规划、阶段审计、检查点报告
+/project-docs/
 
-### project-docs/ 已于 0B-2B 解除忽略：阶段规划与审计报告属重要技术产物，敏感信息扫描（密钥赋值模式与常见密钥前缀）零命中后纳入版本控制；原始 HTML / 取证 JSON / 日志仍不入库 ###
+# 调研报告（research/* 分支产物）
+/research/
+
+# 个人测试与运维脚本
+/scripts/
+
+# 本机专用中间件栈（端口随本机环境定制）
+/resources/docker/polyu-local-*.compose.yaml
+
+### CHANGES.md 保留公开：README 公开引用的改动清单（相对上游基线的差异记录，无敏感信息）###
