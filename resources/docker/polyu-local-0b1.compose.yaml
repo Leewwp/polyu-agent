@@ -1,0 +1,126 @@
+# PolyU-agent 本地独立中间件栈（Phase 0B-1）
+#
+# 与上游 compose 的差异（本机约束，勿改回）：
+#   - PostgreSQL 5432 / Redis 6379 被其他项目容器（omnicraft-*）占用 → 本栈用 5434 / 6381；
+#     对应覆盖见 bootstrap/src/main/resources/application-local.yaml（local profile，gitignore）。
+#   - 上游 rocketmq-stack-5.2.0.compose.yaml 暴露 broker proxy 端口 8080/8081/8082（dashboard），
+#     本机 8080/8081 已被占用；ragent 客户端为 rocketmq-spring-boot-starter 2.3.5（remoting 协议，
+#     只需 9876 + 10909/10911/10912），故不暴露 808x、不启 dashboard。
+#   - 对象存储用本机已有的 minio 镜像替代 rustfs（S3 API 兼容，凭据沿用 application.yaml 的
+#     rustfsadmin/rustfsadmin，应用侧零改动）。
+#   - 所有宿主机发布端口仅绑定 127.0.0.1（本机开发栈，容器间通信走内部网络不受影响；
+#     broker 通告地址 brokerIP1=127.0.0.1，宿主机应用本就经 loopback 访问 10909/10911/10912）。
+# 幂等：docker compose -f resources/docker/polyu-local-0b1.compose.yaml up -d
+name: polyu-agent-stack
+
+services:
+  polyu-pg:
+    image: pgvector/pgvector:pg16
+    container_name: polyu-pg
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ragent
+    volumes:
+      - polyu-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d ragent" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  polyu-redis:
+    image: redis:7-alpine
+    container_name: polyu-redis
+    ports:
+      - "127.0.0.1:6381:6379"
+    command: [ "redis-server", "--requirepass", "123456" ]
+    volumes:
+      - polyu-redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "123456", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  polyu-minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    container_name: polyu-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: rustfsadmin
+      MINIO_ROOT_PASSWORD: rustfsadmin
+    volumes:
+      - polyu-minio-data:/data
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  polyu-rmqnamesrv:
+    image: apache/rocketmq:5.2.0
+    container_name: polyu-rmqnamesrv
+    ports:
+      - "127.0.0.1:9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx400m"
+    command: sh mqnamesrv
+    networks:
+      - polyu-rmq
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "grep -q 'The Name Server boot success' /home/rocketmq/logs/rocketmqlogs/namesrv.log || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  polyu-rmqbroker:
+    image: apache/rocketmq:5.2.0
+    container_name: polyu-rmqbroker
+    ports:
+      - "127.0.0.1:10912:10912"
+      - "127.0.0.1:10911:10911"
+      - "127.0.0.1:10909:10909"
+    environment:
+      NAMESRV_ADDR: "polyu-rmqnamesrv:9876"
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m"
+    depends_on:
+      polyu-rmqnamesrv:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        cat > /home/rocketmq/rocketmq-5.2.0/conf/broker.conf << EOF
+        brokerClusterName = DefaultCluster
+        brokerName = broker-a
+        brokerId = 0
+        deleteWhen = 04
+        fileReservedTime = 48
+        brokerRole = ASYNC_MASTER
+        flushDiskType = ASYNC_FLUSH
+        brokerIP1 = 127.0.0.1
+        timerMaxDelaySec = 31622400
+        EOF
+        sh mqbroker -c /home/rocketmq/rocketmq-5.2.0/conf/broker.conf
+    networks:
+      - polyu-rmq
+    restart: unless-stopped
+
+networks:
+  polyu-rmq:
+    driver: bridge
+
+volumes:
+  polyu-pg-data:
+  polyu-redis-data:
+  polyu-minio-data:
