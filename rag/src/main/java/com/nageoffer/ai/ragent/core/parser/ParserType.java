@@ -33,6 +33,11 @@ public enum ParserType {
     TIKA("Tika"),
 
     /**
+     * HTML 解析器（Jsoup DOM，结构感知：导航清洗 / 标题链 / 列表编号 / 表格列组）
+     */
+    HTML("Html"),
+
+    /**
      * Markdown 解析器
      */
     MARKDOWN("Markdown"),

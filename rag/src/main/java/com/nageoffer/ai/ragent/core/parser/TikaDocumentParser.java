@@ -35,8 +35,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Apache Tika 解析器：纯文本类格式的兜底，覆盖 HTML / JSON / XML / RTF 及未被更专门的解析器认领的
- * {@code text/*}；复杂版面（PDF / Word / PPT）走 MinerU，表格走 POI / CSV，markdown 走 commonmark
+ * Apache Tika 解析器：纯文本类格式的兜底，覆盖 JSON / XML / RTF 及未被更专门的解析器认领的
+ * {@code text/*}；HTML 走 Jsoup（{@link HtmlDocumentParser}），复杂版面（PDF / Word / PPT）走 MinerU，
+ * 表格走 POI / CSV，markdown 走 commonmark
  * <p>
  * 长尾靠 {@code text/*} 通配键覆盖，精确键一律优先于通配键，因此 {@code text/csv}、
  * {@code text/plain}、{@code text/x-web-markdown}（Tika 探测 {@code .md} 的产出）都不会落到这里
@@ -99,15 +100,16 @@ public class TikaDocumentParser implements DocumentParser {
     /**
      * 精确键覆盖已声明支持的格式，{@code text/*} 通配只兜未声明的长尾；刻意不认领 image 与未知 MIME，
      * 认不出来就报错，不要兜底产出垃圾文本
+     * <p>
+     * {@code text/html} 与 {@code application/xhtml+xml} 已让渡给 {@link HtmlDocumentParser}
+     * （注册表键冲突即启动失败，此处保留会把 HTML 打平回纯文本，退化为导航噪声混入正文的无结构形态）
      */
     @Override
     public Map<ParseProfile, Set<String>> supportedMimeTypes() {
         return Map.of(ParseProfile.FAST, Set.of(
                 "text/*",
-                "text/html",
                 "application/json",
                 "application/xml",
-                "application/xhtml+xml",
                 "application/rtf"
         ));
     }
