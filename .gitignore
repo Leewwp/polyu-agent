@@ -54,9 +54,11 @@ docs/temp
 ### 本地密钥配置（API 密钥本地注入，不入库；`local` profile 激活）###
 bootstrap/src/main/resources/application-local.yaml
 
-### 开发流程内部文档（AI 协作配置 / 阶段规划与审计，暂不入公开仓库；开源前统一提炼整理）###
+### 开发流程内部文档（AI 协作配置，暂不入公开仓库；开源前统一提炼整理）###
 .claude/
 /CLAUDE.md
-/CHANGES.md
-/project-docs/
 /docs/agents/
+
+### CHANGES.md 已于 0B-2C 解除忽略：README 公开引用的改动清单，内容为相对上游基线的差异记录，无敏感信息 ###
+
+### project-docs/ 已于 0B-2B 解除忽略：阶段规划与审计报告属重要技术产物，敏感信息扫描（密钥赋值模式与常见密钥前缀）零命中后纳入版本控制；原始 HTML / 取证 JSON / 日志仍不入库 ###

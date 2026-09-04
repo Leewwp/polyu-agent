@@ -32,7 +32,7 @@ PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO�
 
 ## 目录结构
 
-- `project-docs/` — 二开项目文档（项目规划与路线图）
+- `project-docs/` — 二开项目文档（项目规划与路线图、各阶段审计报告）
 - `CHANGES.md` — 相对上游基线的改动清单（随实施逐条累积）
 - `README.upstream.md` — 底座原 README
 - 其余为底座 1.1.0 原样代码：Java 多模块（bootstrap / infra-ai / framework / mcp-server）+ React 前端（frontend/）
@@ -43,7 +43,7 @@ PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO�
 
 ## 当前状态
 
-**D0（2026-09-03）：基线导入与项目规划完成，开发未开始。**
+**D0（2026-09-04）**：Phase 0 底座审计（0A Go）与最小运行闭环（0B-1 Pass）完成；五页解析质量门（0B-2A Conditional Pass）触发 `HtmlDocumentParser` 开发，**0B-2B 已实现并通过对照验证（Pass，导航噪声 0%、MRR 上升）**，**0B-2C 代码审查与版本检查点通过（Pass）并已提交入库**，详见 [project-docs/06](./project-docs/06-Phase0B-2B-HTML解析器实现与对照.md)、[project-docs/07](./project-docs/07-Phase0B-2C代码审查与版本检查点.md)。下一步：20–30 页语料构建与 0M 模型评测门。
 
 ## 路线图
 
