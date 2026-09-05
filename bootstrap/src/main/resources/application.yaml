@@ -265,9 +265,11 @@ ai:
   embedding:
     default-model: qwen-emb-8b
     candidates:
+      # doc 03 §4.1 对照组 = SiliconFlow Qwen/Qwen3-Embedding-8B（2026-09-05 校正：
+      # 上游默认曾把本 id 指到 bailian/text-embedding-v4，与评测合同不符，见 doc 11 D26）
       - id: qwen-emb-8b
-        provider: bailian
-        model: text-embedding-v4
+        provider: siliconflow
+        model: Qwen/Qwen3-Embedding-8B
         dimension: ${rag.default.dimension}
         priority: 1
       - id: qwen-emb-local
@@ -280,6 +282,13 @@ ai:
         model: text-embedding-3-large
         dimension: ${rag.default.dimension}
         priority: 3
+      # bailian text-embedding-v4 显式候选：2026-09-05 shadow 轮曾以 qwen-emb-8b 名义
+      # 实际运行过的模型，历史向量由它生成；独立 id 保留身份可追溯，不再与 qwen-emb-8b 混用
+      - id: bailian-te-v4
+        provider: bailian
+        model: text-embedding-v4
+        dimension: ${rag.default.dimension}
+        priority: 4
 
   rerank:
     default-model: qwen3-rerank
