@@ -25,12 +25,10 @@ import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.BucketAlreadyOwnedByYouException;
-import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -129,7 +127,7 @@ public class S3ObjectStorageClient implements ObjectStorageClient {
             return;
         }
 
-        // 分页列举前缀下所有对象并批量删除
+        // 分页列举前缀下所有对象并逐个删除
         String continuationToken = null;
         int cleared = 0;
         do {
@@ -140,13 +138,13 @@ public class S3ObjectStorageClient implements ObjectStorageClient {
                     .build();
             ListObjectsV2Response listResp = s3Client.listObjectsV2(listReq);
 
-            List<ObjectIdentifier> toDelete = listResp.contents().stream()
-                    .map(S3Object::key)
-                    .map(k -> ObjectIdentifier.builder().key(k).build())
-                    .toList();
-            if (!toDelete.isEmpty()) {
-                s3Client.deleteObjects(b -> b.bucket(bucket).delete(Delete.builder().objects(toDelete).build()));
-                cleared += toDelete.size();
+            // 不用 deleteObjects 批量删除：该操作按 S3 规范必须携带 Content-MD5，
+            // 而 AWS SDK v2 签名管线不注入该头，MinIO/RustFS 严格校验会拒 400（判例
+            // 2026-09-05 知识库删除清理消费者无限重试）。逐对象 DeleteObject 无请求体
+            // 无此约束；namespace 内对象数是个位到十位级，性能差异可忽略
+            for (S3Object object : listResp.contents()) {
+                s3Client.deleteObject(b -> b.bucket(bucket).key(object.key()));
+                cleared++;
             }
 
             continuationToken = Boolean.TRUE.equals(listResp.isTruncated()) ? listResp.nextContinuationToken() : null;
