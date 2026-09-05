@@ -738,4 +738,95 @@ class HtmlDocumentParserTest {
         assertThat(text).contains("Main body content of the current book page");
         assertThat(text).doesNotContain("Previous Section").doesNotContain("Next Section");
     }
+
+    // ==================== 回归：列表内非 li 子节点 / 手风琴触发升格（S6 宿费政策、A4 FAQ 判例） ====================
+
+    @Test
+    @DisplayName("ol 内非 li 子节点（span 分节标签/p 政策段）不再丢弃，按 DOM 序常规产出")
+    void keepsNonLiChildrenInsideLists() {
+        // S6 宿费页形态：CKEditor 把 span 分节标签与整段政策文本直接挂进 ol
+        String html = """
+                <html><body><main>
+                <h2>Hall Fees</h2>
+                <ol style="margin-top: 0.470588em;">
+                  <span style="font-size: 1em;">B) Hall Caution Money ($900)</span>
+                  <p style="margin-left: 40px;">All students are required to pay the Hall Caution Money upon the acceptance of the offer of hall residence.</p>
+                  <li>It will be forfeited if the hall residence is terminated under the Hall Regulations.</li>
+                </ol>
+                </main></body></html>
+                """;
+        ParsedDocument doc = parse(html);
+        assertThat(paragraphs(doc)).extracting(ParagraphBlock::text).containsExactly(
+                "B) Hall Caution Money ($900)",
+                "All students are required to pay the Hall Caution Money upon the acceptance of the offer of hall residence.");
+        assertThat(lists(doc)).hasSize(1);
+        assertThat(lists(doc).get(0).ordered()).isTrue();
+        assertThat(lists(doc).get(0).items())
+                .containsExactly("It will be forfeited if the hall residence is terminated under the Hall Regulations.");
+        // DOM 序：span 段 → p 段 → 列表项
+        assertThat(doc.blocks()).extracting(b -> b.getClass().getSimpleName())
+                .containsExactly("HeadingBlock", "ParagraphBlock", "ParagraphBlock", "ListBlock");
+    }
+
+    @Test
+    @DisplayName("li 与非 li 子节点交错时列表在段落处切开，DOM 序保持")
+    void splitsListAtNonLiChildPreservingDomOrder() {
+        String html = """
+                <html><body><main>
+                <ol>
+                  <li>First item of the ordered list</li>
+                  <p>Interstitial policy paragraph pasted directly inside the list by the campus editor.</p>
+                  <li>Second item of the ordered list</li>
+                </ol>
+                </main></body></html>
+                """;
+        ParsedDocument doc = parse(html);
+        assertThat(lists(doc)).hasSize(2);
+        assertThat(lists(doc).get(0).items()).containsExactly("First item of the ordered list");
+        assertThat(lists(doc).get(1).items()).containsExactly("Second item of the ordered list");
+        assertThat(paragraphs(doc)).extracting(ParagraphBlock::text)
+                .containsExactly("Interstitial policy paragraph pasted directly inside the list by the campus editor.");
+        assertThat(doc.blocks()).extracting(b -> b.getClass().getSimpleName())
+                .containsExactly("ListBlock", "ParagraphBlock", "ListBlock");
+    }
+
+    @Test
+    @DisplayName("a[data-toggle=collapse] 手风琴触发升格标题（不论文本是否问句），普通链接不升格")
+    void promotesAccordionTriggersToHeadings() {
+        String html = """
+                <html><body><main>
+                <h2>Non-local Students</h2>
+                <div class="collapse-wrap">
+                  <div class="plus-collapse__header">
+                    <a aria-expanded="false" class="plus-collapse__trigger" data-toggle="collapse" href="#!" role="button">What is the definition of a non-local student?</a>
+                  </div>
+                  <div class="collapse plus-collapse__content">
+                    <div class="plus-collapse__inner"><p>A non-local student is a person who needs a student visa to study in Hong Kong.</p></div>
+                  </div>
+                </div>
+                <div class="collapse-wrap">
+                  <div class="plus-collapse__header">
+                    <a aria-expanded="false" class="plus-collapse__trigger" data-toggle="collapse" href="#!" role="button">Entry Scholarships - awarded on the basis of admission results</a>
+                  </div>
+                  <div class="collapse plus-collapse__content">
+                    <div class="plus-collapse__inner"><p>Details of the scholarship scheme are published each year.</p></div>
+                  </div>
+                </div>
+                <p>Read the <a href="/ar/admissions/">admissions pages</a> for the full policy.</p>
+                </main></body></html>
+                """;
+        ParsedDocument doc = parse(html);
+        List<HeadingBlock> hs = headings(doc);
+        assertThat(hs).extracting(HeadingBlock::text).containsExactly(
+                "Non-local Students",
+                "What is the definition of a non-local student?",
+                "Entry Scholarships - awarded on the basis of admission results");
+        // 两个触发同级（h2 基准升 1 级），问句（A4 形态）与非问句（S4 分节形态）一视同仁
+        assertThat(hs.get(1).level()).isEqualTo(3);
+        assertThat(hs.get(1).level()).isEqualTo(hs.get(2).level());
+        assertThat(paragraphs(doc)).extracting(ParagraphBlock::text).containsExactly(
+                "A non-local student is a person who needs a student visa to study in Hong Kong.",
+                "Details of the scholarship scheme are published each year.",
+                "Read the admissions pages for the full policy.");
+    }
 }

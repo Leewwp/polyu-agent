@@ -52,7 +52,9 @@ import java.util.Set;
  * chunker 分块，本类不触碰分块与检索链路
  * <p>
  * FAQ 页的问题多以普通 {@code <p>} 出现（以问号结尾的短段落），此处将这类段落升格为
- * HeadingBlock，使后续答案块的章节路径携带问题原文，问答保持明确关联
+ * HeadingBlock，使后续答案块的章节路径携带问题原文，问答保持明确关联；
+ * Bootstrap 手风琴的触发链接（{@code a[data-toggle=collapse]}）结构上即分节标题
+ * （答案折叠在兄弟面板里），不论文本是否问句，与 details/summary 同规则升格
  */
 @Slf4j
 @Component
@@ -296,6 +298,19 @@ public class HtmlDocumentParser implements DocumentParser {
                     flush(blocks);
                     emitList(element, tag.equals("ol"), blocks);
                 }
+                case "a" -> {
+                    // 手风琴触发链接：升格判定只认结构标记不认文本形态——泛化到
+                    // 「问号结尾的链接」会把侧栏菜单/按钮链接误升成标题（A6/S5 判例）
+                    if ("collapse".equals(element.attr("data-toggle"))) {
+                        flush(blocks);
+                        String text = normalizeWhitespace(element.text());
+                        if (!text.isEmpty()) {
+                            blocks.add(new HeadingBlock(prov, questionLevel(), text));
+                        }
+                    } else {
+                        walkChildren(element, blocks);
+                    }
+                }
                 case "table" -> {
                     flush(blocks);
                     emitTable(element, blocks);
@@ -350,35 +365,51 @@ public class HtmlDocumentParser implements DocumentParser {
          * 富列表项（li 直接持有带实际文本的块级子元素，WYSIWYG 编辑器的 FAQ 形态）
          * 拍平会破坏项内结构——问句段落与答案段落粘连，故逐项递归走常规 dispatch
          * （问句段落照常升格标题，答案段落带上问题章节路径），列表编号让位于问答结构。
-         * 只装图片的空段落不算富项（截图挂载形态），避免装饰图把普通步骤列表打散成碎段
+         * 只装图片的空段落不算富项（截图挂载形态），避免装饰图把普通步骤列表打散成碎段。
+         * 非 li 子节点（编辑器把 span/p 等直接挂进列表，S6 宿费政策判例）不丢弃：
+         * 携带正文时冲刷已聚合的列表项保住 DOM 序，再按常规遍历产出并告警留痕
          */
         private void emitList(Element list, boolean ordered, List<Block> blocks) {
-            List<String> items = new ArrayList<>();
             boolean richItems = false;
             for (Element li : list.children()) {
-                if (!li.tagName().equals("li")) {
-                    continue;
-                }
-                if (hasTextualBlockChild(li)) {
+                if (li.tagName().equals("li") && hasTextualBlockChild(li)) {
                     richItems = true;
                     break;
                 }
-                String text = normalizeWhitespace(li.text());
-                if (!text.isEmpty()) {
-                    items.add(text);
-                }
             }
-            if (richItems) {
-                for (Element li : list.children()) {
-                    if (li.tagName().equals("li")) {
-                        walk(li, blocks);
+            List<String> items = new ArrayList<>();
+            for (Element child : list.children()) {
+                if (!child.tagName().equals("li")) {
+                    String text = normalizeWhitespace(child.text());
+                    if (!text.isEmpty()) {
+                        log.warn("列表内非 li 子节点 <{}> 携带正文 {} 字符，按常规遍历产出",
+                                child.tagName(), text.length());
+                        emitItems(items, ordered, blocks);
+                        walk(child, blocks);
+                    }
+                    continue;
+                }
+                if (richItems) {
+                    walk(child, blocks);
+                } else {
+                    String text = normalizeWhitespace(child.text());
+                    if (!text.isEmpty()) {
+                        items.add(text);
                     }
                 }
+            }
+            emitItems(items, ordered, blocks);
+        }
+
+        /**
+         * 把已聚合的列表项落成 ListBlock 并清空，供非 li 子节点把一个列表按 DOM 序切开
+         */
+        private void emitItems(List<String> items, boolean ordered, List<Block> blocks) {
+            if (items.isEmpty()) {
                 return;
             }
-            if (!items.isEmpty()) {
-                blocks.add(new ListBlock(prov, ordered, items));
-            }
+            blocks.add(new ListBlock(prov, ordered, new ArrayList<>(items)));
+            items.clear();
         }
 
         /**
