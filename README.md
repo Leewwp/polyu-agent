@@ -43,7 +43,7 @@ PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO�
 
 ## 当前状态
 
-**进行中（Phase 0 / POC）**：底座审计、最小运行闭环与结构化 HTML 解析改造（`HtmlDocumentParser`：导航噪声与跨页模板清洗）已完成内部验证；当前语料仅 5 个规范 URL。下一步：构建 24 个规范英文来源（AR / Library / SAO 各 8）作为评测基线 → 模型选型评测门 → 扩页至 500–1500 页。模型选型、Rerank 协议、向量索引策略与对象持久化（CAS）方案均已定案，但在真实评测 / smoke 通过前不属于已完成能力。进展明细见 [CHANGES.md](./CHANGES.md) 与 GitHub Issues。
+**进行中（Phase 0 / POC）**：底座审计、最小运行闭环与结构化 HTML 解析改造（`HtmlDocumentParser`：导航噪声与跨页模板清洗）已完成内部验证；当前语料仅 5 个规范 URL。下一步：构建 24 个规范英文来源（AR / Library / SAO 各 8）作为评测基线 → 模型选型评测门 → 扩页至 500–1500 页。模型选型、Rerank 协议、向量索引策略与对象持久化（CAS）方案均已定案，但在真实评测 / smoke 通过前不属于已完成能力。进展明细见 GitHub Issues。
 
 ## 路线图
 

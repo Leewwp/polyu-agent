@@ -47,7 +47,9 @@ docs/temp
 .DS_Store
 
 ### 本地密钥配置（API 密钥本地注入，不入库；`local` profile 激活）###
-bootstrap/src/main/resources/application-local.yaml
+# 任意模块的 local profile 配置均忽略（2026-09-05 由 bootstrap 单路径放宽为通配，覆盖 rag/mcp-server 等新模块与 .yml 变体）
+# 如需提交脱敏示例，用连字符命名避开通配（如 application-local-sample.yaml），勿用点后缀（application-local.example.yaml 仍会被忽略）
+**/application-local.*
 
 ### 开源仓库边界（2026-09-04 起执行，详见 CLAUDE.md「开源仓库边界」）：以下内部开发产物仅保留本地，不入公开仓库 ###
 
