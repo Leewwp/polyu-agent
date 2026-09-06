@@ -76,9 +76,9 @@ rag:
     type: pg  # 可选 milvus / pg
 
   keyword:
-    type: none  # 可选 none / es
+    type: es  # 可选 none / es。2026-09-06 批复开启（S10 决策包 es-pipeline-v1.md）：词法对比 fused MRR +0.070 零 HR 损失；kill switch=回 none 即整体关闭（ES 数据保留）
     es:
-      uris: http://127.0.0.1:9200
+      uris: http://127.0.0.1:9201  # 9200 被 omnicraft OpenSearch 占用（他项目领地），polyu ES 栈错峰用 9201：resources/docker/polyu-es-stack-9.4.2.compose.yaml
       index: rag_keyword_store  # 全库共享索引，按 collection_name 字段区分知识库
       analyzer: ik_max_word
       search-analyzer: ik_smart
@@ -154,7 +154,7 @@ rag:
       vector:
         enabled: true       # 向量通道总开关
       keyword:
-        enabled: false      # 检索范围读引擎解析好的作用域，与向量通道同源
+        enabled: true      # 检索范围读引擎解析好的作用域，与向量通道同源。2026-09-06 批复开启（与 rag.keyword.type=es 双开关配套，S10）
       graph:
         enabled: false    # 图谱检索通道开关：false 不参与问答召回（后端仍在，后台可视化照常）；置 true 前需先开 rag.graph.type=lightrag
       web-search:
@@ -173,7 +173,7 @@ rag:
         web-search: 0.5
     # 证据相关性闸门：检索只保证返回最像的 N 条，库里没答案时照样满额返回，这里补一道相关度下限
     evidence:
-      min-rerank-score: 0.2   # 整批最高精排分低于此值则整批丢弃，0=关闭；随 reranker 而变，换模型看「检索归因 - 精排分布」重测
+      min-rerank-score: 0.40  # 整批最高精排分低于此值则整批丢弃，0=关闭；随 reranker 而变，换模型看「检索归因 - 精排分布」重测。2026-09-06 由 0.2 上调（已批复）：18 行探针（c2-es-lexical/threshold-analysis.json）实测精排分=主题相关度而非可答性，0.40 恰拦唯一"库内全无相关"行（0.39）且距最低合法行 0.44 余 0.04；主观脏行（0.49–0.81）与可答 gold（0.73–0.95）区间交叠，靠分数拦不住——拒答归 S7 提示词层（规则①④）
 
   trace:
     enabled: true
