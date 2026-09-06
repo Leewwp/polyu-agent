@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.sample.controller;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
@@ -79,6 +80,7 @@ public class SampleQuestionController {
      */
     @PostMapping
     public Result<String> create(@RequestBody SampleQuestionCreateRequest requestParam) {
+        StpUtil.checkRole("admin");
         return Results.success(sampleQuestionService.create(requestParam));
     }
 
@@ -87,6 +89,7 @@ public class SampleQuestionController {
      */
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable String id, @RequestBody SampleQuestionUpdateRequest requestParam) {
+        StpUtil.checkRole("admin");
         sampleQuestionService.update(id, requestParam);
         return Results.success();
     }
@@ -96,6 +99,7 @@ public class SampleQuestionController {
      */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable String id) {
+        StpUtil.checkRole("admin");
         sampleQuestionService.delete(id);
         return Results.success();
     }

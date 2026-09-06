@@ -42,9 +42,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
     private final UserContextInterceptor userContextInterceptor;
 
     /**
-     * 拦截器全局顺序：登录(0) → 演示只读(10，由 RagentWebMvcConfiguration 注册) → 用户上下文(20)
+     * 拦截器全局顺序：登录(0) → 管理面角色(5) → 演示只读(10，由 RagentWebMvcConfiguration 注册) → 用户上下文(20)
      */
     public static final int ORDER_LOGIN = 0;
+    public static final int ORDER_ADMIN_ROLE = 5;
     public static final int ORDER_DEMO_MODE = 10;
     public static final int ORDER_USER_CONTEXT = 20;
 
@@ -78,6 +79,24 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 // 排除认证相关路径和错误页面
                 .excludePathPatterns("/auth/**", "/error")
                 .order(ORDER_LOGIN);
+
+        // 管理面角色拦截：登录态之上再要求 admin 角色（S9：服务端补齐 /admin 边界，
+        // 覆盖知识库/智能体/意图树/映射/设置/追踪/审计/用户管理；用户侧接口不受影响）
+        registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkRole("admin")))
+                .addPathPatterns(
+                        "/knowledge-base/**",
+                        "/agents/**",
+                        "/agent-skills/**",
+                        "/intent-tree",
+                        "/intent-tree/**",
+                        "/mappings",
+                        "/mappings/**",
+                        "/admin/**",
+                        "/rag/settings",
+                        "/rag/traces/**",
+                        "/biz-change-logs/**",
+                        "/users/**")
+                .order(ORDER_ADMIN_ROLE);
 
         // 注册用户上下文拦截器
         registry.addInterceptor(userContextInterceptor)

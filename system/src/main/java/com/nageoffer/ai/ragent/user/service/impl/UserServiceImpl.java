@@ -37,6 +37,7 @@ import com.nageoffer.ai.ragent.user.controller.vo.UserVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.enums.UserRole;
+import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,7 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final BizChangeLogContext bizChangeLogContext;
+    private final PasswordCodec passwordCodec;
 
     @Override
     public IPage<UserVO> pageQuery(UserPageRequest requestParam) {
@@ -93,7 +95,7 @@ public class UserServiceImpl implements UserService {
 
         UserDO record = UserDO.builder()
                 .username(username)
-                .password(password)
+                .password(passwordCodec.encode(password))
                 .role(role)
                 .avatar(StrUtil.trimToNull(requestParam.getAvatar()))
                 .build();
@@ -141,7 +143,7 @@ public class UserServiceImpl implements UserService {
         if (requestParam.getPassword() != null) {
             String password = StrUtil.trimToNull(requestParam.getPassword());
             Assert.notBlank(password, () -> new ClientException("新密码不能为空"));
-            record.setPassword(password);
+            record.setPassword(passwordCodec.encode(password));
         }
 
         userMapper.updateById(record);
@@ -191,10 +193,10 @@ public class UserServiceImpl implements UserService {
         );
         Assert.notNull(record, () -> new ClientException("用户不存在"));
         UserVO before = toVO(record);
-        if (!passwordMatches(current, record.getPassword())) {
+        if (!passwordCodec.matches(current, record.getPassword())) {
             throw new ClientException("当前密码不正确");
         }
-        record.setPassword(next);
+        record.setPassword(passwordCodec.encode(next));
         userMapper.updateById(record);
         bizChangeLogContext.put(loginUser.getUserId(), before, toVO(userMapper.selectById(loginUser.getUserId())));
     }
@@ -239,13 +241,6 @@ public class UserServiceImpl implements UserService {
             return UserRole.USER.getCode();
         }
         throw new ClientException("角色类型不合法");
-    }
-
-    private boolean passwordMatches(String input, String stored) {
-        if (stored == null) {
-            return input == null;
-        }
-        return stored.equals(input);
     }
 
     private UserVO toVO(UserDO record) {

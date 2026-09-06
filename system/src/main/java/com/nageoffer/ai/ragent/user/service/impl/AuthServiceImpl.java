@@ -24,10 +24,16 @@ import com.nageoffer.ai.ragent.user.controller.request.LoginRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.LoginVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
+import com.nageoffer.ai.ragent.user.security.LoginRateLimiter;
+import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +42,8 @@ public class AuthServiceImpl implements AuthService {
     private static final String DEFAULT_AVATAR_URL = "https://avatars.githubusercontent.com/u/583231?v=4";
 
     private final UserMapper userMapper;
+    private final PasswordCodec passwordCodec;
+    private final LoginRateLimiter loginRateLimiter;
 
     @Override
     public LoginVO login(LoginRequest requestParam) {
@@ -44,9 +52,15 @@ public class AuthServiceImpl implements AuthService {
         if (StrUtil.isBlank(username) || StrUtil.isBlank(password)) {
             throw new ClientException("用户名或密码不能为空");
         }
+        loginRateLimiter.acquire(resolveClientIp(), username);
         UserDO user = findByUsername(username);
-        if (user == null || !passwordMatches(password, user.getPassword())) {
+        if (user == null || !passwordCodec.matches(password, user.getPassword())) {
             throw new ClientException("用户名或密码错误");
+        }
+        // 存量明文密码：校验通过后立即升级为哈希（透明收敛，不需要用户操作）
+        if (passwordCodec.needsUpgrade(user.getPassword())) {
+            user.setPassword(passwordCodec.encode(password));
+            userMapper.updateById(user);
         }
         if (user.getId() == null) {
             throw new ClientException("用户信息异常");
@@ -73,10 +87,18 @@ public class AuthServiceImpl implements AuthService {
         );
     }
 
-    private boolean passwordMatches(String input, String stored) {
-        if (stored == null) {
-            return input == null;
+    private String resolveClientIp() {
+        ServletRequestAttributes attrs =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attrs == null) {
+            return "unknown";
         }
-        return stored.equals(input);
+        HttpServletRequest request = attrs.getRequest();
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(forwardedFor)) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        return StringUtils.hasText(realIp) ? realIp : request.getRemoteAddr();
     }
 }
