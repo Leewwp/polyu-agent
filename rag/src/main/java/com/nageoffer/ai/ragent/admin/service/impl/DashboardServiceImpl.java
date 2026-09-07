@@ -62,6 +62,8 @@ public class DashboardServiceImpl implements DashboardService {
     private static final String STATUS_ERROR = "ERROR";
     private static final String ROLE_ASSISTANT = "assistant";
     private static final String NO_DOC_REPLY = "未检索到与问题相关的文档内容。";
+    // T9 双语化：零证据兜底文案英文变体（StreamChatPipeline 按提问语言输出），统计两变体并计
+    private static final String NO_DOC_REPLY_EN = "No relevant document content was found for this question.";
     private static final String GRANULARITY_DAY = "day";
     private static final String GRANULARITY_HOUR = "hour";
     private static final long SLOW_LATENCY_THRESHOLD_MS = 20000L;
@@ -327,7 +329,7 @@ public class DashboardServiceImpl implements DashboardService {
         wrapper.ge("create_time", start)
                 .lt("create_time", end)
                 .eq("role", ROLE_ASSISTANT)
-                .eq("content", NO_DOC_REPLY);
+                .in("content", NO_DOC_REPLY, NO_DOC_REPLY_EN);
         return messageMapper.selectCount(wrapper);
     }
 
@@ -413,7 +415,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .ge("create_time", toDate(start, zoneId))
                 .lt("create_time", toDate(endExclusive, zoneId))
                 .eq("role", ROLE_ASSISTANT)
-                .eq("content", NO_DOC_REPLY)
+                .in("content", NO_DOC_REPLY, NO_DOC_REPLY_EN)
                 .groupBy("d");
         return mapLongResults(messageMapper.selectMaps(wrapper));
     }
@@ -497,7 +499,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .ge("create_time", toDate(start, zoneId))
                 .lt("create_time", toDate(endExclusive, zoneId))
                 .eq("role", ROLE_ASSISTANT)
-                .eq("content", NO_DOC_REPLY)
+                .in("content", NO_DOC_REPLY, NO_DOC_REPLY_EN)
                 .groupBy("h");
         return mapLongResultsByHour(messageMapper.selectMaps(wrapper));
     }

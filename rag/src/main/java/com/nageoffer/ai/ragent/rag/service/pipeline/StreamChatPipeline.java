@@ -165,9 +165,17 @@ public class StreamChatPipeline {
             return false;
         }
         StreamCallback callback = ctx.getCallback();
-        callback.onContent("未检索到与问题相关的文档内容。");
+        // 零证据兜底文案按提问语言输出（T9：unans-004 判例——EN 问曾收中文系统文案）；
+        // 与 DashboardServiceImpl NO_DOC 统计口径保持同步（双语变体都要计入）
+        callback.onContent(isChineseQuestion(ctx.getQuestion())
+                ? "未检索到与问题相关的文档内容。"
+                : "No relevant document content was found for this question.");
         callback.onComplete();
         return true;
+    }
+
+    private boolean isChineseQuestion(String question) {
+        return question != null && question.chars().anyMatch(cp -> (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF));
     }
 
     private void streamRagResponse(StreamChatContext ctx, RetrievalContext retrievalCtx) {
