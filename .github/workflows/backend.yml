@@ -1,0 +1,89 @@
+# 后端质量门（ROADMAP-20260907 第 6 步 CI 骨架）
+#
+# 口径（路线图定稿）：
+# - 只跑编译 + 自建质量门（纯单元测试，无中间件/无 API key 依赖）；
+# - 不放上游整合测试（@SpringBootTest 全家桶 + 真实 API 依赖类）——上游测试仅作本地
+#   环境健康检查（rag 测试隔离层 application.yaml 注明 9 个具名例外：4 个需 Milvus
+#   服务器、5 个需上游演示知识库数据）；
+# - 分支保护 / required checks / PR 制不在本步（ROADMAP 第 10 步维护者显式决策）。
+name: backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 质量门 = 全模块单元测试，命令行排除中间件/真实 API 依赖类（不改 pom）。
+      # 排除清单与 rag/src/test/resources/application.yaml 隔离层注释保持同步维护。
+      - name: Unit quality gate (no middleware, no API keys)
+        run: >
+          ./mvnw test
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!YouComSearchMcpExecutorLiveTest'
+
+      - name: Package (skip tests)
+        run: ./mvnw -DskipTests package
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 口径按 api-key-handling-rules：优先整值匹配（本地维护者可跑全值扫描）；
+      # CI 无密钥值，退化为高信号结构检查——sk- 前缀长 token + S9 种子回归绊线。
+      - name: Scan for hardcoded API keys
+        run: |
+          HITS=$(git grep -nE 'sk-[A-Za-z0-9._~-]{20,}' -- . ':!*.lock' ':!frontend/package-lock.json' || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::疑似 API key 明文入库："
+            echo "$HITS"
+            exit 1
+          fi
+
+      - name: S9 tripwire — default credential seed must not return
+        run: |
+          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/init_data_pg.sql | grep -vE "^\s*(--|#)"; then
+            echo "::error::init_data_pg.sql 疑似复活默认凭据种子（S9 已移除，冲突回退不得带回）"
+            exit 1
+          fi
+
+      - name: S9 tripwire — plaintext password comparison must not return
+        run: |
+          if git grep -nE "getPassword\(\)\s*\.equals|password\.equals\(" -- '*.java' | grep -viE "test|PasswordCodec|matches\(" ; then
+            echo "::error::疑似明文密码比对回归（S9 要求走 PasswordCodec/DelegatingPasswordEncoder）"
+            exit 1
+          fi
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # 轻量依赖审计：ossindex 无需 NVD key；告警不阻断（exit 0），产出留日志供维护者巡检
+      - name: Maven dependency audit (non-blocking)
+        run: >
+          ./mvnw -B org.sonatype.ossindex.maven:ossindex-maven-plugin:3.2.1:audit
+          -Dossindex.reportFile=target/ossindex-audit.json || true

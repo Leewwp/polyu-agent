@@ -1,0 +1,18 @@
+# 依赖更新与漏洞面巡检（ROADMAP-20260907 §0.2.4 基础设施真空补位）。
+# 只开版本更新 PR，不自动合并；安全告警依赖 GitHub Dependabot alerts（仓库设置开启）。
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

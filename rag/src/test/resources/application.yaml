@@ -7,3 +7,25 @@ spring:
       - optional:file:${user.dir}/bootstrap/src/main/resources/application.yaml
       # Maven Surefire normally runs tests from this module's directory.
       - optional:file:${user.dir}/../bootstrap/src/main/resources/application.yaml
+---
+# ============================================================================
+# polyu-agent 测试隔离层（2026-09-08，ROADMAP-20260907 第4步；配置覆盖，不改测试逻辑）
+# 根因链：主配置 ragent.engine.type=agent 时，rag 模块内唯一的 DashboardServiceImpl
+# 被 @ConditionalOnProperty(workflow 档) 门掉，而 agent 档实现 AgentDashboardService
+# 在 agent 模块、不在 rag 测试类路径 → DashboardController 装配失败 → 所有
+# @SpringBootTest 上下文加载失败（此前表现为主配置默认端口 6379/5432 撞 omnicraft
+# 中间件的 21 个级联 error）。
+# 本文件按 polyu 本地栈固定端口（PG 5434 / Redis 6381；5432/6379 为 omnicraft 领地），
+# 测试档位固定 workflow（rag 类路径内唯一可装配档）。CI 上由 service 容器提供同端口。
+# 仍需外部中间件的上游整合测试（Milvus 19530、真实 LLM key）不在本层解决范围。
+# ============================================================================
+ragent:
+  engine:
+    type: workflow
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5434/ragent?client_encoding=UTF8
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6381
