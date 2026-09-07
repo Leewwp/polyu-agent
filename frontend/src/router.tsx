@@ -5,6 +5,7 @@ import { EngineGate } from "@/components/common/EngineGate";
 import { ChangeLogsPage } from "@/pages/ChangeLogsPage";
 import { DocPreviewPage } from "@/pages/DocPreviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { SharePage } from "@/pages/SharePage";
 import { AdminLayout } from "@/pages/admin/AdminLayout";
 import { DashboardPage } from "@/pages/admin/dashboard/DashboardPage";
 import { KnowledgeListPage } from "@/pages/admin/knowledge/KnowledgeListPage";
@@ -76,6 +77,11 @@ export const router = createBrowserRouter([
         <LoginPage />
       </RedirectIfAuth>
     )
+  },
+  {
+    // 公开分享页：匿名可访问（E-1；后端 flag 默认关时显示无效链接态）
+    path: "/share/:token",
+    element: <SharePage />
   },
   {
     path: "/chat",

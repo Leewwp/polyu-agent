@@ -1058,3 +1058,36 @@ COMMENT ON COLUMN t_agent_memory_control.user_id IS '用户ID';
 COMMENT ON COLUMN t_agent_memory_control.revision IS '记忆集版本号，提交期与水位一同双校验';
 COMMENT ON COLUMN t_agent_memory_control.create_time IS '建行时刻，兼作抽取下界：更早的历史消息不倒灌';
 COMMENT ON COLUMN t_agent_memory_control.update_time IS '更新时间';
+
+-- ============================================================
+-- polyu-agent E-1 公开答案分享（T7，2026-09-08）
+-- 不可变 Q&A 快照：创建时值复制 question/answer/citations，
+-- 公开读绝不回链 t_message；不含用户身份/思考/工具轨迹/IP。
+-- ============================================================
+CREATE TABLE t_answer_share (
+    id                VARCHAR(20)    NOT NULL PRIMARY KEY,
+    token             VARCHAR(64)    NOT NULL,
+    owner_user_id     VARCHAR(20)    NOT NULL,
+    message_id        VARCHAR(20)    NOT NULL,
+    conversation_id   VARCHAR(20)    NOT NULL,
+    question          TEXT           NOT NULL,
+    answer_md         TEXT           NOT NULL,
+    citations         JSONB,
+    lang              VARCHAR(8),
+    content_version   VARCHAR(64),
+    status            VARCHAR(16)    NOT NULL DEFAULT 'ACTIVE',
+    expire_time       TIMESTAMP,
+    revoked_time      TIMESTAMP,
+    create_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted           SMALLINT       NOT NULL DEFAULT 0,
+    CONSTRAINT uk_answer_share_token UNIQUE (token)
+);
+CREATE INDEX idx_answer_share_owner ON t_answer_share (owner_user_id, create_time);
+COMMENT ON TABLE t_answer_share IS '公开答案分享快照表（不可变快照；token 加密随机不可枚举）';
+COMMENT ON COLUMN t_answer_share.token IS 'SecureRandom 32 字节 Base64URL（43 字符）';
+COMMENT ON COLUMN t_answer_share.owner_user_id IS '创建者用户ID（仅归属校验与撤销用，公开载荷不返回）';
+COMMENT ON COLUMN t_answer_share.citations IS '结构化官方引用快照（List<SourceRef>）';
+COMMENT ON COLUMN t_answer_share.content_version IS '内容/知识版本标记（rag.share.content-version）';
+COMMENT ON COLUMN t_answer_share.status IS 'ACTIVE/REVOKED';
+COMMENT ON COLUMN t_answer_share.expire_time IS '过期时刻，NULL 即不过期（终值随门批复）';

@@ -76,8 +76,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 }))
                 // 拦截所有路径
                 .addPathPatterns("/**")
-                // 排除认证相关路径和错误页面
-                .excludePathPatterns("/auth/**", "/error")
+                // 排除认证相关路径、错误页面与公开分享只读面
+                // （/public/share/**：E-1 公开答案分享匿名读，flag 默认关时端点本身 404，
+                //  放行面仅只读快照，无用户上下文依赖；T7 2026-09-08）
+                .excludePathPatterns("/auth/**", "/public/share/**", "/error")
                 .order(ORDER_LOGIN);
 
         // 管理面角色拦截：登录态之上再要求 admin 角色（S9：服务端补齐 /admin 边界，

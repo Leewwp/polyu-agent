@@ -5,6 +5,7 @@ import { FeedbackButtons } from "@/components/chat/FeedbackButtons";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { RecommendedQuestions } from "@/components/chat/RecommendedQuestions";
 import { RecommendedQuestionsButton } from "@/components/chat/RecommendedQuestionsButton";
+import { ShareButton } from "@/components/chat/ShareButton";
 import { SourcesButton } from "@/components/chat/SourcesButton";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { cn } from "@/lib/utils";
@@ -119,6 +120,7 @@ export const MessageItem = React.memo(function MessageItem({ message }: MessageI
                   alwaysVisible
                 />
               ) : null}
+              {showFeedback ? <ShareButton messageId={message.id} /> : null}
               {hasSources ? (
                 <SourcesButton messageId={message.id} sources={message.sources!} />
               ) : null}
