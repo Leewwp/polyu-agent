@@ -29,6 +29,13 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
+        <!-- T10 邮件服务脚手架：mode=logger（默认）不触达 SMTP；mode=smtp 时由
+             MAIL_HOST/PORT/USERNAME/PASSWORD/FROM 环境注入自动配置（OmniCraft 云侧配置移植后启用） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>io.github.mouzt</groupId>
             <artifactId>bizlog-sdk</artifactId>
