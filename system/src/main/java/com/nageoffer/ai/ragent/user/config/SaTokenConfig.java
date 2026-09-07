@@ -105,10 +105,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
 
         // 注册用户上下文拦截器
         registry.addInterceptor(userContextInterceptor)
-                // 拦截所有路径
                 .addPathPatterns("/**")
-                // 排除认证相关路径和错误页面
-                .excludePathPatterns("/auth/**", "/error")
+                // 排除与登录拦截器同口径：认证路径、错误页面、公开分享只读面
+                // （公开面无登录态，UserContextInterceptor 的 getLoginIdAsString 会抛未登录；T7 2026-09-08）
+                .excludePathPatterns("/auth/**", "/public/share/**", "/error")
                 .order(ORDER_USER_CONTEXT);
     }
 }
