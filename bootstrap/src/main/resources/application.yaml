@@ -38,6 +38,9 @@ ragent:
   demo-mode: false
   eval:
     enabled: true
+  anonymous:
+    enabled: false     # T8 匿名试用 feature flag：默认关（启用=门）。关闭时 /auth/guest 拒绝铸造游客账号
+    daily-limit: 3     # 游客每日提问配额（「游客身份+IP」双键原子扣减）；终值随门批复（doc 13 §8.2 建议 3 次/日）
 
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
@@ -104,6 +107,11 @@ rag:
 
   citation:
     enabled: true  # 回答行内引用角标 [N](#cite-N)：开启会动态追加引用规则并为资料注入编号，增加首字延迟；关闭不影响文档级来源面板
+
+  share:
+    enabled: false            # E-1 公开答案分享 feature flag：默认关（启用=门，维护者批复；关闭时相关端点不装配）
+    default-expire-days: 90   # 分享默认过期天数，0/负=不过期；终值随门批复（doc 13 §16：建议 90 天或不过期，首发 noindex）
+    content-version: v1       # 随分享快照落库的内容/知识版本标记
 
   rate-limit:
     global:
