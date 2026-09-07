@@ -270,7 +270,10 @@ ai:
         candidates: [ qwen-flash, qwen-plus ]
         timeout-ms: 15000
       standard:
-        candidates: [ qwen-plus, deepseekv4pro ]
+        # 主位=minimaxm3（关思考为 vendor 默认，横评 minimax-m3-np 口径：纪律 8/8+严子串最高+p50 3.5s，
+        # 裁决包 minimax-m3-verdict-20260907 §五）；MiniMax 订阅 429/配额耗尽走底座原生降级——
+        # 同请求即切下一候选，ModelHealthStore 熔断 2 失败跳 30s 半开自愈；备=百炼 qwen-plus，兜底=deepseekv4pro
+        candidates: [ minimaxm3, qwen-plus, deepseekv4pro ]
         timeout-ms: 120000
       deep:
         candidates: [ qwen3-max, deepseekv4pro ]
