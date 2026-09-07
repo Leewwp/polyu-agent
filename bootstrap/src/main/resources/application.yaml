@@ -251,12 +251,14 @@ ai:
     default-tier: standard
     deep-thinking-tier: deep
 
+    # T3 横评冻结（维护者 2026-09-07 批复）：standard 主=百炼 qwen-plus 备=硅基流动 deepseekv4pro；
+    # fast 降级链=[qwen-flash, qwen-plus]。deep 非 V1 首发档，维持上游现状待后续裁决
     tiers:
       fast:
-        candidates: [ qwen-flash, qwen-plus, qwen3-local ]
-        timeout-ms: 5000
+        candidates: [ qwen-flash, qwen-plus ]
+        timeout-ms: 15000
       standard:
-        candidates: [ qwen3-max, qwen-plus, qwen3-local, gpt-5.4 ]
+        candidates: [ qwen-plus, deepseekv4pro ]
         timeout-ms: 120000
       deep:
         candidates: [ qwen3-max, deepseekv4pro ]
