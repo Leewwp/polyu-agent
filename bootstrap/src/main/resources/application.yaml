@@ -217,6 +217,13 @@ ai:
       endpoints:
         chat: /v1/chat/completions
         embedding: /v1/embeddings
+    minimax:
+      # MiniMax 官方 OpenAI 兼容端点；国内平台 api.minimaxi.com / 国际平台 api.minimax.io，
+      # 订阅归属哪侧由维护者按 key 提供方设置 MINIMAX_API_URL 覆盖
+      url: ${MINIMAX_API_URL:https://api.minimaxi.com}
+      api-key: ${MINIMAX_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
 
   selection:
     failure-threshold: 2
@@ -246,6 +253,11 @@ ai:
       - id: deepseekv4pro
         provider: siliconflow
         model: deepseek-ai/DeepSeek-V4-Pro
+        supports-thinking: true
+      # MiniMax M3 横评候选（维护者 2026-09-07 指令：验证能否替代 deepseekv4pro 的 standard 备位）
+      - id: minimaxm3
+        provider: minimax
+        model: MiniMax-M3
         supports-thinking: true
 
     default-tier: standard

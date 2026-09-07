@@ -49,6 +49,11 @@ public enum ModelProvider {
     AI_HUB_MIX("aihubmix"),
 
     /**
+     * MiniMax 大模型平台（OpenAI 兼容端点）
+     */
+    MINIMAX("minimax"),
+
+    /**
      * 空实现，用于测试或占位
      */
     NOOP("noop");
