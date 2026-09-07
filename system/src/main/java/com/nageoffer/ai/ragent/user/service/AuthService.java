@@ -25,4 +25,13 @@ public interface AuthService {
     LoginVO login(LoginRequest requestParam);
 
     void logout();
+
+    /**
+     * 匿名试用游客登录（T8，doc 13 §8.2）
+     *
+     * <p>feature flag：ragent.anonymous.enabled（默认 false，关闭时直接拒绝）。
+     * 语义：为未登录访客铸造一次性 guest 账号并签发会话；已有 guest 会话则复用；
+     * 问题配额由 rag 侧 AnonymousTrialGuard 按「游客身份+IP」每日原子扣减。
+     */
+    LoginVO guestLogin();
 }

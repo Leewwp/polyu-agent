@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
+import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.user.controller.request.LoginRequest;
@@ -30,6 +31,7 @@ import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -74,6 +76,51 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logout() {
         StpUtil.logout();
+    }
+
+    /**
+     * guest 角色标记：与 admin/user 并列；管理面角色拦截器只认 admin，guest 等同普通用户权限面
+     */
+    private static final String ROLE_GUEST = "guest";
+
+    /**
+     * 匿名试用开关（T8）：默认 false；启用与额度终值属维护者门（doc 13 §8.2/§16）
+     */
+    @Value("${ragent.anonymous.enabled:false}")
+    private boolean anonymousEnabled;
+
+    @Override
+    public LoginVO guestLogin() {
+        if (!anonymousEnabled) {
+            throw new ClientException("匿名试用未开启");
+        }
+        // 已登录且是 guest：复用当前会话，不重复铸造游客账号
+        Object existingLoginIdObj = StpUtil.getLoginIdDefaultNull();
+        if (existingLoginIdObj != null) {
+            UserDO current = userMapper.selectById(String.valueOf(existingLoginIdObj));
+            if (current != null && ROLE_GUEST.equals(current.getRole())) {
+                return buildLoginVO(current);
+            }
+        }
+        // 游客铸造限速：按 IP 复用登录限速器（固定窗口），防批量刷 guest 账号
+        loginRateLimiter.acquire(resolveClientIp(), "guest-trial");
+        UserDO guest = UserDO.builder()
+                .username("guest-" + IdUtil.fastSimpleUUID().substring(0, 12))
+                // 随机双 UUID 加密落库：guest 不走密码登录，此值仅满足非空约束
+                .password(passwordCodec.encode(IdUtil.fastSimpleUUID() + IdUtil.fastSimpleUUID()))
+                .role(ROLE_GUEST)
+                .build();
+        userMapper.insert(guest);
+        if (guest.getId() == null) {
+            throw new ClientException("游客账号创建失败");
+        }
+        StpUtil.login(guest.getId().toString());
+        return buildLoginVO(guest);
+    }
+
+    private LoginVO buildLoginVO(UserDO user) {
+        String avatar = StrUtil.isBlank(user.getAvatar()) ? DEFAULT_AVATAR_URL : user.getAvatar();
+        return new LoginVO(user.getId().toString(), user.getRole(), StpUtil.getTokenValue(), avatar);
     }
 
     private UserDO findByUsername(String username) {

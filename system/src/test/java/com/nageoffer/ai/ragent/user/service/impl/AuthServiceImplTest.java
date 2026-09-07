@@ -107,6 +107,45 @@ class AuthServiceImplTest {
         verify(loginRateLimiter, never()).acquire(anyString(), anyString());
     }
 
+    @Test
+    void guestLoginDisabledByDefault() {
+        // flag 默认关（application.yaml ragent.anonymous.enabled=false）
+        assertThrows(ClientException.class, () -> authService.guestLogin());
+        verify(userMapper, never()).insert(org.mockito.ArgumentMatchers.any(UserDO.class));
+    }
+
+    @Test
+    void guestLoginMintsGuestAccountAndSession() {
+        org.springframework.test.util.ReflectionTestUtils.setField(authService, "anonymousEnabled", true);
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn(null);
+        // 模拟 MyBatis-Plus ASSIGN_ID 主键回填
+        when(userMapper.insert(org.mockito.ArgumentMatchers.any(UserDO.class))).thenAnswer(inv -> {
+            inv.getArgument(0, UserDO.class).setId("900");
+            return 1;
+        });
+        var vo = authService.guestLogin();
+        var captor = org.mockito.ArgumentCaptor.forClass(UserDO.class);
+        verify(userMapper).insert(captor.capture());
+        UserDO guest = captor.getValue();
+        assertTrue(guest.getUsername().startsWith("guest-"));
+        assertEquals("guest", guest.getRole());
+        assertTrue(guest.getPassword().startsWith("{bcrypt}"));
+        stpUtil.verify(() -> StpUtil.login(org.mockito.ArgumentMatchers.anyString()));
+        assertEquals("guest", vo.getRole());
+        assertEquals("token", vo.getToken());
+    }
+
+    @Test
+    void guestLoginReusesExistingGuestSession() {
+        org.springframework.test.util.ReflectionTestUtils.setField(authService, "anonymousEnabled", true);
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn("1");
+        when(userMapper.selectById("1")).thenReturn(
+                UserDO.builder().id("1").username("admin").password("{bcrypt}x").role("guest").build());
+        var vo = authService.guestLogin();
+        assertEquals("guest", vo.getRole());
+        verify(userMapper, never()).insert(org.mockito.ArgumentMatchers.any(UserDO.class));
+    }
+
     private LoginRequest req(String username, String password) {
         LoginRequest r = new LoginRequest();
         r.setUsername(username);

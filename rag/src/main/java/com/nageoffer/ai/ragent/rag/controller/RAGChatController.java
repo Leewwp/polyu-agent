@@ -18,12 +18,16 @@
 package com.nageoffer.ai.ragent.rag.controller;
 
 import com.nageoffer.ai.ragent.framework.convention.Result;
+import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.validation.ChatQuestion;
 import com.nageoffer.ai.ragent.framework.idempotent.IdempotentSubmit;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.rag.config.RAGDefaultProperties;
+import com.nageoffer.ai.ragent.rag.service.AnonymousTrialGuard;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,6 +44,7 @@ public class RAGChatController {
 
     private final RAGChatService ragChatService;
     private final RAGDefaultProperties ragDefaultProperties;
+    private final AnonymousTrialGuard anonymousTrialGuard;
 
     /**
      * 发起 SSE 流式对话
@@ -51,7 +56,10 @@ public class RAGChatController {
     @GetMapping(value = "/rag/v3/chat", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(@RequestParam @ChatQuestion String question,
                            @RequestParam(required = false) String conversationId,
-                           @RequestParam(required = false, defaultValue = "false") Boolean deepThinking) {
+                           @RequestParam(required = false, defaultValue = "false") Boolean deepThinking,
+                           HttpServletRequest request) {
+        // 匿名试用配额（T8）：仅对 role=guest 会话生效，普通用户零开销放行
+        anonymousTrialGuard.checkAndConsume(UserContext.get(), resolveClientIp(request));
         SseEmitter emitter = new SseEmitter(ragDefaultProperties.getSseTimeoutMs());
         ragChatService.streamChat(question, conversationId, deepThinking, emitter);
         return emitter;
@@ -65,5 +73,14 @@ public class RAGChatController {
     public Result<Void> stop(@RequestParam String taskId) {
         ragChatService.stopTask(taskId);
         return Results.success();
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(forwardedFor)) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        return StringUtils.hasText(realIp) ? realIp : request.getRemoteAddr();
     }
 }

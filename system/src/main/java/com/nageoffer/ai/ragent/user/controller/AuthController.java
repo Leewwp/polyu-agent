@@ -53,4 +53,12 @@ public class AuthController {
         authService.logout();
         return Results.success();
     }
+
+    /**
+     * 匿名试用游客登录（T8）：flag 默认关，关闭时返回"匿名试用未开启"
+     */
+    @PostMapping("/auth/guest")
+    public Result<LoginVO> guestLogin() {
+        return Results.success(authService.guestLogin());
+    }
 }
