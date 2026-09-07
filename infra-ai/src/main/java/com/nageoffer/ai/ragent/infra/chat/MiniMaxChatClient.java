@@ -43,11 +43,11 @@ public class MiniMaxChatClient extends AbstractOpenAIStyleChatClient {
     @Override
     protected void customizeRequestBody(JsonObject body, ChatRequest request) {
         body.addProperty("reasoning_split", true);
-        if (request.getThinking() != null) {
-            JsonObject thinking = new JsonObject();
-            thinking.addProperty("type", Boolean.TRUE.equals(request.getThinking()) ? "adaptive" : "disabled");
-            body.add("thinking", thinking);
-        }
+        // MiniMax M 系思考默认开启（与基座"未指定即不思考"的语义相反），必须显式声明：
+        // 未指定→disabled（主位时延/成本合同），显式思考→adaptive（deep-thinking 档）
+        JsonObject thinking = new JsonObject();
+        thinking.addProperty("type", Boolean.TRUE.equals(request.getThinking()) ? "adaptive" : "disabled");
+        body.add("thinking", thinking);
     }
 
     @Override
