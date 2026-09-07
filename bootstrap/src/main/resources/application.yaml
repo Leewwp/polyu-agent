@@ -41,6 +41,13 @@ ragent:
   anonymous:
     enabled: false     # T8 匿名试用 feature flag：默认关（启用=门）。关闭时 /auth/guest 拒绝铸造游客账号
     daily-limit: 3     # 游客每日提问配额（「游客身份+IP」双键原子扣减）；终值随门批复（doc 13 §8.2 建议 3 次/日）
+  mail:
+    mode: logger           # T10 邮件服务：logger=只记日志不外发（默认）；smtp=真实发信（移植 OmniCraft 云侧配置后启用）
+    code-ttl-minutes: 10   # 验证码有效期（分钟）
+    resend-cooldown-seconds: 60  # 重发冷却（秒）
+    # mode=smtp 时的连接参数全部环境注入（凭据入 ~/.polyu-agent/secrets.yaml，不入仓库）：
+    # spring.mail.host=${MAIL_HOST:} / port=${MAIL_PORT:587} / username=${MAIL_USERNAME:} /
+    # password=${MAIL_PASSWORD:}；发件人= MAIL_FROM（发信身份复用 OmniCraft 或独立别名=开放注册前的门）
 
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
