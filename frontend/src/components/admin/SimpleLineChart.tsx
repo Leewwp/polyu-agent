@@ -64,6 +64,12 @@ interface SimpleLineChartProps {
   /** 关掉图内图例，改由调用方用 ChartLegend 摆到自己的读数行里 */
   showLegend?: boolean;
   /**
+   * 图高跟着容器走，height 退化为下限。
+   * 开了它容器就绝对定位铺满父级，父级必须是 relative 且自己有确定高度——
+   * 图不再把自己的高算进父级的内容高，否则「量到多高就画多高」会反过来改父级的高
+   */
+  fillHeight?: boolean;
+  /**
    * 给主序列铺一层向下渐隐的面积。
    * 参照序列不受它管：折线形态下不铺（两层半透明叠着就分不出谁在上），
    * 底槽形态下的填充是这条序列的画法本身，不是这个开关加的装饰
@@ -492,6 +498,7 @@ const buildYAxisTicks = (
 export function SimpleLineChart({
   series,
   height = DEFAULT_HEIGHT,
+  fillHeight = false,
   yAxisType = "number",
   xAxisMode = "date",
   thresholds = [],
@@ -504,6 +511,7 @@ export function SimpleLineChart({
   const gradientPrefix = useId().replace(/:/g, "");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
+  const [boxHeight, setBoxHeight] = useState(0);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -511,7 +519,10 @@ export function SimpleLineChart({
     const element = containerRef.current;
     if (!element) return;
 
-    const update = () => setWidth(element.clientWidth);
+    const update = () => {
+      setWidth(element.clientWidth);
+      setBoxHeight(element.clientHeight);
+    };
     update();
 
     if (typeof ResizeObserver === "undefined") {
@@ -605,17 +616,26 @@ export function SimpleLineChart({
 
   if (!hasData) {
     return (
-      <div className="flex h-[180px] items-center justify-center text-sm" style={{ color: noDataColor }}>
+      <div
+        className={cn(
+          "flex items-center justify-center text-sm",
+          // 这条分支在容器外提前返回，拿不到 fillHeight 的绝对定位，只能自己撑满调用方的盒子
+          fillHeight ? "h-full" : "h-[180px]"
+        )}
+        style={{ color: noDataColor }}
+      >
         暂无数据
       </div>
     );
   }
 
   const outerWidth = Math.max(width, 320);
+  // height 在 fillHeight 下是下限：屏幕不够高时仍按调用方给的配额画
+  const outerHeight = fillHeight ? Math.max(boxHeight, height) : height;
   // 左边距按最宽的 y 刻度（percent 轴的「100.0%」，12px 下约 40px）留，再多就是白吃绘图区
   const margin = { top: 10, right: 12, bottom: 30, left: 52 };
   const innerWidth = Math.max(outerWidth - margin.left - margin.right, 1);
-  const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
+  const innerHeight = Math.max(outerHeight - margin.top - margin.bottom, 1);
 
   const xIndexMap = new Map<number, number>();
   xValues.forEach((ts, index) => xIndexMap.set(ts, index));
@@ -764,13 +784,17 @@ export function SimpleLineChart({
   );
 
   return (
-    <div ref={containerRef} className="relative w-full" style={CHART_COLOR_VARS}>
+    <div
+      ref={containerRef}
+      className={cn("relative w-full", fillHeight && "absolute inset-0")}
+      style={CHART_COLOR_VARS}
+    >
       {/* 单序列不给图例：只有一种颜色时，标题已经说明画的是什么。 */}
       {showLegend && (
         <ChartLegend series={normalizedSeries} className="mb-2" style={{ color: palette.legend }} />
       )}
 
-      <svg width={outerWidth} height={height} className="w-full overflow-visible">
+      <svg width={outerWidth} height={outerHeight} className="w-full overflow-visible">
         {showArea && (
           <defs>
             {areaTones.map((tone) => (

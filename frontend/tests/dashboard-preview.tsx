@@ -282,7 +282,7 @@ api.defaults.adapter = async (config) => {
 };
 
 const scenarioNav = (
-  <nav aria-label="测试场景" className="mb-5 flex flex-wrap gap-3 text-xs text-slate-500">
+  <nav aria-label="测试场景" className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
     <span className="font-semibold">隔离预览 · 全部为测试数据</span>
     <a href={`?engine=agent&chrome=${chrome}`}>Agent</a>
     <a href={`?engine=workflow&chrome=${chrome}`}>Workflow</a>
@@ -319,8 +319,15 @@ createRoot(document.getElementById("root")!).render(
         <div className="admin-layout flex h-screen">
           <aside className="admin-sidebar" aria-hidden="true" />
           <div className="admin-main flex min-h-screen flex-1 flex-col overflow-auto">
+            {/*
+              顶栏是空壳但高度必须在：它占掉 64px，而概览页现在按剩余高度分配纵向余量，
+              少了这一层量出来的分栏高度就比真控制台各高 64。场景切换那排字寄在顶栏里，
+              免得它自己占一行、把量出来的高度又推偏
+            */}
+            <header className="admin-topbar">
+              <div className="admin-topbar-inner">{scenarioNav}</div>
+            </header>
             <div className="admin-content">
-              {scenarioNav}
               {breadcrumbs}
               <DashboardPage />
             </div>

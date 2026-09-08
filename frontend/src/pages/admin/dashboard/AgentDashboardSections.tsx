@@ -91,11 +91,12 @@ export function AgentRunHealth({ data, windowLabel, className }: CardProps) {
         }
       >
         {/*
-          这张卡被左侧那张 208px 图的流量卡拉高，多出来的白总得有去处。
-          全让给末行会在覆盖率之下留一个近百像素的洞，读成卡没画完；
-          拆成「状态数 / 覆盖率 / 分布 / 限定语」四段各摊一点，才是四层而不是一处空白
+          四段自上而下按 gap-4 排，不再靠 justify-between 摊高：
+          原来那道摊分是为「左侧 208px 图的流量卡把这张卡拉高」写的，图收到 140 之后
+          两卡自然高已经拉平，各档实测要摊的高都是 0——真正会摊的只剩屏幕比内容高时的那几百像素，
+          那种量摊出来是段间三个几十像素的洞，比留在卡底更像卡没画完
         */}
-        <div className="flex flex-1 flex-col justify-between gap-4">
+        <div className="flex flex-col gap-4">
           {/* 状态横排成格：竖排三行时每行只用掉右端一个数字，剩下的宽度全是空的，卡还高出一倍 */}
           <div className="grid grid-cols-3 gap-x-3">
             {primary.map((state) => (
@@ -218,7 +219,7 @@ export function AgentToolAnalysis({ data, windowLabel, className }: CardProps) {
   return (
     <>
       <Card
-        className={cn("flex flex-col", className)}
+        className={cn("dashboard-tool-card flex flex-col", className)}
         title="工具调用分析"
         action={<DetailButton onClick={() => setOpen(true)} />}
         hint={
@@ -234,27 +235,15 @@ export function AgentToolAnalysis({ data, windowLabel, className }: CardProps) {
           六个指标不各自成卡：它们是同一件事的六个读数，给每个套一层底色会把一排读成六块，
           分隔靠发丝竖线——竖线不占面积，也不会像卡片那样暗示「里面还有层级」
         */}
-        <div
-          className={cn(
-            /*
-              窄于门槛时按「量纲」折行，不按格子数折：四个计数一行、两个百分比一行。
-              原来折成三列两行时，第二行是「工具调用成功率 + 双层占比块 + 一个空格」——
-              一个单读数挨着一个双层块，两者基线对不上，右边还空着三分之一，
-              读起来像上面那行没排完掉下来的。四加二两行各自成一件事，行内高度也齐
-            */
-            "mb-4 grid grid-cols-2 gap-x-4 gap-y-3.5 sm:grid-cols-4",
-            /*
-              并成一行的门槛按「六个标签都写得全」定，不按断点表定：这张卡在 1280 宽的控制台里
-              只有 600 出头，五等分后连「每条回复平均调用」都放不下，截成「每条回复平均…」等于
-              把指标名换了。门槛实测出来是 1520（再窄一档那个标签的列只剩 94px，标签本身要 96px），
-              取 1600 是给字体差异留一档余量——左列比例改动会挪这个数，改完必须重量一遍。
-              末列装的是两行「标签 + 百分比」，比另外四列多一个读数，所以单独给 1.4 份宽
-            */
-            "min-[1600px]:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.4fr)]",
-            "min-[1600px]:gap-x-0 min-[1600px]:gap-y-0 min-[1600px]:[&>*]:pr-3",
-            "min-[1600px]:[&>*+*]:border-l min-[1600px]:[&>*+*]:border-[#EEF0F3] min-[1600px]:[&>*+*]:pl-4"
-          )}
-        >
+        {/*
+          窄于门槛时按「量纲」折行，不按格子数折：四个计数一行、两个百分比一行。
+          原来折成三列两行时，第二行是「工具调用成功率 + 双层占比块 + 一个空格」——
+          一个单读数挨着一个双层块，两者基线对不上，右边还空着三分之一，
+          读起来像上面那行没排完掉下来的。四加二两行各自成一件事，行内高度也齐。
+          并成一行的门槛按「六个标签都写得全」定，不按断点表定，量的是这张卡自己的宽度：
+          三档列定义都在 globals.css 的 dashboard-tool-metrics
+        */}
+        <div className="dashboard-tool-metrics mb-4 grid">
           <Stat
             label="工具调用总数"
             value={replies.withBlocks > 0 ? number(tools.total) : null}
@@ -271,7 +260,7 @@ export function AgentToolAnalysis({ data, windowLabel, className }: CardProps) {
             两个占比在窄屏并排、在宽屏（末列只有 1.4 份宽）叠成两行：并排时它们是同一行里的两个读数，
             叠起来时它们是末列里的两行，两种排法都不会跟左边四个计数混成一片
           */}
-          <div className="col-span-2 grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 sm:col-span-4 min-[1600px]:col-span-1 min-[1600px]:grid-cols-1">
+          <div className="dashboard-tool-shape grid min-w-0 gap-x-4 gap-y-2">
             {shapeRatios.map((item) => (
               <div key={item.label} className="min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
@@ -293,7 +282,7 @@ export function AgentToolAnalysis({ data, windowLabel, className }: CardProps) {
               : "有轨迹的回复中没有工具调用，直接回答也可能是正常行为。"}
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="dashboard-tool-table overflow-x-auto">
             {/*
               数在左、条向右伸：五个读数挨着排在左半边，条形接着往右铺满剩下的宽度。
               反过来（条在左、数贴右边缘）时，「调用次数」与它右边的百分数中间隔着一整根条，
@@ -438,8 +427,8 @@ export function AgentConfirmations({ data, windowLabel, className }: CardProps) 
           </>
         }
       >
-        {/* 被左侧那张高卡拉高时，多出来的高度摊在两段之间，不堆在卡底 */}
-        <div className="flex flex-1 flex-col justify-between gap-3">
+        {/* 两段按 gap-3 顶着排：卡被拉高时余量留在卡底，摊进段间会把环和四格状态推散 */}
+        <div className="flex flex-col gap-3">
           {/*
             环压到 64px 并且只承载批准率这一个数：做大它会成为整卡最重的一块，
             而这张卡真正的主角是下面那四格状态计数
@@ -512,8 +501,8 @@ export function AgentMemoryContext({ data, windowLabel, className }: CardProps) 
           </>
         }
       >
-        {/* 被邻卡拉高时多出来的高度摊在两段之间，不堆在卡底 */}
-        <div className="flex flex-1 flex-col justify-between gap-3">
+        {/* 同上：两段顶着排，余量留在卡底 */}
+        <div className="flex flex-col gap-3">
         <div>
           <div className="grid grid-cols-3 gap-x-3">
             <Stat label="上下文压缩" value={number(memory.compactions)} unit="次" />

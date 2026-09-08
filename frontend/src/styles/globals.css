@@ -368,6 +368,58 @@ html.dark *::-webkit-scrollbar-thumb:hover {
     @apply py-5;
   }
 
+  /*
+   * 以下整段纵向余量只属于 Agent 分支，所以每条都挂在 .dashboard-page--agent 上：
+   * 这一分支的四层是照着"一屏放得下"配的高，屏幕比一屏高时余量全落在页底，
+   * 1936×1334 的外接屏上是 349px、占屏 26% 的死区，而卡片高度本来就是内容定的，不会自己长。
+   * admin-content → dashboard-page--agent → dashboard-stack → 两层分栏的链把余量一路交下去，
+   * 每一环都是 flex-shrink 0 加 flex-basis auto：只在有余量时长，永远不压到自然高度以下，
+   * 内容比屏幕高的那些档（窄屏单列）照旧滚动。
+   * Workflow 分支一条也拿不到——它的层自己不认 flex-grow，链只要搭上去就变成在层内攒余量，
+   * 页尾那行会被推低几十到几百像素。别的后台页也不受影响，仍是内容有多高页面就多高
+   */
+  .admin-layout .admin-main:has(.dashboard-page--agent) .admin-content {
+    @apply flex flex-col;
+    flex: 1 0 auto;
+  }
+
+  .admin-layout .admin-main:has(.dashboard-page--agent) .admin-content > .dashboard-page--agent {
+    @apply flex flex-col;
+    flex: 1 0 auto;
+  }
+
+  .dashboard-page--agent > .dashboard-stack {
+    @apply flex flex-col;
+    flex: 1 0 auto;
+  }
+
+  /*
+   * 图区吃掉卡内剩下的高：140 从写死的图高退化成这个盒子的下限，
+   * 图本身改由 fillHeight 铺满它——图是无条件绝对定位的，所以定位祖先与这个下限必须全档都在，
+   * 只写进宽档会让窄档的图区塌成 0 高、图跑去贴更外层的定位祖先。
+   * 图也因此不再把自己的高算进卡的内容高，否则"量到多高就画多高"会反过来把卡再撑高一轮。
+   * 这个盒子只在 Agent 分支存在（TrafficCard 的 plotFill），Workflow 那边图高照旧写死
+   */
+  .dashboard-page--agent .dashboard-traffic-plot {
+    @apply relative;
+    flex: 1 1 auto;
+    min-height: 140px;
+  }
+
+  /*
+   * 工具表跟着卡长：不给它长的话，右列两张卡各自长高、左卡却在表格底下开一个洞。
+   * 表格当 flex item 长高时多出来的高度由行分摊，行上那个 43px 于是成了行高下限
+   */
+  .dashboard-page--agent .dashboard-tool-table {
+    @apply flex flex-col;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .dashboard-page--agent .dashboard-tool-table > table {
+    flex: 1 1 auto;
+  }
+
   .admin-layout .admin-page {
     @apply space-y-6;
   }
@@ -379,6 +431,146 @@ html.dark *::-webkit-scrollbar-thumb:hover {
    */
   .admin-layout .admin-page.dashboard-page {
     @apply space-y-3;
+  }
+
+  /*
+   * 以下整段只服务 Agent 分支，容器上下文也只开在它的页根上：
+   * 这一分支的栅格按内容列宽断，不按视口断。内容列 = 视口 − 256（左栏）− 64（admin-content 的 px-8），
+   * 视口断点看不见这 320 的差，更看不见左栏收起后还回来的 192：1180 视口收起侧栏后内容列有 1116px，
+   * 却仍按视口塌成单列，比 1280 视口展开时 1024px 的双列还宽 92px。
+   * 每一档的门槛都是原视口断点换算成内容列宽后再低一档，让出滚动条占掉的 17px，
+   * 原有各档（≥1280 视口）的排布因此一处不动，收起侧栏与 1180~1279 这段则不再白扔宽度。
+   * Workflow 分支不开这个上下文、也没有一条选择器落进来，它的栅格仍是 Tailwind 的视口断点
+   */
+  .admin-layout .admin-page.dashboard-page--agent {
+    container: dashboard / inline-size;
+  }
+
+  .dashboard-page--agent .dashboard-kpi-grid,
+  .dashboard-page--agent .dashboard-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 内容列 300：原 sm(640) 换算出的 320 */
+  @container dashboard (min-width: 300px) {
+    .dashboard-page--agent .dashboard-kpi-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* 内容列 900：原 xl(1280) 换算出的 960。两层分栏、KPI 四列、右列两卡等分高都落在这一档 */
+  @container dashboard (min-width: 900px) {
+    .dashboard-page--agent .dashboard-kpi-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    /*
+     * Agent 分支两层分栏共用的列定义。右列给到 360px 硬下限而不是按比例分：
+     * 真实控制台里左侧栏吃掉 256px，纯比例分栏会把右列压到放不下「12 / 34」这类并排读数的宽度；
+     * 容器再窄时右列钉在 360，左列自己让位，不出现横向溢出。
+     *
+     * 比例从 2 : 0.95 收到 1.55 : 1：左列原来宽到让流量图的绘图区接近 3.4 : 1，
+     * 那个比例下每一段折线都被横向拉平成锯齿，卡也读成一条横幅而不是一块内容
+     */
+    .dashboard-page--agent .dashboard-split {
+      grid-template-columns: minmax(0, 1.55fr) minmax(360px, 1fr);
+    }
+
+    .dashboard-page--agent .dashboard-split-fill {
+      height: 100%;
+    }
+
+    .dashboard-page--agent .dashboard-split-item {
+      flex: 1 1 0%;
+    }
+
+    /*
+     * 余量按 2 : 1 分给两层分栏，不平均分：多出来的高度进趋势图是"同样的柱画得更高、
+     * 高度差更读得出来"，进工具表只是四行各自变松，后者的边际收益低得多。
+     * 上限按内容真正用得上的量定，两个数都是量出来的：520 那档趋势图绘图区正好 382，
+     * 是常规图表的高度；500 那档工具表行高 72，再往上（560 时行高 87）四行就散成四条互不相干的横线。
+     * 顶到上限之后余量老实留在页尾之下，不再往卡里塞——1936×1334 这档剩 27px，
+     * 再高的屏（4K）剩几百像素的留白是诚实的，把卡拉成空面板不是
+     */
+    .dashboard-page--agent .dashboard-stack > .dashboard-split--trend {
+      flex: 2 0 auto;
+      max-height: 520px;
+    }
+
+    .dashboard-page--agent .dashboard-stack > .dashboard-split--tools {
+      flex: 1 0 auto;
+      max-height: 500px;
+    }
+
+    /*
+     * 这一页的上限 = KPI 一行 + 上面两个上限 + 两道段间距，逐项写出来是为了让它跟上面两个数联动。
+     * 少了这条，两层顶到上限之后余量会留在本层内部，把页尾那行「仅统计…」推到离末卡几百像素的地方；
+     * 有了它余量落在页尾之下，页尾照旧贴着末卡。两层各自到不了上限，这条也就永远咬不到
+     */
+    .dashboard-page--agent > .dashboard-stack {
+      max-height: calc(110px + 0.75rem + 520px + 0.75rem + 500px);
+    }
+
+  }
+
+  /*
+   * 工具卡的指标行按卡自身宽度断，不跟着上面那套内容列的门槛走：
+   * 它排得下几列只取决于这张卡有多宽，而卡宽既随内容列变，也随分栏比例变。
+   * 原来那道 min-[1600px] 是拿视口宽反推卡宽，分栏比例一改就得重标一次
+   */
+  .dashboard-page--agent .dashboard-tool-card {
+    container: dashboard-card / inline-size;
+  }
+
+  .dashboard-page--agent .dashboard-tool-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    row-gap: 0.875rem;
+  }
+
+  .dashboard-page--agent .dashboard-tool-shape {
+    grid-column: span 2 / span 2;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 卡内 272：原 sm(640) 那一档落到这张卡上是 280，取 272 是让翻档点落在原断点之前，不留倒退的窗口 */
+  @container dashboard-card (min-width: 272px) {
+    .dashboard-page--agent .dashboard-tool-metrics {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .dashboard-page--agent .dashboard-tool-shape {
+      grid-column: span 4 / span 4;
+    }
+  }
+
+  /*
+   * 卡内 716：六个标签都写得全的门槛。原来的 min-[1600px] 在 1.55 : 1 的分栏下正好落在卡内 726，
+   * 这里再让出滚动条的 17px。硬地板实测在卡内 550 上下（标签列跌到 96px 以下就开始截字），
+   * 716 离它还有一档余量；分栏比例改了也不必重标这个数，卡宽变了它自己会跟着走。
+   * 末列装的是两行「标签 + 百分比」，比另外四列多一个读数，所以单独给 1.4 份宽
+   */
+  @container dashboard-card (min-width: 716px) {
+    .dashboard-page--agent .dashboard-tool-metrics {
+      grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.4fr);
+      column-gap: 0;
+      row-gap: 0;
+    }
+
+    /* 分隔靠发丝竖线：竖线不占面积，也不会像卡片那样暗示「里面还有层级」 */
+    .dashboard-page--agent .dashboard-tool-metrics > * {
+      padding-right: 0.75rem;
+    }
+
+    .dashboard-page--agent .dashboard-tool-metrics > * + * {
+      border-left: 1px solid #EEF0F3;
+      padding-left: 1rem;
+    }
+
+    .dashboard-page--agent .dashboard-tool-shape {
+      grid-column: span 1 / span 1;
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .admin-layout .admin-page-header {
@@ -3026,28 +3218,6 @@ textarea {
 }
 
 .dashboard-scroll-shell:hover::-webkit-scrollbar-thumb {
-  background: #9ca3af;
-}
-
-.insight-scroll-shell {
-  scrollbar-width: none;
-}
-
-.insight-scroll-shell::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-
-.insight-scroll-shell.is-scrollbar-visible {
-  scrollbar-width: thin;
-}
-
-.insight-scroll-shell.is-scrollbar-visible::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.insight-scroll-shell.is-scrollbar-visible::-webkit-scrollbar-thumb {
   background: #9ca3af;
 }
 
