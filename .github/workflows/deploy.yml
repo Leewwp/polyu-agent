@@ -1,0 +1,154 @@
+# 生产部署链（2026-09-09）
+#
+# 链路：push main（代码/部署物变更）→ 构建三镜像（backend / frontend / es-ik）推 GHCR →
+#       scp compose+建表 SQL 到部署机 /opt/polyu → SSH 拉镜像滚动重启。
+# 与薄层二开纪律对齐：上游无 deploy 产物，本文件整体为我方方案，上游跟进时可整体让位。
+#
+# 密钥面（维护者一次性配置，仓库 Settings → Secrets and variables → Actions）：
+#   DEPLOY_HOST / DEPLOY_USER / DEPLOY_KEY —— 部署机 SSH 地址 / 用户 / 专用私钥全文
+#   （polyu-prod.env 不经 CI：维护者本地 scripts/gen-prod-env.py 生成后 scp，见 deploy/README.md）
+# 拉取鉴权：服务器不存任何长期 GitHub 凭据，每次部署用临时 GITHUB_TOKEN 登录 GHCR 拉完即 logout。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pom.xml"
+      - "lombok.config"
+      - ".mvn/**"
+      - "mvnw"
+      - "framework/**"
+      - "infra-ai/**"
+      - "system/**"
+      - "rag/**"
+      - "agent/**"
+      - "bootstrap/**"
+      - "frontend/src/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.*"
+      - "frontend/tailwind.config.cjs"
+      - "frontend/postcss.config.cjs"
+      - "deploy/**"
+      - "resources/docker/polyu-es-stack-9.4.2.Dockerfile"
+      - "resources/docker/elasticsearch-analysis-ik-9.4.2.zip"
+      - "resources/database/schema_pg.sql"
+      - "resources/database/init_data_pg.sql"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.lo.outputs.owner }}
+      tag: ${{ steps.lo.outputs.tag }}
+    steps:
+      - id: lo
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: ${{ matrix.timeout }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: .
+            dockerfile: deploy/backend.Dockerfile
+            timeout: 60
+          - name: frontend
+            context: .
+            dockerfile: deploy/frontend-nginx.Dockerfile
+            timeout: 30
+          - name: es-ik
+            context: resources/docker
+            dockerfile: resources/docker/polyu-es-stack-9.4.2.Dockerfile
+            timeout: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-${{ matrix.name }}:${{ needs.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [meta, build]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read   # 服务器用本 token 登录 GHCR 拉私有镜像，缺此 scope 会 401
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scp compose + DB init SQL
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "deploy/polyu-prod.compose.yaml,resources/database/schema_pg.sql,resources/database/init_data_pg.sql"
+          target: /opt/polyu/
+          strip_components: 1
+
+      - name: Pull images and rolling restart
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GHCR_USER: ${{ needs.meta.outputs.owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMG_TAG: ${{ needs.meta.outputs.tag }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: GHCR_USER,GHCR_TOKEN,IMG_TAG
+          script: |
+            set -e
+            cd /opt/polyu
+            if [ ! -f polyu-prod.env ]; then
+              echo "polyu-prod.env 缺失：先在本地跑 scripts/gen-prod-env.py 并 scp 到 /opt/polyu/（deploy/README.md 首启章节）"
+              exit 1
+            fi
+            sed -i \
+              -e "s|^IMAGE_BACKEND=.*|IMAGE_BACKEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-backend:$IMG_TAG|" \
+              -e "s|^IMAGE_FRONTEND=.*|IMAGE_FRONTEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-frontend:$IMG_TAG|" \
+              -e "s|^IMAGE_ES=.*|IMAGE_ES=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-es-ik:$IMG_TAG|" \
+              polyu-prod.env
+            # 校验 sed 真正生效（env 缺键时此处即失败，不把哑配置带进 compose）
+            for k in IMAGE_BACKEND IMAGE_FRONTEND IMAGE_ES; do
+              grep -q "^$k=.*$IMG_TAG" polyu-prod.env || { echo "polyu-prod.env 缺 $k 或未更新"; exit 1; }
+            done
+            printf '%s' "$GHCR_TOKEN" | docker login ${{ env.REGISTRY }} -u "$GHCR_USER" --password-stdin
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d --remove-orphans
+            docker image prune -f
+            docker logout ${{ env.REGISTRY }}
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml ps

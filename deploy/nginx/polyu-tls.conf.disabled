@@ -1,0 +1,32 @@
+# PolyU-agent 生产网关 · TLS server 块（预制件，域名解析生效前不启用）
+#
+# 状态：本文件【不在镜像内】（frontend-nginx.Dockerfile 只 COPY polyu-http.conf）。
+# 启用步骤（前置=域名 A 记录已生效，deploy/README.md「TLS 启用」章节）：
+#   1. 服务器上 certbot 首签（compose 内 certbot profile 服务，webroot=/var/www/certbot）；
+#   2. 把本文件启用（改为 polyu-tls.conf 随镜像构建，或临时 docker cp 进运行容器验证）；
+#      同时在 polyu-http.conf 的 80 server 上放开 301 跳转（见文件尾注释）；
+#   3. 走 deploy CI 重建镜像或 docker compose restart polyu-nginx；
+#   4. 启用后补 __Host- cookie 前置条件（HTTPS 后随认证安全实施票）与 HSTS。
+#
+# 证书路径按 certbot 默认布局挂载：/opt/polyu/certs:/etc/letsencrypt:ro（compose 已预置卷）。
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name polyuguide.com www.polyuguide.com;
+
+    ssl_certificate     /etc/letsencrypt/live/polyuguide.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/polyuguide.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # 启用 HSTS（一经下发无法撤回，确认全站 HTTPS 稳定后再开）
+    # add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # ↓ 从 polyu-http.conf 复制 /api/、/minio/、/ 静态与 gzip 段（保持同构），仅附加：
+    # add_header Strict-Transport-Security ... / X-Content-Type-Options 等
+    # 并把资源 URL 基址切 https：ASSETS_PUBLIC_URL=https://polyuguide.com/minio（polyu-prod.env）
+}
+
+# 80 → 443 跳转：启用本块的同时，把 polyu-http.conf 80 server 内
+# 除 /.well-known/acme-challenge/ 以外的 location 收敛为 return 301 https://$host$request_uri;

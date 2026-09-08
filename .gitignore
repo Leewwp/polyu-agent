@@ -51,6 +51,9 @@ docs/temp
 # 如需提交脱敏示例，用连字符命名避开通配（如 application-local-sample.yaml），勿用点后缀（application-local.example.yaml 仍会被忽略）
 **/application-local.*
 
+# 生产密钥 env（F5 三不纪律：scripts/gen-prod-env.py 本地生成后 scp 上服务器；脱敏模板 deploy/.env.example 入库）
+/deploy/polyu-prod.env
+
 ### 开源仓库边界（2026-09-04 起执行，详见 CLAUDE.md「开源仓库边界」）：以下内部开发产物仅保留本地，不入公开仓库 ###
 
 # 开发流程内部文档与 AI 协作配置

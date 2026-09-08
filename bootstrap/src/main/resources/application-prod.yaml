@@ -1,0 +1,37 @@
+# ============================================================================
+# 生产差异配置（prod profile）—— 2026-09-09
+#
+# 激活方式：deploy/polyu-prod.compose.yaml 为 polyu-app 设 SPRING_PROFILES_ACTIVE=prod。
+# 服务名与 compose 内 service 一一对应（polyu-pg / polyu-redis / polyu-minio / polyu-es /
+# polyu-rmqnamesrv）；凭据全部经 deploy/polyu-prod.env 环境注入（密钥三不纪律：
+# 不入仓/不入镜像/不入 compose 本体），本文件只有地址拓扑与环境变量占位符。
+# 与 application-local.yaml（gitignore）同构：主配置 application.yaml 的本地默认值在此逐项覆盖。
+# ============================================================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://polyu-pg:5432/ragent?client_encoding=UTF8
+    username: ${POSTGRES_USER:polyu}
+    password: ${POSTGRES_PASSWORD:}
+  data:
+    redis:
+      host: polyu-redis
+      password: ${REDIS_PASSWORD:}
+
+rag:
+  storage:
+    s3:
+      endpoint: http://polyu-minio:9000
+      # MinIO root 凭据即应用访问凭据（单机路线不购对象存储服务）；键名对齐 compose 环境变量
+      access-key: ${MINIO_ROOT_USER:}
+      secret-key: ${MINIO_ROOT_PASSWORD:}
+      # 浏览器直连资产桶走网关反代 /minio/（deploy/nginx/polyu-http.conf → polyu-minio:9000）；
+      # 启用 HTTPS 后改 https://<域名>/minio（polyu-prod.env 的 ASSETS_PUBLIC_URL）
+      public-url: ${ASSETS_PUBLIC_URL:}
+
+  keyword:
+    es:
+      uris: http://polyu-es:9200
+
+rocketmq:
+  name-server: polyu-rmqnamesrv:9876
