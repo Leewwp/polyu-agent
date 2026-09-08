@@ -20,7 +20,9 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # jsdom 30 依赖 worker_threads.markAsUncloneable（Node 22.13+），Node 20 会挂——
+          # 首跑判例 2026-09-08：钉 20 时 vitest 全挂该 TypeError；本地验证版本线为 24+
+          node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
