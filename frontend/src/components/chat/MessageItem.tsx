@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Brain, ChevronDown } from "lucide-react";
+import { AlertTriangle, Brain, ChevronDown, Clock3, Hourglass, LogIn } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { FeedbackButtons } from "@/components/chat/FeedbackButtons";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -9,10 +10,53 @@ import { ShareButton } from "@/components/chat/ShareButton";
 import { SourcesButton } from "@/components/chat/SourcesButton";
 import { ThinkingIndicator } from "@/components/chat/ThinkingIndicator";
 import { cn } from "@/lib/utils";
-import type { Message } from "@/types";
+import type { ChatNotice, Message } from "@/types";
 
 interface MessageItemProps {
   message: Message;
+}
+
+const NOTICE_STYLE: Record<ChatNotice["kind"], { box: string; icon: React.ReactNode }> = {
+  quota: {
+    box: "border-amber-200 bg-amber-50 text-amber-800",
+    icon: <Hourglass className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+  },
+  busy: {
+    box: "border-amber-200 bg-amber-50 text-amber-800",
+    icon: <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+  },
+  concurrent: {
+    box: "border-amber-200 bg-amber-50 text-amber-800",
+    icon: <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+  },
+  error: {
+    box: "border-rose-200 bg-rose-50 text-rose-700",
+    icon: <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+  }
+};
+
+/**
+ * 结构化提示块（U11-⑤）：配额用尽/排队拒绝等以消息内提示呈现，配额场景附注册引导
+ */
+function ChatNoticeBlock({ notice }: { notice: ChatNotice }) {
+  const style = NOTICE_STYLE[notice.kind] ?? NOTICE_STYLE.error;
+  return (
+    <div className={cn("flex flex-col gap-2 rounded-xl border px-4 py-3 text-sm", style.box)}>
+      <div className="flex items-start gap-2">
+        {style.icon}
+        <p className="min-w-0 flex-1 leading-relaxed">{notice.text}</p>
+      </div>
+      {notice.kind === "quota" ? (
+        <Link
+          to="/login"
+          className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+        >
+          <LogIn className="h-3.5 w-3.5" />
+          注册登录，解锁完整使用
+        </Link>
+      ) : null}
+    </div>
+  );
 }
 
 export const MessageItem = React.memo(function MessageItem({ message }: MessageItemProps) {
@@ -92,7 +136,15 @@ export const MessageItem = React.memo(function MessageItem({ message }: MessageI
         ) : null}
         <div className="space-y-2">
           {isWaiting ? (
-            <div className="ai-wait" aria-label="思考中">
+            <div className="ai-wait" aria-label={message.awaitingSignal ? "排队等待中" : "思考中"}>
+              {message.awaitingSignal ? (
+                <p className="text-xs text-[#999999]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Hourglass className="h-3.5 w-3.5 animate-pulse-soft" />
+                    已提交，正在排队等待系统空闲，高峰期可能需要数十秒
+                  </span>
+                </p>
+              ) : null}
               <span className="ai-wait-dots" aria-hidden="true">
                 <span className="ai-wait-dot" />
                 <span className="ai-wait-dot" />
@@ -100,6 +152,7 @@ export const MessageItem = React.memo(function MessageItem({ message }: MessageI
               </span>
             </div>
           ) : null}
+          {message.notice ? <ChatNoticeBlock notice={message.notice} /> : null}
           {hasContent ? (
             <MarkdownRenderer
               content={message.content}
@@ -107,7 +160,7 @@ export const MessageItem = React.memo(function MessageItem({ message }: MessageI
               sources={message.sources}
             />
           ) : null}
-          {message.status === "error" ? (
+          {message.status === "error" && !message.notice ? (
             <p className="text-xs text-rose-500">生成已中断。</p>
           ) : null}
           {showFeedback || hasSources || canRecommend ? (

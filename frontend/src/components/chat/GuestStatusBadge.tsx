@@ -1,0 +1,81 @@
+import * as React from "react";
+import { Link } from "react-router-dom";
+import { LogIn, UserRound } from "lucide-react";
+
+import { fetchGuestQuota } from "@/services/authService";
+import { useAuthStore } from "@/stores/authStore";
+import { useChatStore } from "@/stores/chatStore";
+import { cn } from "@/lib/utils";
+
+/**
+ * 游客试用状态徽章（U11-⑤「游客试用状态可见」）：游客会话在输入区上方常驻，
+ * 展示今日剩余次数；次数用尽转灰并引导注册。非游客不渲染。
+ */
+export function GuestStatusBadge() {
+  const role = useAuthStore((state) => state.user?.role);
+  const isStreaming = useChatStore((state) => state.isStreaming);
+  const [remaining, setRemaining] = React.useState<number | null>(null);
+  const [dailyLimit, setDailyLimit] = React.useState<number | null>(null);
+
+  const isGuest = role === "guest";
+
+  const refresh = React.useCallback(() => {
+    if (!isGuest) return;
+    fetchGuestQuota()
+      .then((info) => {
+        setRemaining(info?.remaining ?? null);
+        setDailyLimit(info?.dailyLimit ?? null);
+      })
+      .catch(() => null);
+  }, [isGuest]);
+
+  React.useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // 每轮问答结束（含被拒/失败）后刷新余量，让计数即时反映
+  const wasStreaming = React.useRef(false);
+  React.useEffect(() => {
+    if (wasStreaming.current && !isStreaming) {
+      refresh();
+    }
+    wasStreaming.current = isStreaming;
+  }, [isStreaming, refresh]);
+
+  if (!isGuest) {
+    return null;
+  }
+
+  const exhausted = remaining !== null && remaining <= 0;
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-full border px-3 py-1 text-xs",
+        exhausted
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-[#E5E5E5] bg-[#F9F9F9] text-[#666666]"
+      )}
+      role="status"
+      aria-label="游客试用状态"
+    >
+      <UserRound className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 truncate">
+        游客试用
+        {remaining !== null && dailyLimit !== null ? (
+          <span className="font-medium">
+            {" "}
+            · 今日剩余 {remaining}/{dailyLimit} 次
+          </span>
+        ) : null}
+        {exhausted ? " · 次数已用完" : ""}
+      </span>
+      <Link
+        to="/login"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#D4D4D4] bg-white px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#F5F5F5]"
+      >
+        <LogIn className="h-3 w-3" />
+        注册
+      </Link>
+    </div>
+  );
+}

@@ -80,4 +80,41 @@ public class AnonymousTrialGuard {
             throw new ClientException("今日匿名试用次数已用完，注册登录后可继续提问");
         }
     }
+
+    /**
+     * 只读查询当前剩余试用次数（U11-⑤ 配额状态可见；不消耗额度）。
+     *
+     * @return null=不受限（非游客或未启用限额）；否则为今日剩余次数（双键取已用较大值）
+     */
+    public Integer remainingQuota(LoginUser user, String clientIp) {
+        if (user == null || !ROLE_GUEST.equals(user.getRole()) || dailyLimit <= 0) {
+            return null;
+        }
+        long usedByUser = readUsedCount(KEY_PREFIX_USER + user.getUserId());
+        long usedByIp = (clientIp == null || clientIp.isBlank()) ? 0 : readUsedCount(KEY_PREFIX_IP + clientIp);
+        long used = Math.max(usedByUser, usedByIp);
+        return (int) Math.max(0, dailyLimit - used);
+    }
+
+    /**
+     * 游客身份当日限额终值（U11-⑤ 状态展示用；未启用限额时为 null）
+     */
+    public Integer currentDailyLimit(LoginUser user) {
+        if (user == null || !ROLE_GUEST.equals(user.getRole()) || dailyLimit <= 0) {
+            return null;
+        }
+        return dailyLimit;
+    }
+
+    private long readUsedCount(String key) {
+        String value = stringRedisTemplate.opsForValue().get(key + ":" + LocalDate.now());
+        if (value == null) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
 }

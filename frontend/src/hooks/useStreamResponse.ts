@@ -30,6 +30,47 @@ function parseData(raw: string): unknown {
   }
 }
 
+/**
+ * 终态错误（U11-⑤）：业务拒绝（配额用尽/未登录等）不该走网络类重试，
+ * 标记 terminal 后 streamWithRetry 直接抛出
+ */
+class TerminalStreamError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TerminalStreamError";
+  }
+}
+
+function isTerminalStreamError(error: unknown): boolean {
+  return error instanceof TerminalStreamError;
+}
+
+/**
+ * 建流前的业务错误体识别：SSE 端点在控制器层抛 ClientException 时返回
+ * HTTP 200 + JSON Result（无 event-stream 内容），按 SSE 解析会变成静默死空气。
+ * 这里在进入流读取前把 JSON 错误转成终态错误。
+ */
+async function assertEventStreamOrThrow(response: Response): Promise<void> {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/event-stream")) {
+    return;
+  }
+  let message = "";
+  try {
+    const body = (await response.text()) || "";
+    const parsed = parseData(body) as { message?: string } | null;
+    message = (parsed && typeof parsed === "object" && typeof parsed.message === "string"
+      ? parsed.message
+      : "") || "";
+  } catch {
+    message = "";
+  }
+  if (response.status === 429) {
+    throw new TerminalStreamError(message || "请求过于频繁，请稍后再试");
+  }
+  throw new TerminalStreamError(message || `SSE 请求失败（${response.status}）`);
+}
+
 async function readSseStream(response: Response, handlers: StreamHandlers, signal?: AbortSignal) {
   if (!response.body) {
     throw new Error("流式响应为空");
@@ -142,14 +183,23 @@ async function streamWithRetry(
       });
 
       if (!response.ok) {
+        if (response.status === 429) {
+          throw new TerminalStreamError("请求过于频繁，请稍后再试");
+        }
         throw new Error(`SSE 请求失败（${response.status}）`);
       }
 
+      // 业务拒绝（配额用尽等）会以 HTTP 200 + JSON 返回，先识别再进流读取
+      await assertEventStreamOrThrow(response);
       await readSseStream(response, handlers, signal);
       return;
     } catch (error) {
       const err = error as Error;
       if (signal?.aborted) {
+        throw err;
+      }
+      // 终态错误（业务拒绝）不重试：重试只会重复撞同一面墙
+      if (isTerminalStreamError(err)) {
         throw err;
       }
       if (attempt >= retryCount) {

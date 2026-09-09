@@ -2,6 +2,7 @@ import * as React from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { ChatInput } from "@/components/chat/ChatInput";
+import { GuestStatusBadge } from "@/components/chat/GuestStatusBadge";
 import { MessageList } from "@/components/chat/MessageList";
 import { SourcesPanel } from "@/components/chat/SourcesPanel";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -94,6 +95,9 @@ export function ChatPage() {
           {showWelcome ? null : (
             <div className="relative z-20 bg-white">
               <div className="mx-auto max-w-[840px] px-6 pt-1 pb-4">
+                <div className="flex justify-center pb-2">
+                  <GuestStatusBadge />
+                </div>
                 <ChatInput />
                 <p className="pt-2 text-center text-xs leading-relaxed text-[#9AA0A6]">
                   内容由 AI 生成，仅供参考；本服务非香港理工大学官方服务 · AI-generated for reference; not an official PolyU service

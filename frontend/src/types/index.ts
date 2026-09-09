@@ -6,6 +6,23 @@ export type MessageStatus = "streaming" | "done" | "cancelled" | "error";
 
 export type PersistedMessageStatus = "NORMAL" | "INTERRUPTED" | "REJECTED";
 
+/**
+ * 聊天流内的结构化提示（U11-⑤：超限/排队拒绝非裸 toast）：
+ * quota=游客配额用尽；busy=排队超时/系统繁忙；concurrent=同会话在途互斥；error=其他失败
+ */
+export type ChatNoticeKind = "quota" | "busy" | "concurrent" | "error";
+
+export interface ChatNotice {
+  kind: ChatNoticeKind;
+  text: string;
+}
+
+export interface GuestQuotaInfo {
+  role: string;
+  dailyLimit: number | null;
+  remaining: number | null;
+}
+
 export interface User {
   userId: string;
   username?: string;
@@ -48,6 +65,10 @@ export interface Message {
   recommendedState?: "loading" | "ready" | "error";
   recommendedOpen?: boolean;
   messageStatus?: PersistedMessageStatus;
+  /** 结构化提示（配额用尽/排队拒绝等），渲染为消息内提示块而非 toast */
+  notice?: ChatNotice;
+  /** 已发出但尚未收到任何流信号（meta/首 delta），此时等待属于排队期 */
+  awaitingSignal?: boolean;
 }
 
 export type RecommendedQuestionStatus = "SUCCESS" | "EMPTY" | "FAILED";

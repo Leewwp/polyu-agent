@@ -21,6 +21,7 @@ import {
   generateRecommendedQuestions
 } from "@/services/chatService";
 import { buildQuery } from "@/utils/helpers";
+import { classifyChatError, noticeTextFor } from "@/utils/chatErrors";
 import { createStreamResponse } from "@/hooks/useStreamResponse";
 import { storage } from "@/utils/storage";
 
@@ -273,7 +274,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isThinking: deepThinkingEnabled,
       status: "streaming",
       feedback: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      // U11-⑤：发出后到首个流信号之间属排队期，UI 显示排队态而非思考态
+      awaitingSignal: true
+    };
+
+    const clearAwaitingSignal = () => {
+      if (get().streamingMessageId !== assistantId) return;
+      const current = get().messages.find((message) => message.id === assistantId);
+      if (!current?.awaitingSignal) return;
+      set((state) => ({
+        messages: state.messages.map((message) =>
+          message.id === assistantId ? { ...message, awaitingSignal: false } : message
+        )
+      }));
     };
 
     set((state) => ({
@@ -305,6 +319,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const handlers = {
       onMeta: (payload: { conversationId: string; taskId: string }) => {
         if (get().streamingMessageId !== assistantId) return;
+        clearAwaitingSignal();
         const nextId = payload.conversationId || get().currentSessionId;
         if (!nextId) return;
         const lastTime = new Date().toISOString();
@@ -326,16 +341,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
       onMessage: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
         if (payload.type !== "response") return;
+        clearAwaitingSignal();
         get().appendStreamContent(payload.delta);
       },
       onThinking: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
         if (payload.type !== "think") return;
+        clearAwaitingSignal();
         get().appendThinkingContent(payload.delta);
       },
       onReject: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
-        get().appendStreamContent(payload.delta);
+        clearAwaitingSignal();
+        // 排队超时/过载拒绝：结构化提示块替代把拒绝文案当正文渲染
+        const text = typeof payload.delta === "string" ? payload.delta : "";
+        set((state) => ({
+          messages: state.messages.map((message) =>
+            message.id === state.streamingMessageId
+              ? {
+                  ...message,
+                  notice: { kind: "busy", text: noticeTextFor("busy", text) },
+                  isThinking: false
+                }
+              : message
+          )
+        }));
       },
       onFinish: (payload: CompletionPayload) => {
         if (get().streamingMessageId !== assistantId) return;
@@ -443,6 +473,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       onError: (error: Error) => {
         if (get().streamingMessageId !== assistantId) return;
+        // U11-⑤：超限/拒绝类错误渲染为消息内结构化提示（配额用尽给注册引导），不再裸 toast
+        const kind = classifyChatError(error.message);
+        const text = noticeTextFor(kind, error.message);
         set((state) => ({
           isStreaming: false,
           thinkingStartAt: null,
@@ -455,13 +488,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   ...message,
                   status: "error",
                   isThinking: false,
+                  awaitingSignal: false,
+                  notice: { kind, text },
                   thinkingDuration:
                     message.thinkingDuration ?? computeThinkingDuration(state.thinkingStartAt)
                 }
               : message
           )
         }));
-        toast.error(error.message || "生成失败");
       }
     };
 
