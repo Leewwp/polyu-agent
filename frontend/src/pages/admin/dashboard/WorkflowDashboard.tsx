@@ -3,7 +3,7 @@
  * 排布与 Agent 分支零重叠——这里全走各自组件上的 Tailwind 视口断点，
  * globals.css 里那套容器查询与纵向余量分配挂在 dashboard-page--agent 下，一条也落不到这一页
  */
-import { useMemo } from "react";
+import { useMemo, type ComponentType } from "react";
 import { AlertCircle, Clock, Info, Lightbulb, Sparkles, Timer, Wrench } from "lucide-react";
 
 import { DashCard, Hint } from "@/components/admin/DashboardCard";
