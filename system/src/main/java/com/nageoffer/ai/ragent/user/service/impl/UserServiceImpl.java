@@ -38,9 +38,11 @@ import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.enums.UserRole;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
+import com.nageoffer.ai.ragent.user.security.PasswordPolicy;
 import com.nageoffer.ai.ragent.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -51,6 +53,7 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final BizChangeLogContext bizChangeLogContext;
     private final PasswordCodec passwordCodec;
+    private final AccountDeletionCascade accountDeletionCascade;
 
     @Override
     public IPage<UserVO> pageQuery(UserPageRequest requestParam) {
@@ -151,6 +154,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     @LogRecord(
             success = "删除用户：{{#id}}",
             fail = "删除用户失败：{{#_errorMsg}}",
@@ -164,7 +168,9 @@ public class UserServiceImpl implements UserService {
         UserDO record = loadById(id);
         ensureNotDefaultAdmin(record);
         UserVO before = toVO(record);
-        userMapper.deleteById(record.getId());
+        // admin 删号复用自助注销的硬删级联（U2，doc 15 §2.1 缺口「admin 删号不级联」）：
+        // 会话两族随删、反馈匿名化、名下分享撤销、邮箱墓碑、用户行物理删除
+        accountDeletionCascade.purge(record.getId(), record.getEmail());
         bizChangeLogContext.put(id, before, null);
     }
 
@@ -196,6 +202,8 @@ public class UserServiceImpl implements UserService {
         if (!passwordCodec.matches(current, record.getPassword())) {
             throw new ClientException("当前密码不正确");
         }
+        // 新密码走统一输入策略（doc 15 §2.2.1：上限 64 规避 BCrypt 截断）
+        PasswordPolicy.validate(next);
         record.setPassword(passwordCodec.encode(next));
         userMapper.updateById(record);
         bizChangeLogContext.put(loginUser.getUserId(), before, toVO(userMapper.selectById(loginUser.getUserId())));

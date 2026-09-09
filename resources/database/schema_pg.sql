@@ -9,25 +9,47 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- ============================================
 
 CREATE TABLE t_user (
-    id           VARCHAR(20)  NOT NULL PRIMARY KEY,
-    username     VARCHAR(64)  NOT NULL,
-    password     VARCHAR(128) NOT NULL,
-    role         VARCHAR(32)  NOT NULL,
-    avatar       VARCHAR(128),
-    create_time  TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
-    update_time  TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
-    deleted      SMALLINT     DEFAULT 0,
+    id             VARCHAR(20)  NOT NULL PRIMARY KEY,
+    username       VARCHAR(255) NOT NULL,
+    password       VARCHAR(128) NOT NULL,
+    role           VARCHAR(32)  NOT NULL,
+    avatar         VARCHAR(128),
+    email          VARCHAR(255),
+    email_verified SMALLINT     DEFAULT 0,
+    delete_time    TIMESTAMP,
+    create_time    TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
+    update_time    TIMESTAMP  DEFAULT CURRENT_TIMESTAMP,
+    deleted        SMALLINT     DEFAULT 0,
     CONSTRAINT uk_user_username UNIQUE (username)
 );
+-- 注册用户 username=email（上限 254），活跃用户邮箱唯一（部分索引）：软删/硬删后同名邮箱可再注册
+CREATE UNIQUE INDEX uk_user_email_active ON t_user (email) WHERE deleted = 0 AND email IS NOT NULL;
 COMMENT ON TABLE t_user IS '系统用户表';
 COMMENT ON COLUMN t_user.id IS '主键ID';
-COMMENT ON COLUMN t_user.username IS '用户名，唯一';
+COMMENT ON COLUMN t_user.username IS '用户名，唯一（注册用户=邮箱，varchar64→255 见 upgrades/v2.0.0/260909）';
 COMMENT ON COLUMN t_user.password IS '密码';
 COMMENT ON COLUMN t_user.role IS '角色：admin/user';
 COMMENT ON COLUMN t_user.avatar IS '用户头像';
+COMMENT ON COLUMN t_user.email IS '注册邮箱（小写规范化），存量/管理员建/游客为 NULL';
+COMMENT ON COLUMN t_user.email_verified IS '邮箱是否已验证 0：未验证 1：已验证';
+COMMENT ON COLUMN t_user.delete_time IS '注销软删时间，NULL=正常；非 NULL=30 天可撤销期内';
 COMMENT ON COLUMN t_user.create_time IS '创建时间';
 COMMENT ON COLUMN t_user.update_time IS '更新时间';
 COMMENT ON COLUMN t_user.deleted IS '是否删除 0：正常 1：删除';
+
+-- 注销邮箱哈希墓碑（180 天回查用，不存明文；到期清理由保留期任务负责）
+CREATE TABLE t_user_email_tombstone (
+    id          VARCHAR(20)  NOT NULL PRIMARY KEY,
+    email_hash  VARCHAR(64)  NOT NULL,
+    user_id     VARCHAR(20)  NOT NULL,
+    create_time TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expire_time TIMESTAMP    NOT NULL,
+    CONSTRAINT uk_email_tombstone_hash UNIQUE (email_hash)
+);
+COMMENT ON TABLE t_user_email_tombstone IS '注销邮箱哈希墓碑（防重复注册滥用回查）';
+COMMENT ON COLUMN t_user_email_tombstone.email_hash IS 'SHA-256(email 小写) 十六进制';
+COMMENT ON COLUMN t_user_email_tombstone.user_id IS '已删除用户原 ID（仅回查留痕）';
+COMMENT ON COLUMN t_user_email_tombstone.expire_time IS '过期时间（create_time + 180 天）';
 
 CREATE TABLE t_conversation (
     id              VARCHAR(20) NOT NULL PRIMARY KEY,

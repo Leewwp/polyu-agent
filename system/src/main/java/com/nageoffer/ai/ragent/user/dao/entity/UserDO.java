@@ -54,6 +54,21 @@ public class UserDO {
      */
     private String role;
 
+    /**
+     * 注册邮箱（小写规范化）；存量用户/管理员建号/游客为 null
+     */
+    private String email;
+
+    /**
+     * 邮箱是否已验证：0 未验证 / 1 已验证（仅 email 非空时有意义）
+     */
+    private Integer emailVerified;
+
+    /**
+     * 自助注销软删时间：null=正常；非 null=处于 30 天可撤销冷静期
+     */
+    private Date deleteTime;
+
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
 

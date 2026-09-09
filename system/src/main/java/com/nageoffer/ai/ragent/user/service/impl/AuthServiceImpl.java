@@ -20,7 +20,6 @@ package com.nageoffer.ai.ragent.user.service.impl;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.user.controller.request.LoginRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.LoginVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
@@ -54,10 +53,19 @@ public class AuthServiceImpl implements AuthService {
         if (StrUtil.isBlank(username) || StrUtil.isBlank(password)) {
             throw new ClientException("用户名或密码不能为空");
         }
+        // 密码输入上限 64 字符（doc 15 §2.2.1，规避 BCrypt 72 字节截断口径）；超限走统一错误不另开口径
+        if (password.length() > 64) {
+            throw new ClientException("用户名或密码错误");
+        }
         loginRateLimiter.acquire(resolveClientIp(), username);
-        UserDO user = findByUsername(username);
+        // 登录双键：用户名或注册邮箱均可（注册用户 username=email，二者同值）
+        UserDO user = userMapper.selectActiveByUsernameOrEmail(username.trim());
         if (user == null || !passwordCodec.matches(password, user.getPassword())) {
             throw new ClientException("用户名或密码错误");
+        }
+        // 注册用户必须完成邮箱验证（存量/管理员建/游客无邮箱不受限）
+        if (user.getEmail() != null && (user.getEmailVerified() == null || user.getEmailVerified() != 1)) {
+            throw new ClientException("邮箱未验证，请先完成邮箱验证");
         }
         // 存量明文密码：校验通过后立即升级为哈希（透明收敛，不需要用户操作）
         if (passwordCodec.needsUpgrade(user.getPassword())) {
@@ -121,17 +129,6 @@ public class AuthServiceImpl implements AuthService {
     private LoginVO buildLoginVO(UserDO user) {
         String avatar = StrUtil.isBlank(user.getAvatar()) ? DEFAULT_AVATAR_URL : user.getAvatar();
         return new LoginVO(user.getId().toString(), user.getRole(), StpUtil.getTokenValue(), avatar);
-    }
-
-    private UserDO findByUsername(String username) {
-        if (StrUtil.isBlank(username)) {
-            return null;
-        }
-        return userMapper.selectOne(
-                Wrappers.lambdaQuery(UserDO.class)
-                        .eq(UserDO::getUsername, username)
-                        .eq(UserDO::getDeleted, 0)
-        );
     }
 
     private String resolveClientIp() {

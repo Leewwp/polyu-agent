@@ -71,7 +71,7 @@ class AuthServiceImplTest {
     @Test
     void loginSucceedsWithHashedPassword() {
         String hash = new PasswordCodec().encode("right-pass");
-        when(userMapper.selectOne(any())).thenReturn(user(hash));
+        when(userMapper.selectActiveByUsernameOrEmail("admin")).thenReturn(user(hash));
         var vo = authService.login(req("admin", "right-pass"));
         assertEquals("admin", vo.getRole());
         verify(userMapper, never()).updateById(any(UserDO.class));
@@ -79,7 +79,7 @@ class AuthServiceImplTest {
 
     @Test
     void legacyPlaintextLoginUpgradesToHash() {
-        when(userMapper.selectOne(any())).thenReturn(user("right-pass"));
+        when(userMapper.selectActiveByUsernameOrEmail("admin")).thenReturn(user("right-pass"));
         authService.login(req("admin", "right-pass"));
         var captor = org.mockito.ArgumentCaptor.forClass(UserDO.class);
         verify(userMapper).updateById(captor.capture());
@@ -88,9 +88,40 @@ class AuthServiceImplTest {
 
     @Test
     void wrongPasswordFailsWithoutUpgrade() {
-        when(userMapper.selectOne(any())).thenReturn(user("right-pass"));
+        when(userMapper.selectActiveByUsernameOrEmail("admin")).thenReturn(user("right-pass"));
         assertThrows(ClientException.class, () -> authService.login(req("admin", "wrong")));
         verify(userMapper, never()).updateById(any(UserDO.class));
+    }
+
+    @Test
+    void loginAcceptsEmailAsKey() {
+        // 注册用户 username=email：双键查询命中同一路径
+        when(userMapper.selectActiveByUsernameOrEmail("u2@example.com")).thenReturn(
+                UserDO.builder().id("2").username("u2@example.com")
+                        .password(new PasswordCodec().encode("right-pass"))
+                        .role("user").email("u2@example.com").emailVerified(1).build());
+        var vo = authService.login(req("u2@example.com", "right-pass"));
+        assertEquals("user", vo.getRole());
+    }
+
+    @Test
+    void loginBlocksUnverifiedEmailAccount() {
+        when(userMapper.selectActiveByUsernameOrEmail("u2@example.com")).thenReturn(
+                UserDO.builder().id("2").username("u2@example.com")
+                        .password(new PasswordCodec().encode("right-pass"))
+                        .role("user").email("u2@example.com").emailVerified(0).build());
+        ClientException ex = assertThrows(ClientException.class,
+                () -> authService.login(req("u2@example.com", "right-pass")));
+        assertTrue(ex.getMessage().contains("邮箱未验证"));
+    }
+
+    @Test
+    void loginRejectsOverlongPasswordWithGenericError() {
+        // 密码输入上限 64 字符（doc 15 §2.2.1）：超限与凭据错误同文案，不另开口径
+        ClientException ex = assertThrows(ClientException.class,
+                () -> authService.login(req("admin", "x".repeat(65))));
+        assertEquals("用户名或密码错误", ex.getMessage());
+        verify(loginRateLimiter, never()).acquire(anyString(), anyString());
     }
 
     @Test

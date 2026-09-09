@@ -23,7 +23,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * logger 模式邮件发送（默认）：只写日志不外发，本地与联调默认档
- * （对应 OmniCraft smtp.mode=logger 口径；验证码日志脱敏为存在性，不打印明文码值）
+ * （对应 OmniCraft smtp.mode=logger 口径）
+ *
+ * <p>验证码原文随日志打印（U2 起）：logger 档不外发邮件，码值不可见则注册/重置内测无从取码，
+ * 与档位定位冲突；生产开注册前必须切 smtp 档（该档不打印码值），码值日志即随切换消失。
  */
 @Slf4j
 @Component
@@ -32,8 +35,8 @@ public class LoggerMailSender implements MailSender {
 
     @Override
     public void send(MailMessage message) {
-        log.info("[mail:logger] to={} subject={} bodyChars={}",
-                message.to(), message.subject(),
+        log.info("[mail:logger] to={} subject={} code={} bodyChars={}",
+                message.to(), message.subject(), message.code(),
                 message.textBody() == null ? 0 : message.textBody().length());
     }
 }

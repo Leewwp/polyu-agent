@@ -15,13 +15,17 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.user.mail;
+package com.nageoffer.ai.ragent.user.controller.request;
+
+import lombok.Data;
 
 /**
- * 待发送邮件（T10 脚手架）
- *
- * @param code 验证码原文（仅非验证类邮件为 null）。logger 模式靠它在日志中取码完成内测闭环；
- *             smtp 模式的发送器不得打印该值
+ * 撤销注销请求（U2）：冷静期内凭原账号（用户名或邮箱）+ 原密码恢复
  */
-public record MailMessage(String to, String subject, String textBody, String code) {
+@Data
+public class AccountRestoreRequest {
+
+    private String account;
+
+    private String password;
 }

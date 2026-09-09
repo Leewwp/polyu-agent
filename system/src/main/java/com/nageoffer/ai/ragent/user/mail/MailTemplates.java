@@ -44,9 +44,9 @@ public final class MailTemplates {
 
     public static MailMessage build(String to, Scene scene, String code, int ttlMinutes) {
         return switch (scene) {
-            case VERIFY -> new MailMessage(to, subject("邮箱验证", "Email verification"), bodyVerify(code, ttlMinutes));
-            case RESET -> new MailMessage(to, subject("密码重置", "Password reset"), bodyReset(code, ttlMinutes));
-            case DELETE -> new MailMessage(to, subject("账号注销确认", "Account deletion confirmation"), bodyDelete(code, ttlMinutes));
+            case VERIFY -> new MailMessage(to, subject("邮箱验证", "Email verification"), bodyVerify(code, ttlMinutes), code);
+            case RESET -> new MailMessage(to, subject("密码重置", "Password reset"), bodyReset(code, ttlMinutes), code);
+            case DELETE -> new MailMessage(to, subject("账号注销确认", "Account deletion confirmation"), bodyDelete(code, ttlMinutes), code);
         };
     }
 

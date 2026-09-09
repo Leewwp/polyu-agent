@@ -17,10 +17,13 @@
 
 package com.nageoffer.ai.ragent.user.controller;
 
+import com.nageoffer.ai.ragent.user.controller.request.AccountDeleteRequest;
+import com.nageoffer.ai.ragent.user.controller.request.AccountRestoreRequest;
 import com.nageoffer.ai.ragent.user.controller.request.LoginRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.LoginVO;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
+import com.nageoffer.ai.ragent.user.service.AccountLifecycleService;
 import com.nageoffer.ai.ragent.user.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,6 +39,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+
+    private final AccountLifecycleService accountLifecycleService;
 
     /**
      * 用户登录接口
@@ -60,5 +65,23 @@ public class AuthController {
     @PostMapping("/auth/guest")
     public Result<LoginVO> guestLogin() {
         return Results.success(authService.guestLogin());
+    }
+
+    /**
+     * 自助注销（U2）：登录态 + 密码确认 → 软删 30 天可撤销。不挂注册 flag——
+     * 注销权不因注册通道开闭而失效（存量/管理员建号用户同样可注销）
+     */
+    @PostMapping("/auth/account/delete")
+    public Result<Void> deleteAccount(@RequestBody AccountDeleteRequest requestParam) {
+        accountLifecycleService.deleteAccount(requestParam);
+        return Results.success();
+    }
+
+    /**
+     * 撤销注销（U2）：冷静期内凭原账号 + 原密码恢复并直接登录
+     */
+    @PostMapping("/auth/account/restore")
+    public Result<LoginVO> restoreAccount(@RequestBody AccountRestoreRequest requestParam) {
+        return Results.success(accountLifecycleService.restoreAccount(requestParam));
     }
 }
