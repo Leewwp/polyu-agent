@@ -2,7 +2,7 @@
 
 > 载体：云上单机轻量服务器（实例 IP / 登录密钥等接入信息由维护者保管，不入公开仓库）。
 > 本目录入 git（`polyu-prod.env` 除外）；`scripts/gen-prod-env.py` 入 scripts/（仅本地）。
-> 域名注册生效前：HTTP 先行 + SSH 隧道访问（验收期=非公开阶段，控制台防火墙不放行公网）。
+> 域名 polyuguide.com 已注册并解析（2026-09-09）；公网 80/443 已放行，TLS 已启用（见「TLS 启用」实录）。
 
 ## 文件一览
 
@@ -139,31 +139,47 @@ docker compose --env-file smoke.env -f polyu-prod.compose.yaml down -v
 - **broker 堆与限额**：768m 堆启动突发 RSS>1.4g，640m 堆 + mem_limit 1536m 稳定。
 - **nginx upstream**：必须变量 + `resolver 127.0.0.11` 运行时解析，静态 proxy_pass 固化 IP 在容器重建后持续 502。
 
-## TLS 启用（域名注册并解析后）
+2026-09-09 生产首启追加判例：
 
-前置：域名 A 记录 `@ / www → <服务器IP>` 生效。
+- **deploy CI 的 scp 须按源路径深度分步剥层**：单步 `strip_components: 1` 会把
+  `resources/database/*.sql` 落进 `database/` 子目录，compose 挂载点 `./schema_pg.sql` 被 Docker
+  自动建成空目录 → PG 首启 0 表（initdb 日志 `Is a directory`）→ 应用启动 `CREATE INDEX` 撞
+  "表不存在"崩溃循环；已固化为 deploy.yml 双 scp 步骤（compose 剥 1 层、SQL 剥 2 层）。
+- **部署用户须入 docker 组**：appleboy ssh-action 无 TTY，非交互 `sudo` 不可用；
+  服务器一次性 `sudo usermod -aG docker ubuntu`（CI 报 `permission denied ... docker.sock` 即此因）。
+- **workflow run 与 secrets 的时序**：run 创建早于 secret 写入时该 run 取到空 secret
+  （表现为 `INPUT_KEY` 空、easyssh 报 can't connect without a private SSH key），补设后 rerun 即愈。
 
-1. **控制台放行 80/443**（云防火墙）；
-2. 首签证书：
+## TLS 启用（✅ 2026-09-09 实录）
+
+前置：域名 A 记录 `@ / www → <服务器IP>` 生效（polyuguide.com 当日已解析）。
+
+1. ✅ 控制台放行 80/443（云防火墙，维护者完成）；
+2. ✅ 首签证书（Let's Encrypt，有效期至 2026-12-08）：
    ```bash
-   # 服务器 /opt/polyu
-   docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml run --rm certbot \
+   # 服务器 /opt/polyu（certbot 为 tls profile 服务，run 时须 --profile tls）
+   docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml --profile tls run --rm certbot \
      certonly --webroot -w /var/www/certbot \
-     -d <域名> -d www.<域名> \
+     -d polyuguide.com -d www.polyuguide.com \
      --email <维护者邮箱> --agree-tos --no-eff-email
    ```
-3. 启用 TLS：把 `nginx/polyu-tls.conf.disabled` 补全（从 polyu-http.conf 复制各 location）改为
-   `polyu-tls.conf` 并在 frontend-nginx.Dockerfile 中 COPY；80 server 收敛为 ACME + 301 跳转；
-   `polyu-prod.env` 的 `ASSETS_PUBLIC_URL` 改 `https://<域名>/minio`；push 走 CI 重建；
-4. 续期：登记 crontab `certbot renew --webroot`（首签后）；
+3. ✅ 启用 TLS：`nginx/polyu-tls.conf`（443 server 块，`/api/`、`/minio/`、SPA 与 http 版同构）随镜像构建；
+   `polyu-http.conf` 的 80 server 收敛为 ACME + 301（map/resolver 两文件共用，声明在 http 版顶层）；
+   compose 的 nginx 健康检查改 https 直探（80 已 301，http 探测会跟随跳转撞证书域名不匹配）；
+   `polyu-prod.env` 的 `ASSETS_PUBLIC_URL` 改 `https://polyuguide.com/minio`；push 走 CI 重建。
+   预演判例：先用一次性 nginx 容器挂真证书验证（`curl --resolve` 不带 `-k`，ssl_verify=0 通过）再上生产；
+4. ✅ 续期：服务器 ubuntu crontab（周日 04:00）`certbot renew --quiet` + nginx reload，`crontab -l` 可查；
 5. 后续口径（归认证安全实施票，不在本包范围）：`__Host-` cookie、HSTS、
    应用侧 real IP 只信本网关、CORS 锁单 origin。
 
 ## 维护者待办
 
-| 待办 | 时点 |
-| --- | --- |
-| 域名注册 + A 记录回填 | TLS 启用前 |
-| 云控制台关 3389 / 放行 80/443（TLS 时点） / 磁盘 >70% 告警注册 | 尽快 / TLS 时 / 尽快 |
-| 配置 CI secrets（DEPLOY_HOST/USER/KEY） | 首次 deploy 前 |
-| gen-prod-env.py 生成 + scp polyu-prod.env | 首启前 |
+| 待办 | 时点 | 状态 |
+| --- | --- | --- |
+| 域名注册 + A 记录回填 | TLS 启用前 | ✅ 2026-09-09（@/www → 服务器 IP，DNSPod） |
+| 云控制台关 3389 | 尽快 | ✅ 2026-09-09 |
+| 放行 80/443 | TLS 启用时 | ✅ 2026-09-09 |
+| 配置 CI secrets（DEPLOY_HOST/USER/KEY） | 首次 deploy 前 | ✅ 2026-09-09 |
+| gen-prod-env.py 生成 + scp polyu-prod.env | 首启前 | ✅ 2026-09-09 |
+| certbot 续期 crontab | 首签后 | ✅ 2026-09-09（周日 04:00 + nginx reload） |
+| 磁盘 >70% 告警注册（云监控免费层） | 尽快 | ⬜ 待维护者控制台操作 |

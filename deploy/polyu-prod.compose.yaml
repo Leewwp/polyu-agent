@@ -226,11 +226,11 @@ services:
   polyu-nginx:
     image: ${IMAGE_FRONTEND:?polyu-prod.env 缺 IMAGE_FRONTEND}
     ports:
-      # 唯一公网面：80/443 在控制台防火墙放行（启用 TLS 时）；非公开验收期不放行、走 SSH 隧道
+      # 唯一公网面：80/443 已在控制台防火墙放行（2026-09-09，TLS 启用时点）
       - "${HOST_PORT_HTTP:-80}:80"
       - "${HOST_PORT_HTTPS:-443}:443"
     volumes:
-      # TLS 卷位（http 阶段空目录无害）：证书只读挂载 + ACME webroot 与 certbot 共享
+      # TLS 卷位：证书只读挂载（certbot 首签产物）+ ACME webroot 与 certbot 共享
       - ${CERTS_DIR:-./certs}:/etc/letsencrypt:ro
       - ${CERTBOT_WWW:-./certbot-www}:/var/www/certbot
     depends_on:
@@ -238,7 +238,9 @@ services:
         condition: service_healthy
     mem_limit: 256m
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      # 80 已收敛为 301 跳转，http 探测会跟随跳转撞证书域名不匹配；直探 443 + 忽略自签校验
+      # （busybox wget 无 --server-response 依赖，SNI=127.0.0.1 落默认 443 server=本服务）
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

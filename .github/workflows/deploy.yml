@@ -109,15 +109,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Scp compose + DB init SQL
+      # 两个 scp 分开走：strip_components 按源路径深度分别剥层（compose 剥 1 层、database/*.sql 剥 2 层），
+      # 统一落位 /opt/polyu/{polyu-prod.compose.yaml,schema_pg.sql,init_data_pg.sql} 与 compose 挂载一致。
+      # 判例（2026-09-09 首启）：单步 strip 1 会把 SQL 落进 database/ 子目录，挂载点被 Docker
+      # 自动建成空目录，PG 首启 0 表 → 应用 CREATE INDEX 撞"表不存在"起不来。
+      - name: Scp compose
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
-          source: "deploy/polyu-prod.compose.yaml,resources/database/schema_pg.sql,resources/database/init_data_pg.sql"
+          source: "deploy/polyu-prod.compose.yaml"
           target: /opt/polyu/
           strip_components: 1
+
+      - name: Scp DB init SQL
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "resources/database/schema_pg.sql,resources/database/init_data_pg.sql"
+          target: /opt/polyu/
+          strip_components: 2
 
       - name: Pull images and rolling restart
         uses: appleboy/ssh-action@v1.0.3
