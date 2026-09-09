@@ -250,6 +250,33 @@ class ScheduleRefreshProcessorTest {
     }
 
     @Test
+    void shouldMarkSkippedWhenContentHashUnchanged() {
+        // K2a：etag/lastModified 不可比时靠字节哈希判未变（与 etag 命中同一 skipped 通道），
+        // 哈希需回写持久化，供下一轮 HEAD 预检失效时继续比对
+        KnowledgeDocumentScheduleDO schedule = schedule();
+        KnowledgeDocumentDO document = remoteDocument(DocumentStatus.SUCCESS.getCode(), "https://old-file");
+        RemoteFileFetcher.RemoteFetchResult fetchResult = RemoteFileFetcher.RemoteFetchResult.skipped(
+                "内容哈希未变化",
+                null,
+                null,
+                "hash-1"
+        );
+
+        when(scheduleMapper.selectById(lease.scheduleId())).thenReturn(schedule);
+        when(documentMapper.selectById("doc-1")).thenReturn(document);
+        mockExecInsert();
+        when(remoteFileFetcher.fetchIfChanged(anyString(), any(), any(), any(), anyString())).thenReturn(fetchResult);
+        when(stateManager.markSkippedIfOwned(eq(lease), any(ScheduleStateContext.class), same(fetchResult))).thenReturn(true);
+
+        processor.process(lease);
+
+        verify(stateManager).markSkippedIfOwned(eq(lease), any(ScheduleStateContext.class), same(fetchResult));
+        // 零嵌入调用的机器可验形式：分块服务、存储上传、文档状态全程零交互
+        verifyNoInteractions(kbMapper, fileStorageService, documentService, documentStatusHelper);
+        verify(lockManager).release(lease);
+    }
+
+    @Test
     void shouldCountFirstFetchFailureAndKeepServing() {
         // K2c 状态一（连续第 1 次）：只累计计数+标 stale 诊断，检索面（文档行/旧 chunk）不动
         KnowledgeDocumentScheduleDO schedule = schedule();
