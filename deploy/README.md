@@ -83,8 +83,12 @@ PG 建表只在**空数据卷首启**自动执行（schema_pg.sql + init_data_pg
 `resources/database/upgrades/` 手工执行：
 
 ```bash
-ssh -i <密钥> <用户>@<服务器IP> 'docker exec -i polyu-pg psql -U polyu -d ragent' \
-  < resources/database/upgrades/v1.1.0/xxxx.sql
+# 容器走 compose 默认命名（项目名 polyu-prod + 服务名），不是裸服务名；
+# 用 compose exec 免依赖具体容器名，与部署链同一 env/compose 文件
+ssh -i <密钥> <用户>@<服务器IP> \
+  'cd /opt/polyu && docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml exec -T polyu-pg psql -U polyu -d ragent -v ON_ERROR_STOP=1' \
+  < resources/database/upgrades/v2.0.0/xxxx.sql
+# 直用 docker exec 时容器名形如 polyu-prod-polyu-pg-1（2026-09-09 首个线上迁移实操判例）
 ```
 
 ## 本机冒烟（不占生产端口）
