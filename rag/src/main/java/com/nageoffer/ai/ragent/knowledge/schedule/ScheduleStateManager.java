@@ -55,6 +55,9 @@ public class ScheduleStateManager {
                         .set(KnowledgeDocumentScheduleDO::getLastEtag, fetchResult.etag())
                         .set(KnowledgeDocumentScheduleDO::getLastModified, fetchResult.lastModified())
                         .set(KnowledgeDocumentScheduleDO::getLastContentHash, fetchResult.contentHash())
+                        // 抓取已成功（哪怕内容未变）即证明来源可达，清零失败滞回计数
+                        .set(KnowledgeDocumentScheduleDO::getConsecutiveFailures, 0)
+                        .set(KnowledgeDocumentScheduleDO::getDataStale, 0)
         );
 
         if (ctx.getExecId() != null) {
@@ -80,6 +83,9 @@ public class ScheduleStateManager {
                         .set(KnowledgeDocumentScheduleDO::getNextRunTime, ctx.getNextRunTime())
                         .set(KnowledgeDocumentScheduleDO::getLastStatus, ScheduleRunStatus.SKIPPED.getCode())
                         .set(KnowledgeDocumentScheduleDO::getLastError, message)
+                        // 抓取已成功（跳过原因在本地，如文档占用），来源可达性同样得到证明
+                        .set(KnowledgeDocumentScheduleDO::getConsecutiveFailures, 0)
+                        .set(KnowledgeDocumentScheduleDO::getDataStale, 0)
         );
 
         if (ctx.getExecId() != null) {
@@ -111,6 +117,8 @@ public class ScheduleStateManager {
                         .set(KnowledgeDocumentScheduleDO::getLastEtag, fetchResult.etag())
                         .set(KnowledgeDocumentScheduleDO::getLastModified, fetchResult.lastModified())
                         .set(KnowledgeDocumentScheduleDO::getLastContentHash, fetchResult.contentHash())
+                        .set(KnowledgeDocumentScheduleDO::getConsecutiveFailures, 0)
+                        .set(KnowledgeDocumentScheduleDO::getDataStale, 0)
         );
 
         if (ctx.getExecId() != null) {
@@ -147,6 +155,71 @@ public class ScheduleStateManager {
             execUpdate.setId(ctx.getExecId());
             execUpdate.setStatus(ScheduleRunStatus.FAILED.getCode());
             execUpdate.setMessage(withLeaseNote(truncatedErrorMessage, scheduleUpdated));
+            execUpdate.setEndTime(new Date());
+            execMapper.updateById(execUpdate);
+        }
+        return scheduleUpdated;
+    }
+
+    /**
+     * 抓取失败滞回：未达禁用阈值时只累计失败计数并标 stale 诊断，调度继续按 cron 重试，
+     * 旧版 chunk 数据原样保留（检索层不感知）。区别于 {@link #markFailedIfOwned}——
+     * 那是抓取成功后的处理失败，来源可达性已证明，不动滞回计数
+     */
+    public boolean markFetchFailedIfOwned(ScheduleLockLease lease,
+                                          ScheduleStateContext ctx,
+                                          String errorMessage,
+                                          int consecutiveFailures) {
+        String message = truncate("抓取失败（连续第 " + consecutiveFailures + " 次）: " + errorMessage);
+        boolean scheduleUpdated = updateScheduleIfOwned(
+                lease,
+                Wrappers.lambdaUpdate(KnowledgeDocumentScheduleDO.class)
+                        .set(KnowledgeDocumentScheduleDO::getCronExpr, ctx.getCronExpr())
+                        .set(KnowledgeDocumentScheduleDO::getLastRunTime, ctx.getStartTime())
+                        .set(KnowledgeDocumentScheduleDO::getNextRunTime, ctx.getNextRunTime())
+                        .set(KnowledgeDocumentScheduleDO::getLastStatus, ScheduleRunStatus.FAILED.getCode())
+                        .set(KnowledgeDocumentScheduleDO::getLastError, message)
+                        .set(KnowledgeDocumentScheduleDO::getConsecutiveFailures, consecutiveFailures)
+                        .set(KnowledgeDocumentScheduleDO::getDataStale, 1)
+        );
+
+        if (ctx.getExecId() != null) {
+            KnowledgeDocumentScheduleExecDO execUpdate = new KnowledgeDocumentScheduleExecDO();
+            execUpdate.setId(ctx.getExecId());
+            execUpdate.setStatus(ScheduleRunStatus.FAILED.getCode());
+            execUpdate.setMessage(withLeaseNote(message, scheduleUpdated));
+            execUpdate.setEndTime(new Date());
+            execMapper.updateById(execUpdate);
+        }
+        return scheduleUpdated;
+    }
+
+    /**
+     * 连续抓取失败达到滞回阈值后的禁用：停调度（enabled=0、nextRunTime 清空）并落最后错误，
+     * 旧版数据与 exec 记录保留，等待人工核查来源后重新启用
+     */
+    public boolean disableForFetchFailuresIfOwned(ScheduleLockLease lease,
+                                                  ScheduleStateContext ctx,
+                                                  String reason,
+                                                  int consecutiveFailures) {
+        String message = truncate("连续 " + consecutiveFailures + " 次抓取失败，自动禁用调度: " + reason);
+        boolean scheduleUpdated = updateScheduleIfOwned(
+                lease,
+                Wrappers.lambdaUpdate(KnowledgeDocumentScheduleDO.class)
+                        .set(KnowledgeDocumentScheduleDO::getEnabled, 0)
+                        .set(KnowledgeDocumentScheduleDO::getNextRunTime, null)
+                        .set(KnowledgeDocumentScheduleDO::getLastRunTime, ctx.getStartTime())
+                        .set(KnowledgeDocumentScheduleDO::getLastStatus, ScheduleRunStatus.FAILED.getCode())
+                        .set(KnowledgeDocumentScheduleDO::getLastError, message)
+                        .set(KnowledgeDocumentScheduleDO::getConsecutiveFailures, consecutiveFailures)
+                        .set(KnowledgeDocumentScheduleDO::getDataStale, 1)
+        );
+
+        if (ctx.getExecId() != null) {
+            KnowledgeDocumentScheduleExecDO execUpdate = new KnowledgeDocumentScheduleExecDO();
+            execUpdate.setId(ctx.getExecId());
+            execUpdate.setStatus(ScheduleRunStatus.FAILED.getCode());
+            execUpdate.setMessage(withLeaseNote(message, scheduleUpdated));
             execUpdate.setEndTime(new Date());
             execMapper.updateById(execUpdate);
         }

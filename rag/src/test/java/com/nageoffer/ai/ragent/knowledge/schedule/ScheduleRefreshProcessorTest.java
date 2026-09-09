@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.knowledge.schedule;
 
+import com.nageoffer.ai.ragent.knowledge.config.KnowledgeScheduleProperties;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeBaseDO;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentScheduleDO;
@@ -28,6 +29,7 @@ import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentScheduleMap
 import com.nageoffer.ai.ragent.knowledge.enums.DocumentStatus;
 import com.nageoffer.ai.ragent.knowledge.enums.SourceType;
 import com.nageoffer.ai.ragent.knowledge.handler.RemoteFileFetcher;
+import com.nageoffer.ai.ragent.framework.exception.ServiceException;
 import com.nageoffer.ai.ragent.knowledge.service.impl.KnowledgeDocumentServiceImpl;
 import com.nageoffer.ai.ragent.rag.dto.StoredFileDTO;
 import com.nageoffer.ai.ragent.rag.service.FileStorageService;
@@ -45,12 +47,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -82,6 +87,8 @@ class ScheduleRefreshProcessorTest {
     private ScheduleStateManager stateManager;
     @Mock
     private DocumentStatusHelper documentStatusHelper;
+    @Mock
+    private KnowledgeScheduleProperties scheduleProperties;
 
     private ScheduleRefreshProcessor processor;
     private ScheduleLockLease lease;
@@ -98,13 +105,15 @@ class ScheduleRefreshProcessorTest {
                 remoteFileFetcher,
                 lockManager,
                 stateManager,
-                documentStatusHelper
+                documentStatusHelper,
+                scheduleProperties
         );
         lease = new ScheduleLockLease("schedule-1", "lock-1");
 
         when(lockManager.startHeartbeat(lease)).thenAnswer(invocation -> newHeartbeat());
         when(lockManager.renew(lease)).thenReturn(true);
         when(lockManager.release(lease)).thenReturn(true);
+        lenient().when(scheduleProperties.getFailureHysteresisThreshold()).thenReturn(3);
     }
 
     @Test
@@ -238,6 +247,102 @@ class ScheduleRefreshProcessorTest {
         );
         verify(documentStatusHelper, never()).markFailedIfRunning(anyString());
         verify(fileStorageService).deleteByUrl("https://old-file");
+    }
+
+    @Test
+    void shouldMarkSkippedWhenContentHashUnchanged() {
+        // K2a：etag/lastModified 不可比时靠字节哈希判未变（与 etag 命中同一 skipped 通道），
+        // 哈希需回写持久化，供下一轮 HEAD 预检失效时继续比对
+        KnowledgeDocumentScheduleDO schedule = schedule();
+        KnowledgeDocumentDO document = remoteDocument(DocumentStatus.SUCCESS.getCode(), "https://old-file");
+        RemoteFileFetcher.RemoteFetchResult fetchResult = RemoteFileFetcher.RemoteFetchResult.skipped(
+                "内容哈希未变化",
+                null,
+                null,
+                "hash-1"
+        );
+
+        when(scheduleMapper.selectById(lease.scheduleId())).thenReturn(schedule);
+        when(documentMapper.selectById("doc-1")).thenReturn(document);
+        mockExecInsert();
+        when(remoteFileFetcher.fetchIfChanged(anyString(), any(), any(), any(), anyString())).thenReturn(fetchResult);
+        when(stateManager.markSkippedIfOwned(eq(lease), any(ScheduleStateContext.class), same(fetchResult))).thenReturn(true);
+
+        processor.process(lease);
+
+        verify(stateManager).markSkippedIfOwned(eq(lease), any(ScheduleStateContext.class), same(fetchResult));
+        // 零嵌入调用的机器可验形式：分块服务、存储上传、文档状态全程零交互
+        verifyNoInteractions(kbMapper, fileStorageService, documentService, documentStatusHelper);
+        verify(lockManager).release(lease);
+    }
+
+    @Test
+    void shouldCountFirstFetchFailureAndKeepServing() {
+        // K2c 状态一（连续第 1 次）：只累计计数+标 stale 诊断，检索面（文档行/旧 chunk）不动
+        KnowledgeDocumentScheduleDO schedule = schedule();
+        schedule.setConsecutiveFailures(0);
+        KnowledgeDocumentDO document = remoteDocument(DocumentStatus.SUCCESS.getCode(), "https://old-file");
+
+        when(scheduleMapper.selectById(lease.scheduleId())).thenReturn(schedule);
+        when(documentMapper.selectById("doc-1")).thenReturn(document);
+        mockExecInsert();
+        when(remoteFileFetcher.fetchIfChanged(anyString(), any(), any(), any(), anyString()))
+                .thenThrow(new ServiceException("远程文件拉取失败: connect timeout"));
+        when(stateManager.markFetchFailedIfOwned(eq(lease), any(ScheduleStateContext.class), anyString(), eq(1)))
+                .thenReturn(true);
+
+        processor.process(lease);
+
+        verify(stateManager).markFetchFailedIfOwned(eq(lease), any(ScheduleStateContext.class), contains("connect timeout"), eq(1));
+        verify(stateManager, never()).disableForFetchFailuresIfOwned(any(), any(), any(), anyInt());
+        verifyNoInteractions(kbMapper, fileStorageService, documentService, documentStatusHelper);
+        verify(lockManager).release(lease);
+    }
+
+    @Test
+    void shouldCountSecondFetchFailureAndKeepServing() {
+        // K2c 状态二（连续第 2 次）：仍在阈值内，继续累计，检索面不动
+        KnowledgeDocumentScheduleDO schedule = schedule();
+        schedule.setConsecutiveFailures(1);
+        KnowledgeDocumentDO document = remoteDocument(DocumentStatus.SUCCESS.getCode(), "https://old-file");
+
+        when(scheduleMapper.selectById(lease.scheduleId())).thenReturn(schedule);
+        when(documentMapper.selectById("doc-1")).thenReturn(document);
+        mockExecInsert();
+        when(remoteFileFetcher.fetchIfChanged(anyString(), any(), any(), any(), anyString()))
+                .thenThrow(new ServiceException("远程文件拉取失败: 404"));
+        when(stateManager.markFetchFailedIfOwned(eq(lease), any(ScheduleStateContext.class), anyString(), eq(2)))
+                .thenReturn(true);
+
+        processor.process(lease);
+
+        verify(stateManager).markFetchFailedIfOwned(eq(lease), any(ScheduleStateContext.class), anyString(), eq(2));
+        verify(stateManager, never()).disableForFetchFailuresIfOwned(any(), any(), any(), anyInt());
+        verifyNoInteractions(kbMapper, fileStorageService, documentService, documentStatusHelper);
+        verify(lockManager).release(lease);
+    }
+
+    @Test
+    void shouldDisableScheduleOnThirdConsecutiveFetchFailure() {
+        // K2c 状态三（连续第 3 次，达滞回阈值）：禁用调度+告警，旧版数据仍保留服务
+        KnowledgeDocumentScheduleDO schedule = schedule();
+        schedule.setConsecutiveFailures(2);
+        KnowledgeDocumentDO document = remoteDocument(DocumentStatus.SUCCESS.getCode(), "https://old-file");
+
+        when(scheduleMapper.selectById(lease.scheduleId())).thenReturn(schedule);
+        when(documentMapper.selectById("doc-1")).thenReturn(document);
+        mockExecInsert();
+        when(remoteFileFetcher.fetchIfChanged(anyString(), any(), any(), any(), anyString()))
+                .thenThrow(new ServiceException("远程文件拉取失败: dns lookup failed"));
+        when(stateManager.disableForFetchFailuresIfOwned(eq(lease), any(ScheduleStateContext.class), anyString(), eq(3)))
+                .thenReturn(true);
+
+        processor.process(lease);
+
+        verify(stateManager).disableForFetchFailuresIfOwned(eq(lease), any(ScheduleStateContext.class), anyString(), eq(3));
+        verify(stateManager, never()).markFetchFailedIfOwned(any(), any(), any(), anyInt());
+        verifyNoInteractions(kbMapper, fileStorageService, documentService, documentStatusHelper);
+        verify(lockManager).release(lease);
     }
 
     private void mockExecInsert() {

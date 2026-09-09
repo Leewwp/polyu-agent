@@ -55,4 +55,9 @@ public class KnowledgeScheduleProperties {
      * RUNNING 状态超时阈值（分钟），超过此时间未完成的文档重置为 FAILED
      */
     private Long runningTimeoutMinutes = 30L;
+
+    /**
+     * 连续抓取失败滞回阈值：达到该次数才禁用调度并告警；之前的失败仅标 stale 诊断、保留旧版数据
+     */
+    private Integer failureHysteresisThreshold = 3;
 }

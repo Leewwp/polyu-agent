@@ -284,6 +284,8 @@ CREATE TABLE t_knowledge_document_schedule (
     last_etag         VARCHAR(256),
     last_modified     VARCHAR(256),
     last_content_hash VARCHAR(128),
+    consecutive_failures INT      DEFAULT 0,
+    data_stale        SMALLINT   DEFAULT 0,
     lock_owner        VARCHAR(128),
     lock_until        TIMESTAMP,
     create_time       TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
