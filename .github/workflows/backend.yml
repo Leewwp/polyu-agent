@@ -58,8 +58,8 @@ jobs:
 
       - name: S9 tripwire — default credential seed must not return
         run: |
-          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/init_data_pg.sql | grep -vE "^\s*(--|#)"; then
-            echo "::error::init_data_pg.sql 疑似复活默认凭据种子（S9 已移除，冲突回退不得带回）"
+          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/ | grep -vE "^\s*(--|#)"; then
+            echo "::error::resources/database/ 疑似复活默认凭据种子（S9 已移除+U1 已清理 backups 残留，冲突回退不得带回）"
             exit 1
           fi
 
