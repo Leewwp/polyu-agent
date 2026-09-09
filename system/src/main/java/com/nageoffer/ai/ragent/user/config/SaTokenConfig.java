@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.config;
 
 import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.stp.StpUtil;
+import com.nageoffer.ai.ragent.user.audit.AdminAuditLogInterceptor;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -42,12 +43,32 @@ public class SaTokenConfig implements WebMvcConfigurer {
     private final UserContextInterceptor userContextInterceptor;
 
     /**
-     * 拦截器全局顺序：登录(0) → 管理面角色(5) → 演示只读(10，由 RagentWebMvcConfiguration 注册) → 用户上下文(20)
+     * 拦截器全局顺序：登录(0) → 管理面角色(5) → 演示只读(10，由 RagentWebMvcConfiguration 注册) → 用户上下文(20) → admin 审计(25)
      */
     public static final int ORDER_LOGIN = 0;
     public static final int ORDER_ADMIN_ROLE = 5;
     public static final int ORDER_DEMO_MODE = 10;
     public static final int ORDER_USER_CONTEXT = 20;
+    public static final int ORDER_ADMIN_AUDIT = 25;
+
+    /**
+     * 管理面路径模式：admin 角色拦截与 U9 admin 审计共用同一份清单，防两份列表漂移
+     */
+    public static final String[] ADMIN_PATH_PATTERNS = {
+            "/knowledge-base/**",
+            "/agents/**",
+            "/agent-skills/**",
+            "/intent-tree",
+            "/intent-tree/**",
+            "/mappings",
+            "/mappings/**",
+            "/admin/**",
+            "/rag/settings",
+            "/rag/traces/**",
+            "/rag/eval",
+            "/rag/eval/**",
+            "/biz-change-logs/**",
+            "/users/**"};
 
     /**
      * 添加拦截器配置
@@ -86,22 +107,15 @@ public class SaTokenConfig implements WebMvcConfigurer {
         // 覆盖知识库/智能体/意图树/映射/设置/追踪/审计/用户管理；用户侧接口不受影响。
         // 2026-09-07 安全复核补充项：/rag/eval 效果评测端点可触发全链路检索，纳入 admin）
         registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkRole("admin")))
-                .addPathPatterns(
-                        "/knowledge-base/**",
-                        "/agents/**",
-                        "/agent-skills/**",
-                        "/intent-tree",
-                        "/intent-tree/**",
-                        "/mappings",
-                        "/mappings/**",
-                        "/admin/**",
-                        "/rag/settings",
-                        "/rag/traces/**",
-                        "/rag/eval",
-                        "/rag/eval/**",
-                        "/biz-change-logs/**",
-                        "/users/**")
+                .addPathPatterns(ADMIN_PATH_PATTERNS)
                 .order(ORDER_ADMIN_ROLE);
+
+        // admin 写操作审计拦截器（doc 15 §2.2.9 / doc 18 U9）：与角色拦截同一组路径，
+        // order 25 晚于用户上下文(20)——afterCompletion 反序执行，先于 ThreadLocal 清理读到操作者；
+        // 只记 POST/PUT/DELETE/PATCH，非写请求与异步调度零成本跳过
+        registry.addInterceptor(new AdminAuditLogInterceptor())
+                .addPathPatterns(ADMIN_PATH_PATTERNS)
+                .order(ORDER_ADMIN_AUDIT);
 
         // 注册用户上下文拦截器
         registry.addInterceptor(userContextInterceptor)
