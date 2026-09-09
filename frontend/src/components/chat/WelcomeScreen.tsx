@@ -275,7 +275,7 @@ export function WelcomeScreen() {
             试试这些开场
             <span className="h-px w-8 bg-[#E5E7EB]" />
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {promptPresets.map((preset) => {
               const Icon = preset.icon;
               return (

@@ -95,6 +95,9 @@ export function ChatPage() {
             <div className="relative z-20 bg-white">
               <div className="mx-auto max-w-[840px] px-6 pt-1 pb-4">
                 <ChatInput />
+                <p className="pt-2 text-center text-xs leading-relaxed text-[#9AA0A6]">
+                  内容由 AI 生成，仅供参考；本服务非香港理工大学官方服务 · AI-generated for reference; not an official PolyU service
+                </p>
               </div>
             </div>
           )}

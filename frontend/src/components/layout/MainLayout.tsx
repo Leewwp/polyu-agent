@@ -13,7 +13,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   return (
     <div className="flex min-h-screen bg-[#FAFAFA]">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex min-h-screen flex-1 flex-col bg-white">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col bg-white">
         <Header onToggleSidebar={() => setSidebarOpen((prev) => !prev)} />
         <main className="flex-1 min-h-0 overflow-hidden bg-white">
           {children}

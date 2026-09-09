@@ -43,11 +43,14 @@ export function SourcesPanel() {
     <aside
       className={cn(
         "h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out",
-        open ? "w-[380px] border-l border-[#EFEFEF]" : "w-0"
+        // 移动端（<md）全屏抽屉覆盖：fixed 脱离 flex 流不挤压主区；md+ 维持右侧推挤入场
+        open
+          ? "fixed inset-0 z-40 w-full md:relative md:inset-auto md:z-auto md:w-[380px] md:border-l md:border-[#EFEFEF]"
+          : "w-0"
       )}
       aria-hidden={!open}
     >
-      <div className="flex h-full w-[380px] flex-col bg-white">
+      <div className="flex h-full w-full flex-col bg-white md:w-[380px]">
         <div className="flex items-center justify-between border-b border-[#F0F0F0] px-5 py-4">
           <span className="text-[15px] font-semibold text-[#1A1A1A]">参考来源 ({shownSources.length})</span>
           <button
