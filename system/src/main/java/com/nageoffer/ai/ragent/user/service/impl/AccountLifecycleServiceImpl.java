@@ -32,6 +32,8 @@ import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.enums.UserRole;
 import com.nageoffer.ai.ragent.user.mail.MailVerificationService;
+import com.nageoffer.ai.ragent.user.security.ClientIps;
+import com.nageoffer.ai.ragent.user.security.LoginRateLimiter;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.user.security.PasswordPolicy;
 import com.nageoffer.ai.ragent.user.service.AccountLifecycleService;
@@ -75,12 +77,15 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
     private final UserMapper userMapper;
     private final PasswordCodec passwordCodec;
     private final MailVerificationService mailVerificationService;
+    private final LoginRateLimiter loginRateLimiter;
 
     @Override
     public void register(RegisterRequest requestParam) {
         String email = normalizeEmail(requestParam == null ? null : requestParam.getEmail());
         String password = requestParam == null ? null : requestParam.getPassword();
         PasswordPolicy.validate(password);
+        // 注册限速：3 次/小时/IP（doc 15 §2.2.7）——计入一切注册尝试（含静默受理路径），防枚举探测
+        loginRateLimiter.tryAcquire("ragent:rl:register:ip:", ClientIps.resolve(), 3, java.time.Duration.ofHours(1));
 
         // 邮箱已注册（或被同用户名占用）：静默受理，不建号不发码，与可注册路径返回完全一致
         if (userMapper.selectActiveByUsernameOrEmail(email) != null) {
@@ -136,6 +141,8 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
     @Override
     public void requestPasswordReset(ForgotPasswordRequest requestParam) {
         String email = normalizeEmail(requestParam == null ? null : requestParam.getEmail());
+        // 重置请求限速：3 次/小时/（IP+邮箱）（doc 15 §2.2.7）——先于存在性判断，未知邮箱的探测同样计额
+        loginRateLimiter.tryAcquire("ragent:rl:reset:", ClientIps.resolve() + "|" + email, 3, java.time.Duration.ofHours(1));
         UserDO user = userMapper.selectActiveByUsernameOrEmail(email);
         // 未注册/未验证：静默受理（不发码）
         if (user == null || user.getEmailVerified() == null || user.getEmailVerified() != 1) {

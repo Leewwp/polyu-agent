@@ -57,10 +57,12 @@ public class AuthServiceImpl implements AuthService {
         if (password.length() > 64) {
             throw new ClientException("用户名或密码错误");
         }
-        loginRateLimiter.acquire(resolveClientIp(), username);
+        // 失败限速前置检查（U5：5 次/15 分钟/（IP+账号）双键，超限锁 15 分钟；成功登录不计）
+        loginRateLimiter.checkLocked(resolveClientIp(), username);
         // 登录双键：用户名或注册邮箱均可（注册用户 username=email，二者同值）
         UserDO user = userMapper.selectActiveByUsernameOrEmail(username.trim());
         if (user == null || !passwordCodec.matches(password, user.getPassword())) {
+            loginRateLimiter.recordFailure(resolveClientIp(), username);
             throw new ClientException("用户名或密码错误");
         }
         // 注册用户必须完成邮箱验证（存量/管理员建/游客无邮箱不受限）
@@ -110,8 +112,8 @@ public class AuthServiceImpl implements AuthService {
                 return buildLoginVO(current);
             }
         }
-        // 游客铸造限速：按 IP 复用登录限速器（固定窗口），防批量刷 guest 账号
-        loginRateLimiter.acquire(resolveClientIp(), "guest-trial");
+        // 游客铸造防刷：按 IP 每窗口限量铸造（游客实际用量由 T8 日配额约束，此为批量铸号闸）
+        loginRateLimiter.tryAcquire("ragent:rl:guest:", resolveClientIp(), 10, java.time.Duration.ofSeconds(300));
         UserDO guest = UserDO.builder()
                 .username("guest-" + IdUtil.fastSimpleUUID().substring(0, 12))
                 // 随机双 UUID 加密落库：guest 不走密码登录，此值仅满足非空约束

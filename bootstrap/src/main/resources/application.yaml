@@ -48,9 +48,14 @@ ragent:
     mode: logger           # T10 邮件服务：logger=只记日志不外发（默认）；smtp=真实发信（移植 OmniCraft 云侧配置后启用）
     code-ttl-minutes: 10   # 验证码有效期（分钟）
     resend-cooldown-seconds: 60  # 重发冷却（秒）
+    hourly-limit-per-email: 3    # 每小时每邮箱发信上限（U5，doc 15 §2.2.7；跨场景合并计数）
     # mode=smtp 时的连接参数全部环境注入（凭据入 ~/.polyu-agent/secrets.yaml，不入仓库）：
     # spring.mail.host=${MAIL_HOST:} / port=${MAIL_PORT:587} / username=${MAIL_USERNAME:} /
     # password=${MAIL_PASSWORD:}；发件人= MAIL_FROM（发信身份复用 OmniCraft 或独立别名=开放注册前的门）
+  security:
+    login:
+      max-failures: 5    # 登录失败窗口内允许次数（U5 对齐 doc 15 §2.2.7：5 次/15 分钟/（IP+账号）双键，成功不计）
+      lock-seconds: 900  # 失败计数窗口=锁定时长（超限锁 15 分钟，窗口自最后一次失败滑动）
 
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:

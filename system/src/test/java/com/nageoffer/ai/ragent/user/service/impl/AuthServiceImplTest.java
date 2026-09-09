@@ -121,13 +121,13 @@ class AuthServiceImplTest {
         ClientException ex = assertThrows(ClientException.class,
                 () -> authService.login(req("admin", "x".repeat(65))));
         assertEquals("用户名或密码错误", ex.getMessage());
-        verify(loginRateLimiter, never()).acquire(anyString(), anyString());
+        verify(loginRateLimiter, never()).checkLocked(anyString(), anyString());
     }
 
     @Test
     void rateLimitedRequestNeverTouchesCredentials() {
-        org.mockito.Mockito.doThrow(new ClientException("登录尝试过于频繁，请稍后再试"))
-                .when(loginRateLimiter).acquire(anyString(), anyString());
+        org.mockito.Mockito.doThrow(new ClientException("登录失败次数过多，已临时锁定，请 15 分钟后再试"))
+                .when(loginRateLimiter).checkLocked(anyString(), anyString());
         assertThrows(ClientException.class, () -> authService.login(req("admin", "whatever")));
         verify(userMapper, never()).selectOne(any());
     }
@@ -135,7 +135,7 @@ class AuthServiceImplTest {
     @Test
     void blankPasswordRejectedBeforeRateLimiter() {
         assertThrows(ClientException.class, () -> authService.login(req("admin", " ")));
-        verify(loginRateLimiter, never()).acquire(anyString(), anyString());
+        verify(loginRateLimiter, never()).checkLocked(anyString(), anyString());
     }
 
     @Test

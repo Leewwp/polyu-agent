@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.mail;
 
 import cn.hutool.core.lang.Assert;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.user.security.WindowCounter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -29,11 +30,11 @@ import java.time.Duration;
 import java.util.Set;
 
 /**
- * 邮件验证码服务（T10 脚手架）
+ * 邮件验证码服务（T10 脚手架，U5 补小时额）
  *
  * <p>生成 6 位数字码 → Redis 存 SHA-256 摘要（TTL=有效期）→ 经 MailSender 发出；
- * 校验走摘要比对，防 Redis 泄露即泄露码值。重发冷却按 scene+email 键控。
- * 注册/重置/注销的业务端点在开放注册前另立单元接线（doc 13 §16 门）。
+ * 校验走摘要比对，防 Redis 泄露即泄露码值。频控两层：60s 重发冷却（scene+email 键控）
+ * + 每小时每邮箱 3 封（doc 15 §2.2.7，跨场景合并计数）。
  */
 @Service
 @RequiredArgsConstructor
@@ -41,11 +42,13 @@ public class MailVerificationService {
 
     private static final String CODE_KEY_PREFIX = "mail:code:";
     private static final String COOLDOWN_KEY_PREFIX = "mail:cooldown:";
+    private static final String HOURLY_KEY_PREFIX = "mail:hourly:";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final Set<String> SCENES = Set.of("verify", "reset", "delete");
 
     private final StringRedisTemplate stringRedisTemplate;
     private final MailSender mailSender;
+    private final WindowCounter windowCounter;
 
     /**
      * 验证码有效期（分钟）
@@ -58,6 +61,12 @@ public class MailVerificationService {
      */
     @Value("${ragent.mail.resend-cooldown-seconds:60}")
     private int resendCooldownSeconds;
+
+    /**
+     * 每小时每邮箱发信上限（doc 15 §2.2.7：3 封/小时/邮箱；0/负=不限制）
+     */
+    @Value("${ragent.mail.hourly-limit-per-email:3}")
+    private int hourlyLimitPerEmail;
 
     /**
      * 发送验证码
@@ -73,6 +82,12 @@ public class MailVerificationService {
         Boolean first = stringRedisTemplate.opsForValue().setIfAbsent(cooldownKey, "1", Duration.ofSeconds(resendCooldownSeconds));
         if (!Boolean.TRUE.equals(first)) {
             throw new ClientException("发送过于频繁，请稍后再试");
+        }
+        if (hourlyLimitPerEmail > 0) {
+            long sent = windowCounter.increment(HOURLY_KEY_PREFIX + email, Duration.ofHours(1));
+            if (sent > hourlyLimitPerEmail) {
+                throw new ClientException("该邮箱本小时发送次数已达上限，请稍后再试");
+            }
         }
         String code = generateCode();
         String codeKey = CODE_KEY_PREFIX + scene + ":" + email;

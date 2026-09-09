@@ -47,6 +47,7 @@ class MailVerificationServiceTest {
     private StringRedisTemplate stringRedisTemplate;
     private ValueOperations<String, String> valueOperations;
     private MailSender mailSender;
+    private com.nageoffer.ai.ragent.user.security.WindowCounter windowCounter;
     private MailVerificationService service;
 
     @BeforeEach
@@ -56,9 +57,12 @@ class MailVerificationServiceTest {
         valueOperations = mock(ValueOperations.class);
         when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
         mailSender = mock(MailSender.class);
-        service = new MailVerificationService(stringRedisTemplate, mailSender);
+        windowCounter = mock(com.nageoffer.ai.ragent.user.security.WindowCounter.class);
+        service = new MailVerificationService(stringRedisTemplate, mailSender, windowCounter);
         ReflectionTestUtils.setField(service, "codeTtlMinutes", 10);
         ReflectionTestUtils.setField(service, "resendCooldownSeconds", 60);
+        ReflectionTestUtils.setField(service, "hourlyLimitPerEmail", 3);
+        when(windowCounter.increment(anyString(), any(Duration.class))).thenReturn(1L);
     }
 
     @Test
@@ -83,6 +87,16 @@ class MailVerificationServiceTest {
     @Test
     void sendCodeRejectsUnknownScene() {
         assertThrows(ClientException.class, () -> service.sendCode("user@example.com", "register"));
+    }
+
+    @Test
+    void sendCodeRejectsWhenHourlyLimitExceeded() {
+        // U5：3 封/小时/邮箱——第 4 封被拒（冷却已放行、跨场景合并计数）
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+        when(windowCounter.increment(eq("mail:hourly:user@example.com"), any(Duration.class))).thenReturn(4L);
+
+        assertThrows(ClientException.class, () -> service.sendCode("user@example.com", "verify"));
+        verify(mailSender, never()).send(any(MailMessage.class));
     }
 
     @Test

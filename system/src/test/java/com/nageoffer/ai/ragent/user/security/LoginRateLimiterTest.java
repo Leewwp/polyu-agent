@@ -17,73 +17,130 @@
 
 package com.nageoffer.ai.ragent.user.security;
 
-import java.time.Duration;
-
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.redisson.api.RRateLimiter;
-import org.redisson.api.RateIntervalUnit;
-import org.redisson.api.RateType;
-import org.redisson.api.RedissonClient;
 
-import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import java.time.Duration;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
- * 登录限速单元测试：初始化幂等 + 双维度计数 + 超限拒绝 + 键名清洗
+ * 登录失败限速三态测试（U5 验收门：注入时钟/计数器验证 未达限/达限拒/窗口恢复）。
+ * 数值口径=doc 15 §2.2.7：5 次/15 分钟/（IP+账号）双键，超限锁 15 分钟。
  */
 class LoginRateLimiterTest {
 
-    private RedissonClient redissonClient;
-    private RRateLimiter limiter;
-    private LoginRateLimiter rateLimiter;
+    private static final String IP = "203.0.113.7";
+    private static final String USER = "someone@example.com";
+
+    private FakeWindowCounter counter;
+    private LoginRateLimiter limiter;
 
     @BeforeEach
     void setUp() {
-        redissonClient = mock(RedissonClient.class);
-        limiter = mock(RRateLimiter.class);
-        when(redissonClient.<RRateLimiter>getRateLimiter(any(String.class))).thenReturn(limiter);
-        when(limiter.trySetRate(any(RateType.class), anyLong(), anyLong(), any(RateIntervalUnit.class)))
-                .thenReturn(true);
-        rateLimiter = new LoginRateLimiter(redissonClient);
-        setWindow(rateLimiter, 10, 300);
+        counter = new FakeWindowCounter();
+        limiter = new LoginRateLimiter(counter);
+        org.springframework.test.util.ReflectionTestUtils.setField(limiter, "maxFailures", 5);
+        org.springframework.test.util.ReflectionTestUtils.setField(limiter, "lockSeconds", 900);
     }
 
-    private void setWindow(LoginRateLimiter limiter, int attempts, int windowSeconds) {
-        org.springframework.test.util.ReflectionTestUtils.setField(limiter, "attemptsPerWindow", attempts);
-        org.springframework.test.util.ReflectionTestUtils.setField(limiter, "windowSeconds", windowSeconds);
+    private void fail(String ip, String user) {
+        limiter.recordFailure(ip, user);
     }
 
     @Test
-    void acquireConsumesBothDimensionsWhenAvailable() {
-        when(limiter.tryAcquire()).thenReturn(true);
-        rateLimiter.acquire("127.0.0.1", "admin");
-        verify(redissonClient).getRateLimiter("ragent:rl:login:ip:127.0.0.1");
-        verify(redissonClient).getRateLimiter("ragent:rl:login:user:admin");
-        verify(limiter, org.mockito.Mockito.times(2)).trySetRate(RateType.OVERALL, 10, 300, RateIntervalUnit.SECONDS);
-        verify(limiter, org.mockito.Mockito.times(2)).expireIfNotSet(any(Duration.class));
+    void underLimitLoginIsAllowed() {
+        // 未达限：4 次失败后仍放行（第 5 次才达限）
+        for (int i = 0; i < 4; i++) {
+            fail(IP, USER);
+        }
+        assertDoesNotThrow(() -> limiter.checkLocked(IP, USER));
     }
 
     @Test
-    void throwsWhenAnyDimensionExhausted() {
-        when(limiter.tryAcquire()).thenReturn(false);
-        assertThrows(ClientException.class, () -> rateLimiter.acquire("127.0.0.1", "admin"));
+    void reachingLimitLocksLogin() {
+        for (int i = 0; i < 5; i++) {
+            fail(IP, USER);
+        }
+        assertThrows(ClientException.class, () -> limiter.checkLocked(IP, USER));
     }
 
     @Test
-    void sanitizesUnsafeCharactersInKeys() {
-        when(limiter.tryAcquire()).thenReturn(true);
-        rateLimiter.acquire("1.2.3.4, 5.6.7.8", "a b/c");
-        verify(redissonClient).getRateLimiter("ragent:rl:login:ip:1.2.3.4__5.6.7.8");
-        verify(redissonClient).getRateLimiter("ragent:rl:login:user:a_b_c");
-        verify(limiter, never()).expireIfNotSet((Duration) null);
+    void ipKeyLocksEvenWithDifferentUsernames() {
+        // 账号键随机化（撞库换用户名）时，IP 键仍兜底锁住
+        for (int i = 0; i < 5; i++) {
+            fail(IP, "victim-" + i + "@example.com");
+        }
+        assertThrows(ClientException.class, () -> limiter.checkLocked(IP, "fresh-" + USER));
+    }
+
+    @Test
+    void userKeyLocksEvenFromDifferentIps() {
+        // IP 随机化（分布式撞库单账号）时，账号键仍兜底锁住
+        for (int i = 0; i < 5; i++) {
+            fail("198.51.100." + i, USER);
+        }
+        assertThrows(ClientException.class, () -> limiter.checkLocked("203.0.113.99", USER));
+    }
+
+    @Test
+    void windowRecoveryUnlocksAfterLockPeriod() {
+        for (int i = 0; i < 5; i++) {
+            fail(IP, USER);
+        }
+        assertThrows(ClientException.class, () -> limiter.checkLocked(IP, USER));
+
+        // 时间旅行越过锁定窗口（15 分钟）即恢复
+        counter.advance(Duration.ofSeconds(901));
+        assertDoesNotThrow(() -> limiter.checkLocked(IP, USER));
+    }
+
+    @Test
+    void windowSlidesFromLastFailure() {
+        for (int i = 0; i < 4; i++) {
+            fail(IP, USER);
+        }
+        // 第 4 次失败后过 14 分钟：窗口自最后一次失败滑动，仍未过期
+        counter.advance(Duration.ofMinutes(14));
+        fail(IP, USER);
+        assertThrows(ClientException.class, () -> limiter.checkLocked(IP, USER));
+
+        // 再过 15 分钟（距最后一次失败）恢复
+        counter.advance(Duration.ofSeconds(901));
+        assertDoesNotThrow(() -> limiter.checkLocked(IP, USER));
+    }
+
+    @Test
+    void checkLockedDoesNotIncreaseCount() {
+        for (int i = 0; i < 5; i++) {
+            fail(IP, USER);
+        }
+        // 反复探测锁状态不增加计数（检查只读）
+        for (int i = 0; i < 10; i++) {
+            assertThrows(ClientException.class, () -> limiter.checkLocked(IP, USER));
+        }
+        counter.advance(Duration.ofSeconds(901));
+        assertDoesNotThrow(() -> limiter.checkLocked(IP, USER));
+    }
+
+    @Test
+    void tryAcquireRejectsOverLimitAndRecovers() {
+        String scope = "ragent:rl:guest:";
+        for (int i = 0; i < 10; i++) {
+            assertDoesNotThrow(() -> limiter.tryAcquire(scope, IP, 10, Duration.ofSeconds(300)));
+        }
+        assertThrows(ClientException.class, () -> limiter.tryAcquire(scope, IP, 10, Duration.ofSeconds(300)));
+
+        counter.advance(Duration.ofSeconds(301));
+        assertDoesNotThrow(() -> limiter.tryAcquire(scope, IP, 10, Duration.ofSeconds(300)));
+    }
+
+    @Test
+    void keysAreSanitizedAgainstRedisSeparatorInjection() {
+        // 含冒号/空格的输入不会拼出越界键（与正常键冲突）
+        limiter.recordFailure("1.2.3.4:extra", "a b");
+        assertDoesNotThrow(() -> limiter.checkLocked("1.2.3.4", "a"));
     }
 }

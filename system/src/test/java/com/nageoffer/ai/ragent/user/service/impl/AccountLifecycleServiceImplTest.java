@@ -30,6 +30,7 @@ import com.nageoffer.ai.ragent.user.controller.vo.LoginVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.mail.MailVerificationService;
+import com.nageoffer.ai.ragent.user.security.LoginRateLimiter;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -62,6 +64,7 @@ class AccountLifecycleServiceImplTest {
 
     private UserMapper userMapper;
     private MailVerificationService mailVerificationService;
+    private LoginRateLimiter loginRateLimiter;
     private AccountLifecycleServiceImpl service;
     private MockedStatic<StpUtil> stpUtil;
     private PasswordCodec passwordCodec;
@@ -70,8 +73,9 @@ class AccountLifecycleServiceImplTest {
     void setUp() {
         userMapper = mock(UserMapper.class);
         mailVerificationService = mock(MailVerificationService.class);
+        loginRateLimiter = mock(LoginRateLimiter.class);
         passwordCodec = new PasswordCodec();
-        service = new AccountLifecycleServiceImpl(userMapper, passwordCodec, mailVerificationService);
+        service = new AccountLifecycleServiceImpl(userMapper, passwordCodec, mailVerificationService, loginRateLimiter);
         stpUtil = mockStatic(StpUtil.class);
         stpUtil.when(StpUtil::getTokenValue).thenReturn("token");
     }
@@ -343,6 +347,31 @@ class AccountLifecycleServiceImplTest {
         req.setCode(code);
         req.setNewPassword("brand-new-pass-9");
         return req;
+    }
+
+    // ---------- 限速（U5：注册 3/h/IP、重置请求 3/h/(IP+邮箱)，先于存在性判断） ----------
+
+    @Test
+    void registerRateLimitedBeforeAnyLookup() {
+        doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException("操作过于频繁，请稍后再试"))
+                .when(loginRateLimiter).tryAcquire(anyString(), anyString(), any(Integer.class), any());
+        RegisterRequest req = new RegisterRequest();
+        req.setEmail(EMAIL);
+        req.setPassword(PASSWORD);
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class, () -> service.register(req));
+        verify(userMapper, never()).selectActiveByUsernameOrEmail(anyString());
+        verify(userMapper, never()).insert(any(UserDO.class));
+    }
+
+    @Test
+    void forgotRateLimitedEvenForUnknownEmails() {
+        doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException("操作过于频繁，请稍后再试"))
+                .when(loginRateLimiter).tryAcquire(anyString(), anyString(), any(Integer.class), any());
+        ForgotPasswordRequest req = new ForgotPasswordRequest();
+        req.setEmail(EMAIL);
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class, () -> service.requestPasswordReset(req));
+        verify(userMapper, never()).selectActiveByUsernameOrEmail(anyString());
+        verify(mailVerificationService, never()).sendCode(anyString(), anyString());
     }
 
     // ---------- 自助注销 ----------
