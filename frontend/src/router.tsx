@@ -6,6 +6,9 @@ import { ChangeLogsPage } from "@/pages/ChangeLogsPage";
 import { DocPreviewPage } from "@/pages/DocPreviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SharePage } from "@/pages/SharePage";
+import { PrivacyPage } from "@/pages/PrivacyPage";
+import { TermsPage } from "@/pages/TermsPage";
+import { DisclaimerPage } from "@/pages/DisclaimerPage";
 import { AdminLayout } from "@/pages/admin/AdminLayout";
 import { DashboardPage } from "@/pages/admin/dashboard/DashboardPage";
 import { KnowledgeListPage } from "@/pages/admin/knowledge/KnowledgeListPage";
@@ -82,6 +85,19 @@ export const router = createBrowserRouter([
     // 公开分享页：匿名可访问（E-1；后端 flag 默认关时显示无效链接态）
     path: "/share/:token",
     element: <SharePage />
+  },
+  {
+    // 法务静态页（U8）：公开无守卫，匿名可访问
+    path: "/privacy",
+    element: <PrivacyPage />
+  },
+  {
+    path: "/terms",
+    element: <TermsPage />
+  },
+  {
+    path: "/disclaimer",
+    element: <DisclaimerPage />
   },
   {
     path: "/chat",

@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { SiteFooter } from "@/components/layout/SiteFooter";
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -18,6 +19,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <main className="flex-1 min-h-0 overflow-hidden bg-white">
           {children}
         </main>
+        <SiteFooter />
       </div>
     </div>
   );

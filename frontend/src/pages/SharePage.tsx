@@ -5,6 +5,8 @@ import { GraduationCap, ShieldAlert } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/authStore";
+
+import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { PublicShare } from "@/services/shareService";
 import { getPublicShare } from "@/services/shareService";
 
@@ -76,12 +78,8 @@ export function SharePage() {
         </div>
       ) : invalid || !share ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="text-base font-medium text-[#1A1A1A]">
-            分享链接无效或已撤销
-          </p>
-          <p className="text-sm text-[#999999]">
-            This share link is invalid or has been revoked.
-          </p>
+          <p className="text-base font-medium text-[#1A1A1A]">分享链接无效或已撤销</p>
+          <p className="text-sm text-[#999999]">This share link is invalid or has been revoked.</p>
           <Button asChild variant="outline" size="sm" className="mt-2">
             <Link to={chatHref}>继续提问 · Continue asking</Link>
           </Button>
@@ -104,9 +102,7 @@ export function SharePage() {
 
           {share.citations && share.citations.length > 0 ? (
             <section className="space-y-2">
-              <h2 className="text-sm font-medium text-[#1A1A1A]">
-                官方来源 · Official sources
-              </h2>
+              <h2 className="text-sm font-medium text-[#1A1A1A]">官方来源 · Official sources</h2>
               <ol className="space-y-1.5">
                 {share.citations.map((source, index) => (
                   <li key={source.url ?? index} className="text-sm text-[#666666]">
@@ -132,16 +128,17 @@ export function SharePage() {
           <aside className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FEFCE8] p-3 text-xs leading-relaxed text-[#854D0E]">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              本页面为 AI 生成的单条问答快照，非官方服务，内容可能过期，请以 PolyU
-              官方页面为准。 · This page shows an AI-generated snapshot of a single
-              Q&amp;A. It is not an official PolyU service and may be outdated; please
-              verify against official PolyU pages.
+              本页面为 AI 生成的单条问答快照，非官方服务，内容可能过期，请以 PolyU 官方页面为准。 ·
+              This page shows an AI-generated snapshot of a single Q&amp;A. It is not an official
+              PolyU service and may be outdated; please verify against official PolyU pages.
             </p>
           </aside>
 
           <div className="flex items-center justify-between text-xs text-[#999999]">
             <span>
-              {share.createTime ? `分享于 · Shared at ${new Date(share.createTime).toLocaleString()}` : null}
+              {share.createTime
+                ? `分享于 · Shared at ${new Date(share.createTime).toLocaleString()}`
+                : null}
             </span>
             <Button asChild size="sm">
               <Link to={chatHref}>继续提问 · Continue asking</Link>
@@ -149,6 +146,7 @@ export function SharePage() {
           </div>
         </main>
       )}
+      <SiteFooter className="mt-4" />
     </div>
   );
 }
