@@ -56,6 +56,13 @@ ragent:
     login:
       max-failures: 5    # 登录失败窗口内允许次数（U5 对齐 doc 15 §2.2.7：5 次/15 分钟/（IP+账号）双键，成功不计）
       lock-seconds: 900  # 失败计数窗口=锁定时长（超限锁 15 分钟，窗口自最后一次失败滑动）
+  retention:
+    enabled: true             # U6 数据保留期清理任务总开关（doc 15 §2.2.5 八类决议，原状零清理是合规缺口故默认开；关闭仅应急）
+    purge-grace-days: 30      # 注销软删冷静期：到期硬删级联（与生命周期恢复窗口同值，决议 30 天）
+    guest-retention-days: 30  # guest 账号（连同其对话级联）自铸号起保留天数（决议 30 天）
+    feedback-retention-days: 400  # 反馈保留期，到期整行删（comment 按 PII 对待；决议 400 天）
+    scan-delay-ms: 3600000    # 清理巡检间隔（毫秒）；分享快照 90 天/邮箱墓碑 180 天按各自 expire_time 判定，不占独立配置
+    initial-delay-ms: 120000  # 启动首扫延迟（毫秒，避开启动高峰）
 
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
