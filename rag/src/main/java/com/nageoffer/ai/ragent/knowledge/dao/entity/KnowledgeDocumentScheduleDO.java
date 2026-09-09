@@ -103,6 +103,17 @@ public class KnowledgeDocumentScheduleDO {
     private String lastContentHash;
 
     /**
+     * 连续抓取失败次数（抓取成功或确认未变化后清零；仅统计远程拉取失败，不含分块失败）
+     */
+    private Integer consecutiveFailures;
+
+    /**
+     * 数据陈旧诊断标记：抓取失败期间旧版数据仍在服务检索时置 1，抓取恢复后清零。
+     * 检索链路不读本表，该字段只用于调度诊断，不影响召回
+     */
+    private Integer dataStale;
+
+    /**
      * 锁持有者
      */
     private String lockOwner;

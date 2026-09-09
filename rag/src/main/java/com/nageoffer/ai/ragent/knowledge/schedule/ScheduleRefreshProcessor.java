@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.knowledge.schedule;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.knowledge.config.KnowledgeScheduleProperties;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeBaseDO;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentScheduleDO;
@@ -62,6 +63,7 @@ public class ScheduleRefreshProcessor {
     private final ScheduleLockManager lockManager;
     private final ScheduleStateManager stateManager;
     private final DocumentStatusHelper documentStatusHelper;
+    private final KnowledgeScheduleProperties scheduleProperties;
 
     public void process(ScheduleLockLease lease) {
         if (lease == null) {
@@ -146,13 +148,21 @@ public class ScheduleRefreshProcessor {
                     .nextRunTime(nextRunTime)
                     .build();
 
-            try (RemoteFileFetcher.RemoteFetchResult fetchResult = remoteFileFetcher.fetchIfChanged(
-                    state.document.getSourceLocation(),
-                    schedule.getLastEtag(),
-                    schedule.getLastModified(),
-                    schedule.getLastContentHash(),
-                    state.document.getDocName()
-            )) {
+            RemoteFileFetcher.RemoteFetchResult fetchResult;
+            try {
+                fetchResult = remoteFileFetcher.fetchIfChanged(
+                        state.document.getSourceLocation(),
+                        schedule.getLastEtag(),
+                        schedule.getLastModified(),
+                        schedule.getLastContentHash(),
+                        state.document.getDocName()
+                );
+            } catch (Exception e) {
+                // 抓取失败单独走滞回通道（K2c）：与处理失败分开计数，未达阈值不动旧版数据
+                handleFetchFailure(lease, state, schedule, e);
+                return;
+            }
+            try (fetchResult) {
                 state.fetch = FetchSnapshot.from(fetchResult);
 
                 if (!fetchResult.changed()) {
@@ -270,6 +280,37 @@ public class ScheduleRefreshProcessor {
                 log.warn("定时刷新释放锁失败: scheduleId={}, lockToken={}",
                         lease.scheduleId(), lease.lockToken());
             }
+        }
+    }
+
+    /**
+     * 抓取失败滞回（K2c）：未达阈值只累计计数并标 stale 诊断字段，旧版数据继续服务检索；
+     * 连续达到阈值才禁用调度并打告警标记日志。抛出点在文档占用之前，
+     * 文档行与旧文件不受影响，检索结果不变
+     */
+    private void handleFetchFailure(ScheduleLockLease lease,
+                                    RefreshRunState state,
+                                    KnowledgeDocumentScheduleDO schedule,
+                                    Exception e) {
+        String docId = state.document != null ? state.document.getId() : null;
+        String sourceLocation = state.document != null ? state.document.getSourceLocation() : null;
+        log.error("定时刷新抓取失败: scheduleId={}, docId={}, sourceLocation={}",
+                lease.scheduleId(), docId, sourceLocation, e);
+        int threshold = Math.max(scheduleProperties.getFailureHysteresisThreshold(), 1);
+        int previous = schedule.getConsecutiveFailures() == null ? 0 : schedule.getConsecutiveFailures();
+        int current = previous + 1;
+        if (current >= threshold) {
+            log.error("[KNOWLEDGE-SOURCE-ALERT] 连续 {} 次抓取失败，自动禁用调度: scheduleId={}, docId={}, sourceLocation={}",
+                    current, lease.scheduleId(), docId, sourceLocation);
+            if (!stateManager.disableForFetchFailuresIfOwned(lease, state.ctx, e.getMessage(), current)) {
+                state.leaseLost = true;
+                logScheduleStateWriteSkipped(lease, "连续抓取失败禁用调度");
+            }
+            return;
+        }
+        if (!stateManager.markFetchFailedIfOwned(lease, state.ctx, e.getMessage(), current)) {
+            state.leaseLost = true;
+            logScheduleStateWriteSkipped(lease, "抓取失败写回调度状态");
         }
     }
 
