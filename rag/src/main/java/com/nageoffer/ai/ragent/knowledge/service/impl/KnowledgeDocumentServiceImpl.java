@@ -168,7 +168,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 .fileSize(stored.getSize())
                 .status(DocumentStatus.PENDING.getCode())
                 .sourceType(sourceType.getValue())
-                .sourceLocation(SourceType.URL == sourceType ? StrUtil.trimToNull(requestParam.getSourceLocation()) : null)
+                // FILE 类的来源位置=存储后的对象 URL，保证回跳可用（历史版本写 null 导致 D16 判例回跳缺口）
+                .sourceLocation(SourceType.URL == sourceType ? StrUtil.trimToNull(requestParam.getSourceLocation()) : stored.getUrl())
                 .scheduleEnabled(isScheduleEnabled(sourceType, requestParam) ? 1 : 0)
                 .scheduleCron(isScheduleEnabled(sourceType, requestParam) ? StrUtil.trimToNull(requestParam.getScheduleCron()) : null)
                 .processMode(modeConfig.processMode().getValue())
@@ -513,15 +514,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         // 处理定时调度相关字段（仅 URL 类型文档支持）
         boolean scheduleChanged = false;
+        // sourceLocation 对 URL 类是抓取源（变化需联动调度重注册）；
+        // 对 FILE 类是回跳元数据（upload 早期版本漏写，这里允许补救），不触发调度
+        String newSourceLocation = StrUtil.trimToNull(requestParam.getSourceLocation());
+        if (newSourceLocation != null) {
+            updateWrapper.set(KnowledgeDocumentDO::getSourceLocation, newSourceLocation);
+            scheduleChanged = SourceType.URL.getValue().equalsIgnoreCase(documentDO.getSourceType());
+        }
         if (SourceType.URL.getValue().equalsIgnoreCase(documentDO.getSourceType())) {
-            String newSourceLocation = requestParam.getSourceLocation();
             Integer newScheduleEnabled = requestParam.getScheduleEnabled();
             String newScheduleCron = requestParam.getScheduleCron();
 
-            if (StringUtils.hasText(newSourceLocation)) {
-                updateWrapper.set(KnowledgeDocumentDO::getSourceLocation, newSourceLocation.trim());
-                scheduleChanged = true;
-            }
             if (newScheduleEnabled != null) {
                 updateWrapper.set(KnowledgeDocumentDO::getScheduleEnabled, newScheduleEnabled);
                 scheduleChanged = true;
