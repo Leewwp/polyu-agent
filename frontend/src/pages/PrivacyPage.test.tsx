@@ -26,7 +26,7 @@ describe("PrivacyPage", () => {
     expect(body).toContain("cookie");
     expect(body).toContain("第三方大模型");
     expect(body).toContain("注销");
-    expect(body).toContain("wayfinder@polyuguide.com");
+    expect(body).toContain("ppp@polyuguide.com");
   });
 
   it("mirrors disclosures in English", () => {

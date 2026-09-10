@@ -1,6 +1,6 @@
 import { LegalSection, LegalShell } from "@/components/legal/LegalShell";
 
-const CONTACT_EMAIL = "wayfinder@polyuguide.com";
+const CONTACT_EMAIL = "ppp@polyuguide.com";
 
 /**
  * 隐私声明（U8，doc 15 §2.2.10 清单逐条）：收集什么（email/对话/IP 30 天/cookie 用途）、
