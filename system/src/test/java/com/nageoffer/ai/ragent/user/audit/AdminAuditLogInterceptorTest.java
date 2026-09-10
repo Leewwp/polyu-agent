@@ -124,6 +124,10 @@ class AdminAuditLogInterceptorTest {
     @Test
     void 注册面与管理面角色拦截共用同一份路径清单() {
         // 防漂移：U9 审计面必须与 S9 角色面同宽（SaTokenConfig.ADMIN_PATH_PATTERNS 单一来源）
-        assertEquals(14, com.nageoffer.ai.ragent.user.config.SaTokenConfig.ADMIN_PATH_PATTERNS.length);
+        assertEquals(15, com.nageoffer.ai.ragent.user.config.SaTokenConfig.ADMIN_PATH_PATTERNS.length);
+        // 采集管道/任务属管理面：此前漏在清单外，任一登录用户即可经 /ingestion/tasks 驱动
+        // 服务端抓取任意 URL。存在性断言比长度断言更能钉住意图
+        assertTrue(java.util.Arrays.asList(com.nageoffer.ai.ragent.user.config.SaTokenConfig.ADMIN_PATH_PATTERNS)
+                .contains("/ingestion/**"));
     }
 }

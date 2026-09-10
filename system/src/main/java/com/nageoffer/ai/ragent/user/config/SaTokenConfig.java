@@ -56,6 +56,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
      */
     public static final String[] ADMIN_PATH_PATTERNS = {
             "/knowledge-base/**",
+            // 采集管道/采集任务（2026-09-10 安全复核补漏）：前端入口在 pages/admin/ingestion，
+            // 属管理面；此前漏在本清单外，任一登录用户即可驱动 HttpUrlFetcher 抓取任意 URL
+            "/ingestion/**",
             "/agents/**",
             "/agent-skills/**",
             "/intent-tree",
@@ -104,8 +107,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 .order(ORDER_LOGIN);
 
         // 管理面角色拦截：登录态之上再要求 admin 角色（S9：服务端补齐 /admin 边界，
-        // 覆盖知识库/智能体/意图树/映射/设置/追踪/审计/用户管理；用户侧接口不受影响。
+        // 覆盖知识库/采集/智能体/意图树/映射/设置/追踪/审计/用户管理；用户侧接口不受影响。
         // 2026-09-07 安全复核补充项：/rag/eval 效果评测端点可触发全链路检索，纳入 admin）
+        // 注意：清单为手写维护，新增管理面 controller 时须同步补入，否则默认落在登录态即可访问
         registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkRole("admin")))
                 .addPathPatterns(ADMIN_PATH_PATTERNS)
                 .order(ORDER_ADMIN_ROLE);
