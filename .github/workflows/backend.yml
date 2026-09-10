@@ -29,11 +29,13 @@ jobs:
 
       # 质量门 = 全模块单元测试，命令行排除中间件/真实 API 依赖类（不改 pom）。
       # 排除清单与 rag/src/test/resources/application.yaml 隔离层注释保持同步维护。
+      # NewsQueryServiceTests 为 U12 新增的 @SpringBootTest（需 PG/Redis 上下文），
+      # 按本文件头部口径不该进本门；原清单漏收致 rag 模块 6 个 error，2026-09-10 补入。
       - name: Unit quality gate (no middleware, no API keys)
         run: >
           ./mvnw test
           -Dsurefire.failIfNoSpecifiedTests=false
-          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!YouComSearchMcpExecutorLiveTest'
+          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!YouComSearchMcpExecutorLiveTest,!NewsQueryServiceTests'
 
       - name: Package (skip tests)
         run: ./mvnw -DskipTests package
