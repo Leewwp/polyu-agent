@@ -1,6 +1,8 @@
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { LoginPage } from "@/pages/LoginPage";
+import { RegisterPage } from "@/pages/RegisterPage";
+import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { EngineGate } from "@/components/common/EngineGate";
 import { ChangeLogsPage } from "@/pages/ChangeLogsPage";
 import { DocPreviewPage } from "@/pages/DocPreviewPage";
@@ -78,6 +80,24 @@ export const router = createBrowserRouter([
     element: (
       <RedirectIfAuth>
         <LoginPage />
+      </RedirectIfAuth>
+    )
+  },
+  {
+    // 自助注册 + 邮箱验证（U11-④）：公开页，后端 flag 关闭时提交报「注册通道当前未开放」
+    path: "/register",
+    element: (
+      <RedirectIfAuth>
+        <RegisterPage />
+      </RedirectIfAuth>
+    )
+  },
+  {
+    // 忘记密码 / 密码重置（U11-④）：与注册端点同挂 flag
+    path: "/forgot-password",
+    element: (
+      <RedirectIfAuth>
+        <ForgotPasswordPage />
       </RedirectIfAuth>
     )
   },

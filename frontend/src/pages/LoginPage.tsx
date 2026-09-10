@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Eye, EyeOff, Lock, User } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,12 +95,23 @@ export function LoginPage() {
                 />
                 记住我
               </label>
-              <span className="text-xs text-muted-foreground">账号由管理员初始化</span>
+              <Link
+                to="/forgot-password"
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                忘记密码？
+              </Link>
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "正在登录..." : "登录"}
             </Button>
+            <p className="text-center text-sm text-muted-foreground">
+              还没有账号？{" "}
+              <Link to="/register" className="underline">
+                注册
+              </Link>
+            </p>
           </form>
         </div>
       </div>

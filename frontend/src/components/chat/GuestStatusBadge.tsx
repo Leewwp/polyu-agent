@@ -70,7 +70,7 @@ export function GuestStatusBadge() {
         {exhausted ? " · 次数已用完" : ""}
       </span>
       <Link
-        to="/login"
+        to="/register"
         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#D4D4D4] bg-white px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#F5F5F5]"
       >
         <LogIn className="h-3 w-3" />
