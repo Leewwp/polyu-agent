@@ -24,7 +24,6 @@ import {
 } from "@/services/agentService";
 import { buildQuery } from "@/utils/helpers";
 import { createAgentStreamResponse } from "@/hooks/useAgentStream";
-import { storage } from "@/utils/storage";
 
 interface AgentChatState {
   sessions: AgentSession[];
@@ -254,7 +253,6 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     startedMs: number;
   }) => {
     const { url, body, assistantId, startedMs } = params;
-    const token = storage.getToken();
     // meta 是后端受理这一轮的第一帧：收到它才算请求确实送达，没收到就不知道断在哪一侧
     let delivered = false;
 
@@ -518,8 +516,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     const { start, cancel } = createAgentStreamResponse(
       {
         url,
-        body,
-        headers: token ? { Authorization: token } : undefined
+        body
       },
       handlers
     );

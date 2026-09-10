@@ -35,3 +35,8 @@ rag:
 
 rocketmq:
   name-server: polyu-rmqnamesrv:9876
+
+# U3 会话 cookie 化生产差异：线上 HTTPS（F4 TLS 已启用），Cookie 追加 Secure
+sa-token:
+  cookie:
+    secure: true

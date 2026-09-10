@@ -379,6 +379,14 @@ sa-token:
   token-style: simple-uuid
   is-log: false
   is-print: false
+  # U3 会话载体 cookie 化（Sa-Token 原生档位）：登录写 HttpOnly Cookie、请求可从 Cookie 读 token；
+  # 登出时以增代删清 Cookie（is-read-cookie 开启即触发）。secure 不在基础档设置（本地 http），
+  # prod profile 覆盖 true；__Host- 前缀评估结论见 U3 HANDOFF。
+  is-read-cookie: true
+  cookie:
+    path: /
+    http-only: true
+    same-site: Lax
 
 rocketmq:
   name-server: 127.0.0.1:9876

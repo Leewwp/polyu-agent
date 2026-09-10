@@ -23,7 +23,6 @@ import {
 import { buildQuery } from "@/utils/helpers";
 import { classifyChatError, noticeTextFor } from "@/utils/chatErrors";
 import { createStreamResponse } from "@/hooks/useStreamResponse";
-import { storage } from "@/utils/storage";
 
 interface ChatState {
   sessions: Session[];
@@ -314,7 +313,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       deepThinking: deepThinkingEnabled ? true : undefined
     });
     const url = `${API_BASE_URL}/rag/v3/chat${query}`;
-    const token = storage.getToken();
 
     const handlers = {
       onMeta: (payload: { conversationId: string; taskId: string }) => {
@@ -502,7 +500,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { start, cancel } = createStreamResponse(
       {
         url,
-        headers: token ? { Authorization: token } : undefined,
         retryCount: 1
       },
       handlers

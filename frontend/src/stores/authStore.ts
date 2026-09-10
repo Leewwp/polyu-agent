@@ -3,15 +3,19 @@
 import { create } from "zustand";
 import { toast } from "sonner";
 
-import type { User } from "@/types";
+import type { CurrentUser } from "@/types";
 import { getCurrentUser, login as loginRequest, logout as logoutRequest } from "@/services/authService";
-import { setAuthToken } from "@/services/api";
 import { useChatStore } from "@/stores/chatStore";
 import { storage } from "@/utils/storage";
 
+/**
+ * U3 会话载体 cookie 化：登录态由后端 HttpOnly Cookie 承载（Sa-Token is-read-cookie），
+ * 前端不再持有/持久化 token——localStorage 只剩用户展示信息，登录态判定一律以
+ * /user/me 探针为准（cookie 对 JS 不可读，无法本地判断）。token 字段与 setAuthToken
+ * 接线随 localStorage 路径一并移除。
+ */
 interface AuthState {
-  user: User | null;
-  token: string | null;
+  user: CurrentUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
@@ -21,25 +25,15 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  user: storage.getUser(),
-  token: storage.getToken(),
-  isAuthenticated: Boolean(storage.getToken()),
+  user: null,
+  isAuthenticated: false,
   isLoading: false,
   login: async (username, password) => {
     set({ isLoading: true });
     try {
-      const data = await loginRequest(username, password);
-      const user = {
-        userId: data.userId,
-        username: data.username || username,
-        role: data.role,
-        token: data.token,
-        avatar: data.avatar
-      };
-      storage.setToken(user.token);
-      storage.setUser(user);
-      setAuthToken(user.token);
-      set({ user, token: user.token, isAuthenticated: true });
+      await loginRequest(username, password);
+      // token 只活在 HttpOnly Cookie 里；用户信息以 /user/me 为准
+      set({ user: null, isAuthenticated: true });
       get().fetchCurrentUser().catch(() => null);
       useChatStore.getState().cancelGeneration();
       useChatStore.setState({
@@ -66,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   logout: async () => {
     try {
+      // 后端登出同时清 Cookie（sa-token is-read-cookie：以增代删 maxAge=0）
       await logoutRequest();
     } catch {
       // Ignore network errors on logout
@@ -85,28 +80,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       streamingMessageId: null,
       cancelRequested: false
     });
+    // 同时清掉 cookie 化之前遗留的 localStorage token（迁移清道夫）
     storage.clearAuth();
-    setAuthToken(null);
-    set({ user: null, token: null, isAuthenticated: false });
+    set({ user: null, isAuthenticated: false });
     toast.success("已退出登录");
   },
   checkAuth: async () => {
-    const token = storage.getToken();
-    const user = storage.getUser();
-    setAuthToken(token);
-    set({ token, user, isAuthenticated: Boolean(token) });
-    if (token) {
-      await get().fetchCurrentUser();
+    // 旧 localStorage token 一律清除（U3 迁移；HttpOnly Cookie 后 JS 无法也无须读取）
+    storage.clearToken();
+    try {
+      const data = await getCurrentUser();
+      set({ user: data, isAuthenticated: true });
+    } catch {
+      storage.clearUser();
+      set({ user: null, isAuthenticated: false });
     }
   },
   fetchCurrentUser: async () => {
-    const token = get().token || storage.getToken();
-    if (!token) return;
+    if (!get().isAuthenticated) return;
     try {
       const data = await getCurrentUser();
-      const nextUser = { ...data, token };
-      storage.setUser(nextUser);
-      set({ user: nextUser, token, isAuthenticated: true });
+      set({ user: data });
     } catch {
       return;
     }
