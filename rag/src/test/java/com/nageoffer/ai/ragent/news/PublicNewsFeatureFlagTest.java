@@ -19,9 +19,11 @@ package com.nageoffer.ai.ragent.news;
 
 import com.nageoffer.ai.ragent.news.controller.PublicNewsController;
 import com.nageoffer.ai.ragent.news.controller.PublicNewsDisabledController;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.retain.NewsRetentionJob;
 import com.nageoffer.ai.ragent.news.schedule.NewsFetchJob;
 import com.nageoffer.ai.ragent.news.service.NewsQueryService;
+import com.nageoffer.ai.ragent.news.service.impl.NewsFetchService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -40,6 +42,8 @@ class PublicNewsFeatureFlagTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(NewsQueryService.class, () -> mock(NewsQueryService.class))
+            .withBean(NewsSourceMapper.class, () -> mock(NewsSourceMapper.class))
+            .withBean(NewsFetchService.class, () -> mock(NewsFetchService.class))
             .withUserConfiguration(PublicNewsController.class, PublicNewsDisabledController.class,
                     NewsFetchJob.class, NewsRetentionJob.class);
 
