@@ -1115,3 +1115,83 @@ COMMENT ON COLUMN t_answer_share.citations IS '结构化官方引用快照（Lis
 COMMENT ON COLUMN t_answer_share.content_version IS '内容/知识版本标记（rag.share.content-version）';
 COMMENT ON COLUMN t_answer_share.status IS 'ACTIVE/REVOKED';
 COMMENT ON COLUMN t_answer_share.expire_time IS '过期时刻，NULL 即不过期（终值随门批复）';
+
+-- ============================================================
+-- polyu-agent U12 资讯流四表（doc 19 §3，2026-09-10）
+-- 与 RAG 知识库管线物理隔离：检索链路不读；条目 url_hash 幂等去重；
+-- 90 天保留清理由 NewsRetentionJob 负责（不进 U6 DataRetentionProperties）；
+-- 种子数据（信源 7 行+主题 20 行）见 init_data_pg.sql
+-- ============================================================
+CREATE TABLE t_news_source (
+  id             BIGSERIAL PRIMARY KEY,
+  source_key     VARCHAR(64)  NOT NULL UNIQUE,
+  platform       VARCHAR(32)  NOT NULL,          -- official / youtube / weibo / zhihu / prn / events
+  display_name   VARCHAR(128) NOT NULL,
+  display_name_en VARCHAR(128),
+  home_url       VARCHAR(512),
+  fetch_endpoint VARCHAR(1024) NOT NULL,         -- 列表页 / RSS URL
+  fetch_strategy VARCHAR(32)  NOT NULL,          -- SITEMAP / HTML_LIST / RSS / JSON_API
+  official       BOOLEAN      NOT NULL DEFAULT TRUE,
+  enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+  consecutive_failures INT    NOT NULL DEFAULT 0,
+  create_time    TIMESTAMP    NOT NULL DEFAULT now(),
+  update_time    TIMESTAMP    NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE t_news_source IS '资讯信源注册表（V1 只上校级账号；扩源=加行无代码改动）';
+COMMENT ON COLUMN t_news_source.source_key IS '信源稳定标识：news-sitemap / media-releases / youtube-main 等';
+COMMENT ON COLUMN t_news_source.platform IS 'official=官网；youtube/prn=第三方平台（卡片带平台徽章）';
+COMMENT ON COLUMN t_news_source.fetch_endpoint IS '抓取入口；events 型含 date=YYYY/MM 占位，由抓取器按当前月+下月替换';
+COMMENT ON COLUMN t_news_source.fetch_strategy IS 'SITEMAP / HTML_LIST / RSS / JSON_API 四型';
+COMMENT ON COLUMN t_news_source.official IS '是否官网（polyu.edu.hk）来源；false 的卡片带平台徽章';
+COMMENT ON COLUMN t_news_source.consecutive_failures IS '连续抓取失败计数，阈值 3 自动置 enabled=false（K2c 滞回）';
+
+CREATE TABLE t_news_item (
+  id           BIGSERIAL PRIMARY KEY,
+  source_id    BIGINT NOT NULL REFERENCES t_news_source(id),
+  url          VARCHAR(1024) NOT NULL,
+  url_hash     VARCHAR(64)  NOT NULL,            -- sha256，幂等去重唯一键
+  title_zh     VARCHAR(512),
+  title_en     VARCHAR(512),
+  summary_zh   TEXT,
+  summary_en   TEXT,
+  category     VARCHAR(32) NOT NULL DEFAULT 'other',
+  lang_raw     VARCHAR(8)  NOT NULL DEFAULT 'en',
+  publish_time TIMESTAMP,
+  fetch_time   TIMESTAMP NOT NULL DEFAULT now(),
+  status       VARCHAR(16) NOT NULL DEFAULT 'published',  -- published / hidden
+  heat         INT NOT NULL DEFAULT 0,           -- V2 跨源聚类预留
+  create_time  TIMESTAMP NOT NULL DEFAULT now(),
+  CONSTRAINT uq_news_item_url UNIQUE (url_hash)
+);
+CREATE INDEX idx_news_item_pub ON t_news_item(publish_time DESC) WHERE status = 'published';
+COMMENT ON TABLE t_news_item IS '资讯条目表（AI 双语摘要+永久原文外链；不进 RAG 证据面）';
+COMMENT ON COLUMN t_news_item.url_hash IS 'sha256(url) 十六进制，幂等去重唯一键';
+COMMENT ON COLUMN t_news_item.category IS '固定 8 类：admission/scholarship/research/campus/event/career/exchange/admin（+other 兜底）';
+COMMENT ON COLUMN t_news_item.lang_raw IS '原文语言（en/zh-Hant/zh-Hans）';
+COMMENT ON COLUMN t_news_item.status IS 'published=展示；hidden=晨报抽样止血下架（admin 最小端点）';
+
+CREATE TABLE t_news_topic (
+  id            BIGSERIAL PRIMARY KEY,
+  slug          VARCHAR(64) NOT NULL UNIQUE,
+  name_zh       VARCHAR(128) NOT NULL,
+  name_en       VARCHAR(128),
+  topic_group   VARCHAR(32) NOT NULL,      -- FACULTY / RESEARCH / STUDENT_AFFAIRS
+  description_zh VARCHAR(512),
+  description_en VARCHAR(512),
+  curated       BOOLEAN NOT NULL DEFAULT TRUE,  -- 种子词表 TRUE；AI 新提案 FALSE 待晨报审后转正
+  status        VARCHAR(16) NOT NULL DEFAULT 'active',
+  create_time   TIMESTAMP NOT NULL DEFAULT now(),
+  update_time   TIMESTAMP NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE t_news_topic IS '资讯主题词表（三维分组：学院与部门/研究领域与话题/学生事务）';
+COMMENT ON COLUMN t_news_topic.slug IS '主题稳定标识，与原型 TOPICS 注册表键一致';
+COMMENT ON COLUMN t_news_topic.topic_group IS 'FACULTY=学院与部门；RESEARCH=研究领域与话题；STUDENT_AFFAIRS=学生事务';
+COMMENT ON COLUMN t_news_topic.curated IS 'TRUE=策展词表进目录；FALSE=AI 提案待审不进目录';
+
+CREATE TABLE t_news_item_topic (
+  item_id  BIGINT NOT NULL REFERENCES t_news_item(id) ON DELETE CASCADE,
+  topic_id BIGINT NOT NULL REFERENCES t_news_topic(id),
+  PRIMARY KEY (item_id, topic_id)
+);
+CREATE INDEX idx_news_item_topic ON t_news_item_topic(topic_id);
+COMMENT ON TABLE t_news_item_topic IS '条目-主题多对多关联（保留期清理随 t_news_item 级联删除）';

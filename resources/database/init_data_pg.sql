@@ -1124,3 +1124,42 @@ VALUES ('2001523723396309017', '2001523723396309001', 'AGENT_MAIN', $prompt$# �
 - 工具报错 → 只说明这一步没能取到数据以及用户可以怎么办；对用户不暴露工具名、内部标识符、错误原文，需要说出处时说「知识库资料」或「系统数据」
 - 跟随用户提问的语言，默认简体中文；你自己写的部分先结论再展开，保持简洁
 $prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0);
+
+-- ============================================
+-- U12 资讯流：信源与主题种子（doc 19 §2/§3，2026-09-10）
+-- 信源 7 行（campus-reports 停更默认禁用；YouTube RSS 生产侧可达即接入）
+-- 主题 20 行=原型 TOPICS 注册表（学院与部门 6/研究领域与话题 6/学生事务 8）
+-- ============================================
+
+INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, home_url, fetch_endpoint, fetch_strategy, official, enabled) VALUES
+  ('news-sitemap',   'official', '官网新闻索引',   'Official News Sitemap',      'https://www.polyu.edu.hk/',       'https://www.polyu.edu.hk/news-sitemap.xml', 'SITEMAP',   TRUE,  TRUE),
+  ('media-releases', 'official', '官网媒体发布',   'Media Releases',             'https://www.polyu.edu.hk/media/media-releases/', 'https://www.polyu.edu.hk/media/media-releases/?page=1', 'HTML_LIST', TRUE, TRUE),
+  ('recent-focus',   'official', '官网最新动态',   'Recent Focus',               'https://www.polyu.edu.hk/recent-focus/', 'https://www.polyu.edu.hk/recent-focus/?page=1', 'HTML_LIST', TRUE, TRUE),
+  ('events',         'official', '官网活动日历',   'Events Calendar',            'https://www.polyu.edu.hk/events/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=F45B40DE7F3F4AFA9B2D02B1D824C1E0&date=YYYY/MM', 'JSON_API', TRUE, TRUE),
+  ('campus-reports', 'official', '官网校园报道',   'Campus Reports',             'https://www.polyu.edu.hk/media/campus-reports/', 'https://www.polyu.edu.hk/media/campus-reports/?page=1', 'HTML_LIST', TRUE, FALSE),
+  ('prn',            'prn',      'PR Newswire 理大频道', 'PR Newswire (PolyU)',  'https://www.prnewswire.com/news/the-hong-kong-polytechnic-university-(polyu)/', 'https://www.prnewswire.com/news/the-hong-kong-polytechnic-university-(polyu)/', 'HTML_LIST', FALSE, TRUE),
+  ('youtube-main',   'youtube',  '理大官方 YouTube 频道', 'PolyU Official YouTube Channel', 'https://www.youtube.com/channel/UCkio4asleKcQVRVEM8RnXlQ', 'https://www.youtube.com/feeds/videos.xml?channel_id=UCkio4asleKcQVRVEM8RnXlQ', 'RSS', FALSE, TRUE)
+ON CONFLICT (source_key) DO NOTHING;
+
+INSERT INTO t_news_topic (slug, name_zh, name_en, topic_group, description_zh, description_en, curated, status) VALUES
+  ('eng',        '工学院',             'Faculty of Engineering',             'FACULTY',        '工学院及旗下学系的科研、课程与活动动态',   'Research, programmes and events from FENG and its departments', TRUE, 'active'),
+  ('bus',        '工商管理学院',       'Faculty of Business',                 'FACULTY',        '商学院及旗下学系与中心的动态',             'Updates from FB and its schools and centres', TRUE, 'active'),
+  ('csm',        '计算及数理科学学院', 'Faculty of Computing & Math Sciences','FACULTY',        '计算机科学、数学与数据科学方向的动态',     'Computing, mathematics and data science updates', TRUE, 'active'),
+  ('ce',         '建设及环境学院',     'Faculty of Construction & Environment','FACULTY',       '建筑、土木、环境与测量方向的动态',         'Built environment and civil updates', TRUE, 'active'),
+  ('hss',        '医疗及社会科学院',   'Faculty of Health & Social Sciences', 'FACULTY',        '医疗健康与社会科学方向的动态',             'Health and social sciences updates', TRUE, 'active'),
+  ('htm',        '酒店及旅游业管理学院', 'School of Hotel & Tourism Mgmt',    'FACULTY',        '酒店与旅游管理教育研究的动态',             'Hospitality and tourism education and research', TRUE, 'active'),
+  ('ai',         '人工智能',           'Artificial Intelligence',             'RESEARCH',       'AI 算法、应用与治理方向的科研与活动',      'Research and events on AI algorithms, applications and governance', TRUE, 'active'),
+  ('biomed',     '生物医药与健康',     'Biomedicine & Health',                'RESEARCH',       '医学、生物工程与健康科学方向的进展',       'Advances in medicine, bioengineering and health sciences', TRUE, 'active'),
+  ('energy',     '新能源与可持续',     'Energy & Sustainability',             'RESEARCH',       '新能源、碳中和与可持续发展动态',           'New energy, carbon neutrality and sustainability', TRUE, 'active'),
+  ('city',       '智慧城市',           'Smart City',                          'RESEARCH',       '智慧城市与城市韧性相关研究与实践',         'Smart-city and urban resilience research', TRUE, 'active'),
+  ('materials',  '新材料',             'Advanced Materials',                  'RESEARCH',       '新材料研发与应用的进展',                   'Advanced materials research and applications', TRUE, 'active'),
+  ('gba',        '大湾区合作',         'Greater Bay Area',                    'RESEARCH',       '理大与大湾区机构的合作与交流',             'Collaborations and exchanges across the GBA', TRUE, 'active'),
+  ('admission',  '招生入学',           'Admissions',                          'STUDENT_AFFAIRS','本科与研究生申请、截止日与录取动态',       'Ug and pg applications, deadlines and admissions', TRUE, 'active'),
+  ('campus',     '校园生活',           'Campus Life',                         'STUDENT_AFFAIRS','体育、社团、宿舍与校园日常',               'Sports, clubs, halls and everyday campus', TRUE, 'active'),
+  ('event',      '活动讲座',           'Events & Lectures',                   'STUDENT_AFFAIRS','公开讲座、工作坊与报名中的活动',           'Public lectures, workshops and open events', TRUE, 'active'),
+  ('career',     '就业实习',           'Careers & Internships',               'STUDENT_AFFAIRS','招聘会、岗位信息与职业发展',               'Career fairs, openings and development', TRUE, 'active'),
+  ('exchange',   '国际交流',           'Exchange & Study Abroad',             'STUDENT_AFFAIRS','交换计划、游学与海外学习机会',             'Exchange programmes and overseas study', TRUE, 'active'),
+  ('housing',    '宿舍与生活',         'Housing & Living',                    'STUDENT_AFFAIRS','宿舍申请、住宿生活与周边租房',             'Hall applications and off-campus housing', TRUE, 'active'),
+  ('scholarship','奖学金资助',         'Scholarships',                        'STUDENT_AFFAIRS','入学奖学金、专项资助与申请通道',           'Entrance scholarships, grants and applications', TRUE, 'active'),
+  ('admin',      '校务公告',           'Official Notices',                    'STUDENT_AFFAIRS','校历变更、政策与服务调整',                 'Calendar, policy and service updates', TRUE, 'active')
+ON CONFLICT (slug) DO NOTHING;
