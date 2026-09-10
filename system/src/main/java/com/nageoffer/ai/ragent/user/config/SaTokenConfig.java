@@ -97,10 +97,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 }))
                 // 拦截所有路径
                 .addPathPatterns("/**")
-                // 排除认证相关路径、错误页面与公开分享只读面
-                // （/public/share/**：E-1 公开答案分享匿名读，flag 默认关时端点本身 404，
-                //  放行面仅只读快照，无用户上下文依赖；T7 2026-09-08）
-                .excludePathPatterns("/auth/**", "/public/share/**", "/error")
+                // 排除认证相关路径、错误页面与公开只读面
+                // （/public/share/**：E-1 公开答案分享匿名读，flag 默认关时端点本身 404，T7 2026-09-08；
+                //  /public/news/**：U12-A 资讯流公开读，资讯浏览永久免登录，flag 默认关时 404 兜底，T4 2026-09-10）
+                .excludePathPatterns("/auth/**", "/public/share/**", "/public/news/**", "/error")
                 .order(ORDER_LOGIN);
 
         // 管理面角色拦截：登录态之上再要求 admin 角色（S9：服务端补齐 /admin 边界，
@@ -120,9 +120,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
         // 注册用户上下文拦截器
         registry.addInterceptor(userContextInterceptor)
                 .addPathPatterns("/**")
-                // 排除与登录拦截器同口径：认证路径、错误页面、公开分享只读面
+                // 排除与登录拦截器同口径：认证路径、错误页面、公开只读面（含 /public/news/**，U12-A）
                 // （公开面无登录态，UserContextInterceptor 的 getLoginIdAsString 会抛未登录；T7 2026-09-08）
-                .excludePathPatterns("/auth/**", "/public/share/**", "/error")
+                .excludePathPatterns("/auth/**", "/public/share/**", "/public/news/**", "/error")
                 .order(ORDER_USER_CONTEXT);
     }
 }

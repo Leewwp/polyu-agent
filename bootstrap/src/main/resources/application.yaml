@@ -135,6 +135,24 @@ rag:
     default-expire-days: 90   # 分享默认过期天数，0/负=不过期；终值随门批复（doc 13 §16：建议 90 天或不过期，首发 noindex）
     content-version: v1       # 随分享快照落库的内容/知识版本标记
 
+  news:
+    enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # U12-A 资讯流 feature flag：默认关（启用=门，doc 19 §4）；关闭时 /public/news/** 由兜底控制器统一 404。
+                              # env 覆盖双名兼容：RAG_NEWS_ENABLED（属性逐段映射正名）/ RAGENT_NEWS_ENABLED（doc 19 §4-6 生产 gen-prod-env 口径），前者优先
+    fetch-cron: "0 0 8,13,19 * * *"  # 抓取节奏三段 08/13/19 点（doc 19 D3；A2 骨架 Job 已读，抓取序列 A3/A5 接线）
+    retention-days: 90        # 条目保留期，NewsRetentionJob 清理阈值（A5 接线；A2 骨架占位）
+    retention-scan-delay-ms: 3600000   # 保留清理巡检间隔（毫秒），fixedDelay 形状沿 U6 先例
+    retention-initial-delay-ms: 120000 # 启动首扫延迟（毫秒），避开启动高峰
+    page-size-default: 20     # /public/news/list 默认页大小（doc 19 §13-9 首屏 20 条+加载更多）
+    hot-limit: 10             # 热点榜默认条数（Top10，A4 热度模型接线时消费）
+    source-weights:           # 热度公式信源权重（doc 19 §5；§13-4 裁决走配置段不改 DDL，A4 消费）：
+      news-sitemap: 3         #   官网媒体发布/焦点/新闻索引=3
+      media-releases: 3
+      recent-focus: 3
+      events: 3               #   活动日历=3
+      prn: 2                  #   PRN 周更补充源=2
+      youtube-main: 2         #   YouTube 社媒源=2
+    ua: "polyuguide-feed/1.0 (+https://polyuguide.com)"  # 抓取 UA（doc 19 §2 抓取纪律，A3 fetcher 使用）
+
   rate-limit:
     global:
       enabled: true
