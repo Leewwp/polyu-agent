@@ -31,6 +31,11 @@ public class SiteAboutSaveRequest {
     private String content;
 
     /**
+     * 英文 markdown（可空=前台英文档回落中文）
+     */
+    private String contentEn;
+
+    /**
      * 赞赏二维码 URL（可空）
      */
     private String qrImageUrl;

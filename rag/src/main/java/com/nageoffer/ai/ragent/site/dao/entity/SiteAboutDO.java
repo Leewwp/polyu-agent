@@ -53,6 +53,13 @@ public class SiteAboutDO {
     private String content;
 
     /**
+     * 关于页英文 markdown（可空；空时前端英文档回落中文内容）。ALWAYS 同 qr 两列——
+     * 后台清空英文内容传 null 必须能写回
+     */
+    @TableField(value = "content_en", updateStrategy = FieldStrategy.ALWAYS)
+    private String contentEn;
+
+    /**
      * 赞赏二维码 URL（可空；与 alt 同时为空时前端赞赏区整区不渲染）。
      * updateStrategy=ALWAYS：saveAbout 的「移除」路径传 null，若走默认 NOT_NULL
      * 策略 updateById 会跳过 null 字段——移除永远不生效（保存假成功）

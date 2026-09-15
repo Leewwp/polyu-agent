@@ -55,12 +55,13 @@ class SiteAboutServiceImplTest {
     void saveInsertsWhenAbsent() {
         when(mapper.selectById(1L)).thenReturn(null);
 
-        service.saveAbout("第一版内容", null, null);
+        service.saveAbout("第一版内容", "first version", null, null);
 
         ArgumentCaptor<SiteAboutDO> captor = ArgumentCaptor.forClass(SiteAboutDO.class);
         verify(mapper).insert(captor.capture());
         assertThat(captor.getValue().getId()).isEqualTo(1L);
         assertThat(captor.getValue().getContent()).isEqualTo("第一版内容");
+        assertThat(captor.getValue().getContentEn()).isEqualTo("first version");
     }
 
     /**
@@ -71,7 +72,7 @@ class SiteAboutServiceImplTest {
         when(mapper.selectById(1L)).thenReturn(
                 SiteAboutDO.builder().id(1L).content("旧内容").build());
 
-        service.saveAbout("新内容", "https://assets/qr1.png", "https://assets/qr2.png");
+        service.saveAbout("新内容", null, "https://assets/qr1.png", "https://assets/qr2.png");
 
         ArgumentCaptor<SiteAboutDO> captor = ArgumentCaptor.forClass(SiteAboutDO.class);
         verify(mapper).updateById(captor.capture());
@@ -79,6 +80,8 @@ class SiteAboutServiceImplTest {
         assertThat(captor.getValue().getContent()).isEqualTo("新内容");
         assertThat(captor.getValue().getQrImageUrl()).isEqualTo("https://assets/qr1.png");
         assertThat(captor.getValue().getQrImageUrlAlt()).isEqualTo("https://assets/qr2.png");
+        // 英文内容传 null=清空，实体 ALWAYS 策略保证写回（同 qr 两列口径）
+        assertThat(captor.getValue().getContentEn()).isNull();
     }
 
     @Test

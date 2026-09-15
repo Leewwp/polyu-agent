@@ -52,10 +52,11 @@ public class SiteAboutServiceImpl implements SiteAboutService {
     public SiteAboutVO getAbout() {
         SiteAboutDO entity = siteAboutMapper.selectById(SINGLE_ROW_ID);
         if (entity == null) {
-            return SiteAboutVO.builder().content("").qrImageUrl(null).qrImageUrlAlt(null).build();
+            return SiteAboutVO.builder().content("").contentEn(null).qrImageUrl(null).qrImageUrlAlt(null).build();
         }
         return SiteAboutVO.builder()
                 .content(StrUtil.nullToEmpty(entity.getContent()))
+                .contentEn(entity.getContentEn())
                 .qrImageUrl(entity.getQrImageUrl())
                 .qrImageUrlAlt(entity.getQrImageUrlAlt())
                 .updateTime(entity.getUpdateTime())
@@ -63,14 +64,17 @@ public class SiteAboutServiceImpl implements SiteAboutService {
     }
 
     @Override
-    public void saveAbout(String content, String qrImageUrl, String qrImageUrlAlt) {
+    public void saveAbout(String content, String contentEn, String qrImageUrl, String qrImageUrlAlt) {
         Assert.notNull(content, () -> new ClientException("关于页内容不能为空"));
         Assert.isTrue(content.length() <= 20_000, () -> new ClientException("关于页内容过长"));
+        Assert.isTrue(contentEn == null || contentEn.length() <= 20_000,
+                () -> new ClientException("关于页英文内容过长"));
         SiteAboutDO existing = siteAboutMapper.selectById(SINGLE_ROW_ID);
         if (existing == null) {
             siteAboutMapper.insert(SiteAboutDO.builder()
                     .id(SINGLE_ROW_ID)
                     .content(content)
+                    .contentEn(contentEn)
                     .qrImageUrl(qrImageUrl)
                     .qrImageUrlAlt(qrImageUrlAlt)
                     .build());
@@ -79,6 +83,7 @@ public class SiteAboutServiceImpl implements SiteAboutService {
         SiteAboutDO update = new SiteAboutDO();
         update.setId(SINGLE_ROW_ID);
         update.setContent(content);
+        update.setContentEn(contentEn);
         update.setQrImageUrl(qrImageUrl);
         update.setQrImageUrlAlt(qrImageUrlAlt);
         siteAboutMapper.updateById(update);

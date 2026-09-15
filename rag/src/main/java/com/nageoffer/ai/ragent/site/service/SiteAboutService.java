@@ -32,7 +32,7 @@ public interface SiteAboutService {
     /**
      * upsert：无行则插，有行则整段覆盖（内容与两码 URL 一起保存）
      */
-    void saveAbout(String content, String qrImageUrl, String qrImageUrlAlt);
+    void saveAbout(String content, String contentEn, String qrImageUrl, String qrImageUrlAlt);
 
     /**
      * 二维码上传：校验 image/{png,jpeg,webp}、≤2MB → 资产桶公共 URL；

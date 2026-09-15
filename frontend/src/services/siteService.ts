@@ -29,6 +29,8 @@ siteApi.interceptors.response.use(
 
 export interface SiteAboutContent {
   content: string;
+  /** 英文档内容（可空；空时前台英文档回落中文） */
+  contentEn?: string | null;
   qrImageUrl?: string | null;
   qrImageUrlAlt?: string | null;
   updateTime?: string | null;
@@ -88,9 +90,10 @@ export async function getSiteAboutForAdmin(): Promise<SiteAboutContent> {
   return (data as never) as SiteAboutContent;
 }
 
-/** admin：保存关于页（upsert：内容+两码 URL 整段覆盖） */
+/** admin：保存关于页（upsert：双语内容+两码 URL 整段覆盖） */
 export async function saveSiteAbout(payload: {
   content: string;
+  contentEn?: string | null;
   qrImageUrl?: string | null;
   qrImageUrlAlt?: string | null;
 }): Promise<void> {

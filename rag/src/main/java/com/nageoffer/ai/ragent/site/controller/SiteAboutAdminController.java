@@ -58,7 +58,7 @@ public class SiteAboutAdminController {
      */
     @PutMapping
     public Result<Void> save(@RequestBody SiteAboutSaveRequest requestParam) {
-        siteAboutService.saveAbout(requestParam.getContent(),
+        siteAboutService.saveAbout(requestParam.getContent(), requestParam.getContentEn(),
                 requestParam.getQrImageUrl(), requestParam.getQrImageUrlAlt());
         return Results.success(null);
     }

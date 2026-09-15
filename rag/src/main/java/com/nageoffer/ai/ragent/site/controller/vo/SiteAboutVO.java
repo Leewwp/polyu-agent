@@ -39,6 +39,11 @@ public class SiteAboutVO {
     private String content;
 
     /**
+     * 英文 markdown（可空；空时前端英文档回落中文内容）
+     */
+    private String contentEn;
+
+    /**
      * 赞赏二维码 URL
      */
     private String qrImageUrl;

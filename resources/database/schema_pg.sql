@@ -1220,6 +1220,7 @@ COMMENT ON COLUMN t_site_feedback.status IS '0 未处理 / 1 已处理 / 2 忽�
 CREATE TABLE t_site_about (
   id              BIGINT   PRIMARY KEY,
   content         TEXT,
+  content_en      TEXT,
   qr_image_url    VARCHAR(512),
   qr_image_url_alt VARCHAR(512),
   create_time     TIMESTAMP NOT NULL DEFAULT now(),
@@ -1227,5 +1228,6 @@ CREATE TABLE t_site_about (
 );
 COMMENT ON TABLE t_site_about IS '关于页单行内容表（doc 25）：id 固定 1，service 层 upsert，零种子依赖';
 COMMENT ON COLUMN t_site_about.content IS '关于页 markdown 内容（作者/项目介绍），维护者后台编辑';
+COMMENT ON COLUMN t_site_about.content_en IS '关于页英文 markdown（可空）；空时前端英文档回落中文内容';
 COMMENT ON COLUMN t_site_about.qr_image_url IS '赞赏二维码 URL（可空）；与 alt 同时为空时前端赞赏区整区不渲染';
 COMMENT ON COLUMN t_site_about.qr_image_url_alt IS '第二张赞赏二维码 URL（可空）';

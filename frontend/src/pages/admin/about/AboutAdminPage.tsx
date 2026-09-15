@@ -16,6 +16,7 @@ const QR_ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
  */
 export function AboutAdminPage() {
   const [content, setContent] = useState("");
+  const [contentEn, setContentEn] = useState("");
   const [qrMain, setQrMain] = useState("");
   const [qrAlt, setQrAlt] = useState("");
   const [loading, setLoading] = useState(true);
@@ -30,6 +31,7 @@ export function AboutAdminPage() {
       .then((data) => {
         if (!active) return;
         setContent(data.content ?? "");
+        setContentEn(data.contentEn ?? "");
         setQrMain(data.qrImageUrl ?? "");
         setQrAlt(data.qrImageUrlAlt ?? "");
       })
@@ -72,6 +74,7 @@ export function AboutAdminPage() {
       setSaving(true);
       await saveSiteAbout({
         content,
+        contentEn: contentEn.trim() || null,
         qrImageUrl: qrMain.trim() || null,
         qrImageUrlAlt: qrAlt.trim() || null
       });
@@ -93,7 +96,7 @@ export function AboutAdminPage() {
         <div>
           <h1 className="text-xl font-semibold">关于页</h1>
           <p className="text-sm text-muted-foreground">
-            markdown 编辑 · 左写右预览 · 保存后前台即时生效
+            markdown 编辑 · 左写右预览 · 中英双语 · 保存后前台即时生效
           </p>
         </div>
         <Button onClick={handleSave} disabled={saving}>
@@ -104,7 +107,7 @@ export function AboutAdminPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardContent className="p-4">
-            <div className="mb-2 text-sm font-medium">编辑</div>
+            <div className="mb-2 text-sm font-medium">编辑（中文）</div>
             <textarea
               className="h-[420px] w-full resize-none rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus:ring-1 focus:ring-ring"
               value={content}
@@ -117,12 +120,42 @@ export function AboutAdminPage() {
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="mb-2 text-sm font-medium">预览</div>
+            <div className="mb-2 text-sm font-medium">预览（中文）</div>
             <div className="h-[420px] overflow-y-auto rounded-md border border-input p-3 text-sm">
               {content.trim() ? (
                 <AgentMarkdownRenderer content={content} />
               ) : (
                 <span className="text-muted-foreground">暂无内容</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-2 text-sm font-medium">编辑（英文 · 可选）</div>
+            <textarea
+              className="h-[320px] w-full resize-none rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus:ring-1 focus:ring-ring"
+              value={contentEn}
+              onChange={(event) => setContentEn(event.target.value)}
+              placeholder="English markdown (optional) — 留空时前台英文档回落中文内容"
+              spellCheck={false}
+              aria-label="关于页英文 markdown 内容"
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="mb-2 text-sm font-medium">预览（英文）</div>
+            <div className="h-[320px] overflow-y-auto rounded-md border border-input p-3 text-sm">
+              {contentEn.trim() ? (
+                <AgentMarkdownRenderer content={contentEn} />
+              ) : (
+                <span className="text-muted-foreground">
+                  未配置英文内容——前台 EN 档将回落显示中文内容
+                </span>
               )}
             </div>
           </CardContent>
