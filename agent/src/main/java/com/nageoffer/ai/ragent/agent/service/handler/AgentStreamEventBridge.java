@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.agent.service.handler;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.dto.AgentCompletionPayload;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmCall;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmField;
@@ -36,6 +37,7 @@ import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolBatchFact;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolFact;
+import com.nageoffer.ai.ragent.agent.tool.AgentToolSourceStash;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.event.AgentEvent;
@@ -463,6 +465,11 @@ public class AgentStreamEventBridge {
             }
             block.setStatus(AgentToolStatus.of(event.getState()).value());
             block.setResult(buffer == null ? null : StrUtil.sub(buffer.toString(), 0, TOOL_RESULT_MAX_CHARS));
+            // 工具执行线程暂存的检索来源在此挂块：随 blocks JSON 落库、随本帧 SSE 透传，零新事件类型
+            List<AgentBlockSource> sources = AgentToolSourceStash.take(event.getToolCallId());
+            if (sources != null) {
+                block.setSources(sources);
+            }
             applyExecutionTimes(block);
             progress = AgentToolProgress.of(block);
         }

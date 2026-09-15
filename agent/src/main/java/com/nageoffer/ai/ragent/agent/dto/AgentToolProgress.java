@@ -25,7 +25,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AgentToolProgress(String toolCallId, String name, String displayName, String status,
                                 String result, Boolean ok, String at, String batchId, Integer callIndex,
-                                Long startedAt, Long endedAt, Long durationMs, String durationSource) {
+                                Long startedAt, Long endedAt, Long durationMs, String durationSource,
+                                java.util.List<AgentBlockSource> sources) {
 
     /**
      * 从块投影，SSE 与落库同源，避免刷新前后出现两个不同的数
@@ -34,7 +35,7 @@ public record AgentToolProgress(String toolCallId, String name, String displayNa
         return new AgentToolProgress(block.getToolCallId(), block.getName(), block.getDisplayName(),
                 block.getStatus(), block.getResult(), ok(block.getStatus()), block.getAt(), block.getBatchId(),
                 block.getCallIndex(), block.getStartedAt(), block.getEndedAt(), block.getDurationMs(),
-                block.getDurationSource());
+                block.getDurationSource(), block.getSources());
     }
 
     /**

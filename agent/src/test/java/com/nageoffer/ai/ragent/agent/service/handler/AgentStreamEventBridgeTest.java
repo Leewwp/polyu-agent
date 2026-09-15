@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.service.handler;
 
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.dto.AgentCompletionPayload;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmField;
 import com.nageoffer.ai.ragent.agent.dto.AgentMessageDelta;
@@ -28,6 +29,7 @@ import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolBatchFact;
+import com.nageoffer.ai.ragent.agent.tool.AgentToolSourceStash;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
@@ -98,6 +100,11 @@ class AgentStreamEventBridgeTest {
         clock = new MovableClock();
         facts = new AgentToolExecutionFacts(TASK_ID, clock);
         bridge = newBridge();
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanStash() {
+        AgentToolSourceStash.reset();
     }
 
     @Test
@@ -465,7 +472,32 @@ class AgentStreamEventBridgeTest {
         assertThat(last).isEqualTo(new AgentToolProgress(block.getToolCallId(), block.getName(),
                 block.getDisplayName(), block.getStatus(), block.getResult(), true, block.getAt(),
                 block.getBatchId(), block.getCallIndex(), block.getStartedAt(), block.getEndedAt(),
-                block.getDurationMs(), block.getDurationSource()));
+                block.getDurationMs(), block.getDurationSource(), block.getSources()));
+    }
+
+    /**
+     * 工具执行线程暂存的来源在 onToolEnd 挂块：随 blocks JSON 落库、随 tool 帧 SSE 透传
+     */
+    @Test
+    void shouldAttachStashedSourcesToToolBlockAndSsePayload() {
+        List<AgentBlockSource> sources = List.of(
+                new AgentBlockSource("doc-42", "图书馆服务指南", "游泳池开放时间为早七至晚十…"));
+        AgentToolSourceStash.put("call-src-1", sources);
+        bridge.onEvent(new ToolCallStartEvent(REASON_ID, "call-src-1", "search_knowledge"));
+        ToolBatchFact batch = beginBatch("call-src-1");
+        bridge.onEvent(new ToolResultStartEvent(ACT_ID, "call-src-1", "search_knowledge"));
+        facts.markStarted("call-src-1");
+        facts.markEnded("call-src-1");
+        bridge.onEvent(new ToolResultEndEvent(ACT_ID, "call-src-1", "search_knowledge", ToolResultState.SUCCESS));
+        facts.endBatch(batch);
+        bridge.onComplete();
+
+        AgentBlock block = capturedBlocks().get(0);
+        assertThat(block.getSources()).isEqualTo(sources);
+        // take 即移除：stash 不残留
+        assertThat(AgentToolSourceStash.take("call-src-1")).isNull();
+        AgentToolProgress last = capturedToolEvents().get(capturedToolEvents().size() - 1);
+        assertThat(last.sources()).isEqualTo(sources);
     }
 
     /**

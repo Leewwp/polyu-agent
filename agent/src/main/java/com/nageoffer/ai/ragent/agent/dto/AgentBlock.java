@@ -116,4 +116,9 @@ public class AgentBlock {
      * confirm 块待用户裁决的工具调用，整卡一次决策，不逐条勾选
      */
     private List<AgentConfirmCall> calls;
+
+    /**
+     * tool 块的检索来源（search_knowledge 专属，其余块恒空），随块 JSON 落库与 SSE 透传；老数据无此字段
+     */
+    private List<AgentBlockSource> sources;
 }

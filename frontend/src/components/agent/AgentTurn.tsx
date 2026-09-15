@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { AgentMarkdownRenderer } from "@/components/agent/AgentMarkdownRenderer";
+import { AgentSourcesBadge } from "@/components/agent/AgentSourcesBadge";
 import {
   buildTimelineRows,
   formatDuration,
@@ -440,6 +441,8 @@ function ToolCallBox({ block, messageId }: { block: AgentBlockUI; messageId?: st
         <span className="agent-caret">{open ? "▾" : "▸"}</span>
         <span className="agent-tool-preview">{summary}</span>
       </button>
+      {/* 来源徽章不随工具块折叠：任何展开态可见 */}
+      <AgentSourcesBadge sources={block.sources} />
       {open ? <pre className="agent-pre">{full || "（空返回）"}</pre> : null}
     </div>
   );

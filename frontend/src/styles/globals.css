@@ -4634,6 +4634,78 @@ textarea {
   overflow-x: auto;
 }
 
+/* 工具块来源徽章：自包含折叠态 + 内联展开列表（不绑侧栏面板） */
+.agent-app .agent-sources {
+  border-top: var(--agent-hair);
+  padding: 6px var(--agent-s3) 8px;
+}
+
+.agent-app .agent-sources-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--agent-s2);
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 999px;
+  font-size: var(--agent-t-xs);
+  color: var(--agent-muted);
+  cursor: pointer;
+}
+
+.agent-app .agent-sources-badge:hover {
+  color: var(--agent-ink);
+}
+
+.agent-app .agent-sources-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-app .agent-sources-item {
+  display: flex;
+  gap: var(--agent-s2);
+  align-items: flex-start;
+}
+
+.agent-app .agent-sources-icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.agent-app .agent-sources-body {
+  min-width: 0;
+}
+
+.agent-app .agent-sources-name {
+  font-size: var(--agent-t-xs);
+  color: var(--agent-ink);
+}
+
+.agent-app .agent-sources-excerpt {
+  font-size: var(--agent-t-xs);
+  color: var(--agent-muted);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agent-app .agent-sources-link {
+  font-size: var(--agent-t-xs);
+  color: var(--agent-signal);
+  text-decoration: none;
+}
+
+.agent-app .agent-sources-link:hover {
+  text-decoration: underline;
+}
+
 /* 写操作确认卡：唯一会拦住流程要人点头的东西 给它描边而非下沉底
    底色走橙雾而不是灰：这一行在等人 属"正在发生的事" 与运行中同一族 */
 .agent-app .agent-row[data-channel="confirm"] .agent-node,

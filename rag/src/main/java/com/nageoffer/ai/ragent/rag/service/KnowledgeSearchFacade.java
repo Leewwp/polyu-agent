@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.service;
 
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
@@ -38,7 +39,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 知识检索门面：Agent 模式下 rag 对外的唯一检索窄口
@@ -52,6 +56,16 @@ import java.util.List;
 public class KnowledgeSearchFacade {
 
     public static final String EMPTY_RESULT = "未在知识库中检索到与该问题相关的内容。";
+
+    /**
+     * 来源摘录长度：只够认出文档，不搬运正文
+     */
+    private static final int SOURCE_EXCERPT_CHARS = 120;
+
+    /**
+     * 来源条数上限：工具块徽章是溯源入口不是检索结果页
+     */
+    private static final int MAX_SOURCES = 8;
 
     private final QueryRewriteService queryRewriteService;
     private final IntentResolver intentResolver;
@@ -67,6 +81,14 @@ public class KnowledgeSearchFacade {
      * @param recentHistory 主 Agent 会话的近期 user/assistant 轮次，仅用于改写阶段的指代消解
      */
     public String search(String query, List<ChatMessage> recentHistory) {
+        return searchWithSources(query, recentHistory).answer();
+    }
+
+    /**
+     * 检索并合成答案，同时带出结构化来源（docId 按纪律不进模型上下文，仅供前端徽章旁路消费）
+     * 歧义引导与空检索路径 sources 为空
+     */
+    public KnowledgeSearchOutcome searchWithSources(String query, List<ChatMessage> recentHistory) {
         RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, recentHistory);
         List<SubQuestionIntent> subIntents = filterKbOnly(intentResolver.resolve(rewriteResult));
 
@@ -75,12 +97,12 @@ public class KnowledgeSearchFacade {
         if (guidance.isPrompt()) {
             log.info("Agent 知识库检索命中歧义引导，跳过检索与答案合成, question={}",
                     rewriteResult.rewrittenQuestion());
-            return guidance.getPrompt();
+            return new KnowledgeSearchOutcome(guidance.getPrompt(), List.of());
         }
 
         RetrievalContext retrievalCtx = retrievalEngine.retrieve(subIntents);
         if (!retrievalCtx.hasKb()) {
-            return EMPTY_RESULT;
+            return new KnowledgeSearchOutcome(EMPTY_RESULT, List.of());
         }
 
         // 工具不渲染角标，但内部 docId 一定要抹掉，否则会随工具结果漏进主 Agent 的可见文本
@@ -96,12 +118,50 @@ public class KnowledgeSearchFacade {
         List<ChatMessage> messages = promptService.buildStructuredMessages(
                 promptContext, List.of(), rewriteResult.rewrittenQuestion(), rewriteResult.subQuestions(), false);
 
-        return llmService.chat(ChatRequest.builder()
+        String answer = llmService.chat(ChatRequest.builder()
                 .messages(messages)
                 .temperature(0D)
                 .topP(1D)
                 .thinking(false)
                 .build());
+        return new KnowledgeSearchOutcome(answer, collectSources(retrievalCtx));
+    }
+
+    /**
+     * intentChunks 值展平，按 docId 去重（首见保序），首条命中 chunk 前缀作摘录，截 8 条
+     * 摘录同样抹锚点：它与 kbContext 同源，不抹就把内部 docId 换了个出口
+     */
+    private List<KnowledgeSearchSource> collectSources(RetrievalContext retrievalCtx) {
+        Map<String, List<RetrievedChunk>> intentChunks = retrievalCtx.getIntentChunks();
+        if (intentChunks == null || intentChunks.isEmpty()) {
+            return List.of();
+        }
+        Map<String, KnowledgeSearchSource> byDocId = new LinkedHashMap<>();
+        for (List<RetrievedChunk> chunks : intentChunks.values()) {
+            if (chunks == null) {
+                continue;
+            }
+            for (RetrievedChunk chunk : chunks) {
+                if (chunk == null || chunk.getDocId() == null || chunk.getDocId().isBlank()) {
+                    continue;
+                }
+                KnowledgeSearchSource existed = byDocId.get(chunk.getDocId());
+                if (existed != null) {
+                    continue;
+                }
+                String excerpt = chunk.getText() == null ? ""
+                        : citationContextEnricher.stripDocIdAnchors(chunk.getText()).trim();
+                if (excerpt.length() > SOURCE_EXCERPT_CHARS) {
+                    excerpt = excerpt.substring(0, SOURCE_EXCERPT_CHARS) + "…";
+                }
+                byDocId.put(chunk.getDocId(), new KnowledgeSearchSource(
+                        chunk.getDocId(), chunk.getDocName(), excerpt));
+                if (byDocId.size() >= MAX_SOURCES) {
+                    return new ArrayList<>(byDocId.values());
+                }
+            }
+        }
+        return new ArrayList<>(byDocId.values());
     }
 
     /**
@@ -114,5 +174,17 @@ public class KnowledgeSearchFacade {
         return subIntents.stream()
                 .map(si -> new SubQuestionIntent(si.subQuestion(), NodeScoreFilters.kb(si.nodeScores())))
                 .toList();
+    }
+
+    /**
+     * 检索来源：docId 仅供站内原文路由，docName 是徽章标题，excerpt 是首条命中片段摘录
+     */
+    public record KnowledgeSearchSource(String docId, String docName, String excerpt) {
+    }
+
+    /**
+     * 工具结果：answer 进模型上下文，sources 走旁路（stash -> 块 JSON），两者出口不同
+     */
+    public record KnowledgeSearchOutcome(String answer, List<KnowledgeSearchSource> sources) {
     }
 }

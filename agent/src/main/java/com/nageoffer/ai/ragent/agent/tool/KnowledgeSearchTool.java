@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.tool;
 
 import cn.hutool.core.util.StrUtil;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.trace.AgentToolBodyTracer;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
@@ -102,8 +103,15 @@ public class KnowledgeSearchTool implements AgentTool {
             return buildResult(toolCallId, "工具参数 query 不能为空", true);
         }
         try {
-            String result = knowledgeSearchFacade.search(query, recentTurns(param.getRuntimeContext()));
-            return buildResult(toolCallId, result, false);
+            KnowledgeSearchFacade.KnowledgeSearchOutcome outcome =
+                    knowledgeSearchFacade.searchWithSources(query, recentTurns(param.getRuntimeContext()));
+            // docId 不进模型上下文：来源走旁路暂存，返回值只有答案文本
+            if (!outcome.sources().isEmpty()) {
+                AgentToolSourceStash.put(toolCallId, outcome.sources().stream()
+                        .map(source -> new AgentBlockSource(source.docId(), source.docName(), source.excerpt()))
+                        .toList());
+            }
+            return buildResult(toolCallId, outcome.answer(), false);
         } catch (Exception e) {
             log.error("知识库检索工具调用异常", e);
             return buildResult(toolCallId, "知识库检索异常: " + e.getMessage(), true);

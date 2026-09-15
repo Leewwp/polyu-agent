@@ -5,6 +5,7 @@ import type {
   AgentToolProgress,
   AgentTurn
 } from "@/types/agent";
+import type { SourceRef } from "@/types";
 
 /**
  * Agent 时间线的纯投影层：SSE 帧与落库块进来 轨迹行出去
@@ -143,7 +144,8 @@ export function applyToolFrame(
     startedAt: payload.startedAt ?? prev?.startedAt,
     endedAt: payload.endedAt ?? prev?.endedAt,
     durationMs: payload.durationMs ?? prev?.durationMs,
-    durationSource: payload.durationSource ?? prev?.durationSource
+    durationSource: payload.durationSource ?? prev?.durationSource,
+    sources: payload.sources ?? prev?.sources
   };
   if (index >= 0) {
     next[index] = merged;
@@ -212,6 +214,7 @@ export function replayBlock(block: AgentBlock, id: number): AgentBlockUI {
     endedAt: block.endedAt ?? undefined,
     durationMs: block.durationMs ?? undefined,
     durationSource: block.durationSource ?? undefined,
+    sources: (block.sources ?? undefined) as SourceRef[] | undefined,
     open: false
   };
 }

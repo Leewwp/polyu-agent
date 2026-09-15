@@ -1,3 +1,5 @@
+import type { SourceRef } from "@/types";
+
 export type AgentRole = "user" | "assistant";
 
 export type AgentMessageUiStatus = "streaming" | "done" | "cancelled" | "error";
@@ -72,6 +74,8 @@ export interface AgentBlock {
   endedAt?: number | null;
   durationMs?: number | null;
   durationSource?: AgentDurationSource | null;
+  // tool 块的检索来源（search_knowledge 专属） 老数据无此字段
+  sources?: SourceRef[] | null;
 }
 
 // 前端时间线块 id 为客户端自增 open 为折叠面板展开态
@@ -97,6 +101,8 @@ export interface AgentBlockUI {
   durationMs?: number;
   // 耗时口径 工具块用 文本块留空
   durationSource?: AgentDurationSource;
+  // tool 块的检索来源 徽章数据源 老数据为空即不渲染
+  sources?: SourceRef[];
 }
 
 export interface AgentMessage {
@@ -151,6 +157,8 @@ export interface AgentToolProgress {
   endedAt?: number | null;
   durationMs?: number | null;
   durationSource?: AgentDurationSource | null;
+  // 工具终态帧随块携带 检索来源只在此出现
+  sources?: SourceRef[] | null;
 }
 
 /**

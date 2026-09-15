@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.rag.service;
 
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.rag.config.RAGConfigProperties;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
@@ -173,6 +174,80 @@ class KnowledgeSearchFacadeTest {
         verify(promptService, never()).buildStructuredMessages(
                 any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean());
         verify(llmService, never()).chat(any());
+    }
+
+    /**
+     * 来源按 docId 去重保序、上限 8 条、摘录抹锚点；歧义引导路径 sources 恒空
+     */
+    @Test
+    void collectsDedupedCappedSourcesBesideAnswer() {
+        KnowledgeSearchFacade facade = facade(false);
+        NodeScore kbNode = NodeScore.builder()
+                .node(IntentNode.builder().id("kb-1").build())
+                .score(1.0D)
+                .build();
+        when(queryRewriteService.rewriteWithSplit(anyString(), anyList()))
+                .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
+        when(intentResolver.resolve(any(RewriteResult.class)))
+                .thenReturn(List.of(new SubQuestionIntent(QUESTION, List.of(kbNode))));
+        when(intentResolver.mergeIntentGroup(anyList()))
+                .thenReturn(new IntentGroup(List.of(), List.of(kbNode)));
+        // doc-a 跨意图重复出现只算一篇；doc-b..doc-j 共 9 篇新文档，凑满 10 篇后截 8 条（doc-h 止）
+        java.util.Map<String, List<RetrievedChunk>> intentChunks = new java.util.LinkedHashMap<>();
+        // chunk 原文先于 kbContext 装配（锚点是 context-format.st 装配时才加的），摘录天然无锚点；防御性 strip 仍在
+        RetrievedChunk docA = RetrievedChunk.builder()
+                .id("c-1").docId("doc-a").docName("文档A")
+                .text("甲文档首段").score(0.9F).build();
+        intentChunks.put("intent-1", new java.util.ArrayList<>(List.of(docA)));
+        List<RetrievedChunk> second = new java.util.ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            second.add(RetrievedChunk.builder()
+                    .id("c-" + (i + 2)).docId("doc-" + (char) ('a' + i + 1)).docName("文档" + (char) ('A' + i + 1))
+                    .text("第" + (i + 1) + "篇正文").score(0.8F).build());
+        }
+        // doc-a 二次命中：同文档不同 chunk，去重后仍一篇
+        second.add(RetrievedChunk.builder()
+                .id("c-99").docId("doc-a").docName("文档A").text("甲文档第二段").score(0.7F).build());
+        intentChunks.put("intent-2", second);
+        when(retrievalEngine.retrieve(anyList()))
+                .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).intentChunks(intentChunks).build());
+        when(promptService.buildStructuredMessages(
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean()))
+                .thenReturn(List.of());
+        when(llmService.chat(any())).thenReturn("答案");
+
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+
+        assertEquals("答案", outcome.answer());
+        assertEquals(8, outcome.sources().size(), "来源上限 8 条");
+        assertEquals("doc-a", outcome.sources().get(0).docId(), "首见保序");
+        assertEquals("文档A", outcome.sources().get(0).docName());
+        assertFalse(outcome.sources().get(0).excerpt().contains("data-ragent-doc-id"), "摘录须抹内部锚点");
+        assertTrue(outcome.sources().get(0).excerpt().contains("甲文档首段"));
+        assertEquals("doc-h", outcome.sources().get(7).docId(), "截 8 条即止");
+        assertFalse(outcome.sources().stream().anyMatch(s -> "doc-i".equals(s.docId()) || "doc-j".equals(s.docId())),
+                "第 9 篇起不出现");
+    }
+
+    /**
+     * 歧义引导：answer 是引导文案，sources 恒空（没查过库就没有来源）
+     */
+    @Test
+    void guidancePathCarriesNoSources() {
+        KnowledgeSearchFacade facade = facade(false);
+        NodeScore a = NodeScore.builder().node(IntentNode.builder().id("oa").build()).score(0.62D).build();
+        NodeScore b = NodeScore.builder().node(IntentNode.builder().id("ins").build()).score(0.60D).build();
+        List<SubQuestionIntent> subIntents = List.of(new SubQuestionIntent(QUESTION, List.of(a, b)));
+        when(queryRewriteService.rewriteWithSplit(anyString(), anyList()))
+                .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
+        when(intentResolver.resolve(any(RewriteResult.class))).thenReturn(subIntents);
+        when(guidanceService.detectAmbiguity(QUESTION, subIntents))
+                .thenReturn(GuidanceDecision.prompt("请选择系统"));
+
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+
+        assertEquals("请选择系统", outcome.answer());
+        assertTrue(outcome.sources().isEmpty());
     }
 
     private KnowledgeSearchFacade facade(boolean citationEnabled) {
