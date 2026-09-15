@@ -83,7 +83,7 @@ jobs:
       # action 全部按 commit-SHA 钉版（appleboy 两 action 持 DEPLOY_KEY
       # 私钥为最高优先，其余顺手同改，防 tag 漂移投毒）
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
