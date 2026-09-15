@@ -134,7 +134,7 @@ jobs:
           strip_components: 2
 
       - name: Pull images and rolling restart
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           GHCR_USER: ${{ needs.meta.outputs.owner }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
