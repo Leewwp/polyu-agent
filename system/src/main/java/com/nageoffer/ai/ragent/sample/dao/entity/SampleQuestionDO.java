@@ -58,6 +58,11 @@ public class SampleQuestionDO {
      */
     private String question;
 
+    /**
+     * 语言 zh / en（T20 数据面扩展：每语言一行，抽样按语言限定；存量行缺省 zh）
+     */
+    private String lang;
+
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
 

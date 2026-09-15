@@ -5,6 +5,8 @@ export interface SampleQuestion {
   title?: string | null;
   description?: string | null;
   question: string;
+  /** 语言 zh / en（T20；老数据缺省 zh） */
+  lang?: string | null;
   createTime?: string | null;
   updateTime?: string | null;
 }
@@ -21,12 +23,17 @@ export interface SampleQuestionPayload {
   title?: string | null;
   description?: string | null;
   question?: string | null;
+  /** 语言 zh / en，缺省 zh（T20） */
+  lang?: string | null;
 }
 
-/** 随机取若干条示例问题，两套前端的欢迎页共用（后端 2026-08-13 由 rag 迁到 system） */
-export async function listSampleQuestions(limit = 3): Promise<SampleQuestion[]> {
+/**
+ * 随机取若干条示例问题，两套前端的欢迎页共用（后端 2026-08-13 由 rag 迁到 system）。
+ * lang 可选（T20）：限定该语言抽样；该语言无行后端回落全量（中文兜底）
+ */
+export async function listSampleQuestions(limit = 3, lang?: string): Promise<SampleQuestion[]> {
   return api.get<SampleQuestion[], SampleQuestion[]>("/sample-questions/random", {
-    params: { limit }
+    params: { limit, lang }
   });
 }
 

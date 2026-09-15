@@ -53,10 +53,13 @@ public class SampleQuestionController {
     /**
      * 随机获取示例问题列表，条数由调用方决定
      * 字面量段优先于 /{id} 模板匹配，两者不会打架
+     * lang 可选（zh/en，T20）：限定该语言抽样；该语言无行由 service 回落全量
      */
     @GetMapping("/random")
-    public Result<List<SampleQuestionVO>> listRandom(@RequestParam(defaultValue = "3") int limit) {
-        return Results.success(sampleQuestionService.listRandomQuestions(limit));
+    public Result<List<SampleQuestionVO>> listRandom(
+            @RequestParam(defaultValue = "3") int limit,
+            @RequestParam(value = "lang", required = false) String lang) {
+        return Results.success(sampleQuestionService.listRandomQuestions(limit, lang));
     }
 
     /**

@@ -37,6 +37,10 @@ public class SampleQuestionVO {
     private String title;
     private String description;
     private String question;
+    /**
+     * 语言 zh / en（T20）
+     */
+    private String lang;
     private Date createTime;
     private Date updateTime;
 }

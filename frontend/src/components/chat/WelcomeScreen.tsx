@@ -71,8 +71,9 @@ export function WelcomeScreen() {
   React.useEffect(() => {
     let active = true;
 
+    // T20：预设卡随全局语言抽样（该语言无行后端回落全量）；语言切换重取
     const loadPresets = async () => {
-      const data = await listSampleQuestions().catch(() => null);
+      const data = await listSampleQuestions(3, zh ? "zh" : "en").catch(() => null);
       if (!active || !data || data.length === 0) {
         return;
       }
@@ -103,7 +104,7 @@ export function WelcomeScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [zh]);
 
   const applyPreset = React.useCallback(
     (prompt: string) => {

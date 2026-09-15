@@ -40,7 +40,8 @@ const PAGE_SIZE = 10;
 const emptyForm = {
   title: "",
   description: "",
-  question: ""
+  question: "",
+  lang: "zh"
 };
 
 export function SampleQuestionPage() {
@@ -83,7 +84,8 @@ export function SampleQuestionPage() {
       setForm({
         title: dialogState.item.title || "",
         description: dialogState.item.description || "",
-        question: dialogState.item.question || ""
+        question: dialogState.item.question || "",
+        lang: dialogState.item.lang === "en" ? "en" : "zh"
       });
       return;
     }
@@ -112,7 +114,8 @@ export function SampleQuestionPage() {
     const payload = {
       title: form.title.trim() || null,
       description: form.description.trim() || null,
-      question: form.question.trim()
+      question: form.question.trim(),
+      lang: form.lang === "en" ? "en" : "zh"
     };
 
     if (!payload.question) {
@@ -324,6 +327,18 @@ export function SampleQuestionPage() {
                 placeholder="请输入示例问题内容"
                 className="min-h-[120px]"
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">语言</label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={form.lang}
+                onChange={(event) => setForm((prev) => ({ ...prev, lang: event.target.value }))}
+                aria-label="示例问题语言"
+              >
+                <option value="zh">中文（zh）</option>
+                <option value="en">English（en）</option>
+              </select>
             </div>
           </div>
           <DialogFooter>

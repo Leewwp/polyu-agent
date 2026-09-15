@@ -1221,17 +1221,29 @@ INSERT INTO t_intent_node (id, kb_id, intent_code, name, level, parent_code, des
 5. 不要输出与本轮评价无关的内容，包括自我介绍和能力清单$prompt$, NULL, 93, 1, 'admin', 'admin')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO t_sample_question (id, title, description, question) VALUES
-  ('2609130000000000101', '图书馆开放时间',   '查询图书馆各馆区的开放时段与假期安排', '图书馆的开放时间是怎样的？考试周会延长吗？'),
-  ('2609130000000000102', '研讨室预订',       '预订图书馆研讨室与学习空间的入口、时限', '图书馆的研讨室怎么预订？可以提前几天约？'),
-  ('2609130000000000103', '签证续签',         '学生签证续签的办理时限与材料清单',       '学生签证续签要提前多久办理？需要准备哪些材料？'),
-  ('2609130000000000104', '奖学金申请',       '授课式研究生可申请的奖学金与截止日期',   '授课式研究生可以申请哪些奖学金？截止日期是什么时候？'),
-  ('2609130000000000105', '宿舍申请',         '新生申请学生宿舍的流程与宿费',           '新生怎么申请学生宿舍？宿费大概是多少？'),
-  ('2609130000000000106', '课程注册与退改选', '下学期选课的时间安排与加退选规则',       '下学期的课程注册和 Add/Drop 是什么时候？'),
-  ('2609130000000000107', '学费缴费',         '学费缴纳的截止日期与逾期影响',           '学费什么时候截止缴纳？逾期会有什么影响？'),
-  ('2609130000000000108', '校历关键日期',     '学期考试周与 Reading Week 安排',         '这学期的考试周是哪几天？Reading Week 放假吗？'),
-  ('2609130000000000109', '心理辅导',         '校内心理咨询服务的种类与预约方式',       '学校有哪些心理辅导或咨询服务？怎么预约？'),
-  ('2609130000000000110', '电子资源访问',     '校外访问图书馆电子数据库的途径',         '在校外如何访问图书馆的电子数据库？')
+INSERT INTO t_sample_question (id, title, description, question, lang) VALUES
+  ('2609130000000000101', '图书馆开放时间',   '查询图书馆各馆区的开放时段与假期安排', '图书馆的开放时间是怎样的？考试周会延长吗？', 'zh'),
+  ('2609130000000000102', '研讨室预订',       '预订图书馆研讨室与学习空间的入口、时限', '图书馆的研讨室怎么预订？可以提前几天约？', 'zh'),
+  ('2609130000000000103', '签证续签',         '学生签证续签的办理时限与材料清单',       '学生签证续签要提前多久办理？需要准备哪些材料？', 'zh'),
+  ('2609130000000000104', '奖学金申请',       '授课式研究生可申请的奖学金与截止日期',   '授课式研究生可以申请哪些奖学金？截止日期是什么时候？', 'zh'),
+  ('2609130000000000105', '宿舍申请',         '新生申请学生宿舍的流程与宿费',           '新生怎么申请学生宿舍？宿费大概是多少？', 'zh'),
+  ('2609130000000000106', '课程注册与退改选', '下学期选课的时间安排与加退选规则',       '下学期的课程注册和 Add/Drop 是什么时候？', 'zh'),
+  ('2609130000000000107', '学费缴费',         '学费缴纳的截止日期与逾期影响',           '学费什么时候截止缴纳？逾期会有什么影响？', 'zh'),
+  ('2609130000000000108', '校历关键日期',     '学期考试周与 Reading Week 安排',         '这学期的考试周是哪几天？Reading Week 放假吗？', 'zh'),
+  ('2609130000000000109', '心理辅导',         '校内心理咨询服务的种类与预约方式',       '学校有哪些心理辅导或咨询服务？怎么预约？', 'zh'),
+  ('2609130000000000110', '电子资源访问',     '校外访问图书馆电子数据库的途径',         '在校外如何访问图书馆的电子数据库？', 'zh'),
+  -- 英文 10 条=上方中文行同场景译本（T20），术语对齐 260914_query_term 双语目标词表：
+  -- 研讨室=Group Rooms、课程注册=Subject Registration、授课式研究生=taught postgraduate (TPG)
+  ('2609130000000000201', 'Library opening hours',  'Library opening hours by section and holiday arrangements', 'What are the Library opening hours? Are they extended during exam weeks?', 'en'),
+  ('2609130000000000202', 'Group Rooms booking',    'How to book Library Group Rooms and study spaces', 'How can I book a Group Room in the Library? How many days in advance?', 'en'),
+  ('2609130000000000203', 'Student visa renewal',   'Timeline and documents for student visa renewal', 'How early should I renew my student visa, and what documents are needed?', 'en'),
+  ('2609130000000000204', 'Scholarship applications', 'Scholarships open to taught postgraduate (TPG) students', 'What scholarships can taught postgraduate students apply for, and what are the deadlines?', 'en'),
+  ('2609130000000000205', 'Halls of residence',     'How new students apply for student halls and the fees', 'How do new students apply for halls of residence, and how much does it cost?', 'en'),
+  ('2609130000000000206', 'Subject registration',   'Subject registration and Add/Drop for next semester', 'When are subject registration and Add/Drop for next semester?', 'en'),
+  ('2609130000000000207', 'Tuition payment',        'Tuition payment deadline and late-payment effects', 'What is the tuition payment deadline, and what happens if I pay late?', 'en'),
+  ('2609130000000000208', 'Key academic dates',     'Exam weeks and Reading Week in the semester', 'Which days are the exam weeks this semester, and is there a Reading Week break?', 'en'),
+  ('2609130000000000209', 'Counselling services',   'On-campus counselling services and how to book', 'What counselling services does the university offer, and how do I book one?', 'en'),
+  ('2609130000000000210', 'Off-campus e-resources', 'Accessing Library e-databases from off campus', 'How can I access the Library e-databases from off campus?', 'en')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO t_intent_node VALUES ('2096913102703480832', '2096526022777290752', 'ar_domain', '教务注册', 0, NULL, '教务注册域：涵盖校历与关键日期、课程注册与 Add/Drop、考试评核、学费缴费等学术事务问题。

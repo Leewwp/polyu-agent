@@ -69,6 +69,7 @@ public class SampleQuestionServiceImpl implements SampleQuestionService {
                 .title(StrUtil.trimToNull(requestParam.getTitle()))
                 .description(StrUtil.trimToNull(requestParam.getDescription()))
                 .question(question)
+                .lang(normalizeLang(requestParam.getLang()))
                 .build();
         sampleQuestionMapper.insert(record);
         bizChangeLogContext.put(String.valueOf(record.getId()), null, record);
@@ -100,6 +101,9 @@ public class SampleQuestionServiceImpl implements SampleQuestionService {
         }
         if (requestParam.getDescription() != null) {
             record.setDescription(StrUtil.trimToNull(requestParam.getDescription()));
+        }
+        if (requestParam.getLang() != null) {
+            record.setLang(normalizeLang(requestParam.getLang()));
         }
 
         sampleQuestionMapper.updateById(record);
@@ -149,19 +153,36 @@ public class SampleQuestionServiceImpl implements SampleQuestionService {
     }
 
     @Override
-    public List<SampleQuestionVO> listRandomQuestions(int limit) {
+    public List<SampleQuestionVO> listRandomQuestions(int limit, String lang) {
         int size = Math.min(Math.max(limit, 1), MAX_LIMIT);
+        String normalizedLang = normalizeLang(lang);
         List<SampleQuestionDO> records = sampleQuestionMapper.selectList(
                 Wrappers.lambdaQuery(SampleQuestionDO.class)
                         .eq(SampleQuestionDO::getDeleted, 0)
+                        .eq(SampleQuestionDO::getLang, normalizedLang)
                         .last("ORDER BY RANDOM() LIMIT " + size)
         );
+        if (records == null || records.isEmpty()) {
+            // 该语言无行（如 EN 未配置）回落全量：中文兜底，避免待机页空 chips
+            records = sampleQuestionMapper.selectList(
+                    Wrappers.lambdaQuery(SampleQuestionDO.class)
+                            .eq(SampleQuestionDO::getDeleted, 0)
+                            .last("ORDER BY RANDOM() LIMIT " + size)
+            );
+        }
         if (records == null || records.isEmpty()) {
             return List.of();
         }
         return records.stream()
                 .map(this::toVO)
                 .toList();
+    }
+
+    /**
+     * 语言归一：仅 zh / en，其余（含 null）落 zh（存量行缺省口径）
+     */
+    private static String normalizeLang(String lang) {
+        return "en".equalsIgnoreCase(StrUtil.trimToEmpty(lang)) ? "en" : "zh";
     }
 
     private SampleQuestionDO loadById(String id) {
@@ -180,6 +201,7 @@ public class SampleQuestionServiceImpl implements SampleQuestionService {
                 .title(record.getTitle())
                 .description(record.getDescription())
                 .question(record.getQuestion())
+                .lang(record.getLang())
                 .createTime(record.getCreateTime())
                 .updateTime(record.getUpdateTime())
                 .build();

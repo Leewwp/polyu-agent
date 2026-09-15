@@ -33,6 +33,11 @@ public interface SampleQuestionService {
     String create(SampleQuestionCreateRequest requestParam);
 
     /**
+     * 随机取数（T20）：lang 非空时限定该语言行；该语言无行则回落全量（中文兜底，避免空 chips）
+     */
+    List<SampleQuestionVO> listRandomQuestions(int limit, String lang);
+
+    /**
      * 更新示例问题
      */
     void update(String id, SampleQuestionUpdateRequest requestParam);
@@ -51,11 +56,4 @@ public interface SampleQuestionService {
      * 分页查询示例问题列表
      */
     IPage<SampleQuestionVO> pageQuery(SampleQuestionPageRequest requestParam);
-
-    /**
-     * 随机获取示例问题列表
-     *
-     * @param limit 期望条数，越界按上下限收敛
-     */
-    List<SampleQuestionVO> listRandomQuestions(int limit);
 }

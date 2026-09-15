@@ -129,12 +129,14 @@ CREATE TABLE t_sample_question (
     title       VARCHAR(64),
     description VARCHAR(255),
     question    VARCHAR(255) NOT NULL,
+    lang        VARCHAR(8)   NOT NULL DEFAULT 'zh',
     create_time TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     update_time TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
     deleted     SMALLINT      DEFAULT 0
 );
 CREATE INDEX idx_sample_question_deleted ON t_sample_question (deleted);
 COMMENT ON TABLE t_sample_question IS '示例问题表';
+COMMENT ON COLUMN t_sample_question.lang IS '语言 zh / en（T20 每语言一行，抽样按语言限定，无命中回落全量）';
 
 -- ============================================
 -- Business Change Audit Tables

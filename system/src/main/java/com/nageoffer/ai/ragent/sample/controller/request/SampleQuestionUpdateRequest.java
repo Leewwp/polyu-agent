@@ -39,4 +39,9 @@ public class SampleQuestionUpdateRequest {
      * 示例问题内容
      */
     private String question;
+
+    /**
+     * 语言 zh / en，缺省 zh（T20）
+     */
+    private String lang;
 }
