@@ -48,6 +48,7 @@ interface ChatState {
   fetchSessions: () => Promise<void>;
   createSession: () => Promise<string>;
   deleteSession: (sessionId: string) => Promise<void>;
+  batchDeleteSessions: (sessionIds: string[]) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   updateSessionTitle: (sessionId: string, title: string) => void;
@@ -179,6 +180,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
       toast.success("删除成功");
     } catch (error) {
       toastErrorUnlessShown(error, "删除会话失败");
+    }
+  },
+  // workflow 后端无批量端点：并行逐条删+单次状态收敛+单 toast（T17 补齐，对齐 agentChatStore 形态）
+  batchDeleteSessions: async (sessionIds) => {
+    if (sessionIds.length === 0) return;
+    try {
+      await Promise.all(sessionIds.map((id) => deleteSessionRequest(id)));
+      const removed = new Set(sessionIds);
+      set((state) => ({
+        sessions: state.sessions.filter((session) => !removed.has(session.id)),
+        messages: state.currentSessionId && removed.has(state.currentSessionId) ? [] : state.messages,
+        currentSessionId:
+          state.currentSessionId && removed.has(state.currentSessionId) ? null : state.currentSessionId,
+        openedSourceMessageId:
+          state.currentSessionId && removed.has(state.currentSessionId)
+            ? null
+            : state.openedSourceMessageId
+      }));
+      toast.success(`已删除 ${sessionIds.length} 条会话`);
+    } catch (error) {
+      toastErrorUnlessShown(error, "批量删除失败");
     }
   },
   renameSession: async (sessionId, title) => {

@@ -1,7 +1,25 @@
+import * as React from "react";
 import { useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Check, MoreHorizontal, Pencil, Search, Trash2 } from "lucide-react";
 
 import { GuestStatusBadge } from "@/components/chat/GuestStatusBadge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { useEnterChat } from "@/hooks/useEnterChat";
 import { cn } from "@/lib/utils";
 import { useAgentChatStore } from "@/stores/agentChatStore";
@@ -44,6 +62,293 @@ function navEmojiClass(): string {
 
 function chatItemClass(): string {
   return "block truncate rounded-[9px] px-2.5 py-[7px] text-[13px] text-[var(--feed-text-secondary)] hover:bg-[var(--feed-bg)]";
+}
+
+/** 待确认的删除动作 单会话与批量共用一个确认弹窗 */
+type DeleteTarget = { kind: "one"; id: string; title: string } | { kind: "batch"; ids: string[] };
+
+/**
+ * 最近对话区（T17 会话管理回补）：区头搜索即时过滤 + 行悬停「…」菜单
+ * （重命名/删除）+ 多选批量删，能力自上游 AgentSidebar 移植、视觉对齐 feed 形态。
+ * 管理 API 随引擎档位路由（agent→agentChatStore / workflow→chatStore）。
+ * 匿名/游客态不渲染任何管理入口（manageable=false 只读列表）。
+ */
+function RecentChatsSectionInternal({
+  sessions,
+  isAgentEngine,
+  manageable,
+  zh,
+  onNavigate
+}: {
+  sessions: { id: string; title: string }[];
+  isAgentEngine: boolean;
+  manageable: boolean;
+  zh: boolean;
+  onNavigate: () => void;
+}) {
+  const [query, setQuery] = React.useState("");
+  const [selectMode, setSelectMode] = React.useState(false);
+  const [picked, setPicked] = React.useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [draft, setDraft] = React.useState("");
+  const [deleteTarget, setDeleteTarget] = React.useState<DeleteTarget | null>(null);
+
+  // 管理动作随引擎档位走对应 store（两 store 的 delete/rename/batch 均已备齐）
+  const agRename = useAgentChatStore((state) => state.renameSession);
+  const agDelete = useAgentChatStore((state) => state.deleteSession);
+  const agBatchDelete = useAgentChatStore((state) => state.batchDeleteSessions);
+  const wfRename = useChatStore((state) => state.renameSession);
+  const wfDelete = useChatStore((state) => state.deleteSession);
+  const wfBatchDelete = useChatStore((state) => state.batchDeleteSessions);
+  const renameSession = isAgentEngine ? agRename : wfRename;
+  const deleteSession = isAgentEngine ? agDelete : wfDelete;
+  const batchDeleteSessions = isAgentEngine ? agBatchDelete : wfBatchDelete;
+
+  const exitSelect = () => {
+    setSelectMode(false);
+    setPicked(new Set());
+  };
+
+  const togglePick = (id: string) => {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const startRename = (session: { id: string; title: string }) => {
+    setEditingId(session.id);
+    setDraft(session.title || (zh ? "新会话" : "New chat"));
+  };
+
+  const commitRename = (session: { id: string; title: string }) => {
+    const next = draft.trim();
+    if (next && next !== (session.title || "")) {
+      renameSession(session.id, next).catch(() => null);
+    }
+    setEditingId(null);
+  };
+
+  // 单删与批删都过确认弹窗；删到当前会话时聊天页自身会回落欢迎页（sessionExists→false）
+  const runDelete = () => {
+    if (!deleteTarget) return;
+    const task =
+      deleteTarget.kind === "one"
+        ? deleteSession(deleteTarget.id)
+        : batchDeleteSessions(deleteTarget.ids);
+    setDeleteTarget(null);
+    exitSelect();
+    task.catch(() => null);
+  };
+
+  const keyword = query.trim().toLowerCase();
+  const matched = keyword
+    ? sessions.filter((session) => (session.title || "").toLowerCase().includes(keyword))
+    : sessions;
+  const shown = keyword ? matched : matched.slice(0, RECENT_SESSION_LIMIT);
+  const canManage = manageable && sessions.length > 0;
+
+  return (
+    <>
+      <div className={navTitleClass()}>
+        <div className="flex items-center justify-between">
+          <span>{zh ? "最近对话" : "RECENT CHATS"}</span>
+          {canManage ? (
+            selectMode ? (
+              <button
+                type="button"
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+                onClick={exitSelect}
+              >
+                {zh ? "取消" : "Cancel"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+                onClick={() => setSelectMode(true)}
+              >
+                {zh ? "选择" : "Select"}
+              </button>
+            )
+          ) : null}
+        </div>
+      </div>
+
+      {canManage ? (
+        <div className="mx-1 mb-1 flex items-center gap-1.5 rounded-lg border border-[var(--feed-line-soft)] bg-[var(--feed-bg)] px-2 py-1.5">
+          <Search className="h-3.5 w-3.5 flex-none text-[var(--feed-text-tertiary)]" aria-hidden="true" />
+          <input
+            className="w-full bg-transparent text-[12.5px] text-[var(--feed-text-primary)] outline-none placeholder:text-[var(--feed-text-tertiary)]"
+            value={query}
+            placeholder={zh ? "搜索对话" : "Search chats"}
+            spellCheck={false}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setQuery("");
+                event.currentTarget.blur();
+              }
+            }}
+            aria-label={zh ? "搜索对话" : "Search chats"}
+          />
+        </div>
+      ) : null}
+
+      {canManage && sessions.length > 0 && matched.length === 0 ? (
+        <div className="px-2.5 py-1 text-[12px] text-[var(--feed-text-tertiary)]">
+          {zh ? "无匹配对话" : "No matching chats"}
+        </div>
+      ) : null}
+
+      {shown.map((session) => {
+        const isEditing = editingId === session.id;
+        const checked = picked.has(session.id);
+        return (
+          <div key={session.id} className="group/chat relative flex items-center">
+            {selectMode ? (
+              <button
+                type="button"
+                className="flex w-full cursor-pointer items-center gap-2 rounded-[9px] px-2.5 py-[7px] text-left text-[13px] text-[var(--feed-text-secondary)] hover:bg-[var(--feed-bg)]"
+                onClick={() => togglePick(session.id)}
+                aria-pressed={checked}
+              >
+                <span
+                  className={cn(
+                    "flex h-[15px] w-[15px] flex-none items-center justify-center rounded-[4px] border",
+                    checked
+                      ? "border-[var(--polyu-red)] bg-[var(--polyu-red)] text-white"
+                      : "border-[var(--feed-line)] bg-white"
+                  )}
+                  aria-hidden="true"
+                >
+                  {checked ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
+                </span>
+                <span className="truncate">{session.title || (zh ? "新会话" : "New chat")}</span>
+              </button>
+            ) : isEditing ? (
+              <input
+                className="w-full rounded-[9px] border border-[var(--polyu-red)] bg-white px-2.5 py-[6px] text-[13px] text-[var(--feed-text-primary)] outline-none"
+                autoFocus
+                value={draft}
+                spellCheck={false}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => setEditingId(null)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") commitRename(session);
+                  else if (event.key === "Escape") setEditingId(null);
+                }}
+                aria-label={zh ? "会话标题" : "Chat title"}
+              />
+            ) : (
+              <>
+                <Link
+                  to={`/chat/${session.id}`}
+                  className={cn(chatItemClass(), "flex-1 pr-7")}
+                  title={session.title}
+                  onClick={onNavigate}
+                >
+                  {session.title || (zh ? "新会话" : "New chat")}
+                </Link>
+                {manageable ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-1.5 hidden h-6 w-6 items-center justify-center rounded-md text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-line-soft)] hover:text-[var(--feed-text-primary)] group-hover/chat:flex"
+                        aria-label={zh ? "会话操作" : "Chat actions"}
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[120px] rounded-xl p-1">
+                      <DropdownMenuItem
+                        className="rounded-lg px-3 py-2 text-[13px]"
+                        onClick={() => startRename(session)}
+                      >
+                        <Pencil className="mr-2 h-3.5 w-3.5" />
+                        {zh ? "重命名" : "Rename"}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="rounded-lg px-3 py-2 text-[13px] text-rose-600 focus:text-rose-600 data-[highlighted]:text-rose-600"
+                        onClick={() =>
+                          setDeleteTarget({
+                            kind: "one",
+                            id: session.id,
+                            title: session.title || (zh ? "新会话" : "New chat")
+                          })
+                        }
+                      >
+                        <Trash2 className="mr-2 h-3.5 w-3.5" />
+                        {zh ? "删除" : "Delete"}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </>
+            )}
+          </div>
+        );
+      })}
+
+      {selectMode ? (
+        <div className="mt-1 flex items-center justify-between rounded-lg border border-[var(--feed-line-soft)] bg-[var(--feed-bg)] px-2.5 py-1.5 text-[12px]">
+          <span className="text-[var(--feed-text-secondary)]">
+            {zh ? `已选 ${picked.size} 条` : `${picked.size} selected`}
+          </span>
+          <button
+            type="button"
+            disabled={picked.size === 0}
+            className="rounded-md px-2 py-1 font-medium text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => setDeleteTarget({ kind: "batch", ids: [...picked] })}
+          >
+            {zh ? "删除所选" : "Delete selected"}
+          </button>
+        </div>
+      ) : null}
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {deleteTarget?.kind === "batch"
+                ? zh
+                  ? `删除选中的 ${deleteTarget.ids.length} 个会话？`
+                  : `Delete ${deleteTarget.ids.length} selected chats?`
+                : zh
+                  ? "删除该会话？"
+                  : "Delete this chat?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.kind === "batch"
+                ? zh
+                  ? "选中的会话及其全部记录将被永久删除，无法恢复。"
+                  : "Selected chats and all their history will be permanently deleted."
+                : zh
+                  ? `[${deleteTarget?.kind === "one" ? deleteTarget.title : ""}] 将被永久删除，无法恢复。`
+                  : `[${deleteTarget?.kind === "one" ? deleteTarget.title : ""}] will be permanently deleted.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{zh ? "取消" : "Cancel"}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={runDelete}
+              className="bg-rose-600 text-white hover:bg-rose-700 focus-visible:ring-rose-600"
+            >
+              {zh ? "删除" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
 }
 
 export function FeedSidebar({
@@ -204,18 +509,13 @@ export function FeedSidebar({
         </nav>
 
         <div className="flex min-h-0 flex-col gap-0.5">
-          <div className={navTitleClass()}>{zh ? "最近对话" : "RECENT CHATS"}</div>
-          {sessions.slice(0, RECENT_SESSION_LIMIT).map((session) => (
-            <Link
-              key={session.id}
-              to={`/chat/${session.id}`}
-              className={chatItemClass()}
-              title={session.title}
-              onClick={onClose}
-            >
-              {session.title}
-            </Link>
-          ))}
+          <RecentChatsSection
+            sessions={sessions}
+            isAgentEngine={isAgentEngine}
+            manageable={isAuthenticated && !isGuest}
+            zh={zh}
+            onNavigate={onClose}
+          />
           {!isAuthenticated && (
             <div className="px-2.5 pt-0.5 text-[11.5px] text-[var(--feed-text-tertiary)]">
               {zh ? "登录后可同步全部历史对话" : "Sign in to sync full history"}
@@ -254,3 +554,6 @@ export function FeedSidebar({
     </>
   );
 }
+
+// 测试引用：会话管理区组件（T17）
+export const RecentChatsSection = RecentChatsSectionInternal;
