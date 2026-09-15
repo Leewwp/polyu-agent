@@ -64,11 +64,14 @@ public class SaTokenConfig implements WebMvcConfigurer {
      * <ul>
      *   <li>/auth/**：注册/登录/游客/注销面；</li>
      *   <li>/public/share/**：公开答案分享匿名读，flag 默认关时端点本身 404；</li>
-     *   <li>/public/news/**：资讯流公开读，资讯浏览永久免登录，flag 默认关时 404 兜底。</li>
+     *   <li>/public/news/**：资讯流公开读，资讯浏览永久免登录，flag 默认关时 404 兜底；</li>
+     *   <li>/public/feedback/**、/public/about/**：站点反馈提交与关于页公开读（doc 25），
+     *       匿名可访问，rag.site.enabled 默认关时孪生 404 兜底。</li>
      * </ul>
      */
     public static final String[] PUBLIC_EXCLUDE_PATTERNS = {
-            "/auth/**", "/public/share/**", "/public/news/**", "/error"};
+            "/auth/**", "/public/share/**", "/public/news/**",
+            "/public/feedback/**", "/public/about/**", "/error"};
 
     /**
      * 管理面路径模式：admin 角色拦截与 admin 审计共用同一份清单，防两份列表漂移

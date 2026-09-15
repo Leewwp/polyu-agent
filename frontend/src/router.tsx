@@ -31,6 +31,9 @@ import { RagTracePage } from "@/pages/admin/traces/RagTracePage";
 import { RagTraceDetailPage } from "@/pages/admin/traces/RagTraceDetailPage";
 import { SystemSettingsPage } from "@/pages/admin/settings/SystemSettingsPage";
 import { SampleQuestionPage } from "@/pages/admin/sample-questions/SampleQuestionPage";
+import { FeedbackAdminPage } from "@/pages/admin/feedback/FeedbackAdminPage";
+import { AboutAdminPage } from "@/pages/admin/about/AboutAdminPage";
+import { AboutPage } from "@/pages/AboutPage";
 import { QueryTermMappingPage } from "@/pages/admin/query-term-mapping/QueryTermMappingPage";
 import { AgentProfilePage } from "@/pages/admin/agents/AgentProfilePage";
 import { AgentPromptPage } from "@/pages/admin/agents/AgentPromptPage";
@@ -147,6 +150,11 @@ export const router = createBrowserRouter([
     element: <DisclaimerPage />
   },
   {
+    // 关于页：公开无守卫（doc 25；flag 关/未配置时页内出空态）
+    path: "/about",
+    element: <AboutPage />
+  },
+  {
     path: "/chat",
     element: (
       <RequireAuth>
@@ -245,6 +253,14 @@ export const router = createBrowserRouter([
       {
         path: "sample-questions",
         element: <SampleQuestionPage />
+      },
+      {
+        path: "feedback",
+        element: <FeedbackAdminPage />
+      },
+      {
+        path: "about",
+        element: <AboutAdminPage />
       },
       {
         path: "mappings",

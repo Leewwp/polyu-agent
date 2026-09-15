@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Database,
   GitBranch,
+  Info,
   Layers,
   LayoutDashboard,
   Lightbulb,
@@ -159,6 +160,21 @@ const menuGroups: MenuGroup[] = [
     ]
   },
   {
+    title: "站点运营",
+    items: [
+      {
+        path: "/admin/feedback",
+        label: "用户反馈",
+        icon: MessageSquare
+      },
+      {
+        path: "/admin/about",
+        label: "关于页",
+        icon: Info
+      }
+    ]
+  },
+  {
     title: "设置",
     items: [
       {
@@ -193,6 +209,8 @@ const breadcrumbMap: Record<string, string> = {
   "change-logs": "审计日志",
   "sample-questions": "示例问题",
   mappings: "关键词映射",
+  feedback: "用户反馈",
+  about: "关于页",
   settings: "系统设置",
   users: "用户管理"
 };

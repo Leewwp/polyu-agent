@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
+import { FeedbackDialog } from "@/components/site/FeedbackDialog";
 import { useEnterChat } from "@/hooks/useEnterChat";
 import { cn } from "@/lib/utils";
 import { useFeedLang } from "./feedLang";
@@ -8,7 +9,7 @@ import { useFeedLang } from "./feedLang";
 /**
  * 移动端底部 4 tab（原型 .tabbar：精选/全部/对话/更多）+ 右下悬浮「问 Agent」钮（.fab）。
  * - 「对话」位与 FAB 走 useEnterChat 游客直通（已登录直达 /chat，未登录铸游客号）；
- * - 「更多」抽屉只含法务三链，不含语言切换；
+ * - 「更多」抽屉含法务三链+关于+反馈（doc 25 三入口之一），不含语言切换；
  * - 860px 断点以下才显示（原型断点；整页移动端适配复核待后续）。
  */
 
@@ -26,6 +27,7 @@ export function MobileTabbar() {
   const [searchParams] = useSearchParams();
   const isAllView = searchParams.get("view") === "all";
   const [moreOpen, setMoreOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // 游客直通：同 FeedSidebar 新对话一条 enterChat() 路径
   const enterChat = useEnterChat();
@@ -89,9 +91,29 @@ export function MobileTabbar() {
                 ℹ️ {zh ? "非官方声明" : "Disclaimer"}
               </Link>
             </div>
+            <div className="mt-2 flex gap-2">
+              <Link
+                to="/about"
+                onClick={closeMore}
+                className="flex-1 rounded-[10px] border border-[var(--feed-line)] bg-white py-2.5 text-[12.5px] text-[var(--feed-text-secondary)] active:bg-[var(--polyu-red-50)]"
+              >
+                💡 {zh ? "关于" : "About"}
+              </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMore();
+                  setFeedbackOpen(true);
+                }}
+                className="flex-1 rounded-[10px] border border-[var(--feed-line)] bg-white py-2.5 text-[12.5px] text-[var(--feed-text-secondary)] active:bg-[var(--polyu-red-50)]"
+              >
+                💬 {zh ? "反馈" : "Feedback"}
+              </button>
+            </div>
           </div>
         </>
       )}
+      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </>
   );
 }

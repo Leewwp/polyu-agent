@@ -13,7 +13,8 @@ export function PrivacyPage() {
         <p>
           注册邮箱（仅登录用户；游客试用无需提供任何个人信息）；对话与消息内容（用于提供问答服务：登录用户的记录保留至账号注销，游客对话保留
           30 天）；IP 地址与基本访问信息（仅用于安全防护与反滥用，访问类记录保留不超过 30
-          天）；必要的 cookie（仅用于保持登录会话与防滥用配额控制，不用于广告或第三方跟踪）。
+          天）；必要的 cookie（仅用于保持登录会话与防滥用配额控制，不用于广告或第三方跟踪）；站务反馈内容与选填联系方式（仅用于处理你提交的意见与建议，同一
+          IP 每日提交有条数上限以防滥用）。
         </p>
         <p className="text-muted-foreground">
           Registered email address (signed-in users only; guest trial requires no personal
@@ -22,7 +23,8 @@ export function PrivacyPage() {
           days); IP address and basic access information (used solely for security and anti-abuse,
           access records are kept for no more than 30 days); strictly necessary cookies (login
           session and abuse-prevention quota control only — never for advertising or third-party
-          tracking).
+          tracking); site feedback content and optional contact info (used solely to process your
+          feedback, with a daily per-IP submission limit for abuse prevention).
         </p>
       </LegalSection>
 
