@@ -34,7 +34,7 @@
         <bizlog-sdk.version>3.0.6</bizlog-sdk.version>
         <javax-validation-api.version>2.0.1.Final</javax-validation-api.version>
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
+        <maven-surefire-plugin.version>3.6.0</maven-surefire-plugin.version>
         <spotless-maven-plugin.version>2.22.1</spotless-maven-plugin.version>
         <!-- surefire 配置中的 @{argLine} 需要该属性存在（通常由 jacoco 定义）；
              未接入 jacoco 时给出空默认值，避免 fork 出的测试 JVM 收到字面量 @{argLine} 直接崩溃 -->
