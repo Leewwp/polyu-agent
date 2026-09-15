@@ -110,8 +110,8 @@ class KnowledgeSearchToolTest {
         assertThat(answer).doesNotContain("doc-42");
         List<AgentBlockSource> stashed = AgentToolSourceStash.take("call-42");
         assertThat(stashed).hasSize(1);
-        assertThat(stashed.get(0).docId()).isEqualTo("doc-42");
-        assertThat(stashed.get(0).docName()).isEqualTo("图书馆服务指南");
+        assertThat(stashed.get(0).getDocId()).isEqualTo("doc-42");
+        assertThat(stashed.get(0).getDocName()).isEqualTo("图书馆服务指南");
     }
 
     /**

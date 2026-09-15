@@ -17,8 +17,28 @@
 
 package com.nageoffer.ai.ragent.agent.dto;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 /**
- * 工具块来源：站内原文走既有 /preview/doc/{docId} 路由，不重复承载外链
+ * 工具块来源：站内原文走既有 /preview/doc/{docId} 路由，不重复承载外链。
+ * <p>
+ * 必须保持 Lombok getter/setter 形态（不可改 record）：blocks 列经
+ * {@code AgentBlockListTypeHandler} 用 hutool 序列化落库，hutool 只认
+ * getXxx/setXxx——record 存取器（docId()）会被写成空对象 {}，回放徽章即丢
+ * docId（SSE 侧走 Jackson 不受影响，两者形态必须兼容同一 JSON 字段名）
  */
-public record AgentBlockSource(String docId, String docName, String excerpt) {
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class AgentBlockSource {
+
+    private String docId;
+
+    private String docName;
+
+    private String excerpt;
 }
