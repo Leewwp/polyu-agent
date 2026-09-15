@@ -44,12 +44,16 @@ class AgentBlockSourceTypeHandlerContractTest {
                         .docId("2096534451851935744")
                         .docName("Student_Handbook_2026-27_English.pdf")
                         .excerpt("Sports Facilities…")
+                        .sourceType("file")
+                        .url("https://www.polyu.edu.hk/ar/student-handbook/")
                         .build()))
                 .build();
 
         String json = JSONUtil.toJsonStr(List.of(block));
         assertThat(json).contains("\"docId\":\"2096534451851935744\"");
         assertThat(json).contains("Student_Handbook");
+        assertThat(json).contains("\"sourceType\":\"file\"");
+        assertThat(json).contains("polyu.edu.hk/ar/student-handbook");
 
         List<AgentBlock> parsed = JSONUtil.toList(json, AgentBlock.class);
         assertThat(parsed).hasSize(1);
@@ -57,5 +61,9 @@ class AgentBlockSourceTypeHandlerContractTest {
         assertThat(parsed.get(0).getSources().get(0).getDocId()).isEqualTo("2096534451851935744");
         assertThat(parsed.get(0).getSources().get(0).getDocName()).contains("Student_Handbook");
         assertThat(parsed.get(0).getSources().get(0).getExcerpt()).isEqualTo("Sports Facilities…");
+        // 两态字段（doc 32 决策一）必须过 hutool 往返——丢字段=回放退化站内预览形态
+        assertThat(parsed.get(0).getSources().get(0).getSourceType()).isEqualTo("file");
+        assertThat(parsed.get(0).getSources().get(0).getUrl())
+                .isEqualTo("https://www.polyu.edu.hk/ar/student-handbook/");
     }
 }

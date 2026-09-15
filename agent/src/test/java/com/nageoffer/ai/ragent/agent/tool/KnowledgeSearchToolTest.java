@@ -90,7 +90,8 @@ class KnowledgeSearchToolTest {
                 .thenReturn(List.of());
         List<KnowledgeSearchFacade.KnowledgeSearchSource> sources = List.of(
                 new KnowledgeSearchFacade.KnowledgeSearchSource(
-                        "doc-42", "图书馆服务指南", "游泳池开放时间为早七至晚十…"));
+                        "doc-42", "图书馆服务指南", "游泳池开放时间为早七至晚十…", "url",
+                        "https://www.polyu.edu.hk/library/hours/"));
         when(knowledgeSearchFacade.searchWithSources(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new KnowledgeSearchFacade.KnowledgeSearchOutcome("开放时间是早七至晚十", sources));

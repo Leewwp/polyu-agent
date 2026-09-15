@@ -29,6 +29,9 @@ import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
 import com.nageoffer.ai.ragent.rag.core.retrieval.channel.RetrievalScopeResolver;
+import cn.hutool.core.util.StrUtil;
+import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
+import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.nageoffer.ai.ragent.rag.core.rewrite.QueryRewriteService;
 import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
@@ -40,6 +43,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,9 +62,15 @@ public class KnowledgeSearchFacade {
     public static final String EMPTY_RESULT = "未在知识库中检索到与该问题相关的内容。";
 
     /**
-     * 来源摘录长度：只够认出文档，不搬运正文
+     * 来源摘录长度：只够认出文档，不搬运正文（file 型带官网下载页时放宽见 FILE_EXCERPT_CHARS）
      */
     private static final int SOURCE_EXCERPT_CHARS = 120;
+
+    /**
+     * file 型文档摘录上限（doc 32 决策一）：徽章展开即命中段落全文（安全截断 1500），
+     * 全文另走官网下载页——站内不再要求用户下载 PDF 才能看来源
+     */
+    private static final int FILE_EXCERPT_CHARS = 1500;
 
     /**
      * 来源条数上限：工具块徽章是溯源入口不是检索结果页
@@ -74,6 +84,7 @@ public class KnowledgeSearchFacade {
     private final CitationContextEnricher citationContextEnricher;
     private final RAGPromptService promptService;
     private final LLMService llmService;
+    private final KnowledgeDocumentMapper knowledgeDocumentMapper;
 
     /**
      * 检索并合成答案，供主 Agent 的 search_knowledge 工具调用
@@ -128,15 +139,21 @@ public class KnowledgeSearchFacade {
     }
 
     /**
-     * intentChunks 值展平，按 docId 去重（首见保序），首条命中 chunk 前缀作摘录，截 8 条
-     * 摘录同样抹锚点：它与 kbContext 同源，不抹就把内部 docId 换了个出口
+     * intentChunks 值展平，按 docId 去重（首见保序），首条命中 chunk 前缀作摘录，截 8 条。
+     * 摘录同样抹锚点：它与 kbContext 同源，不抹就把内部 docId 换了个出口。
+     * <p>
+     * 来源两态（doc 32 决策一）：按文档元数据带出 sourceType+url——
+     * url 型文档的 source_location 即官网原始页面（外链直跳）；
+     * file 型文档的 source_location 为官网下载页（回填 SQL 维护，可空）。
+     * 带 url 的 file 型摘录放宽到命中段落全文，站内不再要求下载 PDF 才能看来源。
      */
     private List<KnowledgeSearchSource> collectSources(RetrievalContext retrievalCtx) {
         Map<String, List<RetrievedChunk>> intentChunks = retrievalCtx.getIntentChunks();
         if (intentChunks == null || intentChunks.isEmpty()) {
             return List.of();
         }
-        Map<String, KnowledgeSearchSource> byDocId = new LinkedHashMap<>();
+        // 值=首条命中 chunk 的摘录+自带 docName（docName 双回落：文档元数据优先、chunk 自带兜底）
+        Map<String, RetrievedChunk> firstChunkByDocId = new LinkedHashMap<>();
         for (List<RetrievedChunk> chunks : intentChunks.values()) {
             if (chunks == null) {
                 continue;
@@ -145,23 +162,51 @@ public class KnowledgeSearchFacade {
                 if (chunk == null || chunk.getDocId() == null || chunk.getDocId().isBlank()) {
                     continue;
                 }
-                KnowledgeSearchSource existed = byDocId.get(chunk.getDocId());
-                if (existed != null) {
+                if (firstChunkByDocId.containsKey(chunk.getDocId())) {
                     continue;
                 }
-                String excerpt = chunk.getText() == null ? ""
-                        : citationContextEnricher.stripDocIdAnchors(chunk.getText()).trim();
-                if (excerpt.length() > SOURCE_EXCERPT_CHARS) {
-                    excerpt = excerpt.substring(0, SOURCE_EXCERPT_CHARS) + "…";
-                }
-                byDocId.put(chunk.getDocId(), new KnowledgeSearchSource(
-                        chunk.getDocId(), chunk.getDocName(), excerpt));
-                if (byDocId.size() >= MAX_SOURCES) {
-                    return new ArrayList<>(byDocId.values());
+                firstChunkByDocId.put(chunk.getDocId(), chunk);
+                if (firstChunkByDocId.size() >= MAX_SOURCES) {
+                    return buildSources(firstChunkByDocId);
                 }
             }
         }
-        return new ArrayList<>(byDocId.values());
+        return buildSources(firstChunkByDocId);
+    }
+
+    private List<KnowledgeSearchSource> buildSources(Map<String, RetrievedChunk> firstChunkByDocId) {
+        if (firstChunkByDocId.isEmpty()) {
+            return List.of();
+        }
+        Map<String, KnowledgeDocumentDO> docsById = new HashMap<>();
+        try {
+            knowledgeDocumentMapper.selectBatchIds(firstChunkByDocId.keySet())
+                    .forEach(doc -> docsById.put(doc.getId(), doc));
+        } catch (Exception e) {
+            // 元数据富化失败不阻断来源输出：回落站内预览形态（无 url 即旧形态）
+            log.warn("来源元数据富化失败，回落站内预览形态", e);
+        }
+        List<KnowledgeSearchSource> sources = new ArrayList<>(firstChunkByDocId.size());
+        for (Map.Entry<String, RetrievedChunk> entry : firstChunkByDocId.entrySet()) {
+            String docId = entry.getKey();
+            RetrievedChunk chunk = entry.getValue();
+            String text = chunk.getText() == null ? ""
+                    : citationContextEnricher.stripDocIdAnchors(chunk.getText()).trim();
+            KnowledgeDocumentDO doc = docsById.get(docId);
+            String docName = doc != null && StrUtil.isNotBlank(doc.getDocName())
+                    ? doc.getDocName()
+                    : StrUtil.isNotBlank(chunk.getDocName()) ? chunk.getDocName() : docId;
+            // 只认 http(s) 开头的 source_location：file 型未回填时该列可能是对象 key/空
+            String url = doc != null && doc.getSourceLocation() != null
+                    && doc.getSourceLocation().startsWith("http")
+                    ? doc.getSourceLocation() : null;
+            String sourceType = doc != null ? doc.getSourceType() : null;
+            boolean fileWithUrl = "file".equals(sourceType) && url != null;
+            int cap = fileWithUrl ? FILE_EXCERPT_CHARS : SOURCE_EXCERPT_CHARS;
+            String excerpt = text.length() > cap ? text.substring(0, cap) + "…" : text;
+            sources.add(new KnowledgeSearchSource(docId, docName, excerpt, sourceType, url));
+        }
+        return sources;
     }
 
     /**
@@ -177,9 +222,11 @@ public class KnowledgeSearchFacade {
     }
 
     /**
-     * 检索来源：docId 仅供站内原文路由，docName 是徽章标题，excerpt 是首条命中片段摘录
+     * 检索来源：docId 仅供站内原文路由，docName 是徽章标题，excerpt 是首条命中片段摘录；
+     * sourceType（file/url）与 url（http 开头的 source_location）驱动前端两态渲染
      */
-    public record KnowledgeSearchSource(String docId, String docName, String excerpt) {
+    public record KnowledgeSearchSource(String docId, String docName, String excerpt,
+                                        String sourceType, String url) {
     }
 
     /**

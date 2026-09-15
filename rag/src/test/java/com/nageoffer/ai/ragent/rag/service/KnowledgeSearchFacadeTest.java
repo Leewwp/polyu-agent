@@ -29,6 +29,7 @@ import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
+import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.nageoffer.ai.ragent.rag.core.rewrite.QueryRewriteService;
 import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
@@ -66,6 +67,7 @@ class KnowledgeSearchFacadeTest {
 
     private final QueryRewriteService queryRewriteService = mock(QueryRewriteService.class);
     private final IntentResolver intentResolver = mock(IntentResolver.class);
+    private final KnowledgeDocumentMapper knowledgeDocumentMapper = mock(KnowledgeDocumentMapper.class);
     private final IntentGuidanceService guidanceService = mock(IntentGuidanceService.class);
     private final RetrievalEngine retrievalEngine = mock(RetrievalEngine.class);
     private final RAGPromptService promptService = mock(RAGPromptService.class);
@@ -255,7 +257,7 @@ class KnowledgeSearchFacadeTest {
         properties.setCitationEnabled(citationEnabled);
         when(guidanceService.detectAmbiguity(anyString(), anyList())).thenReturn(GuidanceDecision.none());
         return new KnowledgeSearchFacade(queryRewriteService, intentResolver, guidanceService, retrievalEngine,
-                new CitationContextEnricher(properties), promptService, llmService);
+                new CitationContextEnricher(properties), promptService, llmService, knowledgeDocumentMapper);
     }
 
     private void stubRetrievalHit() {

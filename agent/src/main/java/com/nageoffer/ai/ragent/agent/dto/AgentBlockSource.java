@@ -41,4 +41,15 @@ public class AgentBlockSource {
     private String docName;
 
     private String excerpt;
+
+    /**
+     * 来源类型（file/url，doc 32 决策一）：与 workflow 侧 SourceRef 字段名对齐，
+     * 前端据此分两态——url 型外链官网页、file 型展开全文+官网下载按钮
+     */
+    private String sourceType;
+
+    /**
+     * 官网原始地址（http 开头的 source_location；file 型未回填时为 null=回落站内预览）
+     */
+    private String url;
 }

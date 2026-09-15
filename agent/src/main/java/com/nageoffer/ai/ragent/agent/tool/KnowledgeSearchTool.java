@@ -108,7 +108,8 @@ public class KnowledgeSearchTool implements AgentTool {
             // docId 不进模型上下文：来源走旁路暂存，返回值只有答案文本
             if (!outcome.sources().isEmpty()) {
                 AgentToolSourceStash.put(toolCallId, outcome.sources().stream()
-                        .map(source -> new AgentBlockSource(source.docId(), source.docName(), source.excerpt()))
+                        .map(source -> new AgentBlockSource(source.docId(), source.docName(),
+                                source.excerpt(), source.sourceType(), source.url()))
                         .toList());
             }
             return buildResult(toolCallId, outcome.answer(), false);

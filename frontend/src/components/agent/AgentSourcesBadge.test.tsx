@@ -43,4 +43,38 @@ describe("AgentSourcesBadge", () => {
     // 四篇来源全部列出
     expect(screen.getByText("第四篇超预览数量")).toBeTruthy();
   });
+
+  it("two-state links per doc 32 decision 1: url-type external view, file-type download button", () => {
+    render(
+      <AgentSourcesBadge
+        sources={[
+          {
+            docId: "doc-1",
+            docName: "图书馆开放时间",
+            excerpt: "…",
+            sourceType: "url",
+            url: "https://www.polyu.edu.hk/library/hours/"
+          },
+          {
+            docId: "doc-2",
+            docName: "Student_Handbook_2026-27_English.pdf",
+            excerpt: "第一章全文段落…",
+            sourceType: "file",
+            url: "https://www.polyu.edu.hk/ar/student-handbook/"
+          }
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByText("2 篇来源").closest("button") as HTMLElement);
+
+    // url 型：查看原文外链官网页（不开站内预览）
+    const viewOriginal = screen.getByText("查看原文 ↗");
+    expect(viewOriginal.getAttribute("href")).toBe("https://www.polyu.edu.hk/library/hours/");
+    expect(viewOriginal.getAttribute("target")).toBe("_blank");
+
+    // file 型：底部「获取《手册》」按钮外链官网下载页，PDF 文件名去扩展名
+    const download = screen.getByText("获取《Student_Handbook_2026-27_English》↗");
+    expect(download.getAttribute("href")).toBe("https://www.polyu.edu.hk/ar/student-handbook/");
+    expect(download.getAttribute("target")).toBe("_blank");
+  });
 });

@@ -35,7 +35,7 @@ class AgentToolSourceStashTest {
 
     @Test
     void putThenTakeReturnsSourcesAndRemovesEntry() {
-        List<AgentBlockSource> sources = List.of(new AgentBlockSource("doc-1", "图书馆指南", "开放时间…"));
+        List<AgentBlockSource> sources = List.of(AgentBlockSource.builder().docId("doc-1").docName("图书馆指南").excerpt("开放时间…").build());
         AgentToolSourceStash.put("call-1", sources);
 
         assertThat(AgentToolSourceStash.take("call-1")).isEqualTo(sources);
@@ -45,8 +45,8 @@ class AgentToolSourceStashTest {
 
     @Test
     void blankKeyOrEmptySourcesIsIgnored() {
-        AgentToolSourceStash.put(null, List.of(new AgentBlockSource("doc-1", "n", "e")));
-        AgentToolSourceStash.put(" ", List.of(new AgentBlockSource("doc-1", "n", "e")));
+        AgentToolSourceStash.put(null, List.of(AgentBlockSource.builder().docId("doc-1").docName("n").excerpt("e").build()));
+        AgentToolSourceStash.put(" ", List.of(AgentBlockSource.builder().docId("doc-1").docName("n").excerpt("e").build()));
         AgentToolSourceStash.put("call-2", List.of());
 
         assertThat(AgentToolSourceStash.take(null)).isNull();
@@ -61,7 +61,7 @@ class AgentToolSourceStashTest {
 
     @Test
     void overflowClearsAllEntries() {
-        List<AgentBlockSource> sources = List.of(new AgentBlockSource("doc-1", "n", "e"));
+        List<AgentBlockSource> sources = List.of(AgentBlockSource.builder().docId("doc-1").docName("n").excerpt("e").build());
         IntStream.rangeClosed(1, 512).forEach(i -> AgentToolSourceStash.put("call-" + i, sources));
 
         // 第 513 次 put 触顶清空：连最早那条也一起没了，只留新放进来的

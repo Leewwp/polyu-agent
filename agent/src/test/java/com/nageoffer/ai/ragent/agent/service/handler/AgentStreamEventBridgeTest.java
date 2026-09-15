@@ -481,7 +481,7 @@ class AgentStreamEventBridgeTest {
     @Test
     void shouldAttachStashedSourcesToToolBlockAndSsePayload() {
         List<AgentBlockSource> sources = List.of(
-                new AgentBlockSource("doc-42", "图书馆服务指南", "游泳池开放时间为早七至晚十…"));
+                AgentBlockSource.builder().docId("doc-42").docName("图书馆服务指南").excerpt("游泳池开放时间为早七至晚十…").build());
         AgentToolSourceStash.put("call-src-1", sources);
         bridge.onEvent(new ToolCallStartEvent(REASON_ID, "call-src-1", "search_knowledge"));
         ToolBatchFact batch = beginBatch("call-src-1");
