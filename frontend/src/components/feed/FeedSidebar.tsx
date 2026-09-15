@@ -30,7 +30,7 @@ import { useFeedLang } from "./feedLang";
 
 /**
  * 资讯流侧栏（原型 .sidebar 全新实现——上游 Sidebar.tsx 不动）：
- * 品牌 → 新对话 → 内容导航四条目（精选·全部资讯·热点榜·主题）→ 最近对话 → 底部游客卡。
+ * 品牌 → 新对话 → 内容导航五条目（精选·全部资讯·热点榜·主题·关于）→ 最近对话 → 底部游客卡。
  * - 「新对话」走 useEnterChat 游客直通（已登录直达 /chat，未登录铸游客号）；
  *   「热点榜」为真实路由（/hot）；「主题」为真实路由（/topics 主题地图 +
  *   /topics/:slug 详情，含 active 态）；
@@ -394,6 +394,7 @@ export function FeedSidebar({
   const isFeedHome = location.pathname === "/" && !isAllView;
   const isTopicsView = location.pathname.startsWith("/topics");
   const isHotView = location.pathname.startsWith("/hot");
+  const isAboutView = location.pathname.startsWith("/about");
 
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -531,6 +532,11 @@ export function FeedSidebar({
           <Link to="/topics" className={navItemClass(isTopicsView)} onClick={onClose}>
             <span className={navEmojiClass()}>🧭</span>
             {zh ? "主题" : "Topics"}
+          </Link>
+          {/* 验收第三轮：关于页入口自页脚提级到侧边栏（维护者指定主题下方） */}
+          <Link to="/about" className={navItemClass(isAboutView)} onClick={onClose}>
+            <span className={navEmojiClass()}>ℹ️</span>
+            {zh ? "关于" : "About"}
           </Link>
         </nav>
 
