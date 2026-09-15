@@ -1,5 +1,7 @@
 # 快速测试指南
 
+> **〔本项目注记〕以下为上游 ragent 原文档，保留作对照。与本仓实际的三处差异：① 后端端口为 **9090**（非 8080），代理目标以 `frontend/vite.config.ts` 现值为准；② 文中机器路径为上游作者环境；③ **不要使用 `pkill -f`**——按本仓进程纪律先 `lsof -ti :<端口>` 精确定位再按 PID 结束，宽模式匹配会误杀无关长跑进程。
+
 ## 问题：No static resource api/ragent/knowledge-base
 
 ### 原因
