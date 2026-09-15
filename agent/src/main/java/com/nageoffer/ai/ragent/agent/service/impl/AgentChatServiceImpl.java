@@ -235,7 +235,6 @@ public class AgentChatServiceImpl implements AgentChatService {
         // 上下文传到底，中断时句柄从这里取根 span
         RuntimeContext runtimeContext = buildRuntimeContext(scope, facts);
         AgentRunHandle runHandle = new AgentRunHandle(taskId, scope.sender(), taskManager, facts, runtimeContext);
-        runHandle.onRelease(scope.releaseGate());
         // 流结束后驱逐内存缓存，下一轮从 PG 重新加载
         runHandle.onRelease(() -> {
             // 错误路径与强制断流框架都来不及存盘，驱逐前补存一次，否则本轮工具执行结果会丢
@@ -243,8 +242,11 @@ public class AgentChatServiceImpl implements AgentChatService {
             if (runHandle.isFailed() || runHandle.isForcedDisposal()) {
                 saveAgentStateQuietly(agent, userId, conversationId);
             }
-            agentProvider.evictStateCache(userId, conversationId);
+            // 只清本次流实际使用的实例，避免重建后旧流误清新 Agent
+            agent.clearStateCache(userId, conversationId);
         });
+        // 最后再放行同一用户的下一轮，避免新流加载状态后被本轮收尾清掉
+        runHandle.onRelease(scope.releaseGate());
         // 放在释放并发锁之后，确保记忆抽取时名额已归还
         runHandle.onRelease(() -> scheduleMemoryExtraction(userId, conversationId));
         bindEmitterLifecycle(scope.emitter(), runHandle, taskId);

@@ -125,7 +125,8 @@ class AgentChatServiceImplTest {
         service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
 
         // 不驱逐则每个 (用户, 会话) 的全量记忆在单例 Agent 里常驻到进程重启
-        verify(agentProvider).evictStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        verify(agentProvider, never()).evictStateCache(USER_ID, CONVERSATION_ID);
     }
 
     /**
@@ -250,7 +251,7 @@ class AgentChatServiceImplTest {
         verify(taskManager).register(anyString(), anyString(), finalizer.capture());
         finalizer.getValue().run();
 
-        verify(agentProvider).evictStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
     }
 
     /**
@@ -270,9 +271,9 @@ class AgentChatServiceImplTest {
         cancelAction.getValue().run();
         finalizer.getValue().run();
 
-        InOrder order = inOrder(agent, agentProvider);
+        InOrder order = inOrder(agent);
         order.verify(agent).saveAgentState(USER_ID, CONVERSATION_ID);
-        order.verify(agentProvider).evictStateCache(USER_ID, CONVERSATION_ID);
+        order.verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
     }
 
     /**
@@ -297,7 +298,7 @@ class AgentChatServiceImplTest {
         finalizer.getValue().run();
 
         verify(agent, never()).saveAgentState(anyString(), anyString());
-        verify(agentProvider, times(1)).evictStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent, times(1)).clearStateCache(USER_ID, CONVERSATION_ID);
     }
 
     /**
@@ -314,7 +315,7 @@ class AgentChatServiceImplTest {
 
         verify(agent, never()).streamEvents(any(Msg.class), any(RuntimeContext.class));
         // 收尾照常走完，缓存驱逐与闸门归还不受影响
-        verify(agentProvider).evictStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
         assertThat(gateReleased.get()).isOne();
     }
 
@@ -353,7 +354,7 @@ class AgentChatServiceImplTest {
         verify(taskManager).register(anyString(), anyString(), finalizer.capture());
         finalizer.getValue().run();
 
-        verify(agentProvider, times(1)).evictStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent, times(1)).clearStateCache(USER_ID, CONVERSATION_ID);
     }
 
     @Test
@@ -364,6 +365,19 @@ class AgentChatServiceImplTest {
 
         // 闸门不还，该用户到 TTL 过期前发不出下一轮
         assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldClearStateCacheBeforeReleasingGate() {
+        Runnable releaseGate = mock(Runnable.class);
+        when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(releaseGate);
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
+
+        service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
+
+        InOrder order = inOrder(agent, releaseGate);
+        order.verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        order.verify(releaseGate).run();
     }
 
     @Test
