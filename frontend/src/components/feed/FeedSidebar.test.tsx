@@ -93,6 +93,19 @@ describe("FeedSidebar", () => {
     expect(requestedUrls.filter((url) => url.includes("/auth"))).toEqual([]);
   });
 
+  it("view-switch links strip search params but keep category (doc 32 decision B)", () => {
+    // 检索态（q+sort+order+category 齐全）切版式：q/sort/order 剥除、category 随行
+    renderSidebar({
+      initialEntries: ["/?q=%E6%AF%95%E4%B8%9A&sort=relevance&order=asc&category=research"]
+    });
+    expect(screen.getByRole("link", { name: /精选/ }).getAttribute("href")).toBe(
+      "/?category=research"
+    );
+    expect(screen.getByRole("link", { name: /全部资讯/ }).getAttribute("href")).toBe(
+      "/?view=all&category=research"
+    );
+  });
+
   it("reuses GuestStatusBadge to show live guest quota when signed in as guest", async () => {
     useAuthStore.setState({
       user: { userId: "g-1", username: "guest-1", role: "guest" },

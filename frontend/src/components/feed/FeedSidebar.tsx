@@ -65,22 +65,17 @@ function chatItemClass(): string {
 }
 
 /**
- * T21：检索态下版式链路（精选/全部资讯）保 q 跳转——「精选/全部资讯」在检索态
- * 只切版式不作检索范围（票面决策 2a）；q/sort/order/category 随行，非检索态原样返回。
- * MobileTabbar 同口径复用
+ * 版式切换链路（精选/全部资讯）只携带浏览态参数：category 随行，
+ * q/sort/order 一律剥除——检索是临时动作，离开检索语境（切版式）即重置
+ * （doc 32 决策二批复 B 案，翻案 T21 决策 2a 的版式维度；
+ * 同页内的分类×关键词互通不受影响）。MobileTabbar 同口径复用
  */
 export function withQuery(to: string, searchParams: URLSearchParams): string {
-  const q = searchParams.get("q");
-  if (!q) return to;
+  const category = searchParams.get("category");
+  if (!category) return to;
   const [path, existing] = to.split("?");
   const params = new URLSearchParams(existing ?? "");
-  params.set("q", q);
-  for (const key of ["category", "sort", "order"]) {
-    const value = searchParams.get(key);
-    if (value) {
-      params.set(key, value);
-    }
-  }
+  params.set("category", category);
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
