@@ -54,15 +54,15 @@ describe("FeedPage search state (?q=)", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("article")).toHaveLength(2);
     });
-    expect(screen.getByText(/搜索「钙钛矿」的结果来自全部理大资讯/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "按时间" })).toBeTruthy();
+    expect(screen.getByText(/在全部理大资讯中搜索「钙钛矿」/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /按时间/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "按相关度" })).toBeTruthy();
     // 检索态隐藏精选态两件（与 ?view=all 同形口径）
     expect(screen.queryByText("AI 每日精选")).toBeNull();
     expect(screen.queryByText("今日热点")).toBeNull();
     expect(vi.mocked(fetchNewsFeed)).not.toHaveBeenCalled();
     expect(vi.mocked(fetchHotRank)).not.toHaveBeenCalled();
-    expect(vi.mocked(searchNewsFeed).mock.calls[0][0]).toMatchObject({ q: "钙钛矿", sort: "time", page: 1 });
+    expect(vi.mocked(searchNewsFeed).mock.calls[0][0]).toMatchObject({ q: "钙钛矿", sort: "time", order: "desc", page: 1 });
   });
 
   it("refetches page 1 with sort=relevance on toggle and paginates via load more", async () => {
@@ -120,18 +120,76 @@ describe("FeedPage search state (?q=)", () => {
     });
   });
 
-  it("exits search and applies the picked category when a chip is clicked during search", async () => {
+  /**
+   * T21：关键词×分类互通——检索态点分类保留 q 限范围（原行为=退出检索清词，已改）
+   */
+  it("keeps q and scopes results to the picked category when a chip is clicked during search", async () => {
     vi.mocked(searchNewsFeed).mockResolvedValue({ records: [], total: 0, hasMore: false });
     renderFeed("/?q=钙钛矿");
 
     await waitFor(() => {
-      expect(screen.getByText(/未找到「钙钛矿」/)).toBeTruthy();
+      expect(screen.getByText(/在全部理大资讯中搜索「钙钛矿」/)).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("button", { name: "科研" }));
 
     await waitFor(() => {
-      expect(vi.mocked(fetchNewsFeed)).toHaveBeenCalledWith({ category: "research", page: 1 });
+      expect(vi.mocked(searchNewsFeed).mock.calls[1][0]).toMatchObject({
+        q: "钙钛矿",
+        category: "research"
+      });
     });
-    expect(screen.queryByText(/搜索「钙钛矿」/)).toBeNull();
+    expect(screen.getByText(/在分类「科研」中搜索「钙钛矿」/)).toBeTruthy();
+    // 「全部」chip 回全局检索（q 仍在）
+    fireEvent.click(screen.getByRole("button", { name: "全部" }));
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[2][0]).toMatchObject({
+        q: "钙钛矿",
+        category: "all"
+      });
+    });
+  });
+
+  /**
+   * T21：时间键同键再点翻转方向（默认 desc=最新在前，再点 asc），相关度键单向不翻转
+   */
+  it("flips the time direction on re-click and sends order through", async () => {
+    vi.mocked(searchNewsFeed).mockResolvedValue({ records: [], total: 0, hasMore: false });
+    renderFeed("/?q=学生");
+
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[0][0]).toMatchObject({ sort: "time", order: "desc" });
+    });
+    // 时间键再点：desc → asc
+    fireEvent.click(screen.getByRole("button", { name: /按时间/ }));
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[1][0]).toMatchObject({ sort: "time", order: "asc" });
+    });
+    // 再点回 desc
+    fireEvent.click(screen.getByRole("button", { name: /按时间/ }));
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[2][0]).toMatchObject({ sort: "time", order: "desc" });
+    });
+    // 切相关度：单向不翻转（order 维持 desc 语义，无方向图标）
+    fireEvent.click(screen.getByRole("button", { name: "按相关度" }));
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[3][0]).toMatchObject({ sort: "relevance" });
+    });
+  });
+
+  /**
+   * T21：sort/order 进 URL——带参入口直接生效（刷新/后退保持的等价断言）
+   */
+  it("restores sort and order from URL params on entry", async () => {
+    vi.mocked(searchNewsFeed).mockResolvedValue({ records: [], total: 0, hasMore: false });
+    renderFeed("/?q=奖学金&sort=relevance&order=asc");
+
+    await waitFor(() => {
+      expect(vi.mocked(searchNewsFeed).mock.calls[0][0]).toMatchObject({
+        q: "奖学金",
+        sort: "relevance",
+        order: "asc"
+      });
+    });
+    expect(screen.getByRole("button", { name: "按相关度" }).getAttribute("aria-pressed")).toBe("true");
   });
 });

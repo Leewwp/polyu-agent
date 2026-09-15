@@ -80,14 +80,17 @@ public class PublicNewsController {
 
     /**
      * 全局检索：标题+摘要四列 ILIKE（正文未存储不参与）；
-     * sort=time 默认（发布时间倒序）/relevance=标题命中优先；分页语义与 list 一致
+     * sort=time 默认/relevance=标题命中优先；order=asc|desc 默认 desc（T21 两分支贯通）；
+     * category 可选（T21 关键词×分类互通）；分页语义与 list 一致
      */
     @GetMapping("/search")
     public Result<NewsPageVO> search(@RequestParam("q") String q,
             @RequestParam(value = "sort", defaultValue = "time") String sort,
+            @RequestParam(value = "order", defaultValue = "desc") String order,
+            @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
-        return Results.success(newsQueryService.searchPublished(q, sort, page, size));
+        return Results.success(newsQueryService.searchPublished(q, sort, order, category, page, size));
     }
 
     /**

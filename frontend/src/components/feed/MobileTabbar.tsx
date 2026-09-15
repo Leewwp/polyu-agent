@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { FeedbackDialog } from "@/components/site/FeedbackDialog";
 import { useEnterChat } from "@/hooks/useEnterChat";
 import { cn } from "@/lib/utils";
+import { withQuery } from "./FeedSidebar";
 import { useFeedLang } from "./feedLang";
 
 /**
@@ -37,11 +38,16 @@ export function MobileTabbar() {
   return (
     <>
       <nav className="fixed inset-x-0 bottom-0 z-50 hidden max-[860px]:flex border-t border-[var(--feed-line-soft)] bg-[rgba(255,255,255,0.96)] pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] backdrop-blur">
-        <Link to="/" className={tabClass(!isAllView)} onClick={closeMore}>
+        {/* T21：检索态版式链路保 q（同 FeedSidebar withQuery 口径） */}
+        <Link to={withQuery("/", searchParams)} className={tabClass(!isAllView)} onClick={closeMore}>
           <span className="text-[19px] leading-none">⚡</span>
           <span>{zh ? "精选" : "Featured"}</span>
         </Link>
-        <Link to="/?view=all" className={tabClass(isAllView)} onClick={closeMore}>
+        <Link
+          to={withQuery("/?view=all", searchParams)}
+          className={tabClass(isAllView)}
+          onClick={closeMore}
+        >
           <span className="text-[19px] leading-none">📰</span>
           <span>{zh ? "全部" : "All"}</span>
         </Link>

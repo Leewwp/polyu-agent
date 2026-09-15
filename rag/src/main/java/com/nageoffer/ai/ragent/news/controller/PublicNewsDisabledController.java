@@ -60,11 +60,13 @@ public class PublicNewsDisabledController {
     }
 
     /**
-     * 与启用态同形的检索端点 404 兜底（后增路径）
+     * 与启用态同形的检索端点 404 兜底（后增路径；T21 增 order/category 两参）
      */
     @GetMapping("/search")
     public ResponseEntity<Void> search(@RequestParam("q") String q,
             @RequestParam(value = "sort", defaultValue = "time") String sort,
+            @RequestParam(value = "order", defaultValue = "desc") String order,
+            @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
         return notFound();

@@ -107,32 +107,45 @@ export async function fetchNewsDetail(id: string): Promise<NewsItem> {
   return mapNewsItem(data);
 }
 
-/** 检索排序档：time=发布时间倒序（默认）/relevance=标题命中优先 */
+/** 检索排序档：time=发布时间（默认）/relevance=标题命中优先 */
 export type NewsSearchSort = "time" | "relevance";
+
+/** 检索方向：desc=最新在前（默认）/asc=最旧在前（T21；relevance 前端单向不翻转，后端两分支贯通） */
+export type NewsSearchOrder = "asc" | "desc";
 
 /**
  * 全局检索：标题+摘要四列匹配（大小写不敏感），mock 分支在 fixture 上
- * 模拟同语义；relevance 档标题命中优先、同分保持 fixture 既有时间倒序。
+ * 模拟同语义；relevance 档标题命中优先；category 可选限定检索范围（T21 关键词×分类互通）。
  */
-export async function searchNewsFeed(query: { q: string; sort?: NewsSearchSort; page?: number }): Promise<NewsFeedPage> {
-  const { q, sort = "time", page = 1 } = query;
+export async function searchNewsFeed(query: {
+  q: string;
+  sort?: NewsSearchSort;
+  order?: NewsSearchOrder;
+  category?: NewsCategory | "all";
+  page?: number;
+}): Promise<NewsFeedPage> {
+  const { q, sort = "time", order = "desc", category = "all", page = 1 } = query;
   if (USE_MOCK) {
     const needle = q.trim().toLowerCase();
     const titleHit = (item: NewsItem) =>
       item.titleZh.toLowerCase().includes(needle) || item.titleEn.toLowerCase().includes(needle);
-    const matched = MOCK_NEWS_ITEMS.filter(
+    let matched = MOCK_NEWS_ITEMS.filter(
       (item) =>
-        titleHit(item) ||
-        item.summaryZh.toLowerCase().includes(needle) ||
-        item.summaryEn.toLowerCase().includes(needle)
+        (category === "all" || item.category === category) &&
+        (titleHit(item) ||
+          item.summaryZh.toLowerCase().includes(needle) ||
+          item.summaryEn.toLowerCase().includes(needle))
     );
-    const sorted =
-      sort === "relevance"
-        ? matched.map((item, index) => ({ item, index })).sort((a, b) => {
-            const rank = (entry: { item: NewsItem }) => (titleHit(entry.item) ? 0 : 1);
-            return rank(a) - rank(b) || a.index - b.index;
-          }).map((entry) => entry.item)
-        : matched;
+    if (sort === "relevance") {
+      matched = matched
+        .map((item, index) => ({ item, index }))
+        .sort((a, b) => {
+          const rank = (entry: { item: NewsItem }) => (titleHit(entry.item) ? 0 : 1);
+          return rank(a) - rank(b) || a.index - b.index;
+        })
+        .map((entry) => entry.item);
+    }
+    const sorted = order === "asc" ? [...matched].reverse() : matched;
     const start = (page - 1) * FEED_PAGE_SIZE;
     return {
       records: sorted.slice(start, start + FEED_PAGE_SIZE),
@@ -141,7 +154,7 @@ export async function searchNewsFeed(query: { q: string; sort?: NewsSearchSort; 
     };
   }
   const data = await newsApi.get<NewsPageVO, NewsPageVO>("/public/news/search", {
-    params: { q, sort, page }
+    params: { q, sort, order, category: category === "all" ? undefined : category, page }
   });
   return {
     records: (data.records ?? []).map((vo: NewsItemVO) => mapNewsItem(vo)),

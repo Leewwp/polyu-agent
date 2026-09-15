@@ -240,7 +240,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     }
 
     @Override
-    public NewsPageVO searchPublished(String q, String sort, int page, int size) {
+    public NewsPageVO searchPublished(String q, String sort, String order, String category, int page, int size) {
         if (isBlank(q)) {
             return emptyPage(page, size);
         }
@@ -250,23 +250,37 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                 .eq("status", STATUS_PUBLISHED)
                 .apply("(title_zh ILIKE {0} OR title_en ILIKE {0} OR summary_zh ILIKE {0} OR summary_en ILIKE {0})",
                         pattern);
+        // T21：关键词×分类互通——检索可限定分类范围（eq 谓词同 list 分支）
+        if (!isBlank(category)) {
+            match.eq("category", category.trim());
+        }
         long pageNo = normalizePage(page);
         int pageSize = normalizeSize(size);
+        boolean ascending = "asc".equalsIgnoreCase(order == null ? "" : order.trim());
         if (SORT_RELEVANCE.equals(sort)) {
-            // relevance：标题命中优先、摘要命中次之、同分按时间倒序——匹配集整取内存排序
+            // relevance：标题命中优先、摘要命中次之、同分按时间——匹配集整取内存排序
             // 后切片（量级前提=90 天保留数千行），避免 SQL 字面量拼装引入注入面
+            // T21：order 贯通两向——asc 时桶序翻转（非标题命中在前）+桶内时间正序
             List<NewsItemDO> matched = newsItemMapper.selectList(match);
-            matched.sort(Comparator
-                    .comparingInt((NewsItemDO item) -> titleHit(item, needle) ? 0 : 1)
-                    .thenComparing(NewsItemDO::getPublishTime, Comparator.nullsLast(Comparator.reverseOrder()))
-                    .thenComparing(NewsItemDO::getId, Comparator.reverseOrder()));
+            Comparator<NewsItemDO> bucket = Comparator
+                    .comparingInt((NewsItemDO item) -> titleHit(item, needle) ? 0 : 1);
+            Comparator<NewsItemDO> byTime = Comparator.comparing(NewsItemDO::getPublishTime,
+                    ascending
+                            ? Comparator.nullsLast(Comparator.<Date>naturalOrder())
+                            : Comparator.nullsLast(Comparator.<Date>reverseOrder()));
+            Comparator<NewsItemDO> byId = Comparator.comparing(NewsItemDO::getId,
+                    ascending ? Comparator.naturalOrder() : Comparator.reverseOrder());
+            matched.sort(ascending ? bucket.reversed().thenComparing(byTime).thenComparing(byId)
+                    : bucket.thenComparing(byTime).thenComparing(byId));
             int from = (int) Math.min((pageNo - 1) * pageSize, matched.size());
             int to = (int) Math.min(from + pageSize, matched.size());
             return buildPageVO(matched.subList(from, to), matched.size(), pageNo, pageSize, to < matched.size());
         }
-        // time（默认）与未知取值：发布时间倒序，与 list 同序——SQL 侧分页
-        Page<NewsItemDO> pager = newsItemMapper.selectPage(new Page<>(pageNo, pageSize),
-                match.orderByDesc("publish_time").orderByDesc("id"));
+        // time（默认）与未知取值：按发布时间两向（T21 默认 desc=最新在前），与 list 同序——SQL 侧分页
+        IPage<NewsItemDO> pager = newsItemMapper.selectPage(new Page<>(pageNo, pageSize),
+                ascending
+                        ? match.orderByAsc("publish_time").orderByAsc("id")
+                        : match.orderByDesc("publish_time").orderByDesc("id"));
         return toPageVO(pager, pager.getRecords());
     }
 

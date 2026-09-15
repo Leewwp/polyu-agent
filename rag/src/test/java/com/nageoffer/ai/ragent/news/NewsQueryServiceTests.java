@@ -94,6 +94,11 @@ class NewsQueryServiceTests {
 
         /** 追加一条探针条目：titleHit=true 时标题带标记，否则仅摘要带标记 */
         long item(boolean titleHit, boolean hidden, long publishTimeEpoch) {
+            return itemInCategory("campus", titleHit, hidden, publishTimeEpoch);
+        }
+
+        /** T21：指定分类的探针行（关键词×分类互通用） */
+        long itemInCategory(String category, boolean titleHit, boolean hidden, long publishTimeEpoch) {
             NewsItemDO item = NewsItemDO.builder()
                     .sourceId(probeSource.getId())
                     .url("https://example.invalid/" + marker + "/" + itemIds.size())
@@ -102,7 +107,7 @@ class NewsQueryServiceTests {
                     .titleEn(titleHit ? "title hit " + marker : "probe title")
                     .summaryZh(titleHit ? "探针摘要" : "摘要命中 " + marker)
                     .summaryEn(titleHit ? "probe summary" : "summary hit " + marker)
-                    .category("campus")
+                    .category(category)
                     .publishTime(new Date(publishTimeEpoch))
                     .status(hidden ? "hidden" : "published")
                     .build();
@@ -231,7 +236,7 @@ class NewsQueryServiceTests {
 
     @Test
     void searchWithBlankQueryReturnsContractEmptyPage() {
-        NewsPageVO blank = newsQueryService.searchPublished("   ", "time", 1, 20);
+        NewsPageVO blank = newsQueryService.searchPublished("   ", "time", "desc", null, 1, 20);
         assertTrue(blank.getRecords().isEmpty());
         assertEquals(0L, blank.getTotal());
         assertEquals(Boolean.FALSE, blank.getHasMore());
@@ -244,7 +249,7 @@ class NewsQueryServiceTests {
             probe.item(false, false, 2_000_000_000_000L);
             probe.item(true, true, 3_000_000_000_000L);
 
-            NewsPageVO page = newsQueryService.searchPublished(probe.marker, "time", 1, 20);
+            NewsPageVO page = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 1, 20);
 
             assertEquals(2L, page.getTotal(), "标题命中+摘要命中两条可见，hidden 不入结果");
             Set<Long> ids = page.getRecords().stream().map(NewsItemVO::getId).collect(Collectors.toSet());
@@ -260,15 +265,15 @@ class NewsQueryServiceTests {
             long titleOld = probe.item(true, false, 500_000_000_000L);
             long summaryNewest = probe.item(false, false, 9_000_000_000_000L);
 
-            NewsPageVO relevance = newsQueryService.searchPublished(probe.marker, "relevance", 1, 20);
+            NewsPageVO relevance = newsQueryService.searchPublished(probe.marker, "relevance", "desc", null, 1, 20);
             List<Long> got = relevance.getRecords().stream().map(NewsItemVO::getId).toList();
             assertEquals(List.of(titleNew, titleOld, summaryNewest), got);
 
             // time 档同数据按发布时间倒序（默认档与未知取值同形）
-            NewsPageVO time = newsQueryService.searchPublished(probe.marker, "time", 1, 20);
+            NewsPageVO time = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 1, 20);
             assertEquals(List.of(summaryNewest, titleNew, titleOld),
                     time.getRecords().stream().map(NewsItemVO::getId).toList());
-            NewsPageVO unknownSort = newsQueryService.searchPublished(probe.marker, "bogus-sort", 1, 20);
+            NewsPageVO unknownSort = newsQueryService.searchPublished(probe.marker, "bogus-sort", "desc", null, 1, 20);
             assertEquals(time.getRecords().stream().map(NewsItemVO::getId).toList(),
                     unknownSort.getRecords().stream().map(NewsItemVO::getId).toList());
         }
@@ -281,12 +286,12 @@ class NewsQueryServiceTests {
             probe.item(true, false, 2_000_000_000_000L);
             probe.item(true, false, 3_000_000_000_000L);
 
-            NewsPageVO first = newsQueryService.searchPublished(probe.marker, "time", 1, 1);
+            NewsPageVO first = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 1, 1);
             assertEquals(1, first.getRecords().size());
             assertEquals(3L, first.getTotal());
             assertEquals(Boolean.TRUE, first.getHasMore());
 
-            NewsPageVO third = newsQueryService.searchPublished(probe.marker, "time", 3, 1);
+            NewsPageVO third = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 3, 1);
             assertEquals(1, third.getRecords().size());
             assertEquals(Boolean.FALSE, third.getHasMore());
         }
@@ -298,12 +303,65 @@ class NewsQueryServiceTests {
             probe.item(true, false, System.currentTimeMillis());
 
             // % 按字面：未转义时 marker+"%" 通配会撞出标题含 marker 的探针行
-            NewsPageVO literal = newsQueryService.searchPublished(probe.marker + "%", "time", 1, 20);
+            NewsPageVO literal = newsQueryService.searchPublished(probe.marker + "%", "time", "desc", null, 1, 20);
             assertTrue(literal.getRecords().isEmpty());
             // _ 按字面：把首个连字符换成下划线构造 needle——未转义时单字符通配恰好匹配该连字符
             String underscoreNeedle = "probe_" + probe.marker.substring("probe-".length());
-            NewsPageVO underscore = newsQueryService.searchPublished(underscoreNeedle, "time", 1, 20);
+            NewsPageVO underscore = newsQueryService.searchPublished(underscoreNeedle, "time", "desc", null, 1, 20);
             assertTrue(underscore.getRecords().isEmpty(), "下划线应按字面匹配而非单字符通配");
+        }
+    }
+
+    /**
+     * T21：time 档方向翻转——asc=最旧在前（与默认 desc 互为镜像）
+     */
+    @Test
+    void searchTimeOrderAscFlipsToOldestFirst() {
+        try (SearchProbe probe = new SearchProbe(newsItemMapper, newsSourceMapper)) {
+            long old = probe.item(true, false, 1_000_000_000_000L);
+            long mid = probe.item(true, false, 5_000_000_000_000L);
+            long newest = probe.item(true, false, 9_000_000_000_000L);
+
+            NewsPageVO desc = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 1, 20);
+            assertEquals(List.of(newest, mid, old), desc.getRecords().stream().map(NewsItemVO::getId).toList());
+
+            NewsPageVO asc = newsQueryService.searchPublished(probe.marker, "time", "asc", null, 1, 20);
+            assertEquals(List.of(old, mid, newest), asc.getRecords().stream().map(NewsItemVO::getId).toList());
+        }
+    }
+
+    /**
+     * T21：relevance 档 order 贯通——asc 时桶序翻转（非标题命中在前）+桶内时间正序
+     */
+    @Test
+    void searchRelevanceOrderAscFlipsBucketAndTime() {
+        try (SearchProbe probe = new SearchProbe(newsItemMapper, newsSourceMapper)) {
+            long titleNew = probe.item(true, false, 9_000_000_000_000L);
+            long titleOld = probe.item(true, false, 1_000_000_000_000L);
+            long summaryNewest = probe.item(false, false, 9_500_000_000_000L);
+            long summaryOldest = probe.item(false, false, 500_000_000_000L);
+
+            NewsPageVO asc = newsQueryService.searchPublished(probe.marker, "relevance", "asc", null, 1, 20);
+            assertEquals(List.of(summaryOldest, summaryNewest, titleOld, titleNew),
+                    asc.getRecords().stream().map(NewsItemVO::getId).toList(),
+                    "asc=最不相关在前（非标题命中桶在前、桶内时间正序）");
+        }
+    }
+
+    /**
+     * T21：关键词×分类互通——category 限定检索范围（eq 谓词），全部/其他分类命中被滤掉
+     */
+    @Test
+    void searchCategoryLimitsScopeAndKeepsKeyword() {
+        try (SearchProbe probe = new SearchProbe(newsItemMapper, newsSourceMapper)) {
+            long campusHit = probe.item(true, false, 3_000_000_000_000L);
+            probe.itemInCategory("admission", true, false, 5_000_000_000_000L);
+
+            NewsPageVO scoped = newsQueryService.searchPublished(probe.marker, "time", "desc", "campus", 1, 20);
+            assertEquals(List.of(campusHit), scoped.getRecords().stream().map(NewsItemVO::getId).toList());
+
+            NewsPageVO all = newsQueryService.searchPublished(probe.marker, "time", "desc", null, 1, 20);
+            assertEquals(2L, all.getTotal(), "不带 category 时两类行都在");
         }
     }
 }

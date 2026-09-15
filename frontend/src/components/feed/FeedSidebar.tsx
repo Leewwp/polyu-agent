@@ -64,6 +64,27 @@ function chatItemClass(): string {
   return "block truncate rounded-[9px] px-2.5 py-[7px] text-[13px] text-[var(--feed-text-secondary)] hover:bg-[var(--feed-bg)]";
 }
 
+/**
+ * T21：检索态下版式链路（精选/全部资讯）保 q 跳转——「精选/全部资讯」在检索态
+ * 只切版式不作检索范围（票面决策 2a）；q/sort/order/category 随行，非检索态原样返回。
+ * MobileTabbar 同口径复用
+ */
+export function withQuery(to: string, searchParams: URLSearchParams): string {
+  const q = searchParams.get("q");
+  if (!q) return to;
+  const [path, existing] = to.split("?");
+  const params = new URLSearchParams(existing ?? "");
+  params.set("q", q);
+  for (const key of ["category", "sort", "order"]) {
+    const value = searchParams.get(key);
+    if (value) {
+      params.set(key, value);
+    }
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 /** 待确认的删除动作 单会话与批量共用一个确认弹窗 */
 type DeleteTarget = { kind: "one"; id: string; title: string } | { kind: "batch"; ids: string[] };
 
@@ -488,11 +509,16 @@ export function FeedSidebar({
 
         <nav className="flex flex-col gap-0.5" aria-label={zh ? "内容导航" : "Content navigation"}>
           <div className={navTitleClass()}>{zh ? "内容" : "CONTENT"}</div>
-          <Link to="/" className={navItemClass(isFeedHome)} onClick={onClose}>
+          {/* T21：检索态下精选/全部资讯=版式切换不作检索范围——保 q 跳转（票面决策 2a） */}
+          <Link to={withQuery("/", searchParams)} className={navItemClass(isFeedHome)} onClick={onClose}>
             <span className={navEmojiClass()}>⚡</span>
             {zh ? "精选" : "Featured"}
           </Link>
-          <Link to="/?view=all" className={navItemClass(isAllView)} onClick={onClose}>
+          <Link
+            to={withQuery("/?view=all", searchParams)}
+            className={navItemClass(isAllView)}
+            onClick={onClose}
+          >
             <span className={navEmojiClass()}>📰</span>
             {zh ? "全部资讯" : "All news"}
           </Link>

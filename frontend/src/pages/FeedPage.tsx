@@ -10,7 +10,7 @@ import { NewsSearchBar } from "@/components/feed/NewsSearchBar";
 import { useFeedLang } from "@/components/feed/feedLang";
 import type { HotRankEntry, NewsCategory, NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_CHIPS } from "@/services/newsMockData";
-import { fetchHotRank, fetchNewsFeed, searchNewsFeed, type NewsSearchSort } from "@/services/newsService";
+import { fetchHotRank, fetchNewsFeed, searchNewsFeed, type NewsSearchOrder, type NewsSearchSort } from "@/services/newsService";
 
 /**
  * 公开资讯首页（组件组装版）：
@@ -20,11 +20,21 @@ import { fetchHotRank, fetchNewsFeed, searchNewsFeed, type NewsSearchSort } from
  * - `/?view=all` 全部资讯态不渲染 AI 精选条与热点卡；
  *   `/?category=` 筛选态保留；
  * - `?q=` 全局检索态：优先于 view/category 呈现——范围提示条+排序切换
- *   （按时间/按相关度）+日期分组结果流；结果复用 NewsList 形态；清空 q 回落原视图。
+ *   （按时间/按相关度+方向翻转）+日期分组结果流；结果复用 NewsList 形态；清空 q 回落原视图。
+ *   T21：sort/order 进 URL（刷新/后退保持）；关键词×分类互通（点分类保留 q 限范围）；
+ *   新搜索不强制复位排序（修复位债）。
  */
 
 function isCategoryKey(key: string | null): key is NewsCategory | "all" {
   return key === "all" || NEWS_CATEGORY_CHIPS.some((chip) => chip.key === key);
+}
+
+function isSortKey(key: string | null): key is NewsSearchSort {
+  return key === "time" || key === "relevance";
+}
+
+function isOrderDir(dir: string | null): dir is NewsSearchOrder {
+  return dir === "asc" || dir === "desc";
 }
 
 /** AI 每日精选条（原型 .ai-strip；全部资讯态/检索态隐藏） */
@@ -53,30 +63,72 @@ function AiDigestStrip() {
 
 /**
  * 检索态状态条：范围提示条+排序切换（按时间/按相关度）。
+ * T21：同键再点翻转方向（时间键双向，默认 desc=最新在前；相关度单向不翻转）；
+ * 提示条文案随范围动态（全部/分类 X）；sort+order 进 URL 由调用方承接。
  * 必须作为 FeedShell 子组件渲染（useFeedLang 依赖壳顶 Provider——FeedPage 自身是壳的父层）。
  */
-function SearchStateBar({ q, sort, onSortChange }: { q: string; sort: NewsSearchSort; onSortChange: (s: NewsSearchSort) => void }) {
+function SearchStateBar({
+  q,
+  category,
+  sort,
+  order,
+  onSortChange
+}: {
+  q: string;
+  category: NewsCategory | "all";
+  sort: NewsSearchSort;
+  order: NewsSearchOrder;
+  onSortChange: (next: { sort?: NewsSearchSort; order?: NewsSearchOrder }) => void;
+}) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
+  const categoryLabel = zh
+    ? NEWS_CATEGORY_CHIPS.find((chip) => chip.key === category)?.labelZh
+    : NEWS_CATEGORY_CHIPS.find((chip) => chip.key === category)?.labelEn;
+  // 相关度键单向不翻转：方向图标只在时间键上表态
+  const dirGlyph = sort === "time" ? (order === "asc" ? "↑" : "↓") : "";
+  const dirTitle =
+    sort === "time"
+      ? zh
+        ? order === "asc"
+          ? "时间正序（最旧在前），点击翻转"
+          : "时间倒序（最新在前），点击翻转"
+        : order === "asc"
+          ? "Oldest first — click to flip"
+          : "Newest first — click to flip"
+      : "";
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-[10px] bg-[var(--feed-bg)] px-3.5 py-2">
       <p className="min-w-0 flex-1 text-[12px] text-[var(--feed-text-secondary)]">
-        {zh
-          ? `搜索「${q}」的结果来自全部理大资讯，不限当前分类/精选`
-          : `Results for “${q}” cover all PolyU news — not limited to the current category or featured view`}
+        {category !== "all"
+          ? zh
+            ? `在分类「${categoryLabel ?? category}」中搜索「${q}」`
+            : `Searching “${q}” in ${categoryLabel ?? category}`
+          : zh
+            ? `在全部理大资讯中搜索「${q}」`
+            : `Searching “${q}” across all PolyU news`}
       </p>
       <div className="flex flex-none overflow-hidden rounded-full border border-[var(--feed-line)] bg-white text-[12px] font-semibold">
         <button
           type="button"
           aria-pressed={sort === "time"}
+          title={dirTitle}
           className={
             sort === "time"
               ? "px-3 py-[5px] bg-[var(--polyu-red)] text-white"
               : "px-3 py-[5px] text-[var(--feed-text-tertiary)]"
           }
-          onClick={() => onSortChange("time")}
+          onClick={() => {
+            // 同键再点翻转方向（默认 time+desc）；异键切换保持 desc（最新在前）
+            if (sort === "time") {
+              onSortChange({ order: order === "asc" ? "desc" : "asc" });
+            } else {
+              onSortChange({ sort: "time", order: "desc" });
+            }
+          }}
         >
           {zh ? "按时间" : "By time"}
+          {dirGlyph ? <span aria-hidden="true"> {dirGlyph}</span> : null}
         </button>
         <button
           type="button"
@@ -86,7 +138,7 @@ function SearchStateBar({ q, sort, onSortChange }: { q: string; sort: NewsSearch
               ? "px-3 py-[5px] bg-[var(--polyu-red)] text-white"
               : "px-3 py-[5px] text-[var(--feed-text-tertiary)]"
           }
-          onClick={() => onSortChange("relevance")}
+          onClick={() => onSortChange({ sort: "relevance" })}
         >
           {zh ? "按相关度" : "By relevance"}
         </button>
@@ -121,7 +173,11 @@ export function FeedPage() {
   // 检索态（?q=）：非空 q 优先于 view/category 呈现
   const qParam = searchParams.get("q")?.trim() ?? "";
   const isSearch = qParam.length > 0;
-  const [sort, setSort] = useState<NewsSearchSort>("time");
+  // T21：sort/order 进 URL（刷新/后退保持）；缺省 time+desc=最新在前
+  const sortParam = searchParams.get("sort");
+  const sort: NewsSearchSort = isSortKey(sortParam) ? sortParam : "time";
+  const orderParam = searchParams.get("order");
+  const order: NewsSearchOrder = isOrderDir(orderParam) ? orderParam : "desc";
 
   const [items, setItems] = useState<NewsItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -136,7 +192,7 @@ export function FeedPage() {
     setFailed(false);
     setPage(1);
     const request = isSearch
-      ? searchNewsFeed({ q: qParam, sort, page: 1 })
+      ? searchNewsFeed({ q: qParam, sort, order, category, page: 1 })
       : fetchNewsFeed({ category, page: 1 });
     request
       .then((data) => {
@@ -153,14 +209,14 @@ export function FeedPage() {
     return () => {
       alive = false;
     };
-  }, [category, isSearch, qParam, sort]);
+  }, [category, isSearch, qParam, sort, order]);
 
   // 加载更多：追加下一页（检索态走同一分页语义）
   const loadMore = () => {
     if (loadingMore) return;
     setLoadingMore(true);
     const request = isSearch
-      ? searchNewsFeed({ q: qParam, sort, page: page + 1 })
+      ? searchNewsFeed({ q: qParam, sort, order, category, page: page + 1 })
       : fetchNewsFeed({ category, page: page + 1 });
     request
       .then((data) => {
@@ -173,19 +229,23 @@ export function FeedPage() {
   };
 
   const setCategory = (next: NewsCategory | "all") => {
-    // 点分类=退出检索回落该分类视图（q 不保留）
-    const params: { view?: string; category?: string } = {};
+    // T21：关键词×分类互通——检索态点分类保留 q，结果限该分类范围；非检索态行为不变
+    const params: { view?: string; category?: string; q?: string } = {};
     if (isAllView) {
       params.view = "all";
     }
     if (next !== "all") {
       params.category = next;
     }
+    if (qParam) {
+      params.q = qParam;
+    }
     setSearchParams(params);
   };
 
   const submitSearch = (q: string) => {
-    // 保留既有视图参数（view/category 作回落位）；空 q=退出检索；每次新搜索排序复位
+    // 保留既有视图参数（view/category 作回落位）；空 q=退出检索
+    // T21：新搜索不再强制复位排序（修票面点名的复位债），sort/order 随 URL 自然保留
     const params: { view?: string; category?: string; q?: string } = {};
     if (isAllView) {
       params.view = "all";
@@ -196,7 +256,29 @@ export function FeedPage() {
     if (q) {
       params.q = q;
     }
-    setSort("time");
+    setSearchParams(params);
+  };
+
+  // T21：排序/方向变化写回 URL（sort/order 进 URL，刷新/后退保持）
+  const changeSort = (next: { sort?: NewsSearchSort; order?: NewsSearchOrder }) => {
+    const params: { view?: string; category?: string; q?: string; sort?: string; order?: string } = {};
+    if (isAllView) {
+      params.view = "all";
+    }
+    if (category !== "all") {
+      params.category = category;
+    }
+    if (qParam) {
+      params.q = qParam;
+    }
+    const nextSort = next.sort ?? sort;
+    const nextOrder = next.order ?? order;
+    if (nextSort !== "time" || nextOrder !== "desc") {
+      params.sort = nextSort;
+    }
+    if (nextOrder !== "desc") {
+      params.order = nextOrder;
+    }
     setSearchParams(params);
   };
 
@@ -227,7 +309,15 @@ export function FeedPage() {
 
       <CategoryChips value={category} onChange={setCategory} />
 
-      {isSearch && <SearchStateBar q={qParam} sort={sort} onSortChange={setSort} />}
+      {isSearch && (
+        <SearchStateBar
+          q={qParam}
+          category={category}
+          sort={sort}
+          order={order}
+          onSortChange={changeSort}
+        />
+      )}
 
       {failed ? (
         isSearch ? (

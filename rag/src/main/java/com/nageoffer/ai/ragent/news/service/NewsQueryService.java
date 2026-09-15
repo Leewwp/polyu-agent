@@ -73,11 +73,16 @@ public interface NewsQueryService {
     /**
      * 全局检索：标题+摘要四列 ILIKE，仅 published
      *
-     * <p>排序：{@code time}（默认）=发布时间倒序；{@code relevance}=标题命中优先、
-     * 摘要命中次之、同分按时间倒序（正文未存储，无正文加权）。分页语义与 list 一致。
+     * <p>排序：{@code time}（默认）=发布时间；{@code relevance}=标题命中优先、
+     * 摘要命中次之、同分按时间（正文未存储，无正文加权）。
+     * T21：{@code order}=asc/desc（默认 desc）两分支全贯——time 分支直接反序，
+     * relevance 分支桶序与桶内 tie-break 均随向；category 可选，限定检索范围（eq 谓词同 list）。
+     * 分页语义与 list 一致。
      *
-     * @param q    关键词；blank 返回空页（前端 q 空时不进检索态，此处为契约兜底）
-     * @param sort time / relevance，其余取值按 time 处理
+     * @param q        关键词；blank 返回空页（前端 q 空时不进检索态，此处为契约兜底）
+     * @param sort     time / relevance，其余取值按 time 处理
+     * @param order    asc / desc，其余取值按 desc 处理
+     * @param category 可选分类过滤，blank=全部理大资讯
      */
-    NewsPageVO searchPublished(String q, String sort, int page, int size);
+    NewsPageVO searchPublished(String q, String sort, String order, String category, int page, int size);
 }
