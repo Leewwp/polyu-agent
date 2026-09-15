@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.site.dao.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -52,14 +53,17 @@ public class SiteAboutDO {
     private String content;
 
     /**
-     * 赞赏二维码 URL（可空；与 alt 同时为空时前端赞赏区整区不渲染）
+     * 赞赏二维码 URL（可空；与 alt 同时为空时前端赞赏区整区不渲染）。
+     * updateStrategy=ALWAYS：saveAbout 的「移除」路径传 null，若走默认 NOT_NULL
+     * 策略 updateById 会跳过 null 字段——移除永远不生效（保存假成功）
      */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String qrImageUrl;
 
     /**
-     * 第二张赞赏二维码 URL（可空）
+     * 第二张赞赏二维码 URL（可空）。ALWAYS 同上——null 要能写回
      */
-    @TableField("qr_image_url_alt")
+    @TableField(value = "qr_image_url_alt", updateStrategy = FieldStrategy.ALWAYS)
     private String qrImageUrlAlt;
 
     /**

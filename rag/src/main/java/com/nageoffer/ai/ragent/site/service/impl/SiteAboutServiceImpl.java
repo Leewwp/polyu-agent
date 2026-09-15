@@ -93,6 +93,8 @@ public class SiteAboutServiceImpl implements SiteAboutService {
                 () -> new ClientException("仅支持 png / jpg / webp 图片"));
         StoredFileDTO stored = fileStorageService.uploadAsset(content,
                 StrUtil.blankToDefault(filename, "site-qr.png"), contentType);
-        return stored.getUrl();
+        // uploadAsset 返回的是对象 key 而非可访问 URL，必须过 getPublicUrl 换公网地址
+        // （照 ImageDocumentParser 同款两步先例）；漏此步=前台 img src 拿裸 key 404
+        return fileStorageService.getPublicUrl(stored.getUrl());
     }
 }

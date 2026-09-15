@@ -98,12 +98,15 @@ class SiteAboutServiceImplTest {
 
     @Test
     void uploadQrReturnsAssetUrl() {
+        // uploadAsset 返回裸对象 key（生产形态），service 必须经 getPublicUrl 换成公网 URL
         StoredFileDTO stored = new StoredFileDTO();
-        stored.setUrl("https://assets/site-qr.png");
+        stored.setUrl("assets/site/61298a0f.png");
         when(storage.uploadAsset(any(), any(), any())).thenReturn(stored);
+        when(storage.getPublicUrl("assets/site/61298a0f.png"))
+                .thenReturn("http://localhost:9000/ragent-assets/assets/site/61298a0f.png");
 
         String url = service.uploadQr(new byte[]{1, 2}, "qr.png", "image/png");
 
-        assertThat(url).isEqualTo("https://assets/site-qr.png");
+        assertThat(url).isEqualTo("http://localhost:9000/ragent-assets/assets/site/61298a0f.png");
     }
 }
