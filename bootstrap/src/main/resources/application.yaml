@@ -1,0 +1,481 @@
+server:
+  port: 9090
+  servlet:
+    context-path: /api/ragent
+
+spring:
+  application:
+    name: ragent${unique-name:}-service
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    type: com.zaxxer.hikari.HikariDataSource
+    username: postgres
+    password: postgres
+    url: jdbc:postgresql://127.0.0.1:5432/ragent?client_encoding=UTF8
+    hikari:
+      connection-timeout: 5000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      maximum-pool-size: 10
+      minimum-idle: 5
+      pool-name: RagentHikariPool
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+
+  mail:
+    # SMTP 真实发信（2026-09-14 接线落地）：
+    # ragent.mail.mode=smtp 时由 spring-boot-starter-mail 自动装配 JavaMailSender 消费本段。
+    # 参数全环境注入（MAIL_*：生产经环境变量/deploy/.env.example 注入）；465 直连 SSL 与 587 STARTTLS 双档——阿里云
+    # DirectMail=465（默认档）；腾讯云 SES=587 须 MAIL_SSL_ENABLE=false
+    # +MAIL_STARTTLS_ENABLE=true。
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          # 信封 MAIL FROM：DirectMail 要求信封=认证发信地址；JavaMail 缺省会拼
+          # 「OS 用户@本机主机名」被 500 拒（2026-09-14 实测发现）
+          from: ${MAIL_FROM:}
+          connectiontimeout: 5000
+          timeout: 10000
+          writetimeout: 10000
+          ssl:
+            enable: ${MAIL_SSL_ENABLE:true}
+          starttls:
+            enable: ${MAIL_STARTTLS_ENABLE:false}
+
+ragent:
+  engine:
+    type: agent  # 执行架构档位，可选 workflow（v1 编排管线）/ agent（v2 ReAct 架构，RAG 管线降级为主 Agent 的一个 Tool）
+  demo-mode: false
+  eval:
+    enabled: true
+  anonymous:
+    enabled: false     # 匿名试用 feature flag：默认关。关闭时 /auth/guest 拒绝铸造游客账号
+    daily-limit: 3     # 游客每日提问配额（「游客身份+IP」双键原子扣减）；默认 3 次/日，可按需调整
+  registration:
+    enabled: false     # 自助注册/邮箱验证/密码重置 feature flag：默认关（开放注册窗与 SMTP 凭据同窗）。
+                       # 关闭时 /auth/register、/auth/email/*、/auth/password/forgot|reset 由兜底控制器拒绝；env 覆盖名 RAGENT_REGISTRATION_ENABLED
+  mail:
+    mode: logger           # 邮件服务：logger=只记日志不外发（默认）；smtp=真实发信（阿里云 DirectMail 2026-09-14 接线，凭据经 MAIL_* 环境注入）
+    from: ${MAIL_FROM:}    # 发信身份（独立别名 no-reply@polyuguide.com）；空则回落 MAIL_USERNAME（阿里云要求 From=认证发信地址）
+    code-ttl-minutes: 10   # 验证码有效期（分钟）
+    resend-cooldown-seconds: 60  # 重发冷却（秒）
+    hourly-limit-per-email: 3    # 每小时每邮箱发信上限（跨场景合并计数）
+    # mode=smtp 时的连接参数全部环境注入（凭据经环境变量注入，不入仓库）：
+    # spring.mail.host=${MAIL_HOST:} / port=${MAIL_PORT:587} / username=${MAIL_USERNAME:} /
+    # password=${MAIL_PASSWORD:}；发件人= MAIL_FROM（发信身份别名，须与认证账号匹配）
+  security:
+    login:
+      max-failures: 5    # 登录失败窗口内允许次数（5 次/15 分钟/（IP+账号）双键，成功不计）
+      lock-seconds: 900  # 失败计数窗口=锁定时长（超限锁 15 分钟，窗口自最后一次失败滑动）
+  retention:
+    enabled: true             # 数据保留期清理任务总开关（原状零清理是合规缺口故默认开；关闭仅应急）
+    purge-grace-days: 30      # 注销软删冷静期：到期硬删级联（与生命周期恢复窗口同值，决议 30 天）
+    guest-retention-days: 30  # guest 账号（连同其对话级联）自铸号起保留天数（决议 30 天）
+    feedback-retention-days: 400  # 反馈保留期，到期整行删（comment 按 PII 对待；决议 400 天）
+    scan-delay-ms: 3600000    # 清理巡检间隔（毫秒）；分享快照 90 天/邮箱墓碑 180 天按各自 expire_time 判定，不占独立配置
+    initial-delay-ms: 120000  # 启动首扫延迟（毫秒，避开启动高峰）
+
+# Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
+agent:
+  chat:
+    provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
+    model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
+  max-iters: 10         # ReAct 循环上限，超出后熔断收尾
+  max-retries: 1        # 最大尝试次数含首次，1 即不重试
+  sse-timeout-ms: 900000
+  memory:
+    context-window-chars: 100000
+    summary-enabled: true
+    long-term-enabled: true
+    evictable-tools: [ search_knowledge ]
+  trace:
+    enabled: false  # 开启前先起 resources/docker/langfuse 那套服务
+    capture-content: true  # 记录提示词与工具出入参；纯骨架改 false
+    endpoint: http://localhost:3000/api/public/otel/v1/traces
+    public-key: pk-lf-ragent-local     # 与 compose 里的 LANGFUSE_INIT_PROJECT_PUBLIC_KEY 一致
+    secret-key: sk-lf-ragent-local     # 与 compose 里的 LANGFUSE_INIT_PROJECT_SECRET_KEY 一致
+    max-field-chars: 32768
+    max-attribute-chars: 131072 # 超限退成带 preview 的合法 JSON
+    service-version:  # 留空取 build-info 版本；要盖 pom 版本才填
+    environment:      # 如 local / staging / prod
+
+rag:
+  storage:
+    type: s3  # 可选 s3（rustfs / minio）/ oss（阿里云）
+    kb-bucket: ragent-sources        # 全局知识库桶（私有），所有知识库文档按 collectionName 目录隔离；OSS 桶名全局唯一，生产需按部署覆盖
+    asset-bucket: ragent-assets # 多模态资产桶（公共读），PDF 抽出的图片等供浏览器匿名直连预览
+    s3:
+      endpoint: http://localhost:9000
+      access-key: rustfsadmin
+      secret-key: rustfsadmin
+      region: us-east-1
+      path-style: true
+      public-url:  # 内外网端点不同时配置，留空回退 endpoint
+    oss:
+      endpoint: https://oss-cn-hangzhou.aliyuncs.com
+      access-key: ${OSS_ACCESS_KEY:}
+      secret-key: ${OSS_SECRET_KEY:}
+      region: cn-hangzhou
+      public-url:  # 虚拟主机式基址（含 bucket 子域），如 https://ragent-assets.oss-cn-hangzhou.aliyuncs.com；留空由 endpoint 推导
+
+  vector:
+    type: pg  # 可选 milvus / pg
+
+  keyword:
+    type: es  # 可选 none / es。2026-09-06 评估后开启：词法对比 fused MRR +0.070 零 HR 损失；kill switch=回 none 即整体关闭（ES 数据保留）
+    es:
+      uris: http://127.0.0.1:9201  # 9200 易与本机其他 ES 实例冲突，polyu ES 栈默认错峰用 9201：resources/docker/polyu-es-stack-9.4.2.compose.yaml
+      index: rag_keyword_store  # 全库共享索引，按 collection_name 字段区分知识库
+      analyzer: ik_max_word
+      search-analyzer: ik_smart
+
+  graph:
+    type: none  # 图谱后端总开关，可选 none / lightrag。lightrag 即接入后端供「后台可视化 / 检索读取」；是否参与检索、是否写入分别由 rag.search.channels.graph.enabled 与下方 ingestion.enabled 独立控制
+    lightrag:
+      base-url: http://127.0.0.1:9621
+      query-mode: hybrid
+    embedding-model: qwen-emb-8b  # 与 LightRAG 的 SiliconFlow Qwen3-Embedding-8B 配置一致
+
+  default:
+    collection-name: rag_default_store
+    dimension: 1536
+    metric-type: COSINE
+    sse-timeout-ms: 300000  # SSE 全局超时（毫秒），默认 5 分钟
+
+  query-rewrite:
+    enabled: true
+
+  rerank:
+    enabled: true
+
+  citation:
+    enabled: true  # 回答行内引用角标 [N](#cite-N)：开启会动态追加引用规则并为资料注入编号，增加首字延迟；关闭不影响文档级来源面板
+
+  share:
+    enabled: false            # 公开答案分享 feature flag：默认关（启用由部署方决定；关闭时相关端点不装配）
+    default-expire-days: 90   # 分享默认过期天数，0/负=不过期；默认 90 天或不过期，可按需调整（首发 noindex）
+    content-version: v1       # 随分享快照落库的内容/知识版本标记
+
+  news:
+    enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # 资讯流 feature flag：默认关；关闭时 /public/news/** 由兜底控制器统一 404。
+                              # env 覆盖双名兼容：RAG_NEWS_ENABLED（属性逐段映射正名）/ RAGENT_NEWS_ENABLED（生产 gen-prod-env 口径），前者优先
+    fetch-cron: "0 0 8,13,19 * * *"  # 抓取节奏三段 08/13/19 点
+    backfill-days: 14          # 回灌窗口天数（建议 14 天；历史回灌临时调大如 95，跑完即还原）
+    max-items-per-source: 50   # 单源单轮入库上限（批上限防长事务；历史回灌临时调大）
+    fetch-pages-max: 1         # HTML_LIST 抓取页深（1=仅列表首页现行口径；历史回灌临时调大，到头自动停）
+    events-past-months: 0      # events 回溯过去月数（0=当前月+下月现行口径；历史回灌临时调大）
+    retention-days: 90        # 条目保留期，NewsRetentionJob 清理阈值
+    retention-scan-delay-ms: 3600000   # 保留清理巡检间隔（毫秒）
+    retention-initial-delay-ms: 120000 # 启动首扫延迟（毫秒），避开启动高峰
+    enrich-batch: 20          # LLM 摘要补全单批上限（防长事务与花费失控，剩余下轮消化）
+    page-size-default: 20     # /public/news/list 默认页大小（首屏 20 条+加载更多）
+    hot-limit: 10             # 热点榜默认条数（Top10；/hot 端点 defaultValue）
+    story-merge-enabled: true # 故事线合并开关：false=降级不合并，榜单注脚文案须随降级改
+    source-weights:           # 热度公式信源权重（配置段承载，不改 DDL）：
+      news-sitemap: 3         #   官网媒体发布/焦点/新闻索引=3
+      media-releases: 3
+      recent-focus: 3
+      events: 3               #   活动日历=3
+      sao-news: 3             #   官网子站公告/学院新闻=3
+      ar-notices: 3
+      feng-news: 3
+      comp-news: 3
+      fce-news: 3
+      shtm-news: 3
+      prn: 2                  #   PRN 周更补充源=2
+      youtube-main: 2         #   YouTube 社媒源=2
+      youtube-feng: 2         #   学院级 YouTube=2
+      youtube-comp: 2
+      youtube-fce: 2
+      gnews-polyu-en: 2       #   GNews 媒体检索源=2
+      gnews-polyu-zh: 2
+      gnews-polyu-admission: 2
+      gnews-polyu-scholarship: 2
+      gnews-polyu-career: 2
+    ua: "polyuguide-feed/1.0 (+https://polyuguide.com)"  # 抓取 UA（fetcher 使用）
+
+  rate-limit:
+    global:
+      enabled: true
+      max-concurrent: 10
+      max-wait-seconds: 15
+      lease-seconds: 30
+      poll-interval-ms: 200
+
+  memory:
+    history-keep-turns: 8
+    summary-enabled: true
+    summary-start-turns: 9
+    summary-max-chars: 400
+    title-max-length: 30
+
+  semaphore:
+    document-upload:
+      name: rag:document:upload
+      max-concurrent: 10
+      max-wait-seconds: 5
+      lease-seconds: 300
+
+  knowledge:
+    schedule:
+      scan-delay-ms: 10000
+      lock-seconds: 900
+      batch-size: 20
+      min-interval-seconds: 60
+
+  mcp:
+    servers:
+      - name: default
+        url: http://localhost:9099
+
+  search:
+    # 检索漏斗三段预算，各自独立、单调收窄，启动时校验 recall-budget ≥ default-top-k 且 rerank-candidate-limit ≥ default-top-k
+    default-top-k: 10           # ③ 最终进 LLM 的条数（产品语义的 topK）
+    recall-budget: 20           # ① 每通道召回条数（绝对值，向量意图路/关键词/图谱共用）；须 ≥ default-top-k，0=回退 default-top-k
+    # 检索作用域：本次请求该看哪些知识库，与用什么模态检索无关，故与 channels 平级、三条通道共读
+    # 判定只看 KB 意图最高分，不看意图个数；关掉任一通道都不影响其余通道的作用域
+    scope:
+      min-intent-score: 0.4        # 低于此分的意图节点不参与「是否收窄」的判定
+      confidence-threshold: 0.6    # KB 意图最高分低于此值 → 退化为全库检索
+      supplement-ratio: 0.25       # 定向时各通道从自身产出额度划给「未命中库」的保底比例，兜住意图判错；0=关闭补充路，命中库已覆盖全库时自动不补
+    channels:
+      timeout-ms: 15000     # 单通道查询超时上限（毫秒）
+      vector:
+        enabled: true       # 向量通道总开关
+      keyword:
+        enabled: true      # 检索范围读引擎解析好的作用域，与向量通道同源。2026-09-06 评估后开启（与 rag.keyword.type=es 双开关配套）
+      graph:
+        enabled: false    # 图谱检索通道开关：false 不参与问答召回（后端仍在，后台可视化照常）；置 true 前需先开 rag.graph.type=lightrag
+      web-search:
+        enabled: false
+        count: 5
+        timeout-seconds: 10
+        api-key: ${YDC_API_KEY:}
+    fusion:
+      strategy: rrf
+      rrf-k: 20                   # 候选池通常仅 20~40 条，k=60 会过度平滑名次；调低至 20 让头部更有区分度（配合「检索归因」日志校准）
+      rerank-candidate-limit: 40  # ② RRF 融合后送入 Rerank 的候选池上限，<=0 不截断（经验值 40~100）
+      channel-weights:
+        vector: 1.0
+        keyword: 1.0
+        graph: 0.8
+        web-search: 0.5
+    # 证据相关性闸门：检索只保证返回最像的 N 条，库里没答案时照样满额返回，这里补一道相关度下限
+    evidence:
+      min-rerank-score: 0.40  # 整批最高精排分低于此值则整批丢弃，0=关闭；随 reranker 而变，换模型看「检索归因 - 精排分布」重测。2026-09-06 由 0.2 上调：18 行探针实测精排分=主题相关度而非可答性，0.40 恰拦唯一"库内全无相关"行（0.39）且距最低合法行 0.44 余 0.04；主观脏行（0.49–0.81）与可答 gold（0.73–0.95）区间交叠，靠分数拦不住——拒答归提示词层（规则①④）
+
+  trace:
+    enabled: true
+    max-error-length: 1000
+
+  # 图片解析（图生文）配置
+  # 产出一段自包含的知识文本：既说清"图是什么"，又完整保留所有文字与层级
+  image-parse:
+    description-prompt: |-
+      请把这张图片的内容转写成一段自包含的知识文本，用于知识库检索与问答，不要描述颜色、布局、字体等视觉样式。要求：
+      1. 开头用一两句话说明这张图是什么（主题、类型、用途），让人不看图也能明白讲的是什么。
+      2. 随后按图中的分组、层级、流程关系，完整转写所有文字内容（OCR），保留每个分组标题与其下属条目的归属关系，不要遗漏任何文字。
+      3. 若是图表、架构图或流程图，请补充说明各部分之间的关系（如包含、调用、先后顺序），而不只是罗列文字。
+      4. 保持术语准确完整，表述贴近用户可能的提问方式。
+      5. 最后另起一行，用一句话自然引出图片（例如"下方为该内容对应的原始图片："），以便在这段文字后紧接着展示图片。
+    max-output-tokens: 4096
+
+ai:
+  providers:
+    ollama:
+      url: http://localhost:11434
+      endpoints:
+        chat: /v1/chat/completions
+        embedding: /v1/embeddings
+    bailian:
+      url: https://dashscope.aliyuncs.com
+      api-key: ${BAILIAN_API_KEY:}
+      endpoints:
+        chat: /compatible-mode/v1/chat/completions
+        rerank: /api/v1/services/rerank/text-rerank/text-rerank
+        embedding: /compatible-mode/v1/embeddings
+    aihubmix:
+      url: https://aihubmix.com
+      api-key: ${AIHUBMIX_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
+        embedding: /v1/embeddings
+    deepseek:
+      url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
+    siliconflow:
+      # Embedding 供给线（qwen-emb-8b 固定跑 SiliconFlow，DeepSeek 官方无 embedding 端点）。
+      # 上游 27366d12 已删本块换 deepseek，我方保留——chat 侧切 deepseek，embedding 侧不动；
+      # 后续上游合并若再撞此块，按本注释保留
+      url: https://api.siliconflow.cn
+      api-key: ${SILICONFLOW_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
+        embedding: /v1/embeddings
+    minimax:
+      # MiniMax 官方 OpenAI 兼容端点；国内平台 api.minimaxi.com / 国际平台 api.minimax.io，
+      # 订阅归属哪侧由部署方按 key 提供方设置 MINIMAX_API_URL 覆盖
+      url: ${MINIMAX_API_URL:https://api.minimaxi.com}
+      api-key: ${MINIMAX_API_KEY:}
+      endpoints:
+        chat: /v1/chat/completions
+
+  selection:
+    failure-threshold: 2
+    open-duration-ms: 30000
+
+  stream:
+    message-chunk-size: 1
+
+  chat:
+    candidates:
+      - id: qwen-plus
+        provider: bailian
+        model: qwen-plus-latest
+      - id: qwen-flash
+        provider: bailian
+        model: qwen-flash
+      - id: qwen3-local
+        provider: ollama
+        model: qwen3:8b-fp16
+      - id: qwen3-max
+        provider: bailian
+        model: qwen3-max
+        supports-thinking: true
+      - id: gpt-5.4
+        provider: aihubmix
+        model: gpt-5.4
+      - id: deepseek-flash
+        provider: deepseek
+        model: deepseek-flash
+        supports-thinking: true
+      # MiniMax M3 横评候选（2026-09-07 评估：验证能否替代 deepseekv4pro 的 standard 备位）
+      - id: minimaxm3
+        provider: minimax
+        model: MiniMax-M3
+        supports-thinking: true
+
+    default-tier: standard
+    deep-thinking-tier: deep
+
+    # 档位现状：standard=MiniMax M3 主位+DeepSeek 官方兜底（2026-09-14，随上游 27366d12）；
+    # fast=[qwen-flash, qwen-plus]（调参 timeout 15000，无本地 qwen3 部署）；deep 维持上游
+    tiers:
+      fast:
+        candidates: [ qwen-flash, qwen-plus ]
+        timeout-ms: 15000
+      standard:
+        # 主位=minimaxm3（关思考为 vendor 默认，横评 minimax-m3-np 口径：纪律 8/8+严子串最高+p50 3.5s，
+        # 评测结论）；MiniMax 订阅 429/配额耗尽走底座原生降级——
+        # 同请求即切下一候选，ModelHealthStore 熔断 2 失败跳 30s 半开自愈；备=百炼 qwen-plus，
+        # 兜底=deepseek-flash（DeepSeek 官方，2026-09-14 替换 V4-Pro）
+        candidates: [ minimaxm3, qwen-plus, deepseek-flash ]
+        timeout-ms: 120000
+      deep:
+        candidates: [ qwen3-max, deepseek-flash ]
+        timeout-ms: 180000
+
+  embedding:
+    default-model: qwen-emb-8b
+    candidates:
+      # 对照组 = SiliconFlow Qwen/Qwen3-Embedding-8B（2026-09-05 校正：
+      # 上游默认曾把本 id 指到 bailian/text-embedding-v4，与评测合同不符）
+      - id: qwen-emb-8b
+        provider: siliconflow
+        model: Qwen/Qwen3-Embedding-8B
+        dimension: ${rag.default.dimension}
+        priority: 1
+      - id: qwen-emb-local
+        provider: ollama
+        model: qwen3-embedding:8b-fp16
+        dimension: ${rag.default.dimension}
+        priority: 2
+      - id: text-embedding-3-large
+        provider: aihubmix
+        model: text-embedding-3-large
+        dimension: ${rag.default.dimension}
+        priority: 3
+      # bailian text-embedding-v4 显式候选：2026-09-05 shadow 轮曾以 qwen-emb-8b 名义
+      # 实际运行过的模型，历史向量由它生成；独立 id 保留身份可追溯，不再与 qwen-emb-8b 混用
+      - id: bailian-te-v4
+        provider: bailian
+        model: text-embedding-v4
+        dimension: ${rag.default.dimension}
+        priority: 4
+
+  rerank:
+    default-model: qwen3-rerank
+    candidates:
+      - id: qwen3-rerank
+        provider: bailian
+        model: qwen3-rerank
+        priority: 1
+      - id: rerank-noop
+        provider: noop
+        model: noop
+        priority: 100
+
+  vlm:
+    default-model: qwen-vl-max
+    candidates:
+      - id: qwen-vl-max
+        provider: bailian
+        model: qwen-vl-max
+
+# MinerU SaaS API 配置（PDF / Word / PPT 走 MinerU 解析）
+mineru:
+  api-url: https://mineru.net/api/v4
+  api-key: ${MINERU_API_KEY:}
+  poll-interval-seconds: 5
+  timeout-seconds: 300
+  enable-table: true
+  enable-formula: true
+  ocr: false
+  language: ch
+  concurrency-limit: 5
+  semaphore-name: rag:mineru:parse
+  max-wait-seconds: 30
+  lease-seconds: 900
+
+sa-token:
+  token-name: Authorization
+  timeout: 2592000
+  is-concurrent: true
+  is-share: false
+  token-style: simple-uuid
+  is-log: false
+  is-print: false
+  # 会话载体 cookie 化（Sa-Token 原生档位）：登录写 HttpOnly Cookie、请求可从 Cookie 读 token；
+  # 登出时以增代删清 Cookie（is-read-cookie 开启即触发）。secure 不在基础档设置（本地 http），
+  # prod profile 覆盖 true。
+  is-read-cookie: true
+  cookie:
+    path: /
+    http-only: true
+    same-site: Lax
+
+rocketmq:
+  name-server: 127.0.0.1:9876
+  producer:
+    group: ragent-producer${unique-name:}_pg
+    send-message-timeout: 2000
+
+milvus:
+  uri: http://localhost:19530

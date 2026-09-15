@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  测试 fixture：Google News 格式 news-sitemap，按 2026-09-10 实采形态构造——
+  同一故事以三个独立 <url> 条目出现：en（无前缀 /media/、news:language=en）、
+  繁中（/tc/、zh-tw）、简中（/sc/、zh-cn），各带 hreflang 互链；条目 slug 取自
+  实测样本。0811 故事刻意早于 14 天回灌窗口
+  （窗口过滤在服务层断言）；0908 故事缺繁中变体（简体直取）；0811 故事缺简中变体（繁体兜底）且早于 14 天窗口；0904 仅 en（titleZh=null 归 LLM 补全）。
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://www.polyu.edu.hk/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://www.polyu.edu.hk/tc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://www.polyu.edu.hk/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <news:news>
+      <news:publication>
+        <news:name>The Hong Kong Polytechnic University (PolyU)</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-09T19:04:12+08:00</news:publication_date>
+      <news:title>The Hong Kong Polytechnic University Mourns the Passing of Mr Tung Chee Hwa</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/tc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://www.polyu.edu.hk/tc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <news:news>
+      <news:publication>
+        <news:name>香港理工大學 (PolyU)</news:name>
+        <news:language>zh-tw</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-09T19:04:12+08:00</news:publication_date>
+      <news:title>香港理工大學沉痛悼念董建華先生辭世</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/sc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://www.polyu.edu.hk/tc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0909_the-hong-kong-polytechnic-university-mourns-the-passing-of-mr-tung-chee-hwa/"/>
+    <news:news>
+      <news:publication>
+        <news:name>香港理工大学 (PolyU)</news:name>
+        <news:language>zh-cn</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-09T19:04:12+08:00</news:publication_date>
+      <news:title>香港理工大学沉痛悼念董建华先生辞世</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/"/>
+    <news:news>
+      <news:publication>
+        <news:name>The Hong Kong Polytechnic University (PolyU)</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-08T12:37:09+08:00</news:publication_date>
+      <news:title>Inaugural “PolyU Alumni Week” brings together over 1,200 alumni for vibrant summer reunion</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/sc/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0908_inaugural-polyu-alumni-week-brings-together-over-1200-alumni-for-vibrant-summer-reunion/"/>
+    <news:news>
+      <news:publication>
+        <news:name>香港理工大学 (PolyU)</news:name>
+        <news:language>zh-cn</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-08T12:37:09+08:00</news:publication_date>
+      <news:title>首届「理大校友周」圆满举行 逾1,200名校友共度缤纷盛夏</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/tc/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://www.polyu.edu.hk/tc/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <news:news>
+      <news:publication>
+        <news:name>香港理工大學 (PolyU)</news:name>
+        <news:language>zh-tw</news:language>
+      </news:publication>
+      <news:publication_date>2026-08-11T14:17:04+08:00</news:publication_date>
+      <news:title>理大研發可穿戴微針貼片</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://www.polyu.edu.hk/tc/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://www.polyu.edu.hk/sc/media/media-releases/2026/0811_polyu-develops-wearable-microneedle-patch/"/>
+    <news:news>
+      <news:publication>
+        <news:name>The Hong Kong Polytechnic University (PolyU)</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>2026-08-11T14:17:04+08:00</news:publication_date>
+      <news:title>PolyU develops wearable microneedle patch</news:title>
+    </news:news>
+  </url>
+  <url>
+    <loc>https://www.polyu.edu.hk/media/media-releases/2026/0904_polyu-and-diagens-tech-establish-joint-laboratory-to-advance-ai-driven-medical-innovation/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.polyu.edu.hk/media/media-releases/2026/0904_polyu-and-diagens-tech-establish-joint-laboratory-to-advance-ai-driven-medical-innovation/"/>
+    <news:news>
+      <news:publication>
+        <news:name>The Hong Kong Polytechnic University (PolyU)</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>2026-09-04T11:16:00+08:00</news:publication_date>
+      <news:title>PolyU and Diagens Tech establish joint laboratory to advance AI-driven medical innovation</news:title>
+    </news:news>
+  </url>
+</urlset>

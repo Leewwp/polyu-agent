@@ -1,0 +1,274 @@
+# PolyU-agent 生产栈八件套（2026-09-09；组件口径=部署规格书配置账：JVM/PG16+pgvector/Redis/MinIO/RocketMQ/ES+IK/nginx+前端静态/OS）
+#
+# 与本地栈（resources/docker/polyu-local-*.compose.yaml，本机专用不入库）的差异与理由：
+#   - 宿主端口：生产默认标准端口，仅绑 127.0.0.1（SSH 隧道运维用），公网只开 nginx 的 80/443
+#     （控制台防火墙放行，启用 TLS 时）。本机冒烟用 HOST_PORT_* 全套错峰（deploy/README「本机冒烟」）。
+#   - broker 无需向宿主发布 10909–10912：应用在 compose 网络内经 polyu-rmqbroker 直连
+#     （本地栈发布是因为应用跑在宿主机）。
+#   - PG 首启自动建表：schema_pg.sql + init_data_pg.sql 由 deploy CI scp 到 /opt/polyu 挂入
+#     /docker-entrypoint-initdb.d（仅空数据卷首启执行；后续升级走 resources/database/upgrades/ 手工脚本）。
+#   - 资源限额自最低档起步（部署规格书配置账）：JVM 堆 2G / ES 堆 1G / PG 1G / MQ 双进程 ≈1.25G /
+#     Redis+MinIO 0.5G；F7 压测后按 §1.4 触墙升配或调参。
+#   - certbot 为 tls profile 服务：域名解析生效后首签（deploy/README「TLS 启用」），平时不拉起。
+#
+# 运行（服务器 /opt/polyu，文件由 deploy CI scp 维护）：
+#   docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d
+# polyu-prod.env 为唯一密钥载体（密钥三不：不入仓/不入镜像/不入 compose），不入仓，由部署方
+# 按 deploy/.env.example 复制填值后 scp 上服务器。
+name: polyu-prod
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+services:
+  polyu-app:
+    image: ${IMAGE_BACKEND:?polyu-prod.env 缺 IMAGE_BACKEND}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      POSTGRES_USER: ${POSTGRES_USER:?polyu-prod.env 缺 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?polyu-prod.env 缺 POSTGRES_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?polyu-prod.env 缺 REDIS_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?polyu-prod.env 缺 MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?polyu-prod.env 缺 MINIO_ROOT_PASSWORD}
+      ASSETS_PUBLIC_URL: ${ASSETS_PUBLIC_URL:?polyu-prod.env 缺 ASSETS_PUBLIC_URL}
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
+      BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+      AIHUBMIX_API_KEY: ${AIHUBMIX_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_API_URL: ${MINIMAX_API_URL:-https://api.minimaxi.com}
+      MINERU_API_KEY: ${MINERU_API_KEY:-}
+      # DeepSeek 官方供应商（2026-09-14 随上游 27366d12 采纳）：缺省空=agent 引擎不可用，启动不受阻
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      # feature flags / 邮件参数：env 文件值经此处进容器（Spring relaxed binding 覆盖 application.yaml；
+      # 开关必须在此列出让 compose 传递，只在 env 文件里翻转是静默 no-op）；缺省值与 yaml 默认一致
+      RAG_NEWS_ENABLED: ${RAG_NEWS_ENABLED:-false}
+      RAGENT_ANONYMOUS_ENABLED: ${RAGENT_ANONYMOUS_ENABLED:-false}
+      RAGENT_MAIL_MODE: ${RAGENT_MAIL_MODE:-logger}
+      RAGENT_REGISTRATION_ENABLED: ${RAGENT_REGISTRATION_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # AdminUserBootstrap：空表时一次性建 admin（随机强口令注入，非默认弱凭据）
+      RAGENT_BOOTSTRAP_ADMIN_PASSWORD: ${RAGENT_BOOTSTRAP_ADMIN_PASSWORD:-}
+      JAVA_OPTS: ${APP_JAVA_OPTS:--Xms1g -Xmx2g -XX:+ExitOnOutOfMemoryError}
+    ports:
+      - "127.0.0.1:${HOST_PORT_APP:-9090}:9090"
+    depends_on:
+      polyu-pg:
+        condition: service_healthy
+      polyu-redis:
+        condition: service_healthy
+      polyu-minio:
+        condition: service_healthy
+      polyu-es:
+        condition: service_healthy
+      polyu-rmqnamesrv:
+        condition: service_healthy
+      polyu-rmqbroker:
+        condition: service_healthy
+    mem_limit: 3g
+    healthcheck:
+      # 无 actuator 依赖（应用侧未引入），TCP 探活足够证明 JVM 监听；业务健康由 nginx 5xx 与日志巡检兜
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9090' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 240s
+    restart: unless-stopped
+    logging: *default-logging
+
+  polyu-pg:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:${HOST_PORT_PG:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ragent
+    volumes:
+      - polyu-pg-data:/var/lib/postgresql/data
+      # 首启建表（仅空数据卷执行）；文件由 deploy CI scp 落位 /opt/polyu
+      - ./schema_pg.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./init_data_pg.sql:/docker-entrypoint-initdb.d/02-init_data.sql:ro
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ragent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    logging: *default-logging
+
+  polyu-redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 384mb
+      - --maxmemory-policy
+      - noeviction
+    ports:
+      - "127.0.0.1:${HOST_PORT_REDIS:-6379}:6379"
+    volumes:
+      - polyu-redis-data:/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    restart: unless-stopped
+    logging: *default-logging
+
+  polyu-minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:${HOST_PORT_MINIO:-9000}:9000"
+      - "127.0.0.1:${HOST_PORT_MINIO_CONSOLE:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    volumes:
+      - polyu-minio-data:/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+    restart: unless-stopped
+    logging: *default-logging
+    # 桶（ragent-sources / ragent-assets 公共读）由应用 StorageInitializer 启动时自建，无 init 容器
+
+  polyu-rmqnamesrv:
+    image: apache/rocketmq:5.2.0
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx400m"
+    command: sh mqnamesrv
+    # 日志不挂卷：rocketmq 镜像未预建 logs 目录，命名卷首挂为 root 属主会令 uid 3000 写入失败
+    # （本机冒烟实测 namesrv unhealthy）；stdout 已由 json-file 轮转采集，文件日志随容器生命周期
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'The Name Server boot success' /home/rocketmq/logs/rocketmqlogs/namesrv.log || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    logging: *default-logging
+
+  polyu-rmqbroker:
+    image: apache/rocketmq:5.2.0
+    environment:
+      NAMESRV_ADDR: "polyu-rmqnamesrv:9876"
+      # 堆 640m + mem_limit 1536m：768m 堆在启动期（装载 topic/消费队列突发）实际 RSS >1.4g，
+      # 曾撞爆 1g 限额被 cgroup OOM kill（本机冒烟实测，exit 137）；最低档实占 ≈1.25G，压测后再调
+      JAVA_OPT_EXT: "-Xms512m -Xmx640m"
+    depends_on:
+      polyu-rmqnamesrv:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        cat > /home/rocketmq/rocketmq-5.2.0/conf/broker.conf << EOF
+        brokerClusterName = DefaultCluster
+        brokerName = broker-a
+        brokerId = 0
+        deleteWhen = 04
+        fileReservedTime = 72
+        brokerRole = ASYNC_MASTER
+        flushDiskType = ASYNC_FLUSH
+        brokerIP1 = polyu-rmqbroker
+        timerMaxDelaySec = 31622400
+        EOF
+        sh mqbroker -c /home/rocketmq/rocketmq-5.2.0/conf/broker.conf
+    volumes:
+      # 消息存储持久化：bind mount（宿主目录由 server-init.sh 预建并 chown 3000:3000——
+      # 命名卷首挂为 root 属主，broker(uid 3000) 写入会失败）
+      - ${RMQ_STORE_DIR:-./rmq-store}:/home/rocketmq/store
+    mem_limit: 1536m
+    healthcheck:
+      # 日志行检查（与 namesrv 同款）。曾用 mqadmin clusterList：每次探测在容器内 fork 一个
+      # JVM，叠加 broker 堆撞爆 mem_limit 被 cgroup OOM kill（本机冒烟实测），弃用
+      test: ["CMD-SHELL", "grep -q 'boot success' /home/rocketmq/logs/rocketmqlogs/broker.log || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+
+  polyu-es:
+    image: ${IMAGE_ES:?polyu-prod.env 缺 IMAGE_ES}
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"   # 仅 compose 内网可达（宿主只绑 127.0.0.1）；TLS 化待 HTTPS 后评估
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+      ingest.geoip.downloader.enabled: "false"
+    ports:
+      - "127.0.0.1:${HOST_PORT_ES:-9200}:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 2g
+    volumes:
+      - polyu-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+    logging: *default-logging
+    # 前置：宿主 vm.max_map_count ≥ 262144（deploy/server-init.sh 落 /etc/sysctl.d）
+
+  polyu-nginx:
+    image: ${IMAGE_FRONTEND:?polyu-prod.env 缺 IMAGE_FRONTEND}
+    ports:
+      # 唯一公网面：80/443 已在控制台防火墙放行（2026-09-09，TLS 启用时点）
+      - "${HOST_PORT_HTTP:-80}:80"
+      - "${HOST_PORT_HTTPS:-443}:443"
+    volumes:
+      # TLS 卷位：证书只读挂载（certbot 首签产物）+ ACME webroot 与 certbot 共享
+      - ${CERTS_DIR:-./certs}:/etc/letsencrypt:ro
+      - ${CERTBOT_WWW:-./certbot-www}:/var/www/certbot
+    depends_on:
+      polyu-app:
+        condition: service_healthy
+    mem_limit: 256m
+    healthcheck:
+      # 80 已收敛为 301 跳转，http 探测会跟随跳转撞证书域名不匹配；直探 443 + 忽略自签校验
+      # （busybox wget 无 --server-response 依赖，SNI=127.0.0.1 落默认 443 server=本服务）
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  certbot:
+    image: certbot/certbot:v3.2.0
+    profiles: ["tls"]   # 平时不拉起；域名解析生效后首签：docker compose --profile tls run --rm certbot certonly ...
+    volumes:
+      - ${CERTBOT_WWW:-./certbot-www}:/var/www/certbot
+      - ${CERTS_DIR:-./certs}:/etc/letsencrypt
+
+volumes:
+  polyu-pg-data:
+  polyu-redis-data:
+  polyu-minio-data:
+  polyu-es-data:

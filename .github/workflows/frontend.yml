@@ -1,0 +1,44 @@
+# 前端质量门（ROADMAP-20260907 第 6 步 CI 骨架）：lint + build。
+# 测试底座（Vitest/E2E）为路线图第 9 步，落地后在此追加 test 步骤。
+name: frontend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          # jsdom 30 依赖 worker_threads.markAsUncloneable（Node 22.13+），Node 20 会挂——
+          # 2026-09-08 实测：钉 20 时 vitest 全挂该 TypeError；本地验证版本线为 24+
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # 依赖漏洞审计门：high+ 即红；已知暂不可非破坏修复的例外走
+      # scripts/npm-audit-gate.mjs 白名单（vite/vitest major 归常规依赖升级票，落地后删除条目）。
+      - name: Dependency audit (high+ gate)
+        run: node scripts/npm-audit-gate.mjs

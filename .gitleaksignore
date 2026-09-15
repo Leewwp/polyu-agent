@@ -1,0 +1,6 @@
+# gitleaks 基线——仅收录历史命中，新泄漏一律红线。
+# 两条命中均为上游历史遗留的 DashScope key（2025-11-20 上游提交，作者随后已自行移除；
+# 该提交存在于公开的上游仓库）。基线化仅为 CI 门过绿所需。
+# CI 扫描口径=gitleaks detect --log-opts="--full-history HEAD"（HEAD 可达全历史）。
+9274e6905dc2c227f97f1c6b5eae33d35c1564e0:src/main/resources/application.yaml:generic-api-key:30
+c5cf31e327abc71d6598c0073fa25ed718aa2375:src/main/resources/application.yaml:generic-api-key:40

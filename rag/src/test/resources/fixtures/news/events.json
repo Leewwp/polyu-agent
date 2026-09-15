@@ -1,0 +1,46 @@
+{
+  "events": [
+    {
+      "id": "1",
+      "start-date": "2026-09-09",
+      "end-date": "2026-09-22",
+      "isInitial": "0",
+      "type": "others",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/en/events/2026/9/15456_237\" title=\"Election of Student Members to Senate and Senate Committees 2026/27 - Nomination Period\"><span>Election of Student Members to Senate an</span></a></p></div>",
+      "title": "Election of Student Members to Senate and Senate Committees 2026/27 - Nomination Period",
+      "csscode": "blue",
+      "eventStartDate": "2026-09-09T00:00:00+08:00",
+      "eventEndDate": "2026-09-22T23:59:00+08:00"
+    },
+    {
+      "id": "2",
+      "start-date": "2026-09-14",
+      "end-date": "2026-09-14",
+      "isInitial": "0",
+      "type": "conference / lecture",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/en/events/2026/9/15455_669\" title=\"Faculty of Engineering Distinguished Lecture: Microwave Full Field Vibration and Deformation Measurement Technology and Instrument for Super-Large-Scale Structures\"><span>Faculty of Engineering Distinguished Lec</span></a></p></div>",
+      "title": "Faculty of Engineering Distinguished Lecture: Microwave Full Field Vibration and Deformation Measurement Technology and Instrument for Super-Large-Scale Structures",
+      "csscode": "green",
+      "eventStartDate": "2026-09-14T10:30:00+08:00",
+      "eventEndDate": "2026-09-14T11:30:00+08:00"
+    },
+    {
+      "id": "3",
+      "start-date": "2026-09-18",
+      "end-date": "2026-09-18",
+      "isInitial": "0",
+      "type": "others",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/en/events/2026/9/0918_polyu-chinese-culture-festival---mid-autumn-festival-gala\" title=\"PolyU Chinese Culture Festival - Mid-Autumn Festival Gala\"><span>PolyU Chinese Culture Festival - Mid-Aut</span></a></p></div>",
+      "title": "PolyU Chinese Culture Festival - Mid-Autumn Festival Gala",
+      "csscode": "blue",
+      "eventStartDate": "2026-09-18T18:15:00+08:00",
+      "eventEndDate": "2026-09-18T20:30:00+08:00"
+    }
+  ],
+  "eventTypeList": [
+    {
+      "Title": "Others",
+      "CssCode": "legend-item--blue"
+    }
+  ]
+}

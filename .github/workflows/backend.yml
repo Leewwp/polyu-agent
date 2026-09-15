@@ -1,0 +1,95 @@
+# 后端质量门
+#
+# 口径：
+# - 只跑编译 + 自建质量门（纯单元测试，无中间件/无 API key 依赖）；
+# - 不放上游整合测试（@SpringBootTest 全家桶 + 真实 API 依赖类）——上游测试仅作本地
+#   环境健康检查（rag 测试隔离层 application.yaml 注明 9 个具名例外：4 个需 Milvus
+#   服务器、5 个需上游演示知识库数据）；
+# - 分支保护 / required checks / PR 制暂未启用（按需配置）。
+name: backend
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      # action 全部按 commit-SHA 钉版（防 tag 漂移投毒）
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 质量门 = 全模块单元测试，命令行排除中间件/真实 API 依赖类（不改 pom）。
+      # 排除清单与 rag/src/test/resources/application.yaml 隔离层注释保持同步维护。
+      # NewsQueryServiceTests 为新增的 @SpringBootTest（需 PG/Redis 上下文），
+      # 按本文件头部口径不该进本门；原清单漏收致 rag 模块 6 个 error，2026-09-10 补入。
+      - name: Unit quality gate (no middleware, no API keys)
+        run: >
+          ./mvnw test
+          -Dsurefire.failIfNoSpecifiedTests=false
+          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!YouComSearchMcpExecutorLiveTest,!NewsQueryServiceTests'
+
+      - name: Package (skip tests)
+        run: ./mvnw -DskipTests package
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      # gitleaks 全历史秘密扫描：替代原 sk- 窄正则。
+      # 扫描口径=HEAD 可达全历史（--full-history HEAD），与推送内容一致，不受 origin 上
+      # backup/* 旁支引用噪声影响。历史命中已在 .gitleaksignore 基线（上游历史自行移除的
+      # 两条 DashScope key）。镜像 digest 钉版 8.30.1
+      #（与基线验证版本一致）；-u 以宿主用户跑，避 git dubious ownership。
+      - name: gitleaks full-history scan
+        run: >
+          docker run --rm -u "$(id -u):$(id -g)"
+          -v "$PWD:/repo" -w /repo
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          detect --source /repo --redact --log-opts="--full-history HEAD"
+
+      # 结构检查保留为绊线（报告 §6-4 口径）：两条 S9 回归绊线不交给 gitleaks 通用规则。
+      - name: S9 tripwire — default credential seed must not return
+        run: |
+          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/ | grep -vE "^\s*(--|#)"; then
+            echo "::error::resources/database/ 疑似复活默认凭据种子（S9 已移除+U1 已清理 backups 残留，冲突回退不得带回）"
+            exit 1
+          fi
+
+      - name: S9 tripwire — plaintext password comparison must not return
+        run: |
+          if git grep -nE "getPassword\(\)\s*\.equals|password\.equals\(" -- '*.java' | grep -viE "test|PasswordCodec|matches\(" ; then
+            echo "::error::疑似明文密码比对回归（S9 要求走 PasswordCodec/DelegatingPasswordEncoder）"
+            exit 1
+          fi
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # 轻量依赖审计（阻塞化）：ossindex 无需 NVD key。
+      # 2026-09-12 实跑 3.2.0 零告警，故去 || true 上闸；原 3.2.1 为无效版本号，
+      # 插件解析即失败且被 || true 长期掩盖（已修正）。新告警=红，处置走依赖升级。
+      - name: Maven dependency audit (blocking)
+        run: >
+          ./mvnw -B org.sonatype.ossindex.maven:ossindex-maven-plugin:3.2.0:audit

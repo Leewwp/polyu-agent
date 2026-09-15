@@ -1,0 +1,59 @@
+# PolyU-agent 本地 Elasticsearch 栈（2026-09-06 批准启用）
+#
+# 部署约束逐条对应：
+#   - 错峰端口：宿主 9201（9200 实测常被本机其他项目占用，禁写入；9201 实测空闲）。
+#     与 polyu-local-0b1.compose.yaml 同纪律：宿主端口仅绑 127.0.0.1。
+#   - 同步改 es.uris：bootstrap/src/main/resources/application.yaml 的 rag.keyword.es.uris
+#     已同批改为 http://127.0.0.1:9201（运行中后端下次重启生效；kill switch rag.keyword.type
+#     仍为 none，栈验证稳定前应用不会接入）。
+#   - 匹配版 IK：ES 9.4.2 镜像 = analysis-ik 9.4.2（本地 zip，哈希见 Dockerfile 头注）
+#     = 应用客户端 elasticsearch-java 9.4.2（bootstrap jar 实测打包版）。
+#   - 堆 ≤2G：ES_JAVA_OPTS=-Xms1g -Xmx2g（另 mem_limit 4g 兜底堆外开销）。
+#
+# 启动（部署方复核通过后执行；本文件由开发会话编写但未启动、未提交）：
+#   docker compose -f resources/docker/polyu-es-stack-9.4.2.compose.yaml up -d --build
+# 停止（保留数据）：同命令尾换 down；彻底清除（删数据卷）：down -v。
+#
+# 启动后自检两条：
+#   curl -s http://127.0.0.1:9201/_cluster/health | jq .status        # 期望 "green"（单节点无副本也可能 "yellow"）
+#   curl -s -H 'Content-Type: application/json' 'http://127.0.0.1:9201/_analyze' \
+#     -d '{"analyzer":"ik_max_word","text":"香港理工大学学生事务处"}'   # 期望中文按 ik 分词，非单字切分
+#
+# 备注：独立 project（polyu-agent-es），不并入 polyu-agent-stack——避免 0b1 栈例行 up -d 时
+# 把未复核的 ES 顺带拉起；验证稳定后如要并栈，把本 service 段移入 0b1 compose 即可。
+# 若容器启动报 vm.max_map_count 不足（Docker Desktop 偶见）：
+#   docker run --privileged --rm docker.elastic.co/elasticsearch/elasticsearch:9.4.2 \
+#     sysctl -w vm.max_map_count=262144
+name: polyu-agent-es
+
+services:
+  polyu-es:
+    build:
+      context: .
+      dockerfile: polyu-es-stack-9.4.2.Dockerfile
+    image: polyu-agent/es-ik:9.4.2
+    container_name: polyu-es
+    ports:
+      - "127.0.0.1:9201:9200"
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"  # 本机回环开发栈；应用 EsClientConfig 为无认证 http 直连
+      ES_JAVA_OPTS: "-Xms1g -Xmx2g"   # 部署约束：堆 ≤2G
+      ingest.geoip.downloader.enabled: "false"  # 免启动期外网拉 geoip 库
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    mem_limit: 4g
+    volumes:
+      - polyu-es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  polyu-es-data:

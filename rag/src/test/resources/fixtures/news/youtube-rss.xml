@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  测试 fixture：YouTube 频道 RSS（Atom + media RSS）按公开规范合成。
+  端点 https://www.youtube.com/feeds/videos.xml?channel_id=UCkio4asleKcQVRVEM8RnXlQ
+  本机 DNS 污染未能实测（已知遗留），
+  结构按 Atom 1.0 与 media RSS 规范构造；生产香港服务器侧 curl 复验列入后续待办。
+-->
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:media="http://search.yahoo.com/mrss/">
+  <link rel="self" href="https://www.youtube.com/feeds/videos.xml?channel_id=UCkio4asleKcQVRVEM8RnXlQ"/>
+  <id>yt:channel:UCkio4asleKcQVRVEM8RnXlQ</id>
+  <yt:channelId xmlns:yt="http://www.youtube.com/xml/schemas/2015">UCkio4asleKcQVRVEM8RnXlQ</yt:channelId>
+  <title>The Hong Kong Polytechnic University (PolyU)</title>
+  <entry>
+    <id>yt:video:fixture0001</id>
+    <yt:videoId xmlns:yt="http://www.youtube.com/xml/schemas/2015">fixture0001</yt:videoId>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=fixture0001"/>
+    <title>PolyU Convocation 2026 Highlights</title>
+    <published>2026-09-09T09:00:00+08:00</published>
+    <updated>2026-09-09T09:00:00+08:00</updated>
+    <media:group>
+      <media:title>PolyU Convocation 2026 Highlights</media:title>
+      <media:description>Ceremony highlights of The Hong Kong Polytechnic University Convocation 2026.</media:description>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:fixture0002</id>
+    <yt:videoId xmlns:yt="http://www.youtube.com/xml/schemas/2015">fixture0002</yt:videoId>
+    <link href="https://www.youtube.com/watch?v=fixture0002"/>
+    <title>PolyU Research Impact: AI for Good</title>
+    <published>2026-09-06T14:30:00+08:00</published>
+    <updated>2026-09-07T08:00:00+08:00</updated>
+    <media:group>
+      <media:title>PolyU Research Impact: AI for Good</media:title>
+      <media:description>How PolyU researchers apply AI to solve real-world problems.</media:description>
+    </media:group>
+  </entry>
+  <entry>
+    <id>yt:video:fixture0003</id>
+    <yt:videoId xmlns:yt="http://www.youtube.com/xml/schemas/2015">fixture0003</yt:videoId>
+    <link rel="alternate" href="https://www.youtube.com/watch?v=fixture0003"/>
+    <title>Campus Life at PolyU</title>
+    <published>2026-08-28T10:00:00+08:00</published>
+    <updated>2026-08-28T10:00:00+08:00</updated>
+    <media:group>
+      <media:title>Campus Life at PolyU</media:title>
+      <media:description>A glimpse into student life at The Hong Kong Polytechnic University.</media:description>
+    </media:group>
+  </entry>
+</feed>

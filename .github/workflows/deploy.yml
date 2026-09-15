@@ -1,0 +1,209 @@
+# 生产部署链（2026-09-09）
+#
+# 链路：push main（代码/部署物变更）→ 构建三镜像（backend / frontend / es-ik）推 GHCR →
+#       scp compose+建表 SQL 到部署机 /opt/polyu → SSH 拉镜像滚动重启。
+# 与薄层二开纪律对齐：上游无 deploy 产物，本文件整体为我方方案，上游跟进时可整体让位。
+#
+# 密钥面（一次性配置，仓库 Settings → Secrets and variables → Actions）：
+#   DEPLOY_HOST / DEPLOY_USER / DEPLOY_KEY —— 部署机 SSH 地址 / 用户 / 专用私钥全文
+#   （polyu-prod.env 不经 CI：部署方按 deploy/.env.example 填值后 scp，见 deploy/README.md）
+# 拉取鉴权：服务器不存任何长期 GitHub 凭据，每次部署用临时 GITHUB_TOKEN 登录 GHCR 拉完即 logout。
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pom.xml"
+      - "lombok.config"
+      - ".mvn/**"
+      - "mvnw"
+      - "framework/**"
+      - "infra-ai/**"
+      - "system/**"
+      - "rag/**"
+      - "agent/**"
+      - "bootstrap/**"
+      - "frontend/src/**"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "frontend/vite.config.*"
+      - "frontend/tailwind.config.cjs"
+      - "frontend/postcss.config.cjs"
+      - "deploy/**"
+      - "resources/docker/polyu-es-stack-9.4.2.Dockerfile"
+      - "resources/docker/elasticsearch-analysis-ik-9.4.2.zip"
+      - "resources/database/schema_pg.sql"
+      - "resources/database/init_data_pg.sql"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      owner: ${{ steps.lo.outputs.owner }}
+      tag: ${{ steps.lo.outputs.tag }}
+    steps:
+      - id: lo
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: meta
+    timeout-minutes: ${{ matrix.timeout }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            context: .
+            dockerfile: deploy/backend.Dockerfile
+            timeout: 60
+          - name: frontend
+            context: .
+            dockerfile: deploy/frontend-nginx.Dockerfile
+            timeout: 30
+          - name: es-ik
+            context: resources/docker
+            dockerfile: resources/docker/polyu-es-stack-9.4.2.Dockerfile
+            timeout: 30
+    steps:
+      # action 全部按 commit-SHA 钉版（appleboy 两 action 持 DEPLOY_KEY
+      # 私钥为最高优先，其余顺手同改，防 tag 漂移投毒）
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-${{ matrix.name }}:${{ needs.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [meta, build]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read   # 服务器用本 token 登录 GHCR 拉私有镜像，缺此 scope 会 401
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # 两个 scp 分开走：strip_components 按源路径深度分别剥层（compose 剥 1 层、database/*.sql 剥 2 层），
+      # 统一落位 /opt/polyu/{polyu-prod.compose.yaml,schema_pg.sql,init_data_pg.sql} 与 compose 挂载一致。
+      # 注意（2026-09-09 首启实测）：单步 strip 1 会把 SQL 落进 database/ 子目录，挂载点被 Docker
+      # 自动建成空目录，PG 首启 0 表 → 应用 CREATE INDEX 撞"表不存在"起不来。
+      - name: Scp compose
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "deploy/polyu-prod.compose.yaml"
+          target: /opt/polyu/
+          strip_components: 1
+
+      - name: Scp DB init SQL
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "resources/database/schema_pg.sql,resources/database/init_data_pg.sql"
+          target: /opt/polyu/
+          strip_components: 2
+
+      - name: Pull images and rolling restart
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        env:
+          GHCR_USER: ${{ needs.meta.outputs.owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMG_TAG: ${{ needs.meta.outputs.tag }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: GHCR_USER,GHCR_TOKEN,IMG_TAG
+          script: |
+            set -e
+            cd /opt/polyu
+            if [ ! -f polyu-prod.env ]; then
+              echo "polyu-prod.env 缺失：按 deploy/.env.example 填值生成 polyu-prod.env 并 scp 到 /opt/polyu/（deploy/README.md 首启章节）"
+              exit 1
+            fi
+            sed -i \
+              -e "s|^IMAGE_BACKEND=.*|IMAGE_BACKEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-backend:$IMG_TAG|" \
+              -e "s|^IMAGE_FRONTEND=.*|IMAGE_FRONTEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-frontend:$IMG_TAG|" \
+              -e "s|^IMAGE_ES=.*|IMAGE_ES=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-es-ik:$IMG_TAG|" \
+              polyu-prod.env
+            # 校验 sed 真正生效（env 缺键时此处即失败，不把哑配置带进 compose）
+            for k in IMAGE_BACKEND IMAGE_FRONTEND IMAGE_ES; do
+              grep -q "^$k=.*$IMG_TAG" polyu-prod.env || { echo "polyu-prod.env 缺 $k 或未更新"; exit 1; }
+            done
+            printf '%s' "$GHCR_TOKEN" | docker login ${{ env.REGISTRY }} -u "$GHCR_USER" --password-stdin
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d --remove-orphans
+            docker image prune -f
+            docker logout ${{ env.REGISTRY }}
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml ps
+
+  # 镜像漏洞扫描：三个生产镜像 push 后扫 HIGH/CRITICAL（ignore-unfixed），
+  # 先报告不阻断——基线摸底后再议阻断阈值。漏洞处置走依赖升级票，不在部署链临时加锁。
+  image-scan:
+    runs-on: ubuntu-latest
+    needs: [meta, build]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read   # GHCR 拉取刚推送的镜像
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-backend:${{ needs.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-frontend:${{ needs.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Scan es-ik image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-es-ik:${{ needs.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
