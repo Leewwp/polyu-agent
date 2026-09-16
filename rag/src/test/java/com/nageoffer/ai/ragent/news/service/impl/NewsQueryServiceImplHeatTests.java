@@ -23,6 +23,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsHotRankEntryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsPageVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
@@ -69,6 +70,10 @@ class NewsQueryServiceImplHeatTests {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
         TableInfoHelper.initTableInfo(assistant, NewsItemDO.class);
         TableInfoHelper.initTableInfo(assistant, NewsSourceDO.class);
+        // listPublished 簇徽章路径经 newsItemTopicMapper 走 LambdaQueryWrapper（NewsQueryServiceImpl#fillCluster），
+        // 该实体的 lambda cache 须本类自初始化——依赖其他测试类先跑过（如 NewsEnrichServiceTests）属顺序耦合，
+        // CI 排除清单不同即暴露 can not find lambda cache
+        TableInfoHelper.initTableInfo(assistant, NewsItemTopicDO.class);
         itemMapper = mock(NewsItemMapper.class);
         sourceMapper = mock(NewsSourceMapper.class);
         assembler = mock(NewsStoryAssembler.class);

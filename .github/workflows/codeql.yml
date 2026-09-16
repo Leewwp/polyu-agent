@@ -21,10 +21,13 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: github/codeql-action/init-action@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+      # 2026-09-17 修（T24 扩面）：原子路径误写 init-action/analyze-action（该仓库实为
+      # init/analyze 子目录），且原 SHA 并非注释所标 v4.38.0 的 commit——本文件从未跑成过
+      # 一次（历次 PR 全 7–11s 秒挂 Can't find action.yml）。现钉真 v4.38.0 tag commit。
+      - uses: github/codeql-action/init@4bd7200e1f146b1c937cae12d258b50f41a53cf8 # v4.38.0
         with:
           languages: java-kotlin
           build-mode: none
-      - uses: github/codeql-action/analyze-action@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+      - uses: github/codeql-action/analyze@4bd7200e1f146b1c937cae12d258b50f41a53cf8 # v4.38.0
         with:
           category: "/language:java-kotlin"

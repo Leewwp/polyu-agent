@@ -34,6 +34,10 @@ describe("FeedPage", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    // 语言 pill 把偏好写入 localStorage（polyu.feed.lang），同文件内跨用例残留——
+    // 「切 EN」用例跑完后，后继用例若不断言语言无关形态，「精选」等中文断言必挂（测试漂移判例）。
+    // 可选链：部分 jsdom 环境（如本机）不暴露 localStorage
+    window.localStorage?.removeItem("polyu.feed.lang");
   });
 
   it("renders anonymously: 15 cards, 5 hot rows, 9 chips, footer with legal links and contact email", async () => {
@@ -108,8 +112,8 @@ describe("FeedPage", () => {
     await waitFor(() => {
       expect(container.querySelectorAll("article")).toHaveLength(15);
     });
-    // 顶栏/侧栏/移动 tab 三处「精选」并存，取全部匹配
-    expect(screen.getAllByText("精选").length).toBeGreaterThan(0);
+    // 语言无关断言（T24 判例：语言 pill 偏好持久化，同文件「切 EN」用例先跑则此处为英文界面）
+    expect(screen.getAllByText(/精选|Featured/).length).toBeGreaterThan(0);
 
     // 真实路由树下的匿名 Network 断言：零 /auth 请求
     expect(requestedUrls.filter((url) => url.includes("/auth"))).toEqual([]);
@@ -126,11 +130,11 @@ describe("FeedPage", () => {
       expect(container.querySelectorAll("article")).toHaveLength(15);
     });
 
-    // 全部资讯态不渲染热点卡与 AI 精选条
-    expect(screen.queryByText("今日热点")).toBeNull();
-    expect(screen.queryByText("AI 每日精选")).toBeNull();
+    // 全部资讯态不渲染热点卡与 AI 精选条（双语断言——语言 pill 持久化偏好可能使界面为英文）
+    expect(screen.queryByText(/今日热点|Trending today/)).toBeNull();
+    expect(screen.queryByText(/AI 每日精选|AI daily digest/)).toBeNull();
     // 顶栏标题切「全部资讯」（侧栏导航同名项并存，取全部匹配）
-    expect(screen.getAllByText("全部资讯").length).toBeGreaterThan(1);
+    expect(screen.getAllByText(/全部资讯|All news/).length).toBeGreaterThan(1);
   });
 });
 
@@ -140,6 +144,7 @@ describe("FeedPage additions", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    window.localStorage?.removeItem("polyu.feed.lang");
   });
 
   it("shows the 'today updating' grey banner when newest item predates today (HKT)", async () => {

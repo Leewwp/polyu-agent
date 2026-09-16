@@ -61,9 +61,11 @@ jobs:
           detect --source /repo --redact --log-opts="--full-history HEAD"
 
       # 结构检查保留为绊线（报告 §6-4 口径）：两条 S9 回归绊线不交给 gitleaks 通用规则。
+      # 2026-09-17 修锚（T24）：git grep 输出行首是「路径:行号:」，原 -vE "^(--|#)"
+      # 永远锚不中注释内容（等效于不豁免注释）；改为锚定行号冒号之后的注释起点。
       - name: S9 tripwire — default credential seed must not return
         run: |
-          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/ | grep -vE "^\s*(--|#)"; then
+          if git grep -niE "admin.{0,40}(admin|123456)|password.{0,20}(admin|123456)" -- resources/database/ | grep -vE ":[0-9]+:\s*(--|#)"; then
             echo "::error::resources/database/ 疑似复活默认凭据种子（S9 已移除+U1 已清理 backups 残留，冲突回退不得带回）"
             exit 1
           fi
@@ -90,6 +92,31 @@ jobs:
       # 轻量依赖审计（阻塞化）：ossindex 无需 NVD key。
       # 2026-09-12 实跑 3.2.0 零告警，故去 || true 上闸；原 3.2.1 为无效版本号，
       # 插件解析即失败且被 || true 长期掩盖（已修正）。新告警=红，处置走依赖升级。
-      - name: Maven dependency audit (blocking)
-        run: >
-          ./mvnw -B org.sonatype.ossindex.maven:ossindex-maven-plugin:3.2.0:audit
+      # 2026-09-17 修两处（T24）：①Sonatype 已撤销 ossindex 匿名 API 访问（401，
+      #   Dependency-Track#5371）——凭据走 OSSINDEX_USERNAME/OSSINDEX_TOKEN 仓库
+      #   secrets（ossindex.sonatype.org 免费账号）；secrets 未配时本步骤降级为
+      #   warning 跳过（漏洞面暂由 Dependabot alerts 兜底），配上即恢复强门。
+      # ②直接调 audit 目标不产生 reactor 构件，infra-ai 解析 framework SNAPSHOT
+      #   撞远程仓 404——先 -DskipTests install 落本地仓再审计。
+      - name: Maven dependency audit (blocking when OSS Index credentials present)
+        env:
+          OSSINDEX_USERNAME: ${{ secrets.OSSINDEX_USERNAME }}
+          OSSINDEX_TOKEN: ${{ secrets.OSSINDEX_TOKEN }}
+        run: |
+          if [ -n "$OSSINDEX_USERNAME" ] && [ -n "$OSSINDEX_TOKEN" ]; then
+            mkdir -p ~/.m2
+            cat > ~/.m2/settings.xml <<'XML'
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+            <servers>
+              <server>
+                <id>ossindex</id>
+                <username>${env.OSSINDEX_USERNAME}</username>
+                <password>${env.OSSINDEX_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          XML
+            ./mvnw -B -DskipTests install org.sonatype.ossindex.maven:ossindex-maven-plugin:3.2.0:audit
+          else
+            echo "::warning::OSS Index 已要求鉴权（匿名 401），仓库未配 OSSINDEX_USERNAME/OSSINDEX_TOKEN secrets，本轮跳过审计——配置路径见 project-docs T24 票"
+          fi

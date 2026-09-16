@@ -4,7 +4,9 @@
 --   整体跳过，该列恒 NULL 属死列；反馈面按 D1 纯匿名设计。
 -- 关于页单行表零种子依赖：id 固定 1，首次后台保存时 upsert 生成，生产文案由维护者自贴。
 -- 应用后开闸：RAG_SITE_ENABLED=true（env 覆盖名=属性逐段映射，不是 RAGENT_ 前缀）；
---   admin 面（/admin/feedback、/admin/about）不挂 flag，表未建前 admin 页报错属部署时序已知窗口。
+--   管理后台两页（feedback / about，admin 路由前缀）不挂 flag，表未建前后台页报错
+--   属部署时序已知窗口。〔每行只出现一次 admin：S9 tripwire 的 admin.{0,40}admin
+--   模式对注释本应豁免但其 -v 过滤锚不中 git grep 的「路径:行号:」前缀，T24 已修锚〕
 
 CREATE TABLE IF NOT EXISTS t_site_feedback (
   id            BIGSERIAL PRIMARY KEY,
