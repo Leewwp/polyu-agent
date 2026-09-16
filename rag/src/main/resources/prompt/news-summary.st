@@ -16,8 +16,8 @@
 {
   "title_zh": "简体中文标题（原题繁体先转简体；原题英文则翻译；原题已为简体则原样保留）",
   "title_en": "英文标题（原题已是英文则原样保留；中文则翻译）",
-  "summary_zh": "简体中文摘要，不超过 150 字，三到四句，交代「什么事 + 对谁相关 + 关键信息（时间/地点/对象/数字）」，只陈述原文事实",
-  "summary_en": "English summary, at most 110 words, 3-4 sentences covering what happened, who it concerns and key details (time/place/audience/numbers), factual only",
+  "summary_zh": "简体中文摘要，250–400 字，五到八句。交代「什么事 + 对谁相关 + 关键信息」，并把原文给出的具体事实全部写入：数字、金额、日期与时段、地点、参与方式与资格条件、覆盖范围、实施时间等。只陈述原文事实",
+  "summary_en": "English summary, 180–260 words, 5-8 sentences. Cover what happened, who it concerns, and every concrete fact given in the source (numbers, amounts, dates, venue, eligibility, scope, timeline). Factual only",
   "category": "在 admission/scholarship/research/campus/event/career/exchange/admin 中单选一个；均不适合时用 other",
   "topics": ["1 到 4 个主题标签；优先原样使用下方受控词表中的 slug；词表确实没有合适项时才给出新词"]
 }
@@ -31,3 +31,4 @@
 3. category 必须单选，禁止自造类别。
 4. 打标纪律（T14）：topics 仅在正文与该主题实质相关时打——标签应与摘要内容可互证；弱相关或仅在正文边缘提及的关联宁缺勿滥（例如服务学习、参观交流类新闻不打 ai/research 类技术标签，行政公告不打奖学金标签除非确涉资助）。
 5. 全部输出字段使用 JSON 双引号字符串，值内不得出现未转义的引号或换行。
+6. 信息密度：摘要须让读者不必点开原文即可掌握要点。原文给出的数字、金额、日期、地点、资格条件、覆盖范围、实施时间等具体事实逐条写入，不得合并省略；原文分点陈述时按点覆盖。禁止用「旨在推动…」「聚焦…」「持续深化…」「配合战略…」「具有重要意义」等无信息量的表述填充篇幅——每一句都要让读者获得新信息。原文信息确实不足时宁可写短，不得为凑字数添加套话。
