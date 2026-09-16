@@ -13,6 +13,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # deploy.yml 以 reusable workflow 形式引本门作部署前置（T24 维护者已批：
+  # CI 纳入 deploy 前置）；本触发器只是暴露入口，自身 push/PR 行为不变
+  workflow_call:
 
 jobs:
   quality-gate:
