@@ -27,6 +27,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.nageoffer.ai.ragent.infra.util.LLMResponseCleaner;
 import com.nageoffer.ai.ragent.infra.util.LogSafe;
+import com.nageoffer.ai.ragent.rag.config.OrchestrationMode;
+import com.nageoffer.ai.ragent.rag.config.OrchestrationProperties;
 import com.nageoffer.ai.ragent.rag.dao.entity.IntentNodeDO;
 import com.nageoffer.ai.ragent.rag.dao.mapper.IntentNodeMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
@@ -52,7 +54,7 @@ import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.INTENT_CLASSIFIER
 /**
  * LLM 树形意图分类器（串行实现）
  * <p>
- * 将所有意图节点一次性发送给 LLM 进行识别打分，适用于意图数量较少的场景
+ * 将当前编排模式可用的意图节点一次性发送给 LLM 进行识别打分，适用于意图数量较少的场景
  */
 @Slf4j
 @Service
@@ -63,6 +65,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
     private final IntentNodeMapper intentNodeMapper;
     private final PromptTemplateLoader promptTemplateLoader;
     private final IntentTreeCacheManager intentTreeCacheManager;
+    private final OrchestrationProperties orchestrationProperties;
 
     /**
      * 从Redis加载意图树并构建内存结构
@@ -153,7 +156,20 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             return List.of();
         }
 
-        String systemPrompt = buildPrompt(data.leafNodes);
+        // Agent 已由模型直接承担 SYSTEM 应答与 MCP 工具路由；search_knowledge 内部只识别 KB 作用域
+        // Workflow 仍沿用原有三类意图，保证旧编排链路兼容
+        List<IntentNode> candidates = orchestrationProperties.getMode() == OrchestrationMode.AGENT
+                ? data.leafNodes.stream().filter(IntentNode::isKB).toList()
+                : data.leafNodes;
+        if (candidates.isEmpty()) {
+            log.debug("当前编排模式没有可用意图叶子节点，跳过 LLM 意图识别, mode={}",
+                    orchestrationProperties.getMode());
+            return List.of();
+        }
+        Map<String, IntentNode> candidateById = candidates.stream()
+                .collect(Collectors.toMap(IntentNode::getId, node -> node));
+
+        String systemPrompt = buildPrompt(candidates);
         ChatRequest request = ChatRequest.builder()
                 .messages(List.of(
                         ChatMessage.system(systemPrompt),
@@ -172,13 +188,13 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             log.warn("意图识别 LLM 调用失败，返回空意图", e);
             return List.of();
         }
-        return parseScores(raw, data, question);
+        return parseScores(raw, candidateById, question);
     }
 
     /**
      * 解析意图打分，按 score 降序返回；任何解析失败/畸形均返回空列表
      */
-    private List<NodeScore> parseScores(String raw, IntentTreeData data, String question) {
+    private List<NodeScore> parseScores(String raw, Map<String, IntentNode> candidateById, String question) {
         try {
             // 移除可能的 markdown 代码块标记
             String cleanedRaw = LLMResponseCleaner.stripMarkdownCodeFence(raw);
@@ -202,9 +218,9 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
                 if (!obj.has("id") || !obj.has("score")) continue;
 
                 String id = obj.get("id").getAsString();
-                IntentNode node = data.id2Node.get(id);
+                IntentNode node = candidateById.get(id);
                 if (node == null) {
-                    log.warn("LLM 返回了未知的意图节点 ID: {}, 已跳过", id);
+                    log.warn("LLM 返回了未知或当前模式不可用的意图节点 ID: {}, 已跳过", id);
                     continue;
                 }
 
@@ -245,7 +261,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
 
     /**
      * 构造给 LLM 的 Prompt：
-     * - 列出所有【叶子节点】的 id / 路径 / 描述 / 示例问题
+     * - 列出当前编排模式可用的【候选叶子节点】的 id / 路径 / 描述 / 示例问题
      * - 要求 LLM 只在这些 id 中选择，输出 JSON 数组：[{"id": "...", "score": 0.9, "reason": "..."}]
      * - 特别强调：如果问题里只提到 "OA系统"，不要选 "保险系统" 的分类
      * - 每个节点都带 type 标识，MCP 节点额外带 toolId，模板据此区分文档检索、实时查询和交互应答
