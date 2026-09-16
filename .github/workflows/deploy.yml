@@ -163,7 +163,10 @@ jobs:
               grep -q "^$k=.*$IMG_TAG" polyu-prod.env || { echo "polyu-prod.env 缺 $k 或未更新"; exit 1; }
             done
             printf '%s' "$GHCR_TOKEN" | docker login ${{ env.REGISTRY }} -u "$GHCR_USER" --password-stdin
-            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull
+            # 只拉本 CI 构建的三个应用镜像：基础设施镜像（pg/redis/minio/rocketmq）常驻服务器
+            # 归运维面管理，不随部署强拉——裸 compose pull 曾因 minio/minio 自 Docker Hub 整仓
+            # 下架（404）堵死整条部署链（2026-09-16 run 35006241041 实录，D18）
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull polyu-app polyu-nginx polyu-es
             docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d --remove-orphans
             docker image prune -f
             docker logout ${{ env.REGISTRY }}
