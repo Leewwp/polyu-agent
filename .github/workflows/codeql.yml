@@ -14,6 +14,10 @@ jobs:
   analyze:
     name: Analyze (java-kotlin)
     runs-on: ubuntu-latest
+    # 2026-09-17（T24 续）：分析本体已跑通，但 SARIF 上传要求 code scanning 特性——
+    # 个人账户私有仓无法启用 GHAS，仅公开仓免费可用。故私有期跳过（neutral），
+    # 转公开后本门自动开始工作；勿删 workflow（否则公开后无人记得恢复）。
+    if: ${{ github.event.repository.private == false }}
     timeout-minutes: 45
     permissions:
       actions: read
