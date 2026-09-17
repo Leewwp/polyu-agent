@@ -1,6 +1,13 @@
 # polyu-agent — 香港理工大学校园信息问答助手（非官方）
 
+[![Deploy](https://github.com/Leewwp/polyu-agent/actions/workflows/deploy.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/deploy.yml)
+[![CI Backend](https://github.com/Leewwp/polyu-agent/actions/workflows/backend.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/backend.yml)
+[![CI Frontend](https://github.com/Leewwp/polyu-agent/actions/workflows/frontend.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/frontend.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+
 基于 [nageoffer/ragent](https://github.com/nageoffer/ragent)（Apache-2.0，基线钉 tag **1.1.0**，commit `f64de341`）二次开发的垂直领域 RAG 问答项目。交付场景：**香港理工大学校园信息问答**——面向 PolyU 学生与教职工的教务注册、图书馆、校园设施预订、学生服务、奖助学金、重要日程与截止时间等信息咨询助手，带引用溯源与定时资讯更新。
+
+![PolyUGuide 对话页：Agentic 问答链路（提问 → 推理 → 知识库检索）与带「N 篇来源」徽章的引用溯源回答](docs/screenshots/chat-answer-zh.png)
 
 ## 重要声明
 
@@ -21,6 +28,22 @@ PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO�
 | 多语言 | 首发正式支持简体中文与英文；底层保留三语文档身份和跨语检索能力，繁体中文先做兼容性冒烟，后续再正式开放 |
 | 站点反馈与关于页 | 匿名反馈（IP 日限）+ 后台管理；关于页 markdown 后台编辑与赞赏区（feature flag 门控） |
 | 真实需求闭环 | 社交媒体问题作为 Golden Set 与口语化问法来源；线上失败问题只保留脱敏场景和诊断信息，异步生成知识缺口报告 |
+
+## 界面预览
+
+线上站点 [polyuguide.com](https://polyuguide.com) 无需注册即可游客试用（每日限量）。点击回答中的「N 篇来源」徽章可展开引用文档名、内容摘录与官网原文链接。
+
+**资讯流（中文）**——AI 双语摘要卡片、分类筛选与当日热点榜：
+
+![资讯流-中文](docs/screenshots/news-feed-zh.png)
+
+**英文界面**——中英文一键切换：
+
+![资讯流-英文](docs/screenshots/news-feed-en.png)
+
+**关于页**——项目自述、非官方声明与反馈渠道：
+
+![关于页](docs/screenshots/about-zh.png)
 
 ## 目录结构
 
