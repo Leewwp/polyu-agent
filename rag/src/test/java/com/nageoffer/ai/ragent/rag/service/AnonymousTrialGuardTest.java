@@ -26,6 +26,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -73,7 +74,7 @@ class AnonymousTrialGuardTest {
 
     @Test
     void guestConsumesUserAndIpCountersWithFirstWriteExpiry() {
-        String day = LocalDate.now().toString();
+        String day = LocalDate.now(ZoneId.of("Asia/Hong_Kong")).toString();
         when(valueOperations.increment("rag:anon:quota:user:999:" + day)).thenReturn(1L);
         when(valueOperations.increment("rag:anon:quota:ip:1.2.3.4:" + day)).thenReturn(1L);
 
@@ -85,7 +86,7 @@ class AnonymousTrialGuardTest {
 
     @Test
     void guestRejectedWhenUserQuotaExhausted() {
-        String day = LocalDate.now().toString();
+        String day = LocalDate.now(ZoneId.of("Asia/Hong_Kong")).toString();
         when(valueOperations.increment("rag:anon:quota:user:999:" + day)).thenReturn(4L);
 
         assertThrows(ClientException.class, () -> guard.checkAndConsume(guest(), "1.2.3.4"));
