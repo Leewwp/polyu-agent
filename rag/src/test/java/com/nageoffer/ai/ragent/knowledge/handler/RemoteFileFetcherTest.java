@@ -199,6 +199,24 @@ class RemoteFileFetcherTest {
                 + "\"></head><body><main><h1>标题</h1><p>" + bodyText + "</p></main></body></html>").getBytes();
     }
 
+    @Test
+    void shouldRejectAdfsLoginPageAsFetchFailureInsteadOfContent() {
+        // 登录墙守卫：ADFS 登录页（HTTP 200）不得被当内容，按抓取失败抛出走滞回
+        byte[] adfsPage = ("<html><head><title>Sign In</title></head><body>"
+                + "<form method=\"post\" action=\"https://adfs.polyu.edu.hk/adfs/ls/?SAMLRequest=fZLN\">"
+                + "</form></body></html>").getBytes();
+        when(httpClientHelper.head(HTML_URL, Map.of())).thenReturn(headHtml(null, null));
+        when(httpClientHelper.openStream(eq(HTML_URL), eq(Map.of()), anyLong()))
+                .thenReturn(streamHtml(null, null, adfsPage));
+
+        try (RemoteFileFetcher.RemoteFetchResult ignored =
+                     fetcher.fetchIfChanged(HTML_URL, null, null, null, "page.html")) {
+            throw new AssertionError("登录页应被拒绝");
+        } catch (com.nageoffer.ai.ragent.framework.exception.ClientException e) {
+            assertTrue(e.getMessage().contains("登录墙"));
+        }
+    }
+
     private static HttpClientHelper.HttpHeadResponse head(String etag, String lastModified) {
         return new HttpClientHelper.HttpHeadResponse(etag, lastModified, "text/plain", (long) NEW_CONTENT.length, "remote.txt");
     }
