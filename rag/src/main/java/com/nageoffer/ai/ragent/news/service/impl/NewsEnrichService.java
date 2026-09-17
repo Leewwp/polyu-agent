@@ -199,6 +199,8 @@ public class NewsEnrichService {
                 .build();
         String raw = llmService.chat(request, Tier.FAST);
         NewsSummaryPayload payload = parsePayload(raw);
+        // T22 分段兜底：提示词已要求分段，模型偶发输出整段单块（样本实测 1/6）时按同规则补齐
+        payload = applyParagraphFallback(payload);
         applyPayload(item, payload);
         log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}",
                 item.getId(), payload.category(), payload.topics());
@@ -429,6 +431,20 @@ public class NewsEnrichService {
 
     private static String nullSafe(String value) {
         return value == null ? "" : value;
+    }
+
+    /**
+     * 分段兜底（T22）：双语摘要经 {@link NewsSummaryParagrapher#reflow}——
+     * 未分段（不含换行）时插入段间空行，模型自带分段或句子过少时原样保留
+     */
+    static NewsSummaryPayload applyParagraphFallback(NewsSummaryPayload payload) {
+        if (payload == null) {
+            return null;
+        }
+        return new NewsSummaryPayload(payload.title_zh(), payload.title_en(),
+                NewsSummaryParagrapher.reflow(payload.summary_zh()),
+                NewsSummaryParagrapher.reflow(payload.summary_en()),
+                payload.category(), payload.topics());
     }
 
     /**
