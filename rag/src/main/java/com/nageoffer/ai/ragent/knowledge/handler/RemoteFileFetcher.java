@@ -120,11 +120,12 @@ public class RemoteFileFetcher {
                 deleteTempFileQuietly(tempFile);
                 throw new ClientException("远程文件内容为空");
             }
+            String contentType = firstHasText(response.contentType(), headResponse == null ? null : headResponse.contentType(), null);
+            assertNotLoginWall(readHeadBytes(tempFile), contentType);
 
             String hash = copyResult.sha256Hex;
             String etag = firstHasText(trimOrNull(response.etag()), headResponse == null ? null : trimOrNull(headResponse.etag()), null);
             String fetchLastModified = firstHasText(trimOrNull(response.lastModified()), headResponse == null ? null : trimOrNull(headResponse.lastModified()), null);
-            String contentType = firstHasText(response.contentType(), headResponse == null ? null : headResponse.contentType(), null);
             String fileName = StringUtils.hasText(response.fileName()) ? response.fileName() : fallbackFileName;
 
             // 第③级判定（T23 归一化）：HTML 按正文规范化文本哈希比较，非 HTML 维持原始字节哈希
@@ -206,6 +207,17 @@ public class RemoteFileFetcher {
     }
 
     /**
+     * 读取文件头字节供登录墙嗅探（避免整读大文件）
+     */
+    private static byte[] readHeadBytes(Path tempFile) {
+        try (InputStream in = Files.newInputStream(tempFile)) {
+            return in.readNBytes(8192);
+        } catch (IOException e) {
+            return new byte[0];
+        }
+    }
+
+    /**
      * content-type 缺失时嗅探开头字节兜底（部分源站 HEAD/GET 均不带类型）
      */
     private static boolean looksLikeHtml(String contentType, byte[] bytes) {
@@ -215,6 +227,22 @@ public class RemoteFileFetcher {
         String head = new String(bytes, 0, Math.min(bytes.length, 1024), StandardCharsets.ISO_8859_1)
                 .toLowerCase();
         return head.contains("<!doctype html") || head.contains("<html");
+    }
+
+    /**
+     * 登录墙守卫：PolyU 站点部分深页（/fo/internal/**、/its/intranet/** 实测）对匿名请求
+     * 条件性 302 → ADFS SAML 登录页且 HTTP 200——若当内容入库会以「登录页文本」毒化文档。
+     * 命中特征（SAMLRequest / ADFS Sign In 页）按抓取失败处理：走既有失败滞回（连续达阈值
+     * 自动禁用调度），旧版内容继续服务检索，绝不把登录页当变更内容重建（合规边界：不采登录墙内容）
+     */
+    private static void assertNotLoginWall(byte[] bytes, String contentType) {
+        if (!looksLikeHtml(contentType, bytes)) {
+            return;
+        }
+        String head = new String(bytes, 0, Math.min(bytes.length, 8192), StandardCharsets.ISO_8859_1);
+        if (head.contains("SAMLRequest") || head.toLowerCase().contains("<title>sign in</title>")) {
+            throw new ClientException("命中登录墙（ADFS/SAML 登录页），按抓取失败处理不采内容");
+        }
     }
 
     /**
@@ -267,6 +295,7 @@ public class RemoteFileFetcher {
             if (size == 0) {
                 throw new ClientException("远程文件内容为空");
             }
+            assertNotLoginWall(readHeadBytes(tempFile), contentType);
             try (InputStream tempInputStream = Files.newInputStream(tempFile)) {
                 return fileStorageService.upload(bucketName, tempInputStream, size, fileName, contentType);
             }
