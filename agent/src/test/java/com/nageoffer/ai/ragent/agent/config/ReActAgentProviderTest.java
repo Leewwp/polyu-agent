@@ -22,7 +22,6 @@ import com.nageoffer.ai.ragent.agent.memory.AgentContextCompactionMiddleware;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.memory.AgentUserMemoryMiddleware;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolBatchMiddleware;
@@ -79,7 +78,6 @@ class ReActAgentProviderTest {
 
         toolCatalog = spy(new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
                 agentPromptResolver,

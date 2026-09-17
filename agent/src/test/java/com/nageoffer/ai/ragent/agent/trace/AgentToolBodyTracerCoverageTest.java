@@ -19,7 +19,6 @@ package com.nageoffer.ai.ragent.agent.trace;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
@@ -197,7 +196,6 @@ class AgentToolBodyTracerCoverageTest {
 
         AgentToolCatalog catalog = new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
                 promptResolver,

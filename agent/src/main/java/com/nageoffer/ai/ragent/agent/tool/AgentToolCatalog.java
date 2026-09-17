@@ -21,7 +21,6 @@ import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.skill.SkillLoadTool;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
@@ -57,7 +56,6 @@ import java.util.stream.Collectors;
 public class AgentToolCatalog {
 
     private final KnowledgeSearchFacade knowledgeSearchFacade;
-    private final AgentConversationService conversationService;
     private final IntentNodeRegistry intentNodeRegistry;
     private final McpToolRegistry mcpToolRegistry;
     private final AgentPromptResolver agentPromptResolver;
@@ -82,7 +80,7 @@ public class AgentToolCatalog {
     public Toolkit buildToolkit(ResolvedCatalog catalog) {
         Toolkit toolkit = new Toolkit();
         toolkit.registerAgentTool(new KnowledgeSearchTool(
-                catalog.knowledgeToolDescription, knowledgeSearchFacade, conversationService));
+                catalog.knowledgeToolDescription, knowledgeSearchFacade));
         if (catalog.memoryToolDescription != null) {
             toolkit.registerAgentTool(new MemoryFlushTool(catalog.memoryToolDescription, memoryPipeline));
         } else if (memoryProperties.isLongTermEnabled()) {

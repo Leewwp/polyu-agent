@@ -18,8 +18,6 @@
 package com.nageoffer.ai.ragent.agent.tool;
 
 import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.TextBlock;
@@ -48,17 +46,11 @@ class KnowledgeSearchToolTest {
     @Test
     void shouldExposeConfiguredDescriptionAndDelegateSearch() {
         KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
-        AgentConversationService conversationService = mock(AgentConversationService.class);
-        List<ChatMessage> recentTurns = List.of(
-                ChatMessage.user("差旅报销走什么流程"),
-                ChatMessage.assistant("先在 OA 提交申请单"));
-        when(conversationService.loadRecentTurns("conversation-1", "user-1", 2))
-                .thenReturn(recentTurns);
-        when(knowledgeSearchFacade.searchWithSources("需要哪些材料", recentTurns))
+        when(knowledgeSearchFacade.searchWithSources("需要哪些材料"))
                 .thenReturn(new KnowledgeSearchFacade.KnowledgeSearchOutcome(
                         "需要发票和审批单", List.of()));
         KnowledgeSearchTool tool = new KnowledgeSearchTool(
-                "检索当前 Agent 的企业知识库", knowledgeSearchFacade, conversationService);
+                "检索当前 Agent 的企业知识库", knowledgeSearchFacade);
         ToolCallParam param = ToolCallParam.builder()
                 .input(Map.of("query", " 需要哪些材料 "))
                 .runtimeContext(RuntimeContext.builder()
@@ -75,7 +67,7 @@ class KnowledgeSearchToolTest {
         assertThat(result).isNotNull();
         assertThat(result.getState()).isEqualTo(ToolResultState.SUCCESS);
         assertThat(((TextBlock) result.getOutput().get(0)).getText()).isEqualTo("需要发票和审批单");
-        verify(knowledgeSearchFacade).searchWithSources("需要哪些材料", recentTurns);
+        verify(knowledgeSearchFacade).searchWithSources("需要哪些材料");
     }
 
     /**
@@ -84,19 +76,14 @@ class KnowledgeSearchToolTest {
     @Test
     void shouldStashSourcesBesideTextOnlyAnswer() {
         KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
-        AgentConversationService conversationService = mock(AgentConversationService.class);
-        when(conversationService.loadRecentTurns(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt()))
-                .thenReturn(List.of());
         List<KnowledgeSearchFacade.KnowledgeSearchSource> sources = List.of(
                 new KnowledgeSearchFacade.KnowledgeSearchSource(
                         "doc-42", "图书馆服务指南", "游泳池开放时间为早七至晚十…", "url",
                         "https://www.polyu.edu.hk/library/hours/"));
-        when(knowledgeSearchFacade.searchWithSources(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()))
+        when(knowledgeSearchFacade.searchWithSources(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new KnowledgeSearchFacade.KnowledgeSearchOutcome("开放时间是早七至晚十", sources));
         KnowledgeSearchTool tool = new KnowledgeSearchTool(
-                "检索企业知识库", knowledgeSearchFacade, conversationService);
+                "检索企业知识库", knowledgeSearchFacade);
         ToolCallParam param = ToolCallParam.builder()
                 .input(Map.of("query", "游泳池什么时间开放"))
                 .toolUseBlock(io.agentscope.core.message.ToolUseBlock.builder()
@@ -121,11 +108,10 @@ class KnowledgeSearchToolTest {
     @Test
     void shouldNotStashWhenSourcesEmpty() {
         KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
-        when(knowledgeSearchFacade.searchWithSources(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()))
+        when(knowledgeSearchFacade.searchWithSources(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new KnowledgeSearchFacade.KnowledgeSearchOutcome("答案", List.of()));
         KnowledgeSearchTool tool = new KnowledgeSearchTool(
-                "检索企业知识库", knowledgeSearchFacade, mock(AgentConversationService.class));
+                "检索企业知识库", knowledgeSearchFacade);
 
         tool.callAsync(ToolCallParam.builder()
                         .input(Map.of("query", "你好"))
@@ -141,7 +127,7 @@ class KnowledgeSearchToolTest {
     void shouldRejectBlankQueryWithoutSearching() {
         KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
         KnowledgeSearchTool tool = new KnowledgeSearchTool(
-                "检索企业知识库", knowledgeSearchFacade, mock(AgentConversationService.class));
+                "检索企业知识库", knowledgeSearchFacade);
 
         ToolResultBlock result = tool.callAsync(ToolCallParam.builder()
                         .input(Map.of("query", " "))
@@ -152,6 +138,61 @@ class KnowledgeSearchToolTest {
         assertThat(result.getState()).isEqualTo(ToolResultState.ERROR);
         assertThat(((TextBlock) result.getOutput().get(0)).getText()).contains("query 不能为空");
         verify(knowledgeSearchFacade, never())
-                .searchWithSources(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                .searchWithSources(org.mockito.ArgumentMatchers.any());
     }
+
+    @Test
+    void shouldRejectMissingInputWithoutSearching() {
+        KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
+        KnowledgeSearchTool tool = new KnowledgeSearchTool(
+                "检索企业知识库", knowledgeSearchFacade);
+
+        ToolResultBlock result = tool.callAsync(ToolCallParam.builder().build())
+                .block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.getState()).isEqualTo(ToolResultState.ERROR);
+        assertThat(((TextBlock) result.getOutput().get(0)).getText()).contains("query 不能为空");
+        verify(knowledgeSearchFacade, never()).searchWithSources(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void shouldReturnGenericErrorWithoutLeakingExceptionDetails() {
+        KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
+        when(knowledgeSearchFacade.searchWithSources("报销规则"))
+                .thenThrow(new IllegalStateException("jdbc:postgresql://internal-host/ragent?password=secret"));
+        KnowledgeSearchTool tool = new KnowledgeSearchTool(
+                "检索企业知识库", knowledgeSearchFacade);
+
+        ToolResultBlock result = tool.callAsync(ToolCallParam.builder()
+                        .input(Map.of("query", "报销规则"))
+                        .build())
+                .block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.getState()).isEqualTo(ToolResultState.ERROR);
+        assertThat(((TextBlock) result.getOutput().get(0)).getText())
+                .isEqualTo("知识库检索异常，请稍后重试")
+                .doesNotContain("internal-host", "secret");
+    }
+
+    @Test
+    void shouldTreatBlankFacadeResultAsError() {
+        KnowledgeSearchFacade knowledgeSearchFacade = mock(KnowledgeSearchFacade.class);
+        when(knowledgeSearchFacade.searchWithSources("报销规则"))
+                .thenReturn(new KnowledgeSearchFacade.KnowledgeSearchOutcome(" ", List.of()));
+        KnowledgeSearchTool tool = new KnowledgeSearchTool(
+                "检索企业知识库", knowledgeSearchFacade);
+
+        ToolResultBlock result = tool.callAsync(ToolCallParam.builder()
+                        .input(Map.of("query", "报销规则"))
+                        .build())
+                .block();
+
+        assertThat(result).isNotNull();
+        assertThat(result.getState()).isEqualTo(ToolResultState.ERROR);
+        assertThat(((TextBlock) result.getOutput().get(0)).getText())
+                .isEqualTo("知识库检索异常，请稍后重试");
+    }
+
 }

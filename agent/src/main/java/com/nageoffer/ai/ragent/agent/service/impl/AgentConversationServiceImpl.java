@@ -35,7 +35,6 @@ import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import lombok.RequiredArgsConstructor;
@@ -47,10 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -305,68 +301,6 @@ public class AgentConversationServiceImpl implements AgentConversationService {
                         .createTime(item.getCreateTime())
                         .build())
                 .toList();
-    }
-
-    /**
-     * 按 replyToMessageId 配对取最近 N 轮，只取正文不含 blocks
-     */
-    @Override
-    public List<ChatMessage> loadRecentTurns(String conversationId, String userId, int turns) {
-        if (StrUtil.isBlank(conversationId) || StrUtil.isBlank(userId) || turns <= 0) {
-            return List.of();
-        }
-        List<AgentMessageDO> latestFirst = messageMapper.selectList(Wrappers.lambdaQuery(AgentMessageDO.class)
-                .eq(AgentMessageDO::getConversationId, conversationId)
-                .eq(AgentMessageDO::getUserId, userId)
-                .orderByDesc(AgentMessageDO::getId)
-                .last("limit " + scanWindow(turns)));
-        if (CollUtil.isEmpty(latestFirst)) {
-            return List.of();
-        }
-
-        Map<String, AgentMessageDO> answers = new HashMap<>();
-        for (AgentMessageDO message : latestFirst) {
-            if (ROLE_ASSISTANT.equals(message.getRole()) && isUsableAnswer(message)) {
-                // 倒序遍历，同一提问有多条回答时取最新
-                answers.putIfAbsent(message.getReplyToMessageId(), message);
-            }
-        }
-
-        List<ChatMessage> history = new ArrayList<>(turns * 2);
-        int paired = 0;
-        for (AgentMessageDO question : latestFirst) {
-            if (!ROLE_USER.equals(question.getRole()) || StrUtil.isBlank(question.getContent())) {
-                continue;
-            }
-            AgentMessageDO answer = answers.get(question.getId());
-            // 没配到答案：可能是刚提问还没回答，或者被打断的作废轮次
-            if (answer == null) {
-                continue;
-            }
-            history.add(ChatMessage.assistant(answer.getContent()));
-            history.add(ChatMessage.user(question.getContent()));
-            if (++paired >= turns) {
-                break;
-            }
-        }
-        Collections.reverse(history);
-        return history;
-    }
-
-    /**
-     * 查询行数 = 轮数 × 4 + 1，多取一倍以容纳作废轮次
-     */
-    private static int scanWindow(int turns) {
-        return turns * 4 + 1;
-    }
-
-    /**
-     * 有 replyTo、有正文、状态是 NORMAL 的才算可用答案
-     */
-    private static boolean isUsableAnswer(AgentMessageDO message) {
-        return StrUtil.isNotBlank(message.getReplyToMessageId())
-                && StrUtil.isNotBlank(message.getContent())
-                && AgentMessageStatus.NORMAL.name().equals(message.getMessageStatus());
     }
 
     @Override

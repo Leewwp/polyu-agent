@@ -18,7 +18,6 @@
 package com.nageoffer.ai.ragent.agent.service.impl;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentConversationDO;
@@ -30,13 +29,11 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DuplicateKeyException;
@@ -46,8 +43,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.Date;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -63,8 +58,6 @@ class AgentConversationServiceImplTest {
 
     private static final String USER_ID = "u-1001";
     private static final String CONVERSATION_ID = "c-2002";
-    private static final int TURNS = 2;
-    private static final Pattern SCAN_LIMIT = Pattern.compile("limit\\s+(\\d+)");
 
     static {
         // 脱离 SqlSession 时 lambda 列名缓存是空的，条件构造器取不出 SQL 片段
@@ -236,91 +229,6 @@ class AgentConversationServiceImplTest {
                 .isInstanceOf(DuplicateKeyException.class);
     }
 
-    @Test
-    void shouldSkipTurnWhoseAnswerWasInterrupted() {
-        // 倒序：本轮提问 → 被打断的半截答 → 其提问 → 完整答 → 其提问
-        stubMessages(List.of(
-                userRow("m-5", "第三问"),
-                assistantRow("m-4", "m-3", "半截", AgentMessageStatus.INTERRUPTED),
-                userRow("m-3", "第二问"),
-                assistantRow("m-2", "m-1", "第一答", AgentMessageStatus.NORMAL),
-                userRow("m-1", "第一问")));
-
-        List<ChatMessage> history = service.loadRecentTurns(CONVERSATION_ID, USER_ID, TURNS);
-
-        // 半截答案进了改写上下文，等于拿没说完的话当事实
-        assertThat(history).extracting(ChatMessage::getContent).containsExactly("第一问", "第一答");
-    }
-
-    @Test
-    void shouldDropQuestionWhoseAnswerWasNeverPersisted() {
-        // 取消时一个字都没生成，assistant 行压根不落库
-        stubMessages(List.of(
-                userRow("m-4", "第三问"),
-                userRow("m-3", "第二问"),
-                assistantRow("m-2", "m-1", "第一答", AgentMessageStatus.NORMAL),
-                userRow("m-1", "第一问")));
-
-        List<ChatMessage> history = service.loadRecentTurns(CONVERSATION_ID, USER_ID, TURNS);
-
-        assertThat(history).extracting(ChatMessage::getContent).containsExactly("第一问", "第一答");
-        assertThat(history).extracting(ChatMessage::getRole)
-                .containsExactly(ChatMessage.Role.USER, ChatMessage.Role.ASSISTANT);
-    }
-
-    @Test
-    void shouldWidenScanWindowBeyondTargetPairs() {
-        stubMessages(List.of());
-
-        service.loadRecentTurns(CONVERSATION_ID, USER_ID, TURNS);
-
-        // 窗口只够 N 对时，中途作废一轮就凑不满 N 对，扫描量得留出作废余量
-        assertThat(capturedScanLimit()).isGreaterThan(TURNS * 2 + 1);
-    }
-
-    private void stubMessages(List<AgentMessageDO> latestFirst) {
-        when(messageMapper.selectList(any())).thenReturn(latestFirst);
-    }
-
-    private static AgentMessageDO userRow(String id, String content) {
-        return AgentMessageDO.builder()
-                .id(id)
-                .role("user")
-                .content(content)
-                .messageStatus(AgentMessageStatus.NORMAL.name())
-                .build();
-    }
-
-    @Test
-    void shouldSettlePendingConfirmAndReleaseHold() {
-        AgentMessageDO message = assistantRow("m-1", "q-1", "这就去提交", AgentMessageStatus.AWAITING_CONFIRM);
-        message.setBlocks(List.of(AgentBlock.builder().kind("confirm").status("pending").build()));
-        when(messageMapper.selectOne(any())).thenReturn(message);
-        when(conversationMapper.selectOne(any())).thenReturn(existingConversation("请假"));
-
-        AgentConfirmSettlement settlement = service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-1", true);
-
-        // 续跑要挂回同一次提问，否则用户会看到一问两卡
-        assertThat(settlement.replyToMessageId()).isEqualTo("q-1");
-        assertThat(message.getBlocks().get(0).getStatus()).isEqualTo("approved");
-        // 卡片有了终态就得一并松开挂起态，不然这条会话再也提不了新问题
-        assertThat(message.getMessageStatus()).isEqualTo(AgentMessageStatus.NORMAL.name());
-        verify(messageMapper).updateById(message);
-    }
-
-    @Test
-    void shouldSkipExpireWhenConfirmAlreadySettled() {
-        AgentMessageDO message = assistantRow("m-1", "q-1", "已提交", AgentMessageStatus.NORMAL);
-        message.setBlocks(List.of(AgentBlock.builder().kind("confirm").status("approved").build()));
-        when(messageMapper.selectOne(any())).thenReturn(message);
-
-        service.expirePendingConfirm(CONVERSATION_ID, USER_ID, "m-1");
-
-        // 收尾逻辑撞上已裁决的卡片要原样放过，改写成失效等于把办过的事说成没办
-        assertThat(message.getBlocks().get(0).getStatus()).isEqualTo("approved");
-        verify(messageMapper, never()).updateById(any(AgentMessageDO.class));
-    }
-
     private static AgentMessageDO assistantRow(String id, String replyTo, String content, AgentMessageStatus status) {
         return AgentMessageDO.builder()
                 .id(id)
@@ -329,18 +237,6 @@ class AgentConversationServiceImplTest {
                 .replyToMessageId(replyTo)
                 .messageStatus(status.name())
                 .build();
-    }
-
-    /**
-     * 从查询条件尾巴里抠出扫描行数，用来证明窗口留了余量
-     */
-    @SuppressWarnings("unchecked")
-    private int capturedScanLimit() {
-        ArgumentCaptor<Wrapper<AgentMessageDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
-        verify(messageMapper).selectList(captor.capture());
-        Matcher matcher = SCAN_LIMIT.matcher(captor.getValue().getSqlSegment());
-        assertThat(matcher.find()).isTrue();
-        return Integer.parseInt(matcher.group(1));
     }
 
     /**

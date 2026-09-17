@@ -19,7 +19,6 @@ package com.nageoffer.ai.ragent.agent.tool;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
@@ -66,7 +65,6 @@ class AgentToolCatalogTest {
 
         AgentToolCatalog catalog = new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
                 agentPromptResolver,
@@ -100,7 +98,8 @@ class AgentToolCatalogTest {
 
         assertThat(toolkit.getTool("no_annotation_query").isReadOnly()).isFalse();
         assertThat(toolkit.getTool("blank_hint_query").isReadOnly()).isFalse();
-        // 知识库工具的只读是真的，不随 MCP 透传变化
+        // 知识库工具的只读是它自己声明的，不随 MCP 透传变化
+        // 注意这里只验 getter：它不是 ToolBase，声明不会进入 ReAct 的权限决策，别当成一道执行期保护
         assertThat(toolkit.getTool(KnowledgeSearchTool.TOOL_NAME).isReadOnly()).isTrue();
     }
 
@@ -212,7 +211,6 @@ class AgentToolCatalogTest {
 
         AgentToolCatalog catalog = new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
                 agentPromptResolver,
@@ -238,7 +236,6 @@ class AgentToolCatalogTest {
 
         return new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
                 agentPromptResolver,

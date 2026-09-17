@@ -22,7 +22,6 @@ import com.nageoffer.ai.ragent.agent.controller.vo.AgentMessageVO;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 
 import java.util.List;
 
@@ -72,11 +71,6 @@ public interface AgentConversationService {
      * 查询会话消息列表
      */
     List<AgentMessageVO> listMessages(String conversationId, String userId);
-
-    /**
-     * 取最近 N 轮已配对的 user/assistant 正文（时间正序），供检索工具做指代消解
-     */
-    List<ChatMessage> loadRecentTurns(String conversationId, String userId, int turns);
 
     /**
      * 手动改标题，空白标题拒绝
