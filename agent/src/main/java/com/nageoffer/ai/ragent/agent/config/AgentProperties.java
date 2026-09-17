@@ -38,7 +38,8 @@ public class AgentProperties {
     private Integer maxIters = 10;
 
     /**
-     * 最大尝试次数（含首次），1 即不重试。重试加在整条流之上，半程失败重订阅会重复已吐出的 chunk，
+     * 单次模型调用的最大尝试次数（含首次），1 即不重试
+     * 重试加在整条流之上，半程失败会重订阅，已吐出的正文不回滚。
      * 与 bootstrap application.yaml（agent.max-retries: 1）同值——默认值须保持 1，
      * 上游 177108bb 的 ReActAgentProviderTest 以此默认值闸门（无 yaml 的纯单元测试读不到配置）
      */
