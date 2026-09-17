@@ -243,9 +243,7 @@ rag:
       min-interval-seconds: 60
 
   mcp:
-    servers:
-      - name: default
-        url: http://localhost:9099
+    servers: []  # 生产/本地默认不挂 MCP Server（D14 裁定清理 localhost:9099 死端点）；需要时按需追加条目，未配置时 MCP 客户端跳过远程工具注册（非致命）
 
   search:
     # 检索漏斗三段预算，各自独立、单调收窄，启动时校验 recall-budget ≥ default-top-k 且 rerank-candidate-limit ≥ default-top-k
