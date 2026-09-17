@@ -69,9 +69,9 @@ class ReActAgentProviderTest {
         intentNodeRegistry = mock(IntentNodeRegistry.class);
         mcpToolRegistry = mock(McpToolRegistry.class);
         agentPromptResolver = mock(AgentPromptResolver.class);
-        when(agentPromptResolver.resolve(AgentPromptSlot.AGENT_MAIN)).thenReturn("你是 Ragent");
-        when(agentPromptResolver.resolve(AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION))
-                .thenReturn("当前 Agent 的知识库工具描述");
+        when(agentPromptResolver.resolveAll()).thenReturn(Map.of(
+                AgentPromptSlot.AGENT_MAIN.name(), "你是 Ragent",
+                AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION.name(), "当前 Agent 的知识库工具描述"));
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of(
                 mcpNode("sales", "销售查询", "sales_query")));
         when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of(executor("sales_query")));
@@ -80,7 +80,6 @@ class ReActAgentProviderTest {
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
-                agentPromptResolver,
                 new AgentMemoryProperties(),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class)));
@@ -113,9 +112,10 @@ class ReActAgentProviderTest {
         provider.getAgent();
 
         // 解析两次就有两份现实，指纹与 Toolkit 各信一份，中间注册表一变就长期不再自愈
-        verify(toolCatalog, times(1)).resolve();
+        verify(toolCatalog, times(1)).resolve(any());
         verify(mcpToolRegistry, times(1)).listAllExecutors();
-        verify(agentPromptResolver, times(1)).resolve(AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION);
+        // 提示词一次读全，分两次读会拼出半新半旧的实例
+        verify(agentPromptResolver, times(1)).resolveAll();
     }
 
     @Test

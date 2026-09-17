@@ -678,7 +678,7 @@ class AgentStreamEventBridgeTest {
             }
         };
         return new ResolvedCatalog("知识库工具描述", null,
-                List.of(new McpToolBinding("leave_submit", "请假申请", "提交请假申请", true, executor)),
+                List.of(McpToolBinding.of("leave_submit", "请假申请", "提交请假申请", true, executor)),
                 List.of(), List.of());
     }
 

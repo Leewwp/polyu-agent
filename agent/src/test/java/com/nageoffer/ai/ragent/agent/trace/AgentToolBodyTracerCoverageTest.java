@@ -26,7 +26,6 @@ import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
-import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkill;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
@@ -185,9 +184,9 @@ class AgentToolBodyTracerCoverageTest {
                 .build()));
         McpToolRegistry mcpToolRegistry = mock(McpToolRegistry.class);
         when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of(executor()));
-        AgentPromptResolver promptResolver = mock(AgentPromptResolver.class);
-        when(promptResolver.resolve(AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION)).thenReturn("知识库工具描述");
-        when(promptResolver.resolve(AgentPromptSlot.AGENT_MEMORY_TOOL_DESCRIPTION)).thenReturn("记忆工具描述");
+        Map<String, String> prompts = Map.of(
+                AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION.name(), "知识库工具描述",
+                AgentPromptSlot.AGENT_MEMORY_TOOL_DESCRIPTION.name(), "记忆工具描述");
         AgentSkillRegistry skillRegistry = mock(AgentSkillRegistry.class);
         when(skillRegistry.listEnabled()).thenReturn(List.of(
                 new AgentSkill("leave", "请假", "请假办理步骤", "手册正文", List.of("leave_submit"))));
@@ -198,11 +197,10 @@ class AgentToolBodyTracerCoverageTest {
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
                 mcpToolRegistry,
-                promptResolver,
                 memoryProperties,
                 mock(AgentMemoryPipeline.class),
                 skillRegistry);
-        return catalog.buildToolkit(catalog.resolve());
+        return catalog.buildToolkit(catalog.resolve(prompts));
     }
 
     private McpToolExecutor executor() {

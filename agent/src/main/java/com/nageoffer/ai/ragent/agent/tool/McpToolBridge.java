@@ -33,16 +33,12 @@ import io.agentscope.core.permission.PermissionDecision;
 import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.ToolCallParam;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
-import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -52,27 +48,23 @@ import java.util.stream.Collectors;
 @Slf4j
 public class McpToolBridge extends ToolBase {
 
+    private static final String CALL_FAILED_MESSAGE = "工具调用失败，请稍后重试";
+
     private final McpToolExecutor executor;
 
     /**
-     * 意图树配置的执行前确认开关
+     * 确认语义由目录算定，这里只消费
      */
-    private final boolean requireConfirm;
-
-    /**
-     * MCP 服务端声明的 readOnlyHint，null 表示未声明
-     */
-    private final Boolean readOnlyHint;
+    private final boolean needsConfirm;
 
     public McpToolBridge(McpToolBinding binding) {
         super(ToolBase.builder()
                 .name(binding.toolId())
-                .description(resolveDescription(binding))
-                .inputSchema(buildInputSchema(binding.executor()))
-                .readOnly(Boolean.TRUE.equals(resolveReadOnlyHint(binding.executor()))));
+                .description(binding.description())
+                .inputSchema(binding.inputSchema())
+                .readOnly(binding.readOnly()));
         this.executor = binding.executor();
-        this.requireConfirm = binding.requireConfirm();
-        this.readOnlyHint = resolveReadOnlyHint(binding.executor());
+        this.needsConfirm = binding.needsConfirm();
     }
 
     /**
@@ -81,17 +73,10 @@ public class McpToolBridge extends ToolBase {
      */
     @Override
     public Mono<PermissionDecision> checkPermissions(Map<String, Object> toolInput, PermissionContextState context) {
-        if (!needsConfirm()) {
+        if (!needsConfirm) {
             return Mono.just(PermissionDecision.allow("该工具未配置执行前确认"));
         }
         return Mono.just(PermissionDecision.ask("该操作会产生实际业务影响，执行前需要你确认"));
-    }
-
-    /**
-     * 意图树勾选或 readOnlyHint 显式为 false 时需要确认
-     */
-    private boolean needsConfirm() {
-        return requireConfirm || Boolean.FALSE.equals(readOnlyHint);
     }
 
     @Override
@@ -139,33 +124,6 @@ public class McpToolBridge extends ToolBase {
         return param == null || param.getToolUseBlock() == null ? null : param.getToolUseBlock().getId();
     }
 
-    private static String resolveDescription(McpToolBinding binding) {
-        if (StrUtil.isNotBlank(binding.description())) {
-            return binding.description();
-        }
-        return StrUtil.emptyIfNull(binding.executor().getToolDefinition().description());
-    }
-
-    private static Map<String, Object> buildInputSchema(McpToolExecutor executor) {
-        JsonSchema schema = executor.getToolDefinition().inputSchema();
-        Map<String, Object> parameters = new LinkedHashMap<>();
-        parameters.put("type", schema == null || StrUtil.isBlank(schema.type()) ? "object" : schema.type());
-        parameters.put("properties", schema == null || schema.properties() == null ? Map.of() : schema.properties());
-        if (schema != null && CollUtil.isNotEmpty(schema.required())) {
-            parameters.put("required", schema.required());
-        }
-        return parameters;
-    }
-
-    /**
-     * 取 MCP annotations 的 readOnlyHint，未声明返回 null
-     */
-    private static Boolean resolveReadOnlyHint(McpToolExecutor executor) {
-        Tool definition = executor.getToolDefinition();
-        ToolAnnotations annotations = definition.annotations();
-        return annotations == null ? null : annotations.readOnlyHint();
-    }
-
     /**
      * 身份只认 RuntimeContext：这里已经切到 boundedElastic，ThreadLocal 型的 UserContext 传不过来，
      * 取到的会是 null 且不抛异常，症状是所有业务数据静默挂在空用户上
@@ -176,15 +134,28 @@ public class McpToolBridge extends ToolBase {
     }
 
     private ToolResultBlock execute(ToolCallParam param) {
+        if (param == null) {
+            return buildResult(null, "工具调用参数不能为空", true);
+        }
         String toolCallId = toolCallId(param);
+        Map<String, Object> input = param.getInput() == null
+                ? Map.of()
+                : new HashMap<>(param.getInput());
         try {
-            CallToolResult result = executor.execute(
-                    new HashMap<>(param.getInput()), McpCallMeta.ofUser(userId(param)));
-            boolean isError = result != null && Boolean.TRUE.equals(result.isError());
-            return buildResult(toolCallId, extractText(result), isError);
+            CallToolResult result = executor.execute(input, McpCallMeta.ofUser(userId(param)));
+            if (result == null) {
+                log.error("MCP 执行器返回 null, toolId: {}, toolCallId: {}", getName(), toolCallId);
+                return buildResult(toolCallId, CALL_FAILED_MESSAGE, true);
+            }
+            boolean isError = Boolean.TRUE.equals(result.isError());
+            String text = extractText(result);
+            if (isError && StrUtil.isBlank(text)) {
+                text = "工具执行失败，但没有返回错误说明";
+            }
+            return buildResult(toolCallId, text, isError);
         } catch (Exception e) {
-            log.error("MCP 工具调用异常, toolId: {}", getName(), e);
-            return buildResult(toolCallId, "工具调用异常: " + e.getMessage(), true);
+            log.error("MCP 工具调用异常, toolId: {}, toolCallId: {}", getName(), toolCallId, e);
+            return buildResult(toolCallId, CALL_FAILED_MESSAGE, true);
         }
     }
 

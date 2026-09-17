@@ -63,7 +63,7 @@ class McpToolBridgeTest {
                 .content(List.of(new TextContent("订单查询结果")))
                 .isError(false)
                 .build());
-        bridge = new McpToolBridge(new McpToolBinding(TOOL_ID, "订单查询", "查询订单", false, executor));
+        bridge = new McpToolBridge(McpToolBinding.of(TOOL_ID, "订单查询", "查询订单", false, executor));
     }
 
     /**
