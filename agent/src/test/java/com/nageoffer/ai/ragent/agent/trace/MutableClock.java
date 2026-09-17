@@ -22,9 +22,12 @@ import java.time.Instant;
 import java.time.ZoneId;
 
 /**
- * span 起止要能被摆到已知位置再断言，系统时钟给不出可复现的终点
+ * span 起止要能被摆到已知位置再断言，系统时钟给不出可复现的终点。
+ * 同时实现 OTel SDK 的 Clock 并经 SdkTracerProvider#setClock 注入，
+ * 使 startSpan()/无显式时间戳的 end() 也取假钟——否则这些时间戳仍是系统实时钟，
+ * 「零耗时」类断言在 CI 负载下会被 1ms 真实滑移击穿（2026-09-17 deploy 门判例）。
  */
-final class MutableClock extends Clock {
+final class MutableClock extends Clock implements io.opentelemetry.sdk.common.Clock {
 
     private volatile Instant instant;
 
@@ -49,5 +52,16 @@ final class MutableClock extends Clock {
     @Override
     public Instant instant() {
         return instant;
+    }
+
+    @Override
+    public long now() {
+        Instant current = instant;
+        return current.getEpochSecond() * 1_000_000_000L + current.getNano();
+    }
+
+    @Override
+    public long nanoTime() {
+        return now();
     }
 }
