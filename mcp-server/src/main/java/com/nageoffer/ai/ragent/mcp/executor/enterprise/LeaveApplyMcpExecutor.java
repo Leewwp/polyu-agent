@@ -22,6 +22,7 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -34,9 +35,10 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 请假申请提交，写操作示例
@@ -69,35 +71,17 @@ public class LeaveApplyMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("leaveType", Map.of(
-                "type", "string",
-                "title", "假期类型",
-                "description", "假期类型：年假、调休、病假、事假",
-                "enum", LEAVE_TYPES
-        ));
-
-        properties.put("startDate", Map.of(
-                "type", "string",
-                "title", "开始日期",
-                "description", "请假开始日期，格式 yyyy-MM-dd，如 2026-09-07"
-        ));
-
-        properties.put("endDate", Map.of(
-                "type", "string",
-                "title", "结束日期",
-                "description", "请假结束日期，格式 yyyy-MM-dd，当天请假填与开始日期相同的值"
-        ));
-
-        properties.put("reason", Map.of(
-                "type", "string",
-                "title", "请假事由",
-                "description", "请假事由，据实填写用户说明的原因，不要代为编造"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("leaveType", "startDate", "endDate", "reason"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("leaveType", "假期类型：年假、调休、病假、事假")
+                        .title("假期类型")
+                        .options(LEAVE_TYPES))
+                .required(string("startDate", "请假开始日期，格式 yyyy-MM-dd，如 2026-09-07")
+                        .title("开始日期"))
+                .required(string("endDate", "请假结束日期，格式 yyyy-MM-dd，当天请假填与开始日期相同的值")
+                        .title("结束日期"))
+                .required(string("reason", "请假事由，据实填写用户说明的原因，不要代为编造")
+                        .title("请假事由"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -140,7 +124,7 @@ public class LeaveApplyMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("提交失败: " + e.getMessage());
+            return McpToolResults.failure("提交", e);
         }
     }
 

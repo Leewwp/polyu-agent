@@ -68,6 +68,20 @@ public final class McpToolResults {
         return error("系统暂时无法确认你的身份，这次没有执行，请稍后重试");
     }
 
+    /**
+     * 兜底异常的统一出口，{@code action} 是动作名如「下单」「订单查询」
+     * <p>
+     * 底层异常的原文只进服务端日志：{@code e.getMessage()} 里是 SQL 片段、连接串、空指针栈顶这类实现细节，
+     * 拼进返回值就等于交给模型，而模型会把它当业务结论转述给用户。调用方要的是「这次没成功」，
+     * 不是「哪一层怎么崩的」——后者在日志里，且日志比返回值更全。
+     * {@link McpToolException} 是例外：那是抛出方自己拼的文案，已声明可以给模型看
+     */
+    public static CallToolResult failure(String action, Exception e) {
+        return e instanceof McpToolException
+                ? error(action + "失败: " + e.getMessage())
+                : error(action + "失败，请稍后重试");
+    }
+
     public static CallToolResult success(String text) {
         return CallToolResult.builder()
                 .content(List.of(new TextContent(text)))

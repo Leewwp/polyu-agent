@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -33,11 +34,13 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 @Slf4j
 @Component
@@ -88,40 +91,18 @@ public class AssetMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("employeeName", Map.of(
-                "type", "string",
-                "description", "员工姓名或工号，不填则查询当前登录员工"
-        ));
-
-        properties.put("assetType", Map.of(
-                "type", "string",
-                "description", "资产类别筛选：笔记本电脑、台式机、显示器、扩展坞、移动硬盘、测试手机，不填则查询全部类别",
-                "enum", CATEGORIES
-        ));
-
-        properties.put("status", Map.of(
-                "type", "string",
-                "description", "资产状态筛选：在用、维修中、借用中、待归还，不填则查询全部状态",
-                "enum", STATUSES
-        ));
-
-        properties.put("queryType", Map.of(
-                "type", "string",
-                "description", "查询类型：summary(名下资产汇总)、list(资产明细)、renewal(换新资格检查)",
-                "enum", List.of("summary", "list", "renewal"),
-                "default", "summary"
-        ));
-
-        properties.put("limit", Map.of(
-                "type", "integer",
-                "description", "返回记录数限制，默认20",
-                "default", 20
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("employeeName", "员工姓名或工号，不填则查询当前登录员工"))
+                .optional(string("assetType", "资产类别筛选：笔记本电脑、台式机、显示器、扩展坞、移动硬盘、测试手机，不填则查询全部类别")
+                        .options(CATEGORIES))
+                .optional(string("status", "资产状态筛选：在用、维修中、借用中、待归还，不填则查询全部状态")
+                        .options(STATUSES))
+                .optional(string("queryType", "查询类型：summary(名下资产汇总)、list(资产明细)、renewal(换新资格检查)")
+                        .options(List.of("summary", "list", "renewal"))
+                        .defaultTo("summary"))
+                .optional(integer("limit", "返回记录数限制，默认20")
+                        .defaultTo(20))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -161,7 +142,7 @@ public class AssetMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 

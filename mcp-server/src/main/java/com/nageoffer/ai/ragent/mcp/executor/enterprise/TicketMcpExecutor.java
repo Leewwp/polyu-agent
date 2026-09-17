@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -33,11 +34,13 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 @Slf4j
 @Component
@@ -99,52 +102,22 @@ public class TicketMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("region", Map.of(
-                "type", "string",
-                "description", "地区筛选：华东、华南、华北、西南、西北，不填则查询全国",
-                "enum", List.of("华东", "华南", "华北", "西南", "西北")
-        ));
-
-        properties.put("status", Map.of(
-                "type", "string",
-                "description", "工单状态筛选：待处理、处理中、已解决、已关闭，不填则查询全部状态",
-                "enum", STATUSES
-        ));
-
-        properties.put("priority", Map.of(
-                "type", "string",
-                "description", "优先级筛选：紧急、高、中、低，不填则查询全部优先级",
-                "enum", List.of("紧急", "高", "中", "低")
-        ));
-
-        properties.put("product", Map.of(
-                "type", "string",
-                "description", "产品筛选：企业版、专业版、基础版，不填则查询全部产品",
-                "enum", List.of("企业版", "专业版", "基础版")
-        ));
-
-        properties.put("customerName", Map.of(
-                "type", "string",
-                "description", "客户名称关键字，支持模糊匹配"
-        ));
-
-        properties.put("queryType", Map.of(
-                "type", "string",
-                "description", "查询类型：summary(汇总概览)、list(工单列表)、stats(统计分析)",
-                "enum", List.of("summary", "list", "stats"),
-                "default", "summary"
-        ));
-
-        properties.put("limit", Map.of(
-                "type", "integer",
-                "description", "返回记录数限制，默认10",
-                "default", 10
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("region", "地区筛选：华东、华南、华北、西南、西北，不填则查询全国")
+                        .options(List.of("华东", "华南", "华北", "西南", "西北")))
+                .optional(string("status", "工单状态筛选：待处理、处理中、已解决、已关闭，不填则查询全部状态")
+                        .options(STATUSES))
+                .optional(string("priority", "优先级筛选：紧急、高、中、低，不填则查询全部优先级")
+                        .options(List.of("紧急", "高", "中", "低")))
+                .optional(string("product", "产品筛选：企业版、专业版、基础版，不填则查询全部产品")
+                        .options(List.of("企业版", "专业版", "基础版")))
+                .optional(string("customerName", "客户名称关键字，支持模糊匹配"))
+                .optional(string("queryType", "查询类型：summary(汇总概览)、list(工单列表)、stats(统计分析)")
+                        .options(List.of("summary", "list", "stats"))
+                        .defaultTo("summary"))
+                .optional(integer("limit", "返回记录数限制，默认10")
+                        .defaultTo(10))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -184,7 +157,7 @@ public class TicketMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 

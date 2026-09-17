@@ -25,6 +25,7 @@ import com.nageoffer.ai.ragent.mcp.dao.result.ProductSummaryResult;
 import com.nageoffer.ai.ragent.mcp.dao.result.SkuDetailResult;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.ProductSkuMapper;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -37,9 +38,12 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.number;
 
 /**
  * 商品筛选，比特严选唯一不认登录态的工具
@@ -76,61 +80,23 @@ public class BitProductSearchMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("spuCodes", Map.of(
-                "type", "string",
-                "description", "按商品款查，多个用逗号分隔，如 SPU-IPHONE-18-PRO；"
-                        + "返回该款全部可选配置与各自的下单编码，用户说定了要哪个容量哪个颜色时用它取编码"
-        ));
-
-        properties.put("skuCodes", Map.of(
-                "type", "string",
-                "description", "按下单编码精确查，多个用逗号分隔，如 MJTK4CH/A；"
-                        + "填了它其余筛选条件不生效，已下架的也一起返回"
-        ));
-
-        properties.put("category", Map.of(
-                "type", "string",
-                "description", "一级品类",
-                "enum", CATEGORIES
-        ));
-
-        properties.put("keyword", Map.of(
-                "type", "string",
-                "description", "关键词，在商品名、子品类、标签和卖点里模糊匹配"
-        ));
-
-        properties.put("tags", Map.of(
-                "type", "string",
-                "description", "标签，多个用逗号分隔，需全部命中，如 长续航,大字体"
-        ));
-
-        properties.put("minPrice", Map.of(
-                "type", "number",
-                "description", "价格下限，单位元"
-        ));
-
-        properties.put("maxPrice", Map.of(
-                "type", "number",
-                "description", "价格上限，单位元"
-        ));
-
-        properties.put("sort", Map.of(
-                "type", "string",
-                "description", "排序：price_asc 价格升序、price_desc 价格降序",
-                "enum", SORTS,
-                "default", "price_asc"
-        ));
-
-        properties.put("limit", Map.of(
-                "type", "integer",
-                "description", "返回条数，默认 10，最多 20",
-                "default", DEFAULT_LIMIT
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("spuCodes", "按商品款查，多个用逗号分隔，如 SPU-IPHONE-18-PRO；"
+                        + "返回该款全部可选配置与各自的下单编码，用户说定了要哪个容量哪个颜色时用它取编码"))
+                .optional(string("skuCodes", "按下单编码精确查，多个用逗号分隔，如 MJTK4CH/A；"
+                        + "填了它其余筛选条件不生效，已下架的也一起返回"))
+                .optional(string("category", "一级品类")
+                        .options(CATEGORIES))
+                .optional(string("keyword", "关键词，在商品名、子品类、标签和卖点里模糊匹配"))
+                .optional(string("tags", "标签，多个用逗号分隔，需全部命中，如 长续航,大字体"))
+                .optional(number("minPrice", "价格下限，单位元"))
+                .optional(number("maxPrice", "价格上限，单位元"))
+                .optional(string("sort", "排序：price_asc 价格升序、price_desc 价格降序")
+                        .options(SORTS)
+                        .defaultTo("price_asc"))
+                .optional(integer("limit", "返回条数，默认 10，最多 20")
+                        .defaultTo(DEFAULT_LIMIT))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -170,7 +136,7 @@ public class BitProductSearchMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("商品查询失败: " + e.getMessage());
+            return McpToolResults.failure("商品查询", e);
         }
     }
 

@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.OrderItemMapper;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.OrderMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -43,6 +44,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 /**
  * 订单查询，比特严选订单相关那几条路的入口
@@ -76,21 +80,11 @@ public class BitOrderQueryMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("orderNo", Map.of(
-                "type", "string",
-                "description", "订单号，如 88231；不填则返回最近若干笔订单摘要"
-        ));
-
-        properties.put("limit", Map.of(
-                "type", "integer",
-                "description", "不填订单号时返回几笔，默认 5，最多 20",
-                "default", DEFAULT_LIMIT
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("orderNo", "订单号，如 88231；不填则返回最近若干笔订单摘要"))
+                .optional(integer("limit", "不填订单号时返回几笔，默认 5，最多 20")
+                        .defaultTo(DEFAULT_LIMIT))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -124,7 +118,7 @@ public class BitOrderQueryMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("订单查询失败: " + e.getMessage());
+            return McpToolResults.failure("订单查询", e);
         }
     }
 

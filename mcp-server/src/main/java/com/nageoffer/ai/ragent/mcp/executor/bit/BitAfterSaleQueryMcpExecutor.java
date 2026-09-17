@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.AfterSaleMapper;
 import com.nageoffer.ai.ragent.mcp.dao.result.AfterSaleDetailResult;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -33,9 +34,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 售后单进度查询
@@ -63,20 +65,10 @@ public class BitAfterSaleQueryMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("afterSaleNo", Map.of(
-                "type", "string",
-                "description", "售后单号，如 AS88237001"
-        ));
-
-        properties.put("orderNo", Map.of(
-                "type", "string",
-                "description", "订单号，查这一单下的全部售后单"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("afterSaleNo", "售后单号，如 AS88237001"))
+                .optional(string("orderNo", "订单号，查这一单下的全部售后单"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -115,7 +107,7 @@ public class BitAfterSaleQueryMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("售后查询失败: " + e.getMessage());
+            return McpToolResults.failure("售后查询", e);
         }
     }
 

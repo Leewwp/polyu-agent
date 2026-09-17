@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.mcp.dao.entity.OrderDO;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.OrderMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -34,9 +35,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 模拟支付，把待支付推到已支付待发货
@@ -59,16 +60,10 @@ public class BitOrderPayMcpExecutor {
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("orderNo", Map.of(
-                "type", "string",
-                "title", "订单号",
-                "description", "要支付的订单号，取自下单返回或订单查询"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("orderNo"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("orderNo", "要支付的订单号，取自下单返回或订单查询")
+                        .title("订单号"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -112,8 +107,7 @@ public class BitOrderPayMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            // M14：底层异常原文不透给用户面，收敛为分类文案（细节只进上方日志）
-            return McpToolResults.error("订单支付失败：系统繁忙，请稍后重试");
+            return McpToolResults.failure("订单支付", e);
         }
     }
 
