@@ -37,7 +37,7 @@ public final class McpToolResults {
     /**
      * 调用方在 {@code _meta} 里透传的当前登录用户
      * <p>
-     * 值与 rag 模块的 {@code McpCallMeta#USER_ID} 必须一致：本进程独立启动、不依赖 rag，只能各存一份
+     * 值与 rag 模块的 {@code McpCallMeta#USER_ID_KEY} 必须一致：本进程独立启动、不依赖 rag，只能各存一份
      */
     public static final String META_USER_ID = "com.nageoffer.ragent/userId";
 

@@ -73,7 +73,7 @@ class McpToolBridgeTest {
     void shouldPassLoginUserThroughMeta() {
         call(RuntimeContext.builder().userId(USER_ID).sessionId("3001").build());
 
-        assertThat(capturedMeta()).containsEntry(McpCallMeta.USER_ID, USER_ID);
+        assertThat(capturedMeta()).containsEntry(McpCallMeta.USER_ID_KEY, USER_ID);
     }
 
     /**

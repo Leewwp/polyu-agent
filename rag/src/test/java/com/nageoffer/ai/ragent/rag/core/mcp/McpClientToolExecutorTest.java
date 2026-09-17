@@ -88,7 +88,7 @@ class McpClientToolExecutorTest {
 
         CallToolRequest request = captureRequest();
         assertThat(request.arguments()).containsEntry("orderNo", "88231");
-        assertThat(request.meta()).containsEntry(McpCallMeta.USER_ID, "2001");
+        assertThat(request.meta()).containsEntry(McpCallMeta.USER_ID_KEY, "2001");
     }
 
     /**

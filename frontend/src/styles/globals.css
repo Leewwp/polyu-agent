@@ -5309,6 +5309,15 @@ textarea {
   background: var(--agent-ink);
 }
 
+/* 停止请求已受理：原位退成安静的进度态，不让禁用态看起来像还能再点 */
+.agent-app .agent-composer-btn[data-stopping="true"] {
+  background: var(--agent-surface);
+  border-color: var(--agent-grid-strong);
+  color: var(--agent-muted);
+  cursor: progress;
+  filter: none;
+}
+
 /* 框外一行免责：框里不摆第二行是因为没有真控件 这一行有真职责 两条不矛盾
    居中不左对齐：它是整页的脚注 不是 880 列里的一行内容 */
 .agent-app .agent-composer-note {

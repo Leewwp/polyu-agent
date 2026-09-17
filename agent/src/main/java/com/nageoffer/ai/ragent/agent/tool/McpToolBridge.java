@@ -22,6 +22,7 @@ import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.agent.trace.AgentToolBodyTracer;
+import com.nageoffer.ai.ragent.framework.cancellation.TaskCancellation;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpCallMeta;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
 import io.agentscope.core.agent.RuntimeContext;
@@ -154,17 +155,26 @@ public class McpToolBridge extends ToolBase {
             }
             return buildResult(toolCallId, text, isError);
         } catch (Exception e) {
+            // 只认异常路径：调用正常返回就说明远端可能已写入，不能把已执行报成未执行
+            if (TaskCancellation.isCancellation(e)) {
+                log.debug("MCP 工具调用被取消, toolId: {}, toolCallId: {}", getName(), toolCallId);
+                return buildResult(toolCallId, "用户已停止，本次工具调用未完成", ToolResultState.INTERRUPTED);
+            }
             log.error("MCP 工具调用异常, toolId: {}, toolCallId: {}", getName(), toolCallId, e);
             return buildResult(toolCallId, CALL_FAILED_MESSAGE, true);
         }
     }
 
     private ToolResultBlock buildResult(String toolCallId, String text, boolean isError) {
+        return buildResult(toolCallId, text, isError ? ToolResultState.ERROR : ToolResultState.SUCCESS);
+    }
+
+    private ToolResultBlock buildResult(String toolCallId, String text, ToolResultState state) {
         return ToolResultBlock.builder()
                 .id(toolCallId)
                 .name(getName())
                 .output(TextBlock.builder().text(text).build())
-                .state(isError ? ToolResultState.ERROR : ToolResultState.SUCCESS)
+                .state(state)
                 .build();
     }
 
