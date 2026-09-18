@@ -322,6 +322,24 @@ class AgentStreamEventBridgeTest {
         assertThat(blocks).extracting(AgentBlock::getKind).containsExactly("answer", "tool", "answer");
         assertThat(blocks.get(0).getText()).isEqualTo("先说一句");
         assertThat(blocks.get(2).getText()).isEqualTo("再说一句");
+        // content 是正文全文，被工具块切成几段也要按序接回来，末段收尾前还没封口
+        assertThat(capturedContent()).isEqualTo("先说一句再说一句");
+    }
+
+    /**
+     * 思考与正文各走各的全文，分段规则一致
+     */
+    @Test
+    void shouldPersistThinkingAcrossSegments() {
+        bridge.onEvent(new ThinkingBlockDeltaEvent("r-1", "b-1", "先想一下"));
+        bridge.onEvent(new ToolCallStartEvent("r-1", "call-1", "search_knowledge"));
+        bridge.onEvent(new ToolResultEndEvent("r-1", "call-1", "search_knowledge", ToolResultState.SUCCESS));
+        bridge.onEvent(new ThinkingBlockDeltaEvent("r-1", "b-2", "再想一下"));
+        bridge.onComplete();
+
+        assertThat(capturedBlocks()).extracting(AgentBlock::getKind)
+                .containsExactly("reasoning", "tool", "reasoning");
+        assertThat(capturedThinking()).isEqualTo("先想一下再想一下");
     }
 
     @Test
@@ -690,6 +708,20 @@ class AgentStreamEventBridgeTest {
         return captor.getValue();
     }
 
+    private String capturedContent() {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).addAssistantMessage(
+                any(), any(), captor.capture(), any(), any(), any(), any(), any());
+        return captor.getValue();
+    }
+
+    private String capturedThinking() {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).addAssistantMessage(
+                any(), any(), any(), captor.capture(), any(), any(), any(), any());
+        return captor.getValue();
+    }
+
     private List<AgentToolProgress> capturedToolEvents() {
         ArgumentCaptor<AgentToolProgress> captor = ArgumentCaptor.forClass(AgentToolProgress.class);
         verify(sender, atLeastOnce()).sendEvent(eq("tool"), captor.capture());
@@ -701,7 +733,7 @@ class AgentStreamEventBridgeTest {
     }
 
     private AgentStreamEventBridge newBridge(ResolvedCatalog catalog) {
-        return new AgentStreamEventBridge(AgentStreamEventBridge.Params.builder()
+        return AgentStreamEventBridge.builder()
                 .runHandle(new AgentRunHandle(TASK_ID, sender, taskManager, facts, null))
                 .conversationService(conversationService)
                 .catalog(catalog)
@@ -711,7 +743,7 @@ class AgentStreamEventBridgeTest {
                 .replyToMessageId("m-3003")
                 .clock(clock)
                 .facts(facts)
-                .build());
+                .build();
     }
 
     /**

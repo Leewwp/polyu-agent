@@ -29,7 +29,6 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
-import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,13 +62,14 @@ class AgentConversationServiceImplTest {
         // 脱离 SqlSession 时 lambda 列名缓存是空的，条件构造器取不出 SQL 片段
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentMessageDO.class);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), AgentConversationDO.class);
     }
 
     private AgentConversationMapper conversationMapper;
     private AgentMessageMapper messageMapper;
     private PgAgentStateStore agentStateStore;
     private AgentRunGate runGate;
-    private StreamTaskManager taskManager;
     private ReActAgentProvider agentProvider;
     private AgentConversationServiceImpl service;
 
@@ -80,14 +80,13 @@ class AgentConversationServiceImplTest {
         messageMapper = mock(AgentMessageMapper.class);
         agentStateStore = mock(PgAgentStateStore.class);
         runGate = mock(AgentRunGate.class);
-        taskManager = mock(StreamTaskManager.class);
         agentProvider = mock(ReActAgentProvider.class);
         ObjectProvider<ReActAgentProvider> agentProviderRef = mock(ObjectProvider.class);
         when(agentProviderRef.getIfAvailable()).thenReturn(agentProvider);
         when(conversationMapper.delete(any())).thenReturn(1);
         when(messageMapper.delete(any())).thenReturn(1);
         service = new AgentConversationServiceImpl(
-                conversationMapper, messageMapper, agentStateStore, runGate, taskManager, agentProviderRef);
+                conversationMapper, messageMapper, agentStateStore, runGate, agentProviderRef);
     }
 
     @AfterEach
@@ -139,23 +138,74 @@ class AgentConversationServiceImplTest {
     }
 
     @Test
-    void shouldCancelRunningStreamOfDeletedConversation() {
+    void shouldRejectDeleteWhileConversationIsRunning() {
         when(runGate.runningTaskId(USER_ID, CONVERSATION_ID)).thenReturn("t-9001");
 
-        service.delete(CONVERSATION_ID, USER_ID);
+        assertThatThrownBy(() -> service.delete(CONVERSATION_ID, USER_ID))
+                .hasMessageContaining("正在生成中");
 
-        // 流不停就会跑到底，把记忆写回 PG、把打断消息插回来，正是「删了又活」的那条链
-        verify(taskManager).cancel("t-9001");
+        // 放行就会让在途流把状态和消息写回已删会话，留下够不着的残行
+        verify(conversationMapper, never()).delete(any());
+        verify(messageMapper, never()).delete(any());
+        verify(agentStateStore, never()).delete(any(), any());
     }
 
     @Test
-    void shouldNotTouchStreamOfAnotherConversation() {
-        // 该用户确实有流在跑，但跑的是别的会话
+    void shouldAllowDeleteWhenAnotherConversationIsRunning() {
+        // 该用户确实有流在跑，但跑的是别的会话，不该连累这一个
         when(runGate.runningTaskId(USER_ID, CONVERSATION_ID)).thenReturn(null);
 
         service.delete(CONVERSATION_ID, USER_ID);
 
-        verify(taskManager, never()).cancel(any());
+        verify(conversationMapper).delete(any());
+        verify(agentProvider).evictStateCache(USER_ID, CONVERSATION_ID);
+    }
+
+    @Test
+    void shouldRejectWholeBatchWhenOneConversationIsRunning() {
+        TransactionSynchronizationManager.initSynchronization();
+        when(runGate.runningTaskId(USER_ID, "c-3003")).thenReturn("t-9001");
+
+        assertThatThrownBy(() -> service.deleteBatch(List.of(CONVERSATION_ID, "c-3003"), USER_ID))
+                .hasMessageContaining("正在生成中");
+
+        // 整批一个事务，挡下一个就全回滚，驱逐缓存不该走到
+        verify(agentProvider, never()).evictStateCache(any(), any());
+    }
+
+    @Test
+    void shouldReadConfirmationContextWithoutSettlingCard() {
+        when(conversationMapper.selectOne(any())).thenReturn(existingConversation("原会话"));
+        AgentMessageDO message = pendingConfirmation();
+        when(messageMapper.selectOne(any())).thenReturn(message);
+
+        AgentConfirmSettlement context = service.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004");
+
+        assertThat(context.title()).isEqualTo("原会话");
+        assertThat(context.replyToMessageId()).isEqualTo("m-3003");
+        assertThat(message.getMessageStatus()).isEqualTo(AgentMessageStatus.AWAITING_CONFIRM.name());
+        assertThat(message.getBlocks().get(0).getStatus()).isEqualTo("pending");
+        verify(messageMapper, never()).updateById(any(AgentMessageDO.class));
+    }
+
+    @Test
+    void shouldRevalidateCardWhenSettlingAfterRead() {
+        when(conversationMapper.selectOne(any())).thenReturn(existingConversation("原会话"));
+        AgentMessageDO message = pendingConfirmation();
+        when(messageMapper.selectOne(any())).thenReturn(message);
+        service.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004");
+        message.setMessageStatus(AgentMessageStatus.NORMAL.name());
+
+        assertThatThrownBy(() -> service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true))
+                .hasMessageContaining("已处理");
+
+        verify(messageMapper, never()).updateById(any(AgentMessageDO.class));
+    }
+
+    private static AgentMessageDO pendingConfirmation() {
+        AgentMessageDO message = assistantRow("m-4004", "m-3003", "确认操作", AgentMessageStatus.AWAITING_CONFIRM);
+        message.setBlocks(List.of(AgentBlock.builder().kind("confirm").status("pending").build()));
+        return message;
     }
 
     @Test

@@ -35,6 +35,7 @@ import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.message.AssistantMessage;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.ToolCallState;
@@ -53,6 +54,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,6 +65,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -97,6 +101,7 @@ class AgentChatServiceImplTest {
         runGate = mock(AgentRunGate.class);
         agent = mock(ReActAgent.class);
         memoryProperties = new AgentMemoryProperties();
+        memoryProperties.setLongTermEnabled(false);
         memoryPipeline = mock(AgentMemoryPipeline.class);
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
                 memoryProperties, memoryPipeline);
@@ -134,6 +139,7 @@ class AgentChatServiceImplTest {
      */
     @Test
     void shouldTriggerBackgroundExtractionOffTheRequestThread() throws Exception {
+        memoryProperties.setLongTermEnabled(true);
         CountDownLatch extracted = new CountDownLatch(1);
         AtomicReference<Thread> extractThread = new AtomicReference<>();
         AtomicInteger releasedWhenExtracting = new AtomicInteger(-1);
@@ -158,6 +164,7 @@ class AgentChatServiceImplTest {
      */
     @Test
     void shouldEnsureBaselineBeforeSavingUserMessage() {
+        memoryProperties.setLongTermEnabled(true);
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
 
         service.streamChat("我对花生严重过敏", CONVERSATION_ID, new SseEmitter());
@@ -220,7 +227,7 @@ class AgentChatServiceImplTest {
                 .addMessage(AssistantMessage.builder().content(asking).build())
                 .build();
         when(agent.getAgentState(USER_ID, CONVERSATION_ID)).thenReturn(state);
-        when(conversationService.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true))
+        when(conversationService.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004"))
                 .thenReturn(new AgentConfirmSettlement("会话标题", "m-3003"));
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
         ArgumentCaptor<RuntimeContext> runtimeContext = ArgumentCaptor.forClass(RuntimeContext.class);
@@ -319,32 +326,6 @@ class AgentChatServiceImplTest {
         assertThat(gateReleased.get()).isOne();
     }
 
-    /**
-     * 取消广播恰在句柄绑定前完成结算时，中断动作没绑上，刚订阅的上游必须被直接断流
-     * 收尾已驱逐状态缓存，优雅打断只会命中新加载的状态，白等两秒还给确认后立即执行的工具留窗口
-     */
-    @Test
-    void shouldDisposeUpstreamWhenCancelSettlesBeforeBind() {
-        AtomicBoolean upstreamCancelled = new AtomicBoolean();
-        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class)))
-                .thenReturn(Flux.<AgentEvent>never().doOnCancel(() -> upstreamCancelled.set(true)));
-        AtomicReference<Runnable> finalizer = new AtomicReference<>();
-        doAnswer(invocation -> {
-            finalizer.set(invocation.getArgument(2));
-            return null;
-        }).when(taskManager).register(anyString(), anyString(), any(Runnable.class));
-        // bindHandle 时任务已被取消结算注销，中断动作落空
-        doAnswer(invocation -> {
-            finalizer.get().run();
-            return null;
-        }).when(taskManager).bindHandle(anyString(), any(Runnable.class));
-
-        service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
-
-        assertThat(upstreamCancelled.get()).isTrue();
-        verify(agent, never()).interrupt(anyString(), anyString());
-    }
-
     @Test
     void shouldEvictOnlyOnceWhenCancelRacesCompletion() {
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
@@ -418,6 +399,7 @@ class AgentChatServiceImplTest {
 
     @Test
     void shouldUnregisterTaskWhenStartupFails() {
+        memoryProperties.setLongTermEnabled(true);
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class)))
                 .thenThrow(new IllegalStateException("上游没起来"));
 
@@ -426,6 +408,244 @@ class AgentChatServiceImplTest {
 
         // 已 register 未 unregister 的任务会守灵到 30 分钟 TTL，期间还能被取消去戳已丢弃的 emitter
         verify(taskManager).unregister(anyString());
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent, never()).saveAgentState(anyString(), anyString());
+        verify(memoryPipeline, never()).extract(anyString(), anyString(), any());
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldGetAgentBeforeWritingConversationOrQuestion() {
+        when(agentProvider.getAgent()).thenThrow(new IllegalStateException("Prompt 不可用"));
+
+        assertThatThrownBy(() -> service.streamChat("问题", CONVERSATION_ID, new SseEmitter()))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(conversationService, never()).touchConversation(anyString(), anyString(), anyString());
+        verify(conversationService, never()).addUserMessage(anyString(), anyString(), anyString());
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldCheckPendingConfirmationOnlyAfterAcquiringGate() {
+        when(runGate.acquire(anyString(), anyString(), anyString())).thenAnswer(invocation -> {
+            // 模拟上一轮在本轮拿到闸门之前刚写入确认卡片。
+            when(conversationService.hasPendingConfirm(CONVERSATION_ID, USER_ID)).thenReturn(true);
+            return (Runnable) gateReleased::incrementAndGet;
+        });
+
+        assertThatThrownBy(() -> service.streamChat("问题", CONVERSATION_ID, new SseEmitter()))
+                .isInstanceOf(ClientException.class).hasMessageContaining("确认");
+
+        verifyNoInteractions(agentProvider);
+        verify(conversationService, never()).addUserMessage(anyString(), anyString(), anyString());
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldKeepConfirmPendingWhenRegistrationFails() {
+        prepareConfirmation();
+        memoryProperties.setLongTermEnabled(true);
+        IllegalStateException failure = new IllegalStateException("Redis 写入失败");
+        doThrow(failure).when(taskManager).register(anyString(), anyString(), any());
+
+        assertThatThrownBy(() -> runEntry(true)).isSameAs(failure);
+
+        verify(conversationService, never()).settlePendingConfirm(anyString(), anyString(), anyString(), anyBoolean());
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        verify(agent, never()).saveAgentState(anyString(), anyString());
+        verifyNoInteractions(memoryPipeline);
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldKeepConfirmPendingWhenFluxCreationFails() {
+        prepareConfirmation();
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class)))
+                .thenThrow(new IllegalStateException("构造流失败"));
+
+        assertThatThrownBy(() -> runEntry(true)).isInstanceOf(IllegalStateException.class);
+
+        verify(conversationService, never()).settlePendingConfirm(anyString(), anyString(), anyString(), anyBoolean());
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldKeepConfirmPendingWhenCancelledDuringRegistration() {
+        prepareConfirmation();
+        doAnswer(invocation -> {
+            invocation.getArgument(2, Runnable.class).run();
+            return null;
+        }).when(taskManager).register(anyString(), anyString(), any());
+
+        runEntry(true);
+
+        verify(conversationService, never()).settlePendingConfirm(anyString(), anyString(), anyString(), anyBoolean());
+        verify(agent, never()).streamEvents(any(Msg.class), any(RuntimeContext.class));
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldSettleConfirmationAfterPreparationAndBeforeSubscription() {
+        prepareConfirmation();
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.defer(() -> {
+            verify(conversationService).settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true);
+            return Flux.empty();
+        }));
+
+        runEntry(true);
+
+        InOrder order = inOrder(taskManager, agent, conversationService);
+        order.verify(taskManager).register(anyString(), anyString(), any());
+        order.verify(agent).streamEvents(any(Msg.class), any(RuntimeContext.class));
+        order.verify(conversationService).settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true);
+    }
+
+    @Test
+    void shouldNotSubscribeWhenConfirmationSettlementFails() {
+        prepareConfirmation();
+        AtomicInteger subscriptions = new AtomicInteger();
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class)))
+                .thenReturn(Flux.defer(() -> { subscriptions.incrementAndGet(); return Flux.empty(); }));
+        when(conversationService.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true))
+                .thenThrow(new ClientException("卡片已处理"));
+
+        assertThatThrownBy(() -> runEntry(true)).isInstanceOf(ClientException.class);
+
+        assertThat(subscriptions.get()).isZero();
+        verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
+        assertThat(gateReleased.get()).isOne();
+    }
+
+    @Test
+    void shouldNotSubscribeChatWhenCancellationWinsDuringPreparation() throws Exception {
+        assertCancellationWinsDuringPreparation(false);
+    }
+
+    @Test
+    void shouldNotSettleOrSubscribeConfirmWhenCancellationWinsDuringPreparation() throws Exception {
+        prepareConfirmation();
+        assertCancellationWinsDuringPreparation(true);
+        verify(conversationService, never()).settlePendingConfirm(anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    private void assertCancellationWinsDuringPreparation(boolean confirm) throws Exception {
+        var pool = Executors.newSingleThreadExecutor();
+        CountDownLatch preparing = new CountDownLatch(1);
+        CountDownLatch continuePreparation = new CountDownLatch(1);
+        AtomicReference<Runnable> finalizer = new AtomicReference<>();
+        AtomicInteger subscriptions = new AtomicInteger();
+        doAnswer(invocation -> { finalizer.set(invocation.getArgument(2)); return null; })
+                .when(taskManager).register(anyString(), anyString(), any());
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenAnswer(invocation -> {
+            preparing.countDown();
+            await(continuePreparation);
+            return Flux.defer(() -> { subscriptions.incrementAndGet(); return Flux.empty(); });
+        });
+        try {
+            var starting = pool.submit(() -> runEntry(confirm));
+            assertThat(preparing.await(5, TimeUnit.SECONDS)).isTrue();
+            finalizer.get().run();
+            assertThat(gateReleased.get()).isOne();
+            continuePreparation.countDown();
+            starting.get(5, TimeUnit.SECONDS);
+            assertThat(subscriptions.get()).isZero();
+        } finally {
+            continuePreparation.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void shouldStopChatBeforeReleasingGateWhenCancelledDuringSubscription() throws Exception {
+        assertCancellationDuringSubscription(false);
+    }
+
+    @Test
+    void shouldStopConfirmBeforeReleasingGateWhenCancelledDuringSubscription() throws Exception {
+        prepareConfirmation();
+        assertCancellationDuringSubscription(true);
+        verify(conversationService).settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", true);
+    }
+
+    private void assertCancellationDuringSubscription(boolean confirm) throws Exception {
+        var pool = Executors.newFixedThreadPool(2);
+        CountDownLatch subscribing = new CountDownLatch(1);
+        CountDownLatch continueSubscription = new CountDownLatch(1);
+        CountDownLatch cancelling = new CountDownLatch(1);
+        CountDownLatch cancelled = new CountDownLatch(1);
+        AtomicBoolean cancellationRequested = new AtomicBoolean();
+        AtomicBoolean disposed = new AtomicBoolean();
+        AtomicReference<Runnable> finalizer = new AtomicReference<>();
+        when(taskManager.isCancelled(anyString())).thenAnswer(invocation -> cancellationRequested.get());
+        doAnswer(invocation -> { finalizer.set(invocation.getArgument(2)); return null; })
+                .when(taskManager).register(anyString(), anyString(), any());
+        doAnswer(invocation -> {
+            if (cancellationRequested.get()) {
+                invocation.getArgument(1, Runnable.class).run();
+            }
+            return null;
+        }).when(taskManager).bindHandle(anyString(), any());
+        doThrow(new IllegalStateException("强制停止测试上游")).when(agent).interrupt(USER_ID, CONVERSATION_ID);
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.defer(() -> {
+            subscribing.countDown();
+            await(continueSubscription);
+            return Flux.<AgentEvent>never().doOnCancel(() -> disposed.set(true));
+        }));
+        try {
+            var starting = pool.submit(() -> runEntry(confirm));
+            assertThat(subscribing.await(5, TimeUnit.SECONDS)).isTrue();
+            var stopping = pool.submit(() -> {
+                cancellationRequested.set(true);
+                cancelling.countDown();
+                finalizer.get().run();
+                cancelled.countDown();
+            });
+            assertThat(cancelling.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(cancelled.await(100, TimeUnit.MILLISECONDS)).isFalse();
+            assertThat(gateReleased.get()).isZero();
+            continueSubscription.countDown();
+            starting.get(5, TimeUnit.SECONDS);
+            stopping.get(5, TimeUnit.SECONDS);
+            assertThat(disposed.get()).isTrue();
+            assertThat(gateReleased.get()).isOne();
+        } finally {
+            continueSubscription.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private void prepareConfirmation() {
+        ToolUseBlock asking = ToolUseBlock.builder().id("call-1").name("submit_leave")
+                .input(Map.of("days", 1)).state(ToolCallState.ASKING).build();
+        when(agent.getAgentState(USER_ID, CONVERSATION_ID)).thenReturn(AgentState.builder()
+                .userId(USER_ID).sessionId(CONVERSATION_ID)
+                .addMessage(AssistantMessage.builder().content(asking).build()).build());
+        when(conversationService.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004"))
+                .thenReturn(new AgentConfirmSettlement("会话标题", "m-3003"));
+    }
+
+    private void runEntry(boolean confirm) {
+        UserContext.set(LoginUser.builder().userId(USER_ID).username("tester").build());
+        try {
+            if (confirm) {
+                service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter());
+            } else {
+                service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
+            }
+        } finally {
+            UserContext.clear();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
     }
 
     @Test
@@ -437,7 +657,6 @@ class AgentChatServiceImplTest {
                 .isInstanceOf(ClientException.class);
 
         // 被拒的请求不该留下会话行与任务登记，否则闸门反倒制造了脏数据
-        // 闸门前那次待确认查询是只读的，不在此列
         verify(conversationService, never()).touchConversation(anyString(), anyString(), anyString());
         verify(conversationService, never()).addUserMessage(anyString(), anyString(), anyString());
         verifyNoInteractions(taskManager);

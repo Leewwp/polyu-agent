@@ -53,6 +53,12 @@ public interface AgentConversationService {
     AgentConfirmSettlement settlePendingConfirm(String conversationId, String userId, String messageId, boolean approved);
 
     /**
+     * 续跑前的检查：卡片还挂在待确认状态才放行，这里只读不落库
+     * 把卡片改成终态是 settlePendingConfirm 的事，要等流真的启动那一刻才做
+     */
+    AgentConfirmSettlement getPendingConfirm(String conversationId, String userId, String messageId);
+
+    /**
      * Agent 状态里已无待确认工具，但卡片还是 pending，标记为 expired 以解除会话阻塞
      */
     void expirePendingConfirm(String conversationId, String userId, String messageId);
