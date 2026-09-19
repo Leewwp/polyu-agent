@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { toastErrorUnlessShown } from "@/utils/requestError";
+import { isSafeUrl } from "@/utils/urlSafety";
 import { changePassword } from "@/services/userService";
 import {
   getKnowledgeBases,
@@ -350,7 +351,7 @@ export function AdminLayout() {
   }, [location.pathname, location.search]);
 
   const avatarUrl = user?.avatar?.trim();
-  const showAvatar = Boolean(avatarUrl);
+  const showAvatar = Boolean(avatarUrl) && isSafeUrl(avatarUrl);
   const roleLabel = user?.role === "admin" ? "管理员" : "成员";
   const isIngestionActive = location.pathname.startsWith("/admin/ingestion");
   const isIntentActive =
