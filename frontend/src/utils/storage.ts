@@ -29,12 +29,8 @@ function safeRemove(key: string) {
 }
 
 export const storage = {
-  getToken(): string | null {
-    return safeGet(TOKEN_KEY);
-  },
-  setToken(token: string) {
-    safeSet(TOKEN_KEY, token);
-  },
+  // token 读写已随 cookie 化移除（评审 L35 死代码清理）：登录态由 HttpOnly Cookie 承载，
+  // 遗留 localStorage token 只留 clearToken/clearAuth 做迁移清道夫
   clearToken() {
     safeRemove(TOKEN_KEY);
   },

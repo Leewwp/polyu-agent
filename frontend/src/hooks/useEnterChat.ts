@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { useAgentChatStore } from "@/stores/agentChatStore";
 import { useAuthStore } from "@/stores/authStore";
-import { useChatStore } from "@/stores/chatStore";
+import { WORKFLOW_STREAM_RESET, useChatStore } from "@/stores/chatStore";
 
 /**
  * 游客直通统一入口：已登录直达 /chat；未登录先铸游客号
@@ -15,6 +15,7 @@ import { useChatStore } from "@/stores/chatStore";
  * /chat 经 EngineGate 按 engine 落 AgentChatPage（agentChatStore）或 ChatPage
  * （chatStore），二者都有 currentSessionId 非空即续会话的逻辑，zustand 单例跨页面
  * 残留会让「新对话」续到上一次会话；双 store 都清掉后才落全新会话态。
+ * M17 收敛：重置统一走全量清场（含流态字段）+立即断流，排队期在途流不再穿透。
  * 「对话」tab 与 FAB 维持既有语义（有历史进最近会话），不传 fresh。
  */
 export function useEnterChat(options?: { fresh?: boolean }) {
@@ -23,16 +24,20 @@ export function useEnterChat(options?: { fresh?: boolean }) {
   return useCallback(() => {
     const go = () => {
       if (fresh) {
+        // agent 链：startNewChat 自带全量清场+断流（M17 已补 abort）
         useAgentChatStore.getState().startNewChat();
         const chat = useChatStore.getState();
         if (chat.isStreaming) {
           chat.cancelGeneration();
+          chat.streamAbort?.();
         }
         useChatStore.setState({
           currentSessionId: null,
           messages: [],
-          isCreatingNew: false,
-          isStreaming: false
+          messagesError: null,
+          isCreatingNew: true,
+          openedSourceMessageId: null,
+          ...WORKFLOW_STREAM_RESET
         });
       }
       navigate("/chat");

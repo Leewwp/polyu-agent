@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
 import { useFeedLang } from "./feedLang";
+import { isSafeUrl } from "@/utils/urlSafety";
 
 /**
  * 单张资讯卡（原型 .card 结构）：
@@ -41,14 +42,16 @@ export function NewsCard({ item }: { item: NewsItem }) {
         </p>
       </Link>
       <div className="mt-2 flex items-center gap-2.5">
-        <a
-          className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {zh ? "查看原文 ↗" : "Source ↗"}
-        </a>
+        {isSafeUrl(item.url) ? (
+          <a
+            className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {zh ? "查看原文 ↗" : "Source ↗"}
+          </a>
+        ) : null}
       </div>
     </article>
   );

@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { SourceIcon } from "@/components/chat/SourceIcon";
 import { cn } from "@/lib/utils";
+import { isSafeUrl } from "@/utils/urlSafety";
 import type { SourceRef } from "@/types";
 
 /**
@@ -51,7 +52,8 @@ export function AgentSourcesBadge({ sources }: { sources?: SourceRef[] }) {
         <ul className="agent-sources-list">
           {sources.map((source, idx) => {
             const isFileDoc = source.sourceType === "file";
-            const externalUrl = source.url || null;
+            // 外链安全闸（L30）：非 http/https 一律视为无外链，退站内 docId 预览
+            const externalUrl = isSafeUrl(source.url) ? source.url : null;
             const docLabel = source.docName || `文档 ${source.docId}`;
             const docTitle = docLabel.replace(/\.[a-z]+$/i, "");
             return (

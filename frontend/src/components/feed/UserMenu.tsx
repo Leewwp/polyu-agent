@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useFeedLang } from "./feedLang";
 import { cn } from "@/lib/utils";
+import { isSafeUrl } from "@/utils/urlSafety";
 import { useAuthStore } from "@/stores/authStore";
 
 /**
@@ -84,7 +85,7 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
           variant === "desktop" ? "py-1 pl-1 pr-3.5" : "p-[3px]"
         )}
       >
-        {avatar ? (
+        {isSafeUrl(avatar) ? (
           <img
             src={avatar}
             alt=""

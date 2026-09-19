@@ -23,6 +23,8 @@ vi.mock("@/hooks/useStreamResponse", () => ({
 }));
 
 import { listMessages, listSessions } from "@/services/sessionService";
+import { stopTask } from "@/services/chatService";
+import { createStreamResponse } from "@/hooks/useStreamResponse";
 import { useChatStore } from "@/stores/chatStore";
 import { markToastShown } from "@/utils/requestError";
 
@@ -112,5 +114,78 @@ describe("chatStore selectSession/fetchSessions", () => {
     await useChatStore.getState().fetchSessions();
     expect(toastError).toHaveBeenCalledTimes(1);
     expect(toastError).toHaveBeenCalledWith("加载受限");
+  });
+});
+
+describe("chatStore M17 会话切换×在途流竞态", () => {
+  beforeEach(() => {
+    toastError.mockClear();
+    resetStore();
+    vi.mocked(listMessages).mockReset();
+    vi.mocked(listSessions).mockReset();
+    vi.mocked(createStreamResponse).mockReset();
+    vi.mocked(createStreamResponse).mockImplementation(
+      () => ({ start: vi.fn(), cancel: vi.fn() }) as never
+    );
+    vi.mocked(stopTask).mockReset();
+  });
+
+  it("切换会话：立即断流（排队期 abort）+全量清场+isLoading 收敛", async () => {
+    const cancel = vi.fn();
+    useChatStore.setState({
+      sessions: [],
+      currentSessionId: "s-old",
+      messages: [],
+      isStreaming: true,
+      streamingMessageId: "assistant-x",
+      streamAbort: cancel
+    });
+    vi.mocked(listMessages).mockResolvedValue([]);
+    await useChatStore.getState().selectSession("s-new");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().currentSessionId).toBe("s-new");
+    expect(useChatStore.getState().isStreaming).toBe(false);
+    expect(useChatStore.getState().streamingMessageId).toBeNull();
+    expect(useChatStore.getState().isLoading).toBe(false);
+  });
+
+  it("在途流的迟到 meta 不把切换后的会话拉回旧会话", async () => {
+    const holder: {
+      handlers?: { onMeta?: (payload: { conversationId: string; taskId: string }) => void };
+    } = {};
+    vi.mocked(createStreamResponse).mockImplementationOnce(
+      ((
+        _options: unknown,
+        handlers: { onMeta?: (payload: { conversationId: string; taskId: string }) => void }
+      ) => {
+        holder.handlers = handlers;
+        // start 永不落定：模拟流仍在途
+        return { start: () => new Promise<void>(() => {}), cancel: vi.fn() };
+      }) as never
+    );
+    const pending = useChatStore.getState().sendMessage("问题");
+    expect(useChatStore.getState().isStreaming).toBe(true);
+    expect(holder.handlers).toBeDefined();
+    vi.mocked(listMessages).mockResolvedValue([]);
+    await useChatStore.getState().selectSession("s-new");
+    // 旧流（新会话首问，originConversationId=null）的 meta 迟到：
+    // currentSessionId 已是 s-new，非空且不等于本流所属会话——不得采纳
+    holder.handlers?.onMeta?.({ conversationId: "s-old-new", taskId: "t1" });
+    expect(useChatStore.getState().currentSessionId).toBe("s-new");
+    void pending;
+  });
+
+  it("新建会话（createSession）同样立即断流", async () => {
+    const cancel = vi.fn();
+    useChatStore.setState({
+      currentSessionId: "s-old",
+      messages: [{ id: "m1", role: "user", content: "hi" } as never],
+      isStreaming: true,
+      streamAbort: cancel
+    });
+    await useChatStore.getState().createSession();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(useChatStore.getState().currentSessionId).toBeNull();
+    expect(useChatStore.getState().isStreaming).toBe(false);
   });
 });

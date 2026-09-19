@@ -94,6 +94,17 @@ function computeThinkingDuration(startAt?: number | null) {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
+// 一次流的中断清场基线（M17/L38 统一常量）：切换/新建/删除会话与换号清场共用，
+// 少清一个流态字段，迟到的 SSE 帧就会穿透 streamingMessageId 守卫回写新视图
+export const WORKFLOW_STREAM_RESET = {
+  isStreaming: false,
+  thinkingStartAt: null,
+  streamTaskId: null,
+  streamAbort: null,
+  streamingMessageId: null,
+  cancelRequested: false
+} as const;
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
@@ -149,25 +160,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     if (state.isStreaming) {
       get().cancelGeneration();
+      // M17：新建会话与切换同款——排队期无 taskId，须硬断在途 fetch
+      get().streamAbort?.();
     }
     set({
       currentSessionId: null,
       messages: [],
       messagesError: null,
-      isStreaming: false,
       isLoading: false,
       isCreatingNew: true,
       deepThinkingEnabled: false,
-      thinkingStartAt: null,
-      streamTaskId: null,
-      streamAbort: null,
-      streamingMessageId: null,
-      cancelRequested: false,
-      openedSourceMessageId: null
+      openedSourceMessageId: null,
+      ...WORKFLOW_STREAM_RESET
     });
     return "";
   },
   deleteSession: async (sessionId) => {
+    // L39：删除正则流式中的当前会话先取消生成并断流，迟到的 onMeta 不致把删掉的会话复活成僵尸条目
+    if (get().isStreaming && get().currentSessionId === sessionId) {
+      get().cancelGeneration();
+      get().streamAbort?.();
+      set({ ...WORKFLOW_STREAM_RESET });
+    }
     try {
       await deleteSessionRequest(sessionId);
       set((state) => ({
@@ -185,6 +199,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // workflow 后端无批量端点：并行逐条删+单次状态收敛+单 toast（T17 补齐，对齐 agentChatStore 形态）
   batchDeleteSessions: async (sessionIds) => {
     if (sessionIds.length === 0) return;
+    // L39：含当前流式会话时先取消并断流（同 deleteSession 单条口径）
+    if (get().isStreaming && get().currentSessionId && sessionIds.includes(get().currentSessionId as string)) {
+      get().cancelGeneration();
+      get().streamAbort?.();
+      set({ ...WORKFLOW_STREAM_RESET });
+    }
     try {
       await Promise.all(sessionIds.map((id) => deleteSessionRequest(id)));
       const removed = new Set(sessionIds);
@@ -221,16 +241,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectSession: async (sessionId) => {
     if (!sessionId) return;
     if (get().currentSessionId === sessionId && get().messages.length > 0) return;
+    // M17：切换会话先停服务端再生（有 taskId 时）再硬断在途流——排队期（首 meta 前）
+    // 无 taskId，唯有 streamAbort 能停住 fetch；随后全量清场，迟到帧被
+    // streamingMessageId 守卫拦下，旧流 meta 不再把 currentSessionId 拉回旧会话
     if (get().isStreaming) {
       get().cancelGeneration();
+      get().streamAbort?.();
     }
     set({
       isLoading: true,
       currentSessionId: sessionId,
       isCreatingNew: false,
-      thinkingStartAt: null,
+      messages: [],
+      messagesError: null,
       openedSourceMessageId: null,
-      messagesError: null
+      ...WORKFLOW_STREAM_RESET
     });
     try {
       const data = await listMessages(sessionId);
@@ -350,6 +375,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const handlers = {
       onMeta: (payload: { conversationId: string; taskId: string }) => {
         if (get().streamingMessageId !== assistantId) return;
+        // M17 迟到 meta 防御（streamingMessageId 清场后的第二道闸）：
+        // 仅在尚未落会话（新会话首问）或当前仍停在本流所属会话时采纳，
+        // 用户已切去别的会话时旧流 meta 不得改写 currentSessionId
+        if (get().currentSessionId != null && get().currentSessionId !== conversationId) return;
         clearAwaitingSignal();
         const nextId = payload.conversationId || get().currentSessionId;
         if (!nextId) return;

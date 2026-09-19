@@ -5,6 +5,7 @@ import { GraduationCap, ShieldAlert } from "lucide-react";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/authStore";
+import { isSafeUrl } from "@/utils/urlSafety";
 
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { PublicShare } from "@/services/shareService";
@@ -107,7 +108,7 @@ export function SharePage() {
                 {share.citations.map((source, index) => (
                   <li key={source.url ?? index} className="text-sm text-[#666666]">
                     <span className="mr-1.5 text-[#999999]">[{source.index ?? index + 1}]</span>
-                    {source.url ? (
+                    {isSafeUrl(source.url) ? (
                       <a
                         href={source.url}
                         target="_blank"
@@ -117,7 +118,7 @@ export function SharePage() {
                         {source.docName ?? source.url}
                       </a>
                     ) : (
-                      <span>{source.docName}</span>
+                      <span>{source.docName ?? source.url}</span>
                     )}
                   </li>
                 ))}
