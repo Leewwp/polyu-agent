@@ -112,7 +112,8 @@ public class BitOrderPayMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("订单支付失败: " + e.getMessage());
+            // M14：底层异常原文不透给用户面，收敛为分类文案（细节只进上方日志）
+            return McpToolResults.error("订单支付失败：系统繁忙，请稍后重试");
         }
     }
 
