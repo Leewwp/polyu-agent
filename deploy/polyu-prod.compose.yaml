@@ -131,7 +131,8 @@ services:
       - polyu-redis-data:/data
     mem_limit: 512m
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep -q PONG"]
+      # O3/L2：口令经 REDISCLI_AUTH 环境变量传递，不再进命令行 argv（容器内 ps 不可见）
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 12

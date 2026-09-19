@@ -111,7 +111,7 @@ POSTGRES_PASSWORD=smoke-pg-pass
 REDIS_PASSWORD=smoke-redis-pass
 MINIO_ROOT_USER=polyu-minio
 MINIO_ROOT_PASSWORD=smoke-minio-pass
-ASSETS_PUBLIC_URL=http://localhost:18080/minio
+ASSETS_PUBLIC_URL=http://localhost:18080/minio/ragent-assets
 HOST_PORT_APP=19090
 HOST_PORT_PG=15432
 HOST_PORT_REDIS=16379
@@ -153,7 +153,7 @@ docker compose --env-file smoke.env -f polyu-prod.compose.yaml down -v
 2. 启用 TLS：`nginx/polyu-tls.conf`（443 server 块，`/api/`、`/minio/`、SPA 与 http 版同构）随镜像构建；
    `polyu-http.conf` 的 80 server 收敛为 ACME + 301（map/resolver 两文件共用，声明在 http 版顶层）；
    compose 的 nginx 健康检查改 https 直探（80 已 301，http 探测会跟随跳转撞证书域名不匹配）；
-   `polyu-prod.env` 的 `ASSETS_PUBLIC_URL` 改 `https://<域名>/minio`；push 走 CI 重建。
+   `polyu-prod.env` 的 `ASSETS_PUBLIC_URL` 改 `https://<域名>/minio/ragent-assets`（完整前缀含桶名，O3/L6）；push 走 CI 重建。
    建议：先用一次性 nginx 容器挂真证书验证（`curl --resolve` 不带 `-k`，ssl_verify=0 通过）再上生产。
 3. 续期：服务器 crontab（低峰期，如周日 04:00）`certbot renew --quiet` + nginx reload。
 4. edge 加固（已随网关配置内置）：`X-Forwarded-For` 覆写 `$remote_addr`（应用侧限流/锁定/配额取真实来源）、
