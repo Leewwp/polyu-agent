@@ -114,7 +114,8 @@ public class BitOrderCancelMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("订单取消失败: " + e.getMessage());
+            // M14：底层异常原文不透给用户面，收敛为分类文案（细节只进上方日志）
+            return McpToolResults.error("订单取消失败：系统繁忙，请稍后重试");
         }
     }
 
@@ -135,6 +136,8 @@ public class BitOrderCancelMcpExecutor {
             sb.append(String.format("优惠券 %s 已退回，状态恢复为未使用%n", order.getCouponCode()));
         }
         if (BitOrderReleaser.STATUS_PAID.equals(order.getStatus())) {
+            // L28：文档化说明（取舍记 O9 票内）：已支付取消的退款在演示环境为模拟动作——
+            // 不落退款流水、不异步到账，文案如实告知；如需真实退款字段另立票补 refund 表
             sb.append(String.format("实付 %s 将原路退回，演示环境为模拟退款，不产生真实资金变动%n",
                     BitToolSupport.money(order.getPayAmount())));
         }
