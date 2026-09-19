@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.news.fetch;
 
+import com.nageoffer.ai.ragent.framework.exception.AbstractException;
+import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -70,6 +72,7 @@ public class NewsHttpFetchClient {
     private static final RobotsRules ROBOTS_UNRESOLVED = RobotsRules.allowAll();
 
     private final OkHttpClient httpClient;
+    private final RedirectGuard redirectGuard;
     private final String userAgent;
     private final Sleeper sleeper;
     private final MonotonicClock clock;
@@ -82,18 +85,21 @@ public class NewsHttpFetchClient {
      */
     @org.springframework.beans.factory.annotation.Autowired
     public NewsHttpFetchClient(@Qualifier("syncHttpClient") OkHttpClient httpClient,
+                               RedirectGuard redirectGuard,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
-        this(httpClient, userAgent, millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
+        this(httpClient, redirectGuard, userAgent, millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**
-     * 全参构造器（测试注入假 sleeper/时钟）
+     * 全参构造器（测试注入守卫与假 sleeper/时钟）
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
+                        RedirectGuard redirectGuard,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
         this.httpClient = httpClient;
+        this.redirectGuard = redirectGuard;
         this.userAgent = userAgent;
         this.sleeper = sleeper;
         this.clock = clock;
@@ -141,7 +147,9 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * 单次抓取（无重试）：2xx 返回体；5xx/408/429 瞬时；其余 4xx 永久
+     * 单次抓取（无重试）：2xx 返回体；5xx/408/429 瞬时；其余 4xx 永久。
+     * 重定向经 {@link RedirectGuard} 手动逐跳跟随并复校目标（O2/M4）——
+     * 违例/超跳数按永久错误处理（重试无意义，同样的 Location 还会被拒）
      */
     private byte[] fetchOnce(String url) {
         Request request = new Request.Builder()
@@ -149,7 +157,7 @@ public class NewsHttpFetchClient {
                 .header("User-Agent", userAgent)
                 .get()
                 .build();
-        try (Response response = httpClient.newCall(request).execute()) {
+        try (Response response = redirectGuard.execute(httpClient, request)) {
             int code = response.code();
             if (code >= 200 && code < 300) {
                 ResponseBody body = response.body();
@@ -159,6 +167,8 @@ public class NewsHttpFetchClient {
             throw new NewsFetchException("HTTP " + code, transientError);
         } catch (IOException e) {
             throw new NewsFetchException("IO: " + e.getMessage(), true, e);
+        } catch (AbstractException e) {
+            throw new NewsFetchException("重定向拦截: " + e.errorMessage, false, e);
         }
     }
 
@@ -177,7 +187,9 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * robots.txt 拉取：2xx 解析；4xx 允许全部（REP）；其他失败允许但记录（非 strict）
+     * robots.txt 拉取：2xx 解析；4xx 允许全部（REP）；其他失败允许但记录（非 strict）。
+     * 不自动跟随重定向（O2/M4）——3xx 落「其他失败」按允许处理，绝不因 robots 跳转多发一次
+     * 未复校的出站请求；真正的逐跳复校发生在内容抓取的 RedirectGuard 里
      */
     private RobotsRules fetchRobots(String robotsUrl) {
         if (robotsUrl == null) {
@@ -191,6 +203,8 @@ public class NewsHttpFetchClient {
         try (Response response = httpClient.newBuilder()
                 .callTimeout(java.time.Duration.ofMillis(ROBOTS_TIMEOUT_MILLIS))
                 .readTimeout(java.time.Duration.ofMillis(ROBOTS_TIMEOUT_MILLIS))
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .build()
                 .newCall(request).execute()) {
             int code = response.code();
