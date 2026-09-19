@@ -36,12 +36,13 @@ import java.util.Set;
  * 「仅 http/https 公网地址」。
  *
  * <p>覆盖 POST /ingestion/tasks 的 JSON 请求体（经 {@link IngestionSourceValidationAdvice}）。
- * 已知未覆盖、需另行处理的三种情况，不要误认为此处已是完整防护：
+ * 重定向跳转目标由 {@link RedirectGuard} 在 HTTP 客户端层逐跳复校（O2/M4，
+ * 复用本类 {@link #validateOutboundTarget}）。仍需另行处理、不要误认为此处已是完整防护：
  * <ul>
- *   <li>重定向跳转：只校验请求的初始 URL，服务端不限制跟随重定向，跳转到内网地址仍会成立；</li>
  *   <li>DNS 重绑定：校验与抓取之间存在 TOCTOU，同一主机名可先解析为公网、抓取时解析为内网；</li>
  *   <li>/knowledge-base/{kb-id}/docs/upload 的 multipart 表单入口（sourceType=url）走 @ModelAttribute
- *       绑定，不经 RequestBodyAdvice；该入口在 /knowledge-base/** 的 admin 角色拦截覆盖内。</li>
+ *       绑定，不经 RequestBodyAdvice；该入口在 /knowledge-base/** 的 admin 角色拦截覆盖内，
+ *       抓取期由 {@link RedirectGuard} 对重定向目标兜底复校。</li>
  * </ul>
  * 彻底收敛需要在 HTTP 客户端层按解析结果复校或做出口策略。
  */
@@ -80,14 +81,23 @@ public class IngestionUrlGuard {
         if (source == null || source.getType() != SourceType.URL) {
             return;
         }
-        URI uri = parse(source.getLocation());
+        validateOutboundTarget(source.getLocation());
+        checkCredentialHeaders(source.getCredentials());
+    }
+
+    /**
+     * 出站目标校验（O2/M4 公开复用面）：对任意运行期 URL 做 scheme/形状 +
+     * 内网/元数据地址校验，口径与入站初始校验完全一致。重定向逐跳复校
+     * （{@link RedirectGuard}）与 multipart 直传入口的抓取期兜底都走这里。
+     */
+    public void validateOutboundTarget(String location) {
+        URI uri = parse(location);
         // scheme 与 userinfo 无论开关如何都拦：allow-private-hosts 只放宽地址段，
         // 不应把 file:// 之类非 HTTP 协议放进来
         checkSchemeAndShape(uri);
         if (!allowPrivateHosts) {
             checkHostIsPublic(uri.getHost());
         }
-        checkCredentialHeaders(source.getCredentials());
     }
 
     private URI parse(String location) {
