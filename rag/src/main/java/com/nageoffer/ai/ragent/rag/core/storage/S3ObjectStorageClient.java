@@ -62,14 +62,15 @@ public class S3ObjectStorageClient implements ObjectStorageClient {
     private final S3Presigner s3Presigner;
 
     /**
-     * 浏览器可直连的对象存储基址，默认回退内部 endpoint
+     * 资产桶浏览器可直连的完整公开前缀（含桶名，O3/L6 语义），
+     * 默认回退 {@code endpoint/{assetBucket}}
      */
     private final String publicBaseUrl;
 
     public S3ObjectStorageClient(S3Client s3Client, S3Presigner s3Presigner, RagStorageProperties properties) {
         this.s3Client = s3Client;
         this.s3Presigner = s3Presigner;
-        this.publicBaseUrl = properties.getS3().resolvePublicUrl();
+        this.publicBaseUrl = properties.getS3().resolvePublicUrl(properties.getAssetBucket());
     }
 
     /**
@@ -203,12 +204,16 @@ public class S3ObjectStorageClient implements ObjectStorageClient {
         s3Client.putBucketPolicy(b -> b.bucket(bucket).policy(policy));
     }
 
+    /**
+     * 资产桶公开 URL（O3/L6）：{@code {public-url 已含桶名的完整前缀}/{key}}。
+     * public-url 语义已收敛为「资产桶完整公开前缀」，桶名不在此拼接——
+     * 网关只反代该前缀，「哪些桶可公网读」由网关一处决定；回退形态为
+     * {@code endpoint/{bucket}/{key}}（本地直连 MinIO）。bucket 参数仅
+     * 保留接口形状（OSS 实现虚拟主机式仍需要）
+     */
     @Override
     public String buildPublicUrl(String bucket, String key) {
-        String base = publicBaseUrl.endsWith("/")
-                ? publicBaseUrl.substring(0, publicBaseUrl.length() - 1)
-                : publicBaseUrl;
-        return base + "/" + bucket + "/" + key;
+        return publicBaseUrl + "/" + key;
     }
 
     /**
