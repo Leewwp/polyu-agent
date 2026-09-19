@@ -255,12 +255,16 @@ public class DefaultContextFormatter implements ContextFormatter {
 
     /**
      * 组内拼接文本：同文档的块按 index 排好后用换行顺次拼接
+     * <p>
+     * M10：chunk 原文过围栏中和——含 {@code </content>} 或伪造 {@code <rules>} 的外部抓取内容
+     * 不再能逃逸 <content> 围栏改写回答行为
      */
     private String joinDocBody(List<RetrievedChunk> ordered) {
         return ordered.stream()
                 .map(RetrievedChunk::getText)
                 .map(StrUtil::emptyIfNull)
                 .filter(text -> !text.isEmpty())
+                .map(PromptFenceSanitizer::neutralize)
                 .collect(Collectors.joining("\n"));
     }
 
@@ -330,6 +334,8 @@ public class DefaultContextFormatter implements ContextFormatter {
         List<String> texts = result.content().stream()
                 .filter(c -> c instanceof TextContent)
                 .map(c -> ((TextContent) c).text())
+                // L16：工具返回体进 <data>/<errors> 围栏前中和（chunk 正文同款）
+                .map(PromptFenceSanitizer::neutralize)
                 .toList();
         return texts.isEmpty() ? null : String.join("\n", texts);
     }
