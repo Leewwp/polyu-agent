@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.rag.core.memory;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.rag.core.prompt.PromptFenceSanitizer;
 import com.nageoffer.ai.ragent.rag.core.source.CitationMarkup;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
@@ -93,9 +94,12 @@ public class JdbcConversationMemorySummaryService implements ConversationMemoryS
         if (summary == null || StrUtil.isBlank(summary.getContent())) {
             return summary;
         }
+        // M12 取舍：维持 system 角色回注（改 user 角色会把改写后的历史当成当前用户发言，人称混乱），
+        // 防线改为「数据非指令」显式声明（wrapper 模板内）+ 围栏中和（摘要含 </conversation-summary>
+        // 不可再逃逸）——与 M10 同批防线，取舍记 O8 票内
         String wrapped = promptTemplateLoader.renderSection(
                 CONTEXT_FORMAT_PATH, "summary-wrapper",
-                Map.of("content", summary.getContent().trim())
+                Map.of("content", PromptFenceSanitizer.neutralize(summary.getContent().trim()))
         );
         return ChatMessage.system(wrapped);
     }
@@ -215,8 +219,12 @@ public class JdbcConversationMemorySummaryService implements ConversationMemoryS
 
             return result;
         } catch (Exception e) {
-            log.error("对话记忆摘要生成失败, conversationId相关消息数: {}", messages.size(), e);
-            return existingSummary;
+            // M11：LLM 失败返回 null（而非旧摘要）——旧摘要非空会通过 isBlank 检查、
+            // 以新 lastMessageId 落库，本批消息被标记已摘要但内容从未进入摘要，滑出窗口即永久丢失；
+            // 返回 null 让本轮直接不推进水位，本批消息留待下轮补摘要
+            log.error("对话记忆摘要生成失败（lastMessageId 不推进，留待下轮重试）, conversationId相关消息数: {}",
+                    messages.size(), e);
+            return null;
         }
     }
 
