@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.news.fetch;
 
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
+import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,8 +58,14 @@ class NewsHttpFetchClientTests {
         server.start();
         clock = new FakeClock();
         sleeper = new FakeSleeper(clock);
-        client = new NewsHttpFetchClient(new OkHttpClient(), "polyuguide-feed/1.0 (+https://polyuguide.com)",
-                sleeper, clock);
+        // 本机 MockWebServer 为回环地址：守卫用 allow-private-hosts 档（跳转目标复校逻辑
+        // 由下方专项用例以严格档覆盖）；生产装配为严格档（allow-private-hosts=false）
+        client = newClient(new IngestionUrlGuard(true));
+    }
+
+    private NewsHttpFetchClient newClient(IngestionUrlGuard guard) {
+        return new NewsHttpFetchClient(new OkHttpClient(), new RedirectGuard(guard),
+                "polyuguide-feed/1.0 (+https://polyuguide.com)", sleeper, clock);
     }
 
     @AfterEach
@@ -175,6 +183,72 @@ class NewsHttpFetchClientTests {
 
         assertTrue(sleeper.waits.stream().anyMatch(w -> w >= 19_999L),
                 "Crawl-delay 20s 应抬高间隔，实际：" + sleeper.waits);
+    }
+
+    // ---------- O2/M4：重定向逐跳复校（公网→内网拒 / 环终止于跳数上限 / 正常跳转跟随） ----------
+
+    @Test
+    void redirectToMetadataAddressIsRejectedAsPermanentError() throws Exception {
+        // 严格档守卫（同生产装配）：初始 URL 为本机 MockWebServer（入口层口径），302 跳云元数据必须整单失败
+        NewsHttpFetchClient strict = newClient(new IngestionUrlGuard(false));
+        server.enqueue(body(""));                                              // robots
+        server.enqueue(redirect("http://169.254.169.254/latest/meta-data/"));  // 内容 302 → 元数据
+
+        NewsFetchException ex = assertThrows(NewsFetchException.class,
+                () -> strict.get(url("/media/media-releases/")));
+
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("重定向拦截"));
+        // robots + 初始内容请求后即止，未对元数据地址发出任何请求
+        assertEquals(2, server.getRequestCount());
+    }
+
+    @Test
+    void redirectLoopTerminatesAtHopLimit() throws Exception {
+        // 自跳转环：跟随 3 跳后达上限失败（防重定向环挂死抓取任务）
+        server.enqueue(body(""));                          // robots
+        server.enqueue(redirect(url("/loop/")));           // 内容 302 → 自身
+        server.enqueue(redirect(url("/loop/")));
+        server.enqueue(redirect(url("/loop/")));
+        server.enqueue(redirect(url("/loop/")));
+
+        NewsFetchException ex = assertThrows(NewsFetchException.class,
+                () -> client.get(url("/loop/")));
+
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("重定向拦截"));
+        // robots + 初始 + 3 跳 = 5；第 4 跳不再发出
+        assertEquals(5, server.getRequestCount());
+    }
+
+    @Test
+    void normalRedirectIsFollowedAndContentReturned() throws Exception {
+        server.enqueue(body(""));                          // robots
+        server.enqueue(redirect(url("/final")));           // 302 → 同站正常目标
+        server.enqueue(body("<html>final</html>"));
+
+        byte[] body = client.get(url("/media/media-releases/"));
+
+        assertEquals("<html>final</html>", new String(body));
+        assertEquals(3, server.getRequestCount());
+    }
+
+    @Test
+    void robotsRedirectIsNotFollowed() throws Exception {
+        // robots 3xx 不自动跟随：按非 2xx/4xx 处理（允许并记录），且只发一次 robots 请求
+        server.enqueue(redirect(url("/robots-elsewhere")));  // robots 302
+        server.enqueue(body("<html>ok</html>"));             // 内容（robots 未解析出 Disallow → 允许）
+
+        byte[] body = client.get(url("/page/"));
+
+        assertEquals("<html>ok</html>", new String(body));
+        assertEquals(2, server.getRequestCount());
+    }
+
+    private static MockResponse redirect(String location) {
+        return new MockResponse.Builder().code(302)
+                .addHeader("Location", location)
+                .build();
     }
 
     private static MockResponse body(String body) {

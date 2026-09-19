@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.ingestion.util;
 
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
+import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import lombok.RequiredArgsConstructor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -34,7 +35,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
- * HTTP 请求工具类，用于获取网络资源
+ * HTTP 请求工具类，用于获取网络资源。
+ * 全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转目标（O2/M4）。
  */
 @Component
 @RequiredArgsConstructor
@@ -42,6 +44,8 @@ public class HttpClientHelper {
 
     @Qualifier("syncHttpClient")
     private final OkHttpClient client;
+
+    private final RedirectGuard redirectGuard;
 
     public HttpFetchResponse get(String url, Map<String, String> headers) {
         return doGet(url, headers, -1);
@@ -57,7 +61,7 @@ public class HttpClientHelper {
             headers.forEach(builder::addHeader);
         }
         try {
-            Response response = client.newCall(builder.get().build()).execute();
+            Response response = redirectGuard.execute(client, builder.get().build());
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
                 response.close();
@@ -88,7 +92,7 @@ public class HttpClientHelper {
         if (headers != null) {
             headers.forEach(builder::addHeader);
         }
-        try (Response response = client.newCall(builder.get().build()).execute()) {
+        try (Response response = redirectGuard.execute(client, builder.get().build())) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
                 throw new ServiceException("网络请求失败: " + response.code() + " " + body);
@@ -122,7 +126,7 @@ public class HttpClientHelper {
         if (headers != null) {
             headers.forEach(builder::addHeader);
         }
-        try (Response response = client.newCall(builder.head().build()).execute()) {
+        try (Response response = redirectGuard.execute(client, builder.head().build())) {
             if (!response.isSuccessful()) {
                 throw new ServiceException("网络请求失败: " + response.code());
             }

@@ -3,7 +3,9 @@ import { Link } from "react-router-dom";
 
 import { useFeedLang } from "./feedLang";
 import { cn } from "@/lib/utils";
+import { isSafeUrl } from "@/utils/urlSafety";
 import { useAuthStore } from "@/stores/authStore";
+import { MyAgentSharesDialog } from "@/components/feed/MyAgentSharesDialog";
 
 /**
  * 顶栏身份区（2026-09-13 定稿形态）：
@@ -21,6 +23,7 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
   const logout = useAuthStore((state) => state.logout);
 
   const [open, setOpen] = useState(false);
+  const [sharesOpen, setSharesOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // 外点/Esc 关闭（SourceListPopover 同款语义；下拉无悬停需求，纯点击开关）
@@ -84,7 +87,7 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
           variant === "desktop" ? "py-1 pl-1 pr-3.5" : "p-[3px]"
         )}
       >
-        {avatar ? (
+        {isSafeUrl(avatar) ? (
           <img
             src={avatar}
             alt=""
@@ -143,12 +146,24 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
             type="button"
             role="menuitem"
             className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-[var(--feed-text-secondary)] transition-colors hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+            onClick={() => {
+              setOpen(false);
+              setSharesOpen(true);
+            }}
+          >
+            {zh ? "我的分享" : "My shares"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-[var(--feed-text-secondary)] transition-colors hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
             onClick={handleLogout}
           >
             {zh ? "退出登录" : "Sign out"}
           </button>
         </div>
       )}
+      <MyAgentSharesDialog open={sharesOpen} onClose={() => setSharesOpen(false)} />
     </div>
   );
 }

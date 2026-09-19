@@ -185,9 +185,19 @@ public class BitAfterSaleApplyMcpExecutor {
                         .type(type).reason(reason).status(STATUS_PENDING)
                         .build());
             } catch (DuplicateKeyException e) {
-                // 判过之后、插进去之前又来了一张：唯一约束才是最终裁判，这里补一次回查
-                CallToolResult raced = checkDuplicate(orderNo, item);
-                return raced != null ? raced : BitToolSupport.rejected("售后申请提交失败，请稍后重试");
+                // L26：撞唯一约束先分辨索引来源——uk_after_sale_open（同单同件已有未结束售后单）
+                // 是真重复，回查原单；其余（uk_after_sale_no 号碰撞，跨单并发 count+1 同号）重算重试一次
+                if (e.getMessage() != null && e.getMessage().contains("uk_after_sale_open")) {
+                    CallToolResult raced = checkDuplicate(orderNo, item);
+                    return raced != null ? raced : BitToolSupport.rejected("售后申请提交失败，请稍后重试");
+                }
+                // uk_after_sale_no 号碰撞（跨单并发 count+1 撞号）：本执行器无外层事务，
+                // 单条 insert 各自独立，重算单号重试一次即可收敛
+                afterSaleNo = nextAfterSaleNo(orderNo);
+                afterSaleMapper.insert(AfterSaleDO.builder()
+                        .afterSaleNo(afterSaleNo).orderNo(orderNo).skuCode(item.getSkuCode())
+                        .type(type).reason(reason).status(STATUS_PENDING)
+                        .build());
             }
 
             log.info("MCP 工具调用完成, toolId={}, afterSaleNo={}, orderNo={}, skuCode={}, type={}, elapsed={}ms",
@@ -196,7 +206,8 @@ public class BitAfterSaleApplyMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("售后申请提交失败: " + e.getMessage());
+            // M14：底层异常原文不透给用户面，收敛为分类文案（细节只进上方日志）
+            return McpToolResults.error("售后申请提交失败：系统繁忙，请稍后重试");
         }
     }
 

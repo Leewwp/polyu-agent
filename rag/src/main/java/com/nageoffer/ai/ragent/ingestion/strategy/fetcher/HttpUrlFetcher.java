@@ -23,8 +23,10 @@ import com.nageoffer.ai.ragent.ingestion.domain.enums.SourceType;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.core.parser.mime.MimeTypeDetector;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.util.unit.DataSize;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,6 +41,13 @@ public class HttpUrlFetcher implements DocumentFetcher {
 
     private final HttpClientHelper httpClientHelper;
 
+    /**
+     * 单文档抓取字节上限（O2/M5）：与上传 multipart 同口径（默认 50MB），
+     * 注入换算方式对齐 RemoteFileFetcher——超大响应拒绝而非整读进堆
+     */
+    @Value("${spring.servlet.multipart.max-file-size:50MB}")
+    private DataSize maxFileSize;
+
     @Override
     public SourceType supportedType() {
         return SourceType.URL;
@@ -52,7 +61,7 @@ public class HttpUrlFetcher implements DocumentFetcher {
         }
 
         Map<String, String> headers = buildHeaders(source.getCredentials());
-        HttpClientHelper.HttpFetchResponse resp = httpClientHelper.get(location, headers);
+        HttpClientHelper.HttpFetchResponse resp = httpClientHelper.getWithLimit(location, headers, maxFileSize.toBytes());
         String fileName = StringUtils.hasText(source.getFileName()) ? source.getFileName() : resp.fileName();
         String contentType = normalizeContentType(resp.contentType());
         if (!StringUtils.hasText(contentType)) {

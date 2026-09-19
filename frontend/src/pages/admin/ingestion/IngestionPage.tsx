@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -242,18 +243,24 @@ export function IngestionPage() {
   const pipelines = pipelinePage?.records || [];
   const tasks = taskPage?.records || [];
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadPipelines = useCallback(async (pageNo = pipelinePageNo, keyword = pipelineKeyword) => {
+    const requestId = begin();
     setPipelineLoading(true);
     try {
       const data = await getIngestionPipelines(pageNo, PIPELINE_PAGE_SIZE, keyword || undefined);
+      if (!isCurrent(requestId)) return;
       setPipelinePage(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载流水线失败"));
       console.error(error);
     } finally {
-      setPipelineLoading(false);
+      if (isCurrent(requestId)) setPipelineLoading(false);
     }
-  }, [pipelineKeyword, pipelinePageNo]);
+  }, [pipelineKeyword, pipelinePageNo, begin, isCurrent]);
 
   const loadPipelineOptions = async () => {
     try {
@@ -265,17 +272,20 @@ export function IngestionPage() {
   };
 
   const loadTasks = useCallback(async (pageNo = taskPageNo, status = taskStatus) => {
+    const requestId = begin();
     setTaskLoading(true);
     try {
       const data = await getIngestionTasks(pageNo, TASK_PAGE_SIZE, status);
+      if (!isCurrent(requestId)) return;
       setTaskPage(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载任务失败"));
       console.error(error);
     } finally {
-      setTaskLoading(false);
+      if (isCurrent(requestId)) setTaskLoading(false);
     }
-  }, [taskPageNo, taskStatus]);
+  }, [taskPageNo, taskStatus, begin, isCurrent]);
 
   useEffect(() => {
     loadPipelines();

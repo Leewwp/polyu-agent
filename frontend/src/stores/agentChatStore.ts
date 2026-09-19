@@ -130,6 +130,9 @@ const STREAM_IDLE = {
   cancelRequested: false
 } as const;
 
+// 对外清场基线（M15/M17/L38）：换号清场、切换会话、删除流式会话共用（与 chatStore 的 WORKFLOW_STREAM_RESET 对称）
+export const AGENT_STREAM_RESET = STREAM_IDLE;
+
 // 起流前先摆好的空助手消息 流式增量随后逐块落进它的 blocks
 function newAssistantMessage(assistantId: string): AgentMessage {
   return {
@@ -218,8 +221,14 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
   /**
    * 首问与确认续跑共用，返回是否收到过 meta（后端是否受理）
    */
-  const runStream = async (params: { url: string; body?: unknown; assistantId: string }) => {
-    const { url, body, assistantId } = params;
+  const runStream = async (params: {
+    url: string;
+    body?: unknown;
+    assistantId: string;
+    /** 本流发出时所属会话：M17 迟到 meta 防御用（null=新会话首问） */
+    originConversationId?: string | null;
+  }) => {
+    const { url, body, assistantId, originConversationId = null } = params;
     // cookie 化后凭证由浏览器同源自动携带（sa-token HttpOnly cookie），不再手取 token 拼 Authorization 头
     // meta 是后端受理这一轮的第一帧：收到它才算请求确实送达，没收到就不知道断在哪一侧
     let delivered = false;
@@ -237,6 +246,10 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       onMeta: (payload: AgentMetaPayload) => {
         delivered = true;
         if (get().streamingMessageId !== assistantId) return;
+        // M17 迟到 meta 防御（与 chatStore 同款）：仅在尚未落会话或仍停在本流所属会话时采纳
+        if (get().currentSessionId != null && get().currentSessionId !== originConversationId) {
+          return;
+        }
         const nextId = payload.conversationId || get().currentSessionId;
         if (!nextId) return;
         const lastTime = new Date().toISOString();
@@ -523,15 +536,19 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     loadMessages: async (sessionId, force) => {
       if (!sessionId) return;
       if (!force && get().currentSessionId === sessionId && get().messages.length > 0) return;
+      // M17（agent 链对称面）：切会话先停服务端再生再硬断在途 fetch（排队期无 taskId），
+      // 全量清场后迟到帧被 streamingMessageId 守卫拦下，旧流 meta 不再回写 currentSessionId
       if (get().isStreaming) {
         get().cancelGeneration();
+        get().streamAbort?.();
       }
       set({
         isLoading: true,
         currentSessionId: sessionId,
         isCreatingNew: false,
         // 回查是接着上一次连接排障，帧留着；换会话才清
-        frames: force ? get().frames : []
+        frames: force ? get().frames : [],
+        ...STREAM_IDLE
       });
       try {
         const data = await listAgentMessages(sessionId);
@@ -610,6 +627,12 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       }
     },
     deleteSession: async (sessionId) => {
+      // L39：删除正则流式中的当前会话先取消并断流，迟到 onMeta 不致复活僵尸条目
+      if (get().isStreaming && get().currentSessionId === sessionId) {
+        get().cancelGeneration();
+        get().streamAbort?.();
+        set({ ...STREAM_IDLE });
+      }
       try {
         await deleteAgentSession(sessionId);
         set((state) => ({
@@ -624,6 +647,16 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     },
     batchDeleteSessions: async (sessionIds) => {
       if (sessionIds.length === 0) return;
+      // L39：含当前流式会话时先取消并断流（同单条删除口径）
+      if (
+        get().isStreaming &&
+        get().currentSessionId &&
+        sessionIds.includes(get().currentSessionId as string)
+      ) {
+        get().cancelGeneration();
+        get().streamAbort?.();
+        set({ ...STREAM_IDLE });
+      }
       try {
         await batchDeleteAgentSessions(sessionIds);
         const removed = new Set(sessionIds);
@@ -646,6 +679,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       }
       if (state.isStreaming) {
         get().cancelGeneration();
+        // M17：排队期（首 meta 前）无 taskId，唯有硬断 fetch 能停住在途流
+        get().streamAbort?.();
       }
       set({
         currentSessionId: null,
@@ -717,7 +752,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       });
       const url = `${API_BASE_URL}/agent/v1/chat${query}`;
 
-      await runStream({ url, assistantId });
+      await runStream({ url, assistantId, originConversationId: conversationId });
     },
     confirmPendingTool: async (messageId, blockId, approved) => {
       const conversationId = get().currentSessionId;
@@ -735,7 +770,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       const delivered = await runStream({
         url: `${API_BASE_URL}/agent/v1/chat/confirm`,
         body: { conversationId, messageId, approved },
-        assistantId
+        assistantId,
+        originConversationId: conversationId
       });
 
       if (delivered) {

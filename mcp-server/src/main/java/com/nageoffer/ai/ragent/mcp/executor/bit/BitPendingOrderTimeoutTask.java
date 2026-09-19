@@ -39,6 +39,20 @@ import java.util.List;
 @RequiredArgsConstructor
 public class BitPendingOrderTimeoutTask {
 
+    /**
+     * L27：待支付超时的最小值守门——0/负值会让扫描即刻扫掉全部待支付单，
+     * 配置失误在启动期就红，不带病运行
+     */
+    @jakarta.annotation.PostConstruct
+    void validateTimeoutFloor() {
+        long seconds = bitProperties.getPendingOrder().getTimeout().getSeconds();
+        if (seconds < 60) {
+            throw new IllegalStateException(
+                    "bit.pending-order.timeout 不得低于 60 秒（当前 " + seconds + "s）：过小会在启动后立刻扫掉全部待支付单");
+        }
+    }
+
+
     private final OrderMapper orderMapper;
     private final BitOrderReleaser bitOrderReleaser;
     private final BitProperties bitProperties;

@@ -95,6 +95,10 @@ agent:
   chat:
     provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
     model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
+  share:
+    enabled: ${AGENT_SHARE_ENABLED:false}   # 会话只读分享 feature flag（issue #82）：默认关；关闭时相关端点不装配、公开路径由兜底统一「链接无效」
+    default-expire-days: ${AGENT_SHARE_EXPIREDAYS:90}  # 分享默认过期天数，0/负=不过期；默认 90 天
+    content-version: v1     # 随分享快照落库的内容/知识版本标记
   max-iters: 10         # ReAct 循环上限，超出后熔断收尾
   max-retries: 1        # 最大尝试次数含首次，1 即不重试
   sse-timeout-ms: 900000
@@ -125,7 +129,7 @@ rag:
       secret-key: rustfsadmin
       region: us-east-1
       path-style: true
-      public-url:  # 内外网端点不同时配置，留空回退 endpoint
+      public-url:  # 资产桶完整公开前缀（含桶名，如 https://<域名>/minio/ragent-assets）；留空回退 endpoint+asset-bucket
     oss:
       endpoint: https://oss-cn-hangzhou.aliyuncs.com
       access-key: ${OSS_ACCESS_KEY:}
@@ -174,10 +178,6 @@ rag:
   news:
     enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # 资讯流 feature flag：默认关；关闭时 /public/news/** 由兜底控制器统一 404。
                               # env 覆盖双名兼容：RAG_NEWS_ENABLED（属性逐段映射正名）/ RAGENT_NEWS_ENABLED（生产 gen-prod-env 口径），前者优先
-
-  site:
-    enabled: false  # 站点反馈与关于页 feature flag（doc 25）：默认关；关闭时 /public/feedback、/public/about 由兜底控制器统一 404。
-                    # env 覆盖名=属性逐段映射 RAG_SITE_ENABLED（不是 RAGENT_ 前缀）；admin 面（/admin/feedback、/admin/about）不挂 flag
     fetch-cron: "0 0 8,13,19 * * *"  # 抓取节奏三段 08/13/19 点
     backfill-days: 14          # 回灌窗口天数（建议 14 天；历史回灌临时调大如 95，跑完即还原）
     max-items-per-source: 50   # 单源单轮入库上限（批上限防长事务；历史回灌临时调大）
@@ -213,6 +213,10 @@ rag:
       gnews-polyu-career: 2
     ua: "polyuguide-feed/1.0 (+https://polyuguide.com)"  # 抓取 UA（fetcher 使用）
 
+  site:
+    enabled: false  # 站点反馈与关于页 feature flag（doc 25）：默认关；关闭时 /public/feedback、/public/about 由兜底控制器统一 404。
+                    # env 覆盖名=属性逐段映射 RAG_SITE_ENABLED（不是 RAGENT_ 前缀）；admin 面（/admin/feedback、/admin/about）不挂 flag
+
   rate-limit:
     global:
       enabled: true
@@ -243,9 +247,7 @@ rag:
       min-interval-seconds: 60
 
   mcp:
-    servers:
-      - name: default
-        url: http://localhost:9099
+    servers: []  # 生产/本地默认不挂 MCP Server（D14 裁定清理 localhost:9099 死端点）；需要时按需追加条目，未配置时 MCP 客户端跳过远程工具注册（非致命）
 
   search:
     # 检索漏斗三段预算，各自独立、单调收窄，启动时校验 recall-budget ≥ default-top-k 且 rerank-candidate-limit ≥ default-top-k

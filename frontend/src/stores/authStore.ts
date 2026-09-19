@@ -10,9 +10,9 @@ import {
   login as loginRequest,
   logout as logoutRequest
 } from "@/services/authService";
-import { useChatStore } from "@/stores/chatStore";
+import { resetChatStoresForAccountSwitch } from "@/stores/sessionReset";
 import { storage } from "@/utils/storage";
-import { toastErrorUnlessShown } from "@/utils/requestError";
+import { isTransportError, toastErrorUnlessShown } from "@/utils/requestError";
 
 /**
  * 会话载体 cookie 化：登录态由后端 HttpOnly Cookie 承载（Sa-Token is-read-cookie），
@@ -48,21 +48,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // token 只活在 HttpOnly Cookie 里；用户信息以 /user/me 为准
       set({ user: null, isAuthenticated: true, isGuest: false });
       get().fetchCurrentUser().catch(() => null);
-      useChatStore.getState().cancelGeneration();
-      useChatStore.setState({
-        sessions: [],
-        currentSessionId: null,
-        messages: [],
-        isLoading: false,
-        isStreaming: false,
-        isCreatingNew: true,
-        deepThinkingEnabled: false,
-        thinkingStartAt: null,
-        streamTaskId: null,
-        streamAbort: null,
-        streamingMessageId: null,
-        cancelRequested: false
-      });
+      // M15：双引擎对称清场——agentChatStore 同步归零，换号后不残留上一账号的会话
+      resetChatStoresForAccountSwitch({ isCreatingNew: true });
       toast.success("登录成功");
     } catch (error) {
       toastErrorUnlessShown(error, "登录失败");
@@ -78,21 +65,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // Ignore network errors on logout
     }
-    useChatStore.getState().cancelGeneration();
-    useChatStore.setState({
-      sessions: [],
-      currentSessionId: null,
-      messages: [],
-      isLoading: false,
-      isStreaming: false,
-      isCreatingNew: false,
-      deepThinkingEnabled: false,
-      thinkingStartAt: null,
-      streamTaskId: null,
-      streamAbort: null,
-      streamingMessageId: null,
-      cancelRequested: false
-    });
+    // M15：与 login 对称的双引擎清场（isCreatingNew=false：登出后无人续用会话态）
+    resetChatStoresForAccountSwitch({ isCreatingNew: false });
     // 同时清掉 cookie 化之前遗留的 localStorage token（迁移清道夫）
     storage.clearAuth();
     set({ user: null, isAuthenticated: false, isGuest: false });
@@ -102,11 +76,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       // cookie 档：会话由后端 Set-Cookie 承载（后端已登录游客会复用，不重复铸号）；
-      // 公开页进入时 chatStore 尚无会话数据，无需像 login 一样重置。
+      // M15：铸号成功同样双引擎清场——真实账号登出后转游客（或游客转真实账号），
+      // 残留的上一身份会话不再被 /chat 续用（AgentChatPage 的 currentSessionId 早退）
       // 失败不在此 toast——api 拦截器已对业务错误给出提示，调用方负责引导登录
       await guestLoginRequest();
       set({ user: null, isAuthenticated: true, isGuest: true });
       get().fetchCurrentUser().catch(() => null);
+      resetChatStoresForAccountSwitch({ isCreatingNew: true });
       toast.success("已进入游客模式");
     } finally {
       set({ isLoading: false });
@@ -118,9 +94,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const data = await getCurrentUser();
       set({ user: data, isAuthenticated: true, isGuest: data?.role === "guest" });
-    } catch {
-      storage.clearUser();
-      set({ user: null, isAuthenticated: false });
+    } catch (error) {
+      // L37：网络层失败（断网/超时/拒连）探针没有结论，不算「未登录」——
+      // 保留既有状态不清 user，避免把在线用户误踢去 /login；
+      // 只有后端真实回话（业务错误）才判定未登录
+      if (!isTransportError(error)) {
+        storage.clearUser();
+        set({ user: null, isAuthenticated: false });
+      }
     }
   },
   fetchCurrentUser: async () => {
