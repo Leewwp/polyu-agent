@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Boxes,
@@ -445,7 +446,11 @@ export function BizChangeLogPage() {
   const rangeStart = total === 0 ? 0 : (current - 1) * pageSize + 1;
   const rangeEnd = total === 0 ? 0 : Math.min((current - 1) * pageSize + records.length, total);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadData = useCallback(async (currentPage = pageNo, nextQuery = query, size = pageSize) => {
+    const requestId = begin();
     try {
       setLoading(true);
       const result = await getBizChangeLogsPage({
@@ -459,18 +464,20 @@ export function BizChangeLogPage() {
         beginTime: nextQuery.beginTime ? `${nextQuery.beginTime} 00:00:00` : undefined,
         endTime: nextQuery.endTime ? `${nextQuery.endTime} 23:59:59` : undefined
       });
+      if (!isCurrent(requestId)) return;
       setPageData(result);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载变更审计日志失败"));
       console.error(error);
     } finally {
-      setLoading(false);
+      if (isCurrent(requestId)) setLoading(false);
     }
-  }, [pageNo, pageSize, query]);
+  }, [pageNo, pageSize, query, begin, isCurrent]);
 
   useEffect(() => {
     loadData(pageNo, query, pageSize);
-  }, [loadData, pageNo, query, pageSize]);
+  }, [loadData, pageNo, query, pageSize, begin, isCurrent]);
 
   const handleSearch = () => {
     setPageNo(1);

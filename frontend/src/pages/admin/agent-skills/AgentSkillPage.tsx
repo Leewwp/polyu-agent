@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useNavigate } from "react-router-dom";
 import { Pencil, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -46,22 +47,28 @@ export function AgentSkillPage() {
   const [deleteTarget, setDeleteTarget] = useState<AgentSkill | null>(null);
   const [disableTarget, setDisableTarget] = useState<AgentSkill | null>(null);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadData = useCallback(async (current = pageNo, keywordValue = keyword) => {
+      const requestId = begin();
     try {
       setLoading(true);
       const data = await getAgentSkillsPage(current, PAGE_SIZE, keywordValue || undefined);
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载技能失败"));
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [keyword, pageNo]);
+  }, [keyword, pageNo, begin, isCurrent]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, begin, isCurrent]);
 
   const handleSearch = () => {
     setPageNo(1);

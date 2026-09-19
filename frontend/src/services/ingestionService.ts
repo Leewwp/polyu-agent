@@ -143,11 +143,24 @@ export async function createIngestionTask(payload: IngestionTaskCreatePayload) {
   return api.post<IngestionResult, IngestionResult>("/ingestion/tasks", payload);
 }
 
-export async function uploadIngestionTask(pipelineId: string, file: File) {
+export async function uploadIngestionTask(
+  pipelineId: string,
+  file: File,
+  onUploadProgress?: (percent: number) => void
+) {
   const formData = new FormData();
   formData.append("file", file);
+  // M21：上传不受整体超时钳制（慢链路大文件 60s 必 ECONNABORTED），可选进度回调
   return api.post<IngestionResult, IngestionResult>("/ingestion/tasks/upload", formData, {
     params: { pipelineId },
-    headers: { "Content-Type": "multipart/form-data" }
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 0,
+    onUploadProgress: onUploadProgress
+      ? (event) => {
+          if (event.total) {
+            onUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        }
+      : undefined
   });
 }

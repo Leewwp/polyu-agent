@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,22 +79,28 @@ export function QueryTermMappingPage() {
   }>({ open: false, mode: "create", item: null });
   const [form, setForm] = useState(emptyForm);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadData = useCallback(async (current = pageNo, keywordValue = keyword) => {
+      const requestId = begin();
     try {
       setLoading(true);
       const data = await getQueryTermMappingsPage(current, PAGE_SIZE, keywordValue || undefined);
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载映射规则失败"));
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [keyword, pageNo]);
+  }, [keyword, pageNo, begin, isCurrent]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+  }, [loadData, begin, isCurrent]);
 
   useEffect(() => {
     if (!dialogState.open) {
@@ -112,7 +119,7 @@ export function QueryTermMappingPage() {
       return;
     }
     setForm(emptyForm);
-  }, [dialogState]);
+  }, [dialogState, begin, isCurrent]);
 
   const handleSearch = () => {
     setPageNo(1);
@@ -132,7 +139,10 @@ export function QueryTermMappingPage() {
     setDialogState({ open: true, mode: "edit", item });
   };
 
+  const [saving, setSaving] = useState(false);
+
   const handleSubmit = async () => {
+    if (saving) return;
     const payload = {
       sourceTerm: form.sourceTerm.trim(),
       targetTerm: form.targetTerm.trim(),
@@ -152,6 +162,7 @@ export function QueryTermMappingPage() {
     }
 
     try {
+      setSaving(true);
       if (dialogState.mode === "create") {
         await createQueryTermMapping(payload);
         toast.success("创建成功");
@@ -166,6 +177,8 @@ export function QueryTermMappingPage() {
     } catch (error) {
       toast.error(getErrorMessage(error, "保存失败"));
       console.error(error);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -426,7 +439,7 @@ export function QueryTermMappingPage() {
             >
               取消
             </Button>
-            <Button onClick={handleSubmit}>保存</Button>
+            <Button onClick={handleSubmit} disabled={saving}>保存</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

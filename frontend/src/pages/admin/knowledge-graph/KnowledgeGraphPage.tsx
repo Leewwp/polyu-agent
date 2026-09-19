@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CanvasEvent,
@@ -1375,8 +1376,12 @@ export function KnowledgeGraphPage() {
     void graph.render();
   }, []);
 
+  // M19：请求序号守卫——图谱页旧慢响应回写会重建出错误实体的整张图
+  const { begin: beginGraphReq, isCurrent: isGraphReqCurrent } = useStaleRequest();
+
   const loadGraph = useCallback(
     async (entity?: string, overrides?: { depth?: number; limit?: number }) => {
+      const requestId = beginGraphReq();
       setLoading(true);
       setErrorMsg(null);
       try {
@@ -1387,12 +1392,14 @@ export function KnowledgeGraphPage() {
           depth: overrides?.depth ?? Number(depth),
           limit: overrides?.limit ?? Number(limit)
         });
+        if (!isGraphReqCurrent(requestId)) return;
         setView(result);
         setActiveEntity(entity || "");
         setFocusName("");
         focusedIdRef.current = "";
         renderGraph(result);
       } catch (error) {
+        if (!isGraphReqCurrent(requestId)) return;
         const message = getErrorMessage(error, "加载图谱失败");
         setErrorMsg(message);
         setView(null);
@@ -1406,7 +1413,7 @@ export function KnowledgeGraphPage() {
         setLoading(false);
       }
     },
-    [depth, limit, renderGraph]
+    [depth, limit, renderGraph, beginGraphReq, isGraphReqCurrent]
   );
 
   // 首次进入加载全图
@@ -1422,7 +1429,7 @@ export function KnowledgeGraphPage() {
     };
     // 仅首挂载执行，后续加载由交互触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [beginGraphReq, isGraphReqCurrent]);
 
   // 挂载拉知识库列表，供范围筛选；失败置空、不阻断图谱
   useEffect(() => {

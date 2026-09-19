@@ -234,7 +234,8 @@ export const getDocuments = async (
 
 export const uploadDocument = async (
   kbId: string,
-  payload: KnowledgeDocumentUploadPayload
+  payload: KnowledgeDocumentUploadPayload,
+  onUploadProgress?: (percent: number) => void
 ): Promise<KnowledgeDocument> => {
   const formData = new FormData();
   formData.append("sourceType", payload.sourceType);
@@ -259,10 +260,19 @@ export const uploadDocument = async (
   if (payload.pipelineId) {
     formData.append("pipelineId", payload.pipelineId);
   }
+  // M21：上传不受整体超时钳制（慢链路大文件 60s 必 ECONNABORTED），可选进度回调
   return api.post<KnowledgeDocument, KnowledgeDocument>(`/knowledge-base/${kbId}/docs/upload`, formData, {
     headers: {
       "Content-Type": "multipart/form-data"
-    }
+    },
+    timeout: 0,
+    onUploadProgress: onUploadProgress
+      ? (event) => {
+          if (event.total) {
+            onUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        }
+      : undefined
   });
 };
 

@@ -101,11 +101,20 @@ export async function saveSiteAbout(payload: {
 }
 
 /** admin：上传赞赏二维码（png/jpg/webp ≤2MB）→ 资产桶 URL */
-export async function uploadSiteQr(file: File): Promise<string> {
+export async function uploadSiteQr(file: File, onUploadProgress?: (percent: number) => void): Promise<string> {
   const form = new FormData();
   form.append("file", file);
+  // M21：上传不受整体超时钳制，可选进度回调（≤2MB 量级小图，回调主要为统一口径）
   const data = await api.post("/admin/about/qr", form, {
-    headers: { "Content-Type": "multipart/form-data" }
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 0,
+    onUploadProgress: onUploadProgress
+      ? (event) => {
+          if (event.total) {
+            onUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        }
+      : undefined
   });
   return ((data as never) as { url: string }).url;
 }

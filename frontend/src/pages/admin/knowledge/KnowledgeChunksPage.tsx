@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useNavigate, useParams } from "react-router-dom";
 import { CircleHelp, PenSquare, Plus, RefreshCw, ShieldCheck, ShieldX, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -69,8 +70,12 @@ export function KnowledgeChunksPage() {
     }
   }, [docId]);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadChunks = useCallback(async (current = pageNo, enabled = enabledFilter) => {
     if (!docId) return;
+    const requestId = begin();
     setLoading(true);
     try {
       const data = await getChunksPage(docId, {
@@ -78,14 +83,16 @@ export function KnowledgeChunksPage() {
         size: PAGE_SIZE,
         enabled
       });
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载分块失败"));
       console.error(error);
     } finally {
-      setLoading(false);
+      if (isCurrent(requestId)) setLoading(false);
     }
-  }, [docId, enabledFilter, pageNo]);
+  }, [docId, enabledFilter, pageNo, begin, isCurrent]);
 
   useEffect(() => {
     loadDocument();

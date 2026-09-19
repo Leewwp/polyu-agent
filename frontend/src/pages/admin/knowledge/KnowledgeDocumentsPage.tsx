@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Check, ChevronDown, ChevronRight, FileUp, FileImage, Info, PlayCircle, RefreshCw, Trash2, Pencil, FileBarChart, X, Eye, MoreHorizontal, FileText, FileSpreadsheet, Link as LinkIcon, Download } from "lucide-react";
 import { toast } from "sonner";
@@ -466,8 +467,12 @@ export function KnowledgeDocumentsPage() {
     }
   }, [kbId]);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadDocuments = useCallback(async (page = current, status = statusFilter, keywordValue = keyword) => {
     if (!kbId) return;
+    const requestId = begin();
     setLoading(true);
     try {
       const data = await getDocumentsPage(kbId, {
@@ -476,14 +481,16 @@ export function KnowledgeDocumentsPage() {
         status,
         keyword: keywordValue || undefined
       });
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载文档失败"));
       console.error(error);
     } finally {
-      setLoading(false);
+      if (isCurrent(requestId)) setLoading(false);
     }
-  }, [current, kbId, keyword, statusFilter]);
+  }, [current, kbId, keyword, statusFilter, begin, isCurrent]);
 
   useEffect(() => {
     loadKnowledgeBase();

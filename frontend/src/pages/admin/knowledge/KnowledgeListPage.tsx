@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileBarChart, FolderOpen, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -64,18 +65,24 @@ export function KnowledgeListPage() {
 
   const knowledgeBases = pageData?.records || [];
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadKnowledgeBases = useCallback(async (current = pageNo, name = keyword) => {
+      const requestId = begin();
     try {
       setLoading(true);
       const data = await getKnowledgeBasesPage(current, PAGE_SIZE, name || undefined);
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载知识库列表失败"));
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [keyword, pageNo]);
+  }, [keyword, pageNo, begin, isCurrent]);
 
   const loadStats = useCallback(async (name = keyword) => {
     const requestId = ++statsRequestId.current;
