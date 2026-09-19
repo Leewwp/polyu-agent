@@ -85,6 +85,13 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             condition = BizChangeLogContext.RECORD_CONDITION
     )
     public String create(KnowledgeBaseCreateRequest requestParam) {
+        // M7：collectionName 是管理面用户输入，直接进 Milvus 过滤表达式与 VarChar(64) schema——
+        // 格式校验对齐 schema（小写字母/数字/下划线、≤64 字符；含引号/超长一律拒绝建库）
+        if (requestParam.getCollectionName() == null
+                || !requestParam.getCollectionName().matches("^[a-z0-9_]{1,64}$")) {
+            throw new ServiceException("Collection 名称仅允许小写字母、数字与下划线，长度 1-64："
+                    + requestParam.getCollectionName());
+        }
         // 名称重复校验
         String name = requestParam.getName().replaceAll("\\s+", "");
         Long count = knowledgeBaseMapper.selectCount(
