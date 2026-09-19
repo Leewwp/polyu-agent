@@ -322,6 +322,17 @@ class AccountLifecycleServiceImplTest {
     }
 
     @Test
+    void resetPasswordKicksAllExistingSessions() {
+        // O1/L3：重置成功按用户 ID 下线全部既有会话（token 被窃取时改密码即踢攻击者）
+        when(userMapper.selectActiveByUsernameOrEmail(EMAIL)).thenReturn(registeredUser());
+        when(mailVerificationService.verifyCode(EMAIL, "reset", "654321")).thenReturn(true);
+
+        service.resetPassword(resetReq("654321"));
+
+        stpUtil.verify(() -> StpUtil.logout("100"));
+    }
+
+    @Test
     void resetUsesSameGenericErrorForMissingUserAndBadCode() {
         when(userMapper.selectActiveByUsernameOrEmail(EMAIL)).thenReturn(null);
         ClientException missing = assertThrows(ClientException.class, () -> service.resetPassword(resetReq("111111")));
@@ -349,7 +360,7 @@ class AccountLifecycleServiceImplTest {
         return req;
     }
 
-    // ---------- 限速（U5：注册 3/h/IP、重置请求 3/h/(IP+邮箱)，先于存在性判断） ----------
+    // ---------- 限速（U5：注册 3/h/IP、重置请求 3/h/(IP+邮箱)，先于存在性判断；O1/M2：提码端点 10/15min/IP） ----------
 
     @Test
     void registerRateLimitedBeforeAnyLookup() {
@@ -372,6 +383,27 @@ class AccountLifecycleServiceImplTest {
         assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class, () -> service.requestPasswordReset(req));
         verify(userMapper, never()).selectActiveByUsernameOrEmail(anyString());
         verify(mailVerificationService, never()).sendCode(anyString(), anyString());
+    }
+
+    @Test
+    void verifyEmailRateLimitedBeforeAnyLookup() {
+        // O1/M2：提码端点限流先于存在性判断，未知邮箱探测同样计额
+        doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException("操作过于频繁，请稍后再试"))
+                .when(loginRateLimiter).tryAcquire(anyString(), anyString(), any(Integer.class), any());
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> service.verifyEmail(verifyReq("123456")));
+        verify(userMapper, never()).selectActiveByUsernameOrEmail(anyString());
+        verify(mailVerificationService, never()).verifyCode(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void resetPasswordRateLimitedBeforeAnyLookup() {
+        doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException("操作过于频繁，请稍后再试"))
+                .when(loginRateLimiter).tryAcquire(anyString(), anyString(), any(Integer.class), any());
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> service.resetPassword(resetReq("123456")));
+        verify(userMapper, never()).selectActiveByUsernameOrEmail(anyString());
+        verify(mailVerificationService, never()).verifyCode(anyString(), anyString(), anyString());
     }
 
     // ---------- 自助注销 ----------
@@ -435,6 +467,40 @@ class AccountLifecycleServiceImplTest {
         stpUtil.verify(() -> StpUtil.login("100"));
         assertNotNull(vo);
         assertEquals("token", vo.getToken());
+    }
+
+    @Test
+    void restoreChecksLoginLockBeforeAnyLookup() {
+        // O1/M3：恢复=登录等价面，前置查锁先于存在性判断
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn(null);
+        doThrow(new ClientException("登录失败次数过多，已临时锁定，请 15 分钟后再试"))
+                .when(loginRateLimiter).checkLocked(anyString(), anyString());
+        assertThrows(ClientException.class, () -> service.restoreAccount(restoreReq()));
+        verify(userMapper, never()).selectSoftDeletedByUsernameOrEmail(anyString());
+    }
+
+    @Test
+    void restoreRecordsFailureOnWrongPassword() {
+        // O1/M3：账号或密码错计失败（IP+账号双键，账号不存在同样计——口径同登录防探测）
+        when(userMapper.selectSoftDeletedByUsernameOrEmail(EMAIL)).thenReturn(null);
+        assertThrows(ClientException.class, () -> service.restoreAccount(restoreReq("wrong-pass-999")));
+        verify(loginRateLimiter).recordFailure(anyString(), eq(EMAIL));
+
+        UserDO deleted = registeredUser();
+        deleted.setDeleteTime(new Date());
+        when(userMapper.selectSoftDeletedByUsernameOrEmail(EMAIL)).thenReturn(deleted);
+        assertThrows(ClientException.class, () -> service.restoreAccount(restoreReq("wrong-pass-999")));
+        verify(loginRateLimiter, org.mockito.Mockito.times(2)).recordFailure(anyString(), eq(EMAIL));
+    }
+
+    @Test
+    void restoreDoesNotRecordFailureWhenCredentialsCorrectButBlocked() {
+        // 密码已验对、卡在冷静期外/邮箱被占：非爆破失败，不计失败键
+        UserDO expired = registeredUser();
+        expired.setDeleteTime(new Date(System.currentTimeMillis() - 31L * 24 * 3600 * 1000));
+        when(userMapper.selectSoftDeletedByUsernameOrEmail(EMAIL)).thenReturn(expired);
+        assertThrows(ClientException.class, () -> service.restoreAccount(restoreReq()));
+        verify(loginRateLimiter, never()).recordFailure(anyString(), anyString());
     }
 
     @Test
