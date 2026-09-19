@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -58,22 +59,28 @@ export function SampleQuestionPage() {
   }>({ open: false, mode: "create", item: null });
   const [form, setForm] = useState(emptyForm);
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadQuestions = useCallback(async (current = pageNo, keywordValue = keyword) => {
+      const requestId = begin();
     try {
       setLoading(true);
       const data = await getSampleQuestionsPage(current, PAGE_SIZE, keywordValue || undefined);
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载示例问题失败"));
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [keyword, pageNo]);
+  }, [keyword, pageNo, begin, isCurrent]);
 
   useEffect(() => {
     loadQuestions();
-  }, [loadQuestions]);
+  }, [loadQuestions, begin, isCurrent]);
 
   useEffect(() => {
     if (!dialogState.open) {
@@ -90,7 +97,7 @@ export function SampleQuestionPage() {
       return;
     }
     setForm(emptyForm);
-  }, [dialogState]);
+  }, [dialogState, begin, isCurrent]);
 
   const handleSearch = () => {
     setPageNo(1);
@@ -110,7 +117,10 @@ export function SampleQuestionPage() {
     setDialogState({ open: true, mode: "edit", item });
   };
 
+  const [saving, setSaving] = useState(false);
+
   const handleSubmit = async () => {
+    if (saving) return;
     const payload = {
       title: form.title.trim() || null,
       description: form.description.trim() || null,
@@ -124,6 +134,7 @@ export function SampleQuestionPage() {
     }
 
     try {
+      setSaving(true);
       if (dialogState.mode === "create") {
         await createSampleQuestion(payload);
         toast.success("创建成功");
@@ -138,6 +149,8 @@ export function SampleQuestionPage() {
     } catch (error) {
       toast.error(getErrorMessage(error, "保存失败"));
       console.error(error);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -348,7 +361,7 @@ export function SampleQuestionPage() {
             >
               取消
             </Button>
-            <Button onClick={handleSubmit}>保存</Button>
+            <Button onClick={handleSubmit} disabled={saving}>保存</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

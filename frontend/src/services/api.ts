@@ -19,12 +19,23 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 60000
+  timeout: 60000,
+  // L41：同源部署下浏览器默认就带 cookie，显式声明让「换部署形态必须带凭据」不再依赖默认值
+  withCredentials: true
 });
 
 api.interceptors.request.use((config) => {
   if (config.method === "get") {
-    config.timeout = GET_TIMEOUT_MS;
+    // M20：二进制/预览/下载类 GET 不套 15s 短超时（大文件慢网被掐+重试再失败，预览必挂）——
+    // 回落 axios 默认 60s；以 responseType 与路径特征（/file、/preview 端点）识别
+    const isBinaryFetch =
+      config.responseType === "arraybuffer" ||
+      config.responseType === "blob" ||
+      (config.url || "").includes("/file") ||
+      (config.url || "").includes("/preview");
+    if (!isBinaryFetch) {
+      config.timeout = GET_TIMEOUT_MS;
+    }
   }
   return config;
 });
