@@ -27,10 +27,8 @@ import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.rag.config.RAGDefaultProperties;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.vector.request.DeleteReq;
-import io.milvus.v2.service.vector.request.InsertReq;
 import io.milvus.v2.service.vector.request.UpsertReq;
 import io.milvus.v2.service.vector.response.DeleteResp;
-import io.milvus.v2.service.vector.response.InsertResp;
 import io.milvus.v2.service.vector.response.UpsertResp;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -79,13 +77,15 @@ public class MilvusVectorStoreService implements VectorStoreService {
             rows.add(row);
         }
 
-        InsertReq req = InsertReq.builder()
+        UpsertReq req = UpsertReq.builder()
                 .collectionName(sharedCollection())
                 .data(rows)
                 .build();
 
-        InsertResp resp = milvusClient.insert(req);
-        log.info("Milvus chunk 建立/写入向量索引成功, collection={}, rows={}", collectionName, resp.getInsertCnt());
+        // M9：upsert 而非 insert——IndexerNode 直连路径无先删，重放/重试复用同 chunkId 时
+        // insert 撞主键产生重复行（检索重复召回），upsert 幂等收敛
+        UpsertResp resp = milvusClient.upsert(req);
+        log.info("Milvus chunk 建立/写入向量索引成功, collection={}, rows={}", collectionName, resp.getUpsertCnt());
     }
 
     @Override
@@ -123,8 +123,10 @@ public class MilvusVectorStoreService implements VectorStoreService {
 
     @Override
     public void deleteDocumentVectors(String collectionName, String docId) {
-        // 共享 collection 下多库共存，doc_id 不再天然隔离，必须叠加 collection_name 限定
-        String filter = "collection_name == \"" + collectionName + "\" && metadata[\"doc_id\"] == \"" + docId + "\"";
+        // 共享 collection 下多库共存，doc_id 不再天然隔离，必须叠加 collection_name 限定；
+        // M7：值经 escapeFilterValue 转义，名称含引号不可逃逸表达式字面量（与检索侧同款）
+        String filter = "collection_name == \"" + escapeFilterValue(collectionName)
+                + "\" && metadata[\"doc_id\"] == \"" + escapeFilterValue(docId) + "\"";
 
         DeleteReq deleteReq = DeleteReq.builder()
                 .collectionName(sharedCollection())
@@ -138,8 +140,9 @@ public class MilvusVectorStoreService implements VectorStoreService {
 
     @Override
     public void deleteChunkById(String collectionName, String chunkId) {
-        // id 为雪花主键，全局唯一，直接按主键删除
-        String filter = "id == \"" + chunkId + "\"";
+        // L13：id 为雪花主键全局唯一，但调用方传错 id 即跨库误删——叠加 collection_name 归属条件
+        String filter = "collection_name == \"" + escapeFilterValue(collectionName)
+                + "\" && id == \"" + escapeFilterValue(chunkId) + "\"";
 
         DeleteReq deleteReq = DeleteReq.builder()
                 .collectionName(sharedCollection())
@@ -156,10 +159,12 @@ public class MilvusVectorStoreService implements VectorStoreService {
         if (chunkIds == null || chunkIds.isEmpty()) {
             return;
         }
+        // L13：批量删除同样叠加 collection_name 归属条件；M7：逐值转义
         String idList = chunkIds.stream()
-                .map(id -> "\"" + id + "\"")
+                .map(this::escapeFilterValue)
+                .map(value -> "\"" + value + "\"")
                 .collect(java.util.stream.Collectors.joining(", "));
-        String filter = "id in [" + idList + "]";
+        String filter = "collection_name == \"" + escapeFilterValue(collectionName) + "\" && id in [" + idList + "]";
 
         DeleteReq deleteReq = DeleteReq.builder()
                 .collectionName(sharedCollection())
@@ -214,5 +219,13 @@ public class MilvusVectorStoreService implements VectorStoreService {
      */
     private String sharedCollection() {
         return ragDefaultProperties.getCollectionName();
+    }
+
+    /**
+     * M7：过滤表达式值转义（与检索侧 MilvusVectorRetrieverService.escapeFilterValue 同款）——
+     * 名称含 " 或 \ 时不可逃逸字面量注入过滤条件
+     */
+    private String escapeFilterValue(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
