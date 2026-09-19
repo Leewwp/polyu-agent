@@ -7,6 +7,7 @@ import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
 import { FeedLangProvider, useFeedLang } from "./feedLang";
 import { feedDateLabels } from "@/services/newsMapping";
+import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
 import { useAgentChatStore } from "@/stores/agentChatStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useEngineStore } from "@/stores/engineStore";
@@ -107,6 +108,7 @@ function DesktopTopbar({ title, fluid }: { title: { zh: string; en: string }; fl
       {fluid && engineType === "agent" && <EngineBadge />}
       <div className="ml-auto flex items-center gap-2.5">
         <LangPill />
+        <AgentSessionShareButton />
         <UserMenu />
       </div>
     </header>
@@ -138,6 +140,7 @@ function MobileTopbar({ onOpenMenu }: { onOpenMenu: () => void }) {
       </div>
       <div className="ml-auto text-[11.5px] text-[var(--feed-text-tertiary)]">{dateLabels.short}</div>
       <div className="flex flex-none">
+        <AgentSessionShareButton />
         <LangPill />
       </div>
       <UserMenu variant="mobile" />

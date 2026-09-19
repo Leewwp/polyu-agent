@@ -38,7 +38,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.nageoffer.ai.ragent.sample.dao.mapper",
         "com.nageoffer.ai.ragent.agent.dao.mapper",
         "com.nageoffer.ai.ragent.news.dao.mapper",
-        "com.nageoffer.ai.ragent.site.dao.mapper"
+        "com.nageoffer.ai.ragent.site.dao.mapper",
+        // 会话分享自有新包（issue #82：mapper 与实体同包，不扩散进既有 dao 包）
+        "com.nageoffer.ai.ragent.agent.share"
 })
 public class RagentApplication {
 
