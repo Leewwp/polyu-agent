@@ -8,6 +8,7 @@ import { ChangeLogsPage } from "@/pages/ChangeLogsPage";
 import { DocPreviewPage } from "@/pages/DocPreviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SharePage } from "@/pages/SharePage";
+import { AgentSharePage } from "@/pages/AgentSharePage";
 import { PrivacyPage } from "@/pages/PrivacyPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { DisclaimerPage } from "@/pages/DisclaimerPage";
@@ -135,6 +136,12 @@ export const router = createBrowserRouter([
     // 公开分享页：匿名可访问（后端 flag 默认关时显示无效链接态）
     path: "/share/:token",
     element: <SharePage />
+  },
+  {
+    // 会话分享公开页（issue #82）：匿名可访问，按时间序只读渲染对话快照；
+    // 既有 /share/:token 单条路由零改动（两段路径形状不同无冲突）
+    path: "/share/c/:token",
+    element: <AgentSharePage />
   },
   {
     // 法务静态页：公开无守卫，匿名可访问

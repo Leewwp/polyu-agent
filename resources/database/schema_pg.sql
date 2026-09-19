@@ -1118,6 +1118,39 @@ COMMENT ON COLUMN t_answer_share.owner_user_id IS '创建者用户ID（仅归属
 COMMENT ON COLUMN t_answer_share.citations IS '结构化官方引用快照（List<SourceRef>）';
 COMMENT ON COLUMN t_answer_share.content_version IS '内容/知识版本标记（rag.share.content-version）';
 COMMENT ON COLUMN t_answer_share.status IS 'ACTIVE/REVOKED';
+
+-- ============================================================
+-- Agent 会话只读分享（2026-09-19，issue #82）
+-- 不可变会话快照：创建时值复制标题与白名单消息对（role/content/createTime），
+-- 公开读绝不回链 t_agent_conversation/t_agent_message；
+-- 不含用户身份/思考/工具轨迹/消息与会话ID/IP（隐私负面清单）。
+-- ============================================================
+CREATE TABLE t_agent_conversation_share (
+    id                VARCHAR(20)    NOT NULL PRIMARY KEY,
+    token             VARCHAR(64)    NOT NULL,
+    owner_user_id     VARCHAR(20)    NOT NULL,
+    conversation_id   VARCHAR(20)    NOT NULL,
+    title             TEXT           NOT NULL,
+    messages          JSONB          NOT NULL,
+    lang              VARCHAR(8),
+    content_version   VARCHAR(64),
+    status            VARCHAR(16)    NOT NULL DEFAULT 'ACTIVE',
+    expire_time       TIMESTAMP,
+    revoked_time      TIMESTAMP,
+    create_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted           SMALLINT       NOT NULL DEFAULT 0,
+    CONSTRAINT uk_agent_conversation_share_token UNIQUE (token)
+);
+CREATE INDEX idx_agent_conversation_share_owner ON t_agent_conversation_share (owner_user_id, create_time);
+COMMENT ON TABLE t_agent_conversation_share IS 'Agent 会话只读分享快照表（issue #82；不可变快照，token 加密随机不可枚举）';
+COMMENT ON COLUMN t_agent_conversation_share.token IS 'SecureRandom 32 字节 Base64URL（43 字符）';
+COMMENT ON COLUMN t_agent_conversation_share.owner_user_id IS '创建者用户ID（仅归属校验与治理用，公开载荷不返回）';
+COMMENT ON COLUMN t_agent_conversation_share.conversation_id IS '源会话业务ID（仅撤销/我的列表溯源，不进公开载荷）';
+COMMENT ON COLUMN t_agent_conversation_share.messages IS '白名单消息快照有序数组（role/content/createTime；blocks/thinking/ID/userId 一律排除）';
+COMMENT ON COLUMN t_agent_conversation_share.content_version IS '内容/知识版本标记（agent.share.content-version）';
+COMMENT ON COLUMN t_agent_conversation_share.status IS 'ACTIVE/REVOKED';
+
 COMMENT ON COLUMN t_answer_share.expire_time IS '过期时刻，NULL 即不过期';
 
 -- ============================================================
