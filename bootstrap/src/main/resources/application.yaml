@@ -125,7 +125,7 @@ rag:
       secret-key: rustfsadmin
       region: us-east-1
       path-style: true
-      public-url:  # 内外网端点不同时配置，留空回退 endpoint
+      public-url:  # 资产桶完整公开前缀（含桶名，如 https://<域名>/minio/ragent-assets）；留空回退 endpoint+asset-bucket
     oss:
       endpoint: https://oss-cn-hangzhou.aliyuncs.com
       access-key: ${OSS_ACCESS_KEY:}

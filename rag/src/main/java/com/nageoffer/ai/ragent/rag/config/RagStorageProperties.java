@@ -91,15 +91,27 @@ public class RagStorageProperties {
         private boolean pathStyle = true;
 
         /**
-         * 浏览器可直连的公开基址，内外网端点不同时配置；留空回退 endpoint
+         * 资产桶浏览器可直连的完整公开前缀（含桶名，O3/L6 语义），如
+         * {@code https://polyuguide.com/minio/ragent-assets}——网关资产反代收敛到
+         * 资产桶前缀后，「哪些桶可公网读」由网关一处决定，故配置须带桶名；
+         * 留空回退 endpoint+asset-bucket（本地直连 MinIO 形态）
          */
         private String publicUrl;
 
         /**
-         * 公开基址：留空时回退 endpoint
+         * 资产桶完整公开前缀：显式配置则剥尾斜杠原样使用；
+         * 留空回退 {@code endpoint/{assetBucket}}
          */
-        public String resolvePublicUrl() {
-            return StringUtils.hasText(publicUrl) ? publicUrl : endpoint;
+        public String resolvePublicUrl(String assetBucket) {
+            if (StringUtils.hasText(publicUrl)) {
+                return publicUrl.endsWith("/")
+                        ? publicUrl.substring(0, publicUrl.length() - 1)
+                        : publicUrl;
+            }
+            String base = endpoint != null && endpoint.endsWith("/")
+                    ? endpoint.substring(0, endpoint.length() - 1)
+                    : endpoint;
+            return base + "/" + assetBucket;
         }
     }
 

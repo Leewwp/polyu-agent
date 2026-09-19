@@ -136,7 +136,9 @@ public class RAGSettingsController {
                 .kbBucket(props.getKbBucket())
                 .assetBucket(props.getAssetBucket())
                 .endpoint(oss ? props.getOss().getEndpoint() : props.getS3().getEndpoint())
-                .publicUrl(oss ? props.getOss().getPublicUrl() : props.getS3().resolvePublicUrl())
+                .publicUrl(oss ? props.getOss().getPublicUrl()
+                        // O3/L6：S3 public-url 语义=资产桶完整公开前缀（含桶名），管理面展示同口径
+                        : props.getS3().resolvePublicUrl(props.getAssetBucket()))
                 .region(oss ? props.getOss().getRegion() : props.getS3().getRegion())
                 .build();
     }
