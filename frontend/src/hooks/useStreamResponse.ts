@@ -71,7 +71,12 @@ async function assertEventStreamOrThrow(response: Response): Promise<void> {
   throw new TerminalStreamError(message || `SSE 请求失败（${response.status}）`);
 }
 
-async function readSseStream(response: Response, handlers: StreamHandlers, signal?: AbortSignal) {
+async function readSseStream(
+  response: Response,
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+  onStreamBytes?: () => void
+) {
   if (!response.body) {
     throw new Error("流式响应为空");
   }
@@ -141,6 +146,10 @@ async function readSseStream(response: Response, handlers: StreamHandlers, signa
       break;
     }
     buffer += decoder.decode(value, { stream: true });
+    // M16：收到过任何流字节即标记——中途断连后的重试等于把同一问题整轮重发
+    if (value.length > 0) {
+      onStreamBytes?.();
+    }
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() ?? "";
     for (const line of lines) {
@@ -172,6 +181,10 @@ async function streamWithRetry(
 
   let attempt = 0;
   while (attempt <= retryCount) {
+    // M16：逐次尝试的字节标记——只在零字节失败（未建流/连接被拒）时重试；
+    // 已收到增量后断连，服务端这轮已在生成（可能已落库/计费），重发同一问句
+    // 会重复回答+双计费（对齐 agent 链 useAgentStream 的「只发一次」立场）
+    let receivedStreamBytes = false;
     try {
       const response = await fetch(url, {
         method: "GET",
@@ -191,7 +204,9 @@ async function streamWithRetry(
 
       // 业务拒绝（配额用尽等）会以 HTTP 200 + JSON 返回，先识别再进流读取
       await assertEventStreamOrThrow(response);
-      await readSseStream(response, handlers, signal);
+      await readSseStream(response, handlers, signal, () => {
+        receivedStreamBytes = true;
+      });
       return;
     } catch (error) {
       const err = error as Error;
@@ -200,6 +215,9 @@ async function streamWithRetry(
       }
       // 终态错误（业务拒绝）不重试：重试只会重复撞同一面墙
       if (isTerminalStreamError(err)) {
+        throw err;
+      }
+      if (receivedStreamBytes) {
         throw err;
       }
       if (attempt >= retryCount) {

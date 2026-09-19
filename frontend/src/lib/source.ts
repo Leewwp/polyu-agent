@@ -1,4 +1,5 @@
 import type { SourceRef } from "@/types";
+import { isSafeUrl } from "@/utils/urlSafety";
 
 export function normalizeType(sourceType?: string) {
   return (sourceType || "").toLowerCase();
@@ -39,9 +40,16 @@ export function sourceSite(source: SourceRef) {
 }
 
 // 打开来源：外链新窗口跳原站 本地文件走 docId 预览页
+// 外链安全闸（L30）：非 http/https 协议不外跳，有 docId 则退站内预览
 export function openSource(source: SourceRef) {
   if (isExternal(source) && source.url) {
-    window.open(source.url, "_blank", "noopener,noreferrer");
+    if (isSafeUrl(source.url)) {
+      window.open(source.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (source.docId) {
+      window.open(`/preview/doc/${source.docId}`, "_blank", "noopener,noreferrer");
+    }
     return;
   }
   window.open(`/preview/doc/${source.docId}`, "_blank", "noopener,noreferrer");

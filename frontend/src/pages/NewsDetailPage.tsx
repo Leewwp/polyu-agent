@@ -8,6 +8,7 @@ import { useFeedLang } from "@/components/feed/feedLang";
 import type { NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH, NEWS_TOPICS } from "@/services/newsMockData";
 import { fetchNewsDetail } from "@/services/newsService";
+import { isSafeUrl } from "@/utils/urlSafety";
 
 /**
  * 公开资讯详情页（仅 AI 摘要档——后端无正文列，原文全文
@@ -66,14 +67,16 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
         {/* 顶部动作行：顶部「查看原文 ↗」+分享钮，右挂与顶栏既有按钮同一节奏；尾部再置一处大钮 */}
         <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
           <ShareButton item={item} zh={zh} compact />
-          <a
-            className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {zh ? "查看原文 ↗" : "Source ↗"}
-          </a>
+          {isSafeUrl(item.url) ? (
+            <a
+              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {zh ? "查看原文 ↗" : "Source ↗"}
+            </a>
+          ) : null}
         </div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--feed-bg)] px-2.5 py-0.5 text-[11.5px] font-medium text-[var(--feed-text-secondary)]">
@@ -130,14 +133,16 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 border-t border-dashed border-[var(--feed-line-soft)] pt-3.5">
-          <a
-            className="inline-flex items-center gap-1 rounded-full border border-[var(--polyu-red)] bg-white px-[15px] py-1.5 text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)]"
-            href={item.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {zh ? "查看原文 ↗" : "View source ↗"}
-          </a>
+          {isSafeUrl(item.url) ? (
+            <a
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--polyu-red)] bg-white px-[15px] py-1.5 text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)]"
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {zh ? "查看原文 ↗" : "View source ↗"}
+            </a>
+          ) : null}
           <ShareButton item={item} zh={zh} />
         </div>
       </article>

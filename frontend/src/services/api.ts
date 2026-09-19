@@ -2,6 +2,7 @@ import axios, { type InternalAxiosRequestConfig } from "axios";
 import { toast } from "sonner";
 
 import { useAuthStore } from "@/stores/authStore";
+import { resetChatStoresForAccountSwitch } from "@/stores/sessionReset";
 import { storage } from "@/utils/storage";
 import { errorTextFor, isTransportError, markToastShown } from "@/utils/requestError";
 
@@ -32,9 +33,17 @@ api.interceptors.request.use((config) => {
 // Authorization 头；会话过期改为清 authStore 状态——守卫组件据此重定向，
 // 不再用 window.location 硬跳（会把直开的公开页 /share、/privacy 也劫持到登录页）。
 
+// 会话过期的判定文案与 GlobalExceptionHandler.notLoginException 的返回值
+// 同源（后端无独立结构化错误码——NotLoginException 复用 CLIENT_ERROR，只能按
+// 文案识别；改彻底结构化需动上游原生处理器，已记 O10 票遗留）
+const AUTH_EXPIRED_MESSAGE = "未登录或登录已过期";
+
 function markSessionExpired() {
   storage.clearAuth();
   useAuthStore.setState({ user: null, isAuthenticated: false });
+  // L36：过期即清场——断掉在途流并清空双聊天 store，过期后残留在内存里的
+  // 会话内容与流态不再被下一个登录者看到（与 logout 同款语义）
+  resetChatStoresForAccountSwitch({ isCreatingNew: false });
 }
 
 api.interceptors.response.use(
@@ -43,7 +52,9 @@ api.interceptors.response.use(
     if (payload && typeof payload === "object" && "code" in payload) {
       if (payload.code !== "0") {
         const message = payload.message || "请求失败";
-        const isAuthExpired = typeof message === "string" && message.includes("未登录");
+        // L36：过期识别收敛为与后端 NotLoginException 文案的精确匹配，
+        // 不再用 includes("未登录") 宽松匹配（正文含该词的业务报错会被误判成过期）
+        const isAuthExpired = message === AUTH_EXPIRED_MESSAGE;
         if (isAuthExpired) {
           markSessionExpired();
         }
