@@ -70,6 +70,14 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
     private static final String RESET_CODE_INVALID_MESSAGE = "重置码无效或已过期";
 
     /**
+     * 提码端点（邮箱验证/密码重置）按 IP 限流兜底（O1/M2）：
+     * 码级失败计数之上再加流量层，防验证码机制未知缺陷被在线爆破
+     */
+    private static final String CODE_SUBMIT_RATE_SCOPE = "ragent:rl:code-submit:";
+    private static final int CODE_SUBMIT_LIMIT = 10;
+    private static final java.time.Duration CODE_SUBMIT_WINDOW = java.time.Duration.ofMinutes(15);
+
+    /**
      * 注销冷静期（天）
      */
     private static final int DELETE_GRACE_DAYS = 30;
@@ -112,6 +120,8 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
     public void verifyEmail(EmailVerifyRequest requestParam) {
         String email = normalizeEmail(requestParam == null ? null : requestParam.getEmail());
         String code = requestParam == null ? null : requestParam.getCode();
+        // 提码限流先于存在性判断（O1/M2），未知邮箱的探测同样计额
+        loginRateLimiter.tryAcquire(CODE_SUBMIT_RATE_SCOPE, ClientIps.resolve(), CODE_SUBMIT_LIMIT, CODE_SUBMIT_WINDOW);
         UserDO user = userMapper.selectActiveByUsernameOrEmail(email);
         if (user == null) {
             throw new ClientException(CODE_INVALID_MESSAGE);
@@ -157,6 +167,8 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
         String code = requestParam == null ? null : requestParam.getCode();
         String newPassword = requestParam == null ? null : requestParam.getNewPassword();
         PasswordPolicy.validate(newPassword);
+        // 提码限流先于存在性判断（O1/M2），与邮箱验证端点共用同一 IP 预算
+        loginRateLimiter.tryAcquire(CODE_SUBMIT_RATE_SCOPE, ClientIps.resolve(), CODE_SUBMIT_LIMIT, CODE_SUBMIT_WINDOW);
         UserDO user = userMapper.selectActiveByUsernameOrEmail(email);
         if (user == null) {
             throw new ClientException(RESET_CODE_INVALID_MESSAGE);
@@ -166,6 +178,8 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
         }
         user.setPassword(passwordCodec.encode(newPassword));
         userMapper.updateById(user);
+        // 重置成功踢该用户全部既有会话（O1/L3）：token 被窃取时改密码即把攻击者下线
+        StpUtil.logout(user.getId());
     }
 
     @Override
@@ -197,8 +211,12 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
     public LoginVO restoreAccount(AccountRestoreRequest requestParam) {
         String account = normalizeEmail(requestParam == null ? null : requestParam.getAccount());
         String password = requestParam == null ? null : requestParam.getPassword();
+        // 恢复=登录等价面，与 login 同口径双键限速（O1/M3），防绕过登录锁定的旁路爆破
+        loginRateLimiter.checkLocked(ClientIps.resolve(), account);
         UserDO user = userMapper.selectSoftDeletedByUsernameOrEmail(account);
         if (user == null || !passwordCodec.matches(password, user.getPassword())) {
+            // 账号或密码错误计失败（账号不存在同样计，口径同登录防探测）
+            loginRateLimiter.recordFailure(ClientIps.resolve(), account);
             // 与登录失败同口径，不区分「账号不存在/已不在冷静期/密码错」
             throw new ClientException("账号或密码错误");
         }

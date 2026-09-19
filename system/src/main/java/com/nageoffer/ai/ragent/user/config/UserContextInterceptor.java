@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.config;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.StrUtil;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
@@ -71,6 +72,11 @@ public class UserContextInterceptor implements HandlerInterceptor {
 
         String loginId = StpUtil.getLoginIdAsString();
         UserDO user = userMapper.selectById(loginId);
+        // 登录检查已过但库中无此用户（软删/硬删后 token 尚未过期的小窗口、会话残留）：
+        // 统一「登录态已失效」客户端异常走全局处理器，而非 NPE 裸 500（O1/L4）
+        if (user == null) {
+            throw new ClientException("登录态已失效，请重新登录");
+        }
 
         UserContext.set(
                 LoginUser.builder()

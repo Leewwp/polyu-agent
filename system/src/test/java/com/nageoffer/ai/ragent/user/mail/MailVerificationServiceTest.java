@@ -62,6 +62,8 @@ class MailVerificationServiceTest {
         ReflectionTestUtils.setField(service, "codeTtlMinutes", 10);
         ReflectionTestUtils.setField(service, "resendCooldownSeconds", 60);
         ReflectionTestUtils.setField(service, "hourlyLimitPerEmail", 3);
+        ReflectionTestUtils.setField(service, "verifyMaxFailures", 5);
+        ReflectionTestUtils.setField(service, "verifyFailWindowSeconds", 900);
         when(windowCounter.increment(anyString(), any(Duration.class))).thenReturn(1L);
     }
 
@@ -111,5 +113,56 @@ class MailVerificationServiceTest {
         // 一次性：第二次同码不再命中（存储已删）
         when(valueOperations.get("mail:code:reset:user@example.com")).thenReturn(null);
         assertFalse(service.verifyCode("user@example.com", "reset", code));
+    }
+
+    // ---------- O1/M2：猜码失败计数（5 次作废须重发） ----------
+
+    @Test
+    void verifyCodeCountsFailuresAndInvalidatesCodeAtLimit() throws Exception {
+        String digest = digestOf("123456");
+        when(valueOperations.get("mail:code:reset:user@example.com")).thenReturn(digest);
+        when(windowCounter.increment(eq("mail:fail:reset:user@example.com"), any(Duration.class)))
+                .thenReturn(1L, 2L, 3L, 4L, 5L);
+
+        for (int i = 0; i < 5; i++) {
+            assertFalse(service.verifyCode("user@example.com", "reset", "000000"));
+        }
+
+        // 第 5 次失败即作废当前码
+        verify(stringRedisTemplate).delete("mail:code:reset:user@example.com");
+    }
+
+    @Test
+    void verifyCodeRejectsEvenCorrectCodeWhileFailureLockActive() throws Exception {
+        when(windowCounter.current("mail:fail:reset:user@example.com")).thenReturn(5L);
+        when(valueOperations.get("mail:code:reset:user@example.com")).thenReturn(digestOf("123456"));
+
+        // 锁码窗口内正确码同样拒绝（口径同登录锁定），换发新码才解锁
+        assertFalse(service.verifyCode("user@example.com", "reset", "123456"));
+        verify(stringRedisTemplate, never()).delete(anyString());
+    }
+
+    @Test
+    void verifyCodeSuccessBelowLimitUnaffected() throws Exception {
+        when(valueOperations.get("mail:code:verify:user@example.com")).thenReturn(digestOf("123456"));
+
+        assertTrue(service.verifyCode("user@example.com", "verify", "123456"));
+        // 成功路径不产生失败计数
+        verify(windowCounter, never()).increment(eq("mail:fail:verify:user@example.com"), any(Duration.class));
+    }
+
+    @Test
+    void sendCodeResetsFailureCounterForFreshCode() {
+        when(valueOperations.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+
+        service.sendCode("user@example.com", "verify");
+
+        // 「作废须重发」救济闭环：换发新码清零猜码失败计数
+        verify(stringRedisTemplate).delete("mail:fail:verify:user@example.com");
+    }
+
+    private String digestOf(String code) throws Exception {
+        return HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(code.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
     }
 }
