@@ -66,6 +66,8 @@ class AdminSurfaceContractTest {
             "/rag/settings/engine",
             // AgentChatController / AgentConversationController / AgentMetaController
             "/agent/v1/**",
+            // AgentShareController：会话分享创建/我的列表/撤销（issue #82；owner 校验在服务层）
+            "/agent/share/**",
             // ConversationController / MessageFeedbackController / RecommendedQuestionController
             "/conversations/**",
             // AnswerShareController：分享创建/查看/撤销（owner 校验在服务层）
