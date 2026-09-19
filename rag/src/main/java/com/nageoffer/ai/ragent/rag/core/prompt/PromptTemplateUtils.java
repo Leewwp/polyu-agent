@@ -43,12 +43,31 @@ public final class PromptTemplateUtils {
         if (slots == null || slots.isEmpty()) {
             return template;
         }
-        String result = template;
-        for (Map.Entry<String, String> entry : slots.entrySet()) {
-            String value = StrUtil.emptyIfNull(entry.getValue());
-            result = result.replace("{" + entry.getKey() + "}", value);
+        // L17：单遍扫描替换——多轮 replace 时，未经信的槽值含另一槽位字面量会被后续轮次二次填充
+        // （结构错乱）；单遍只认模板里原有的槽位标记，填充结果不再回扫
+        StringBuilder result = new StringBuilder(template.length());
+        int i = 0;
+        while (i < template.length()) {
+            int open = template.indexOf('{', i);
+            if (open < 0) {
+                result.append(template, i, template.length());
+                break;
+            }
+            int close = template.indexOf('}', open + 1);
+            if (close < 0) {
+                result.append(template, i, template.length());
+                break;
+            }
+            String value = slots.get(template.substring(open + 1, close));
+            if (value != null) {
+                result.append(template, i, open).append(StrUtil.emptyIfNull(value));
+            } else {
+                // 非槽位花括号原样保留（含未提供的槽）
+                result.append(template, i, close + 1);
+            }
+            i = close + 1;
         }
-        return result;
+        return result.toString();
     }
 
     /**

@@ -29,6 +29,9 @@ import com.nageoffer.ai.ragent.rag.core.mcp.McpExtractionResult;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpParameterExtractor;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
 import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
+import com.nageoffer.ai.ragent.rag.core.mcp.McpCallMeta;
+import com.nageoffer.ai.ragent.rag.core.prompt.PromptFenceSanitizer;
+import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.ContextFormatter;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import com.nageoffer.ai.ragent.rag.dto.KbResult;
@@ -149,10 +152,12 @@ public class RetrievalEngine {
                     globalIndex++;
                 }
                 if (hasKb) {
-                    appendSection(kbBuilder, "sub-question-kb-wrapper", globalIndex, context.question(), context.kbContext());
+                    appendSection(kbBuilder, "sub-question-kb-wrapper", globalIndex,
+                            PromptFenceSanitizer.neutralize(context.question()), context.kbContext());
                 }
                 if (hasMcp) {
-                    appendSection(mcpBuilder, "sub-question-mcp-wrapper", globalIndex, context.question(), context.mcpContext());
+                    appendSection(mcpBuilder, "sub-question-mcp-wrapper", globalIndex,
+                            PromptFenceSanitizer.neutralize(context.question()), context.mcpContext());
                 }
             }
             kbContext = kbBuilder.toString().trim();
@@ -275,8 +280,12 @@ public class RetrievalEngine {
         McpExtractionResult extraction = mcpParameterExtractor.extractParameters(question, tool, customParamPrompt);
 
         // 按提参结局分流：仅 SUCCESS 才真正调用远端工具，缺必填参 / 提取失败均不调用、改注入提示进上下文
+        // M13：透传登录身份（与 Agent 链 McpToolBridge 同款）——此前单参 execute 的 default 悄悄丢掉
+        // 身份，MCP server 只能按无身份圈定数据范围；匿名上下文 ofUser(null) 自然退空表
         return switch (extraction.status()) {
-            case SUCCESS -> executor.execute(extraction.params() != null ? extraction.params() : new HashMap<>());
+            case SUCCESS -> executor.execute(
+                    extraction.params() != null ? extraction.params() : new HashMap<>(),
+                    McpCallMeta.ofUser(UserContext.getUserId()));
             case NEED_CLARIFICATION -> clarificationResult(toolId, extraction.missingRequired());
             case FAILED -> extractionFailedResult(toolId);
         };

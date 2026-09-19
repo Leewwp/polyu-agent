@@ -68,7 +68,9 @@ public class McpClientAutoConfiguration {
         log.info("连接 MCP Server: name={}, url={}", serverName, serverUrl);
 
         try {
-            String mcpUrl = serverUrl.endsWith("/mcp") ? serverUrl : serverUrl + "/mcp";
+            // L19：先剥尾斜杠再判 /mcp——URL 以 / 结尾时曾拼出 //mcp
+        String base = serverUrl.endsWith("/") ? serverUrl.substring(0, serverUrl.length() - 1) : serverUrl;
+        String mcpUrl = base.endsWith("/mcp") ? base : base + "/mcp";
             HttpClientStreamableHttpTransport transport =
                     HttpClientStreamableHttpTransport.builder(mcpUrl).build();
 

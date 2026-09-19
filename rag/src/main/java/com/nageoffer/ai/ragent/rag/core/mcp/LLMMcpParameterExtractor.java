@@ -104,8 +104,11 @@ public class LLMMcpParameterExtractor implements McpParameterExtractor {
         if (result.status() == McpExtractionResult.Status.SUCCESS) {
             fillDefaults(result.params(), tool);
         }
-        log.info("MCP 参数提取完成, toolId: {}, 使用自定义提示词: {}, 结局: {}, 参数: {}",
-                tool.name(), StrUtil.isNotBlank(customPromptTemplate), result.status(), result.params());
+        // L20：提参结果含收件人/手机号类 PII，与 McpClientToolExecutor「入参不进 INFO」纪律对齐——
+        // 降 DEBUG 且只打参数键名
+        log.debug("MCP 参数提取完成, toolId: {}, 使用自定义提示词: {}, 结局: {}, 参数键: {}",
+                tool.name(), StrUtil.isNotBlank(customPromptTemplate), result.status(),
+                result.params() == null ? List.of() : result.params().keySet());
         return result;
     }
 

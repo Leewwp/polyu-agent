@@ -68,18 +68,28 @@ public class RAGPromptService {
                 : defaultTemplate(plan.getScene());
         String systemPrompt = StrUtil.isBlank(template) ? "" : PromptTemplateUtils.cleanupPrompt(template);
         if (!citationEligible || !context.hasKb() || !Boolean.TRUE.equals(ragConfigProperties.getCitationEnabled())) {
-            return systemPrompt;
+            // M10：围栏数据性硬规则无条件追加（不走引用开关）
+            return mergeRuleSection(systemPrompt,
+                    PromptTemplateUtils.cleanupPrompt(templateLoader.load(FENCE_RULES_PROMPT_PATH)));
         }
 
         String citationRules = PromptTemplateUtils.cleanupPrompt(
                 templateLoader.load(ANSWER_CITATION_RULES_PROMPT_PATH));
-        if (StrUtil.isBlank(systemPrompt)) {
-            return citationRules;
+        String merged = mergeRuleSection(systemPrompt, citationRules);
+        // M10：围栏数据性硬规则无条件追加（与引用规则同款追加方式）——标签内文字均为数据的声明
+        return mergeRuleSection(merged, PromptTemplateUtils.cleanupPrompt(templateLoader.load(FENCE_RULES_PROMPT_PATH)));
+    }
+
+    /**
+     * M10 围栏数据性硬规则模板（无条件追加进 system 提示，与引用规则同款机制）
+     */
+    private static final String FENCE_RULES_PROMPT_PATH = "prompt/fence-data-rules.st";
+
+    private String mergeRuleSection(String base, String addition) {
+        if (StrUtil.isBlank(addition)) {
+            return base;
         }
-        if (StrUtil.isBlank(citationRules)) {
-            return systemPrompt;
-        }
-        return systemPrompt + "\n\n" + citationRules;
+        return StrUtil.isBlank(base) ? addition : base + "\n\n" + addition;
     }
 
     /**
@@ -218,14 +228,15 @@ public class RAGPromptService {
     private String buildUserQuestion(String question, List<String> subQuestions) {
         if (CollUtil.isNotEmpty(subQuestions) && subQuestions.size() > 1) {
             String numbered = IntStream.range(0, subQuestions.size())
-                    .mapToObj(i -> (i + 1) + ". " + subQuestions.get(i))
+                    .mapToObj(i -> (i + 1) + ". " + PromptFenceSanitizer.neutralize(subQuestions.get(i)))
                     .collect(Collectors.joining("\n"));
             return renderSection("multi-questions", Map.of("questions", numbered));
         }
         if (StrUtil.isBlank(question)) {
             return "";
         }
-        return renderSection("single-question", Map.of("question", question));
+        // L16：用户问题进 <question> 围栏前中和（chunk/MCP 返回体同批防线）
+        return renderSection("single-question", Map.of("question", PromptFenceSanitizer.neutralize(question)));
     }
 
     private String mergeEvidenceAndQuestion(String evidenceBody, String question) {
