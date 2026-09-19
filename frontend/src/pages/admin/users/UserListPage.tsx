@@ -1,3 +1,4 @@
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -46,22 +47,28 @@ export function UserListPage() {
 
   const users = pageData?.records || [];
 
+  // M19：请求序号守卫——在途慢响应后到不回写新视图（traces 页模式）
+  const { begin, isCurrent } = useStaleRequest();
+
   const loadUsers = useCallback(async (current = pageNo, name = keyword) => {
+      const requestId = begin();
     try {
       setLoading(true);
       const data = await getUsersPage(current, PAGE_SIZE, name || undefined);
+      if (!isCurrent(requestId)) return;
       setPageData(data);
     } catch (error) {
+      if (!isCurrent(requestId)) return;
       toast.error(getErrorMessage(error, "加载用户列表失败"));
       console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [keyword, pageNo]);
+  }, [keyword, pageNo, begin, isCurrent]);
 
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+  }, [loadUsers, begin, isCurrent]);
 
   const handleSearch = () => {
     setPageNo(1);
@@ -104,7 +111,10 @@ export function UserListPage() {
     setDialogState({ open: true, mode: "edit", user });
   };
 
+  const [saving, setSaving] = useState(false);
+
   const handleSave = async () => {
+    if (saving) return;
     const trimmedUsername = form.username.trim();
     const trimmedPassword = form.password.trim();
     if (!trimmedUsername) {
@@ -113,6 +123,7 @@ export function UserListPage() {
     }
 
     try {
+      setSaving(true);
       if (dialogState.mode === "create") {
         if (!trimmedPassword) {
           toast.error("请输入初始密码");
@@ -143,6 +154,8 @@ export function UserListPage() {
     } catch (error) {
       toast.error(getErrorMessage(error, "保存失败"));
       console.error(error);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -322,7 +335,7 @@ export function UserListPage() {
             <Button variant="outline" onClick={() => setDialogState({ open: false, mode: "create", user: null })}>
               取消
             </Button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} disabled={saving}>
               {dialogState.mode === "create" ? (
                 <>
                   <Plus className="mr-2 h-4 w-4" />
