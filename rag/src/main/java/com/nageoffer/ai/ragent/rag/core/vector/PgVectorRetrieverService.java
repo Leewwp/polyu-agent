@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -67,35 +68,45 @@ public class PgVectorRetrieverService implements VectorRetrieverService {
      * 在指定 collection 范围内执行一次向量相似度检索
      * <p>
      * 单库与全局共用此方法：单库传单元素列表，全局传多元素列表
+     * <p>
+     * M8：hnsw GUC 是会话级——SET 与 SELECT 经 jdbcTemplate 各自从池里取连接时，
+     * 设置落在 A 连接、查询跑在 B 连接，召回参数形同虚设且 SET 残留在随机池化连接上；
+     * ConnectionCallback 把两条 SET 与查询钉在同一物理连接
      */
     private List<RetrievedChunk> queryByCollections(float[] vector, List<String> collectionNames, int limit) {
         // 提升召回率；迭代扫描保证过滤后仍能填满 LIMIT，消除过滤向量检索的召回悬崖（pgvector >= 0.8）
-        // noinspection SqlDialectInspection,SqlNoDataSourceInspection
-        jdbcTemplate.execute("SET hnsw.ef_search = 200");
-        // noinspection SqlDialectInspection,SqlNoDataSourceInspection
-        jdbcTemplate.execute("SET hnsw.iterative_scan = relaxed_order");
-
         String vectorLiteral = toVectorLiteral(vector);
         String placeholders = collectionNames.stream().map(c -> "?").collect(java.util.stream.Collectors.joining(", "));
-
-        Object[] args = new Object[collectionNames.size() + 3];
-        args[0] = vectorLiteral;
-        for (int i = 0; i < collectionNames.size(); i++) {
-            args[i + 1] = collectionNames.get(i);
-        }
-        args[collectionNames.size() + 1] = vectorLiteral;
-        args[collectionNames.size() + 2] = limit;
+        String sql = "SELECT id, content, collection_name, 1 - (embedding <=> ?::vector) AS score FROM t_knowledge_vector "
+                + "WHERE collection_name IN (" + placeholders + ") ORDER BY embedding <=> ?::vector LIMIT ?";
 
         // noinspection SqlDialectInspection,SqlNoDataSourceInspection
-        return jdbcTemplate.query("SELECT id, content, collection_name, 1 - (embedding <=> ?::vector) AS score FROM t_knowledge_vector WHERE collection_name IN (" + placeholders + ") ORDER BY embedding <=> ?::vector LIMIT ?",
-                (rs, rowNum) -> RetrievedChunk.builder()
-                        .id(rs.getString("id"))
-                        .text(rs.getString("content"))
-                        .collectionName(rs.getString("collection_name"))
-                        .score(rs.getFloat("score"))
-                        .build(),
-                args
-        );
+        return jdbcTemplate.execute((ConnectionCallback<List<RetrievedChunk>>) con -> {
+            try (java.sql.Statement statement = con.createStatement()) {
+                statement.execute("SET hnsw.ef_search = 200");
+                statement.execute("SET hnsw.iterative_scan = relaxed_order");
+            }
+            try (java.sql.PreparedStatement ps = con.prepareStatement(sql)) {
+                ps.setString(1, vectorLiteral);
+                for (int i = 0; i < collectionNames.size(); i++) {
+                    ps.setString(i + 2, collectionNames.get(i));
+                }
+                ps.setString(collectionNames.size() + 2, vectorLiteral);
+                ps.setInt(collectionNames.size() + 3, limit);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    List<RetrievedChunk> result = new java.util.ArrayList<>();
+                    while (rs.next()) {
+                        result.add(RetrievedChunk.builder()
+                                .id(rs.getString("id"))
+                                .text(rs.getString("content"))
+                                .collectionName(rs.getString("collection_name"))
+                                .score(rs.getFloat("score"))
+                                .build());
+                    }
+                    return result;
+                }
+            }
+        });
     }
 
     private float[] normalize(float[] vector) {

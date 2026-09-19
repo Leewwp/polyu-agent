@@ -134,8 +134,31 @@ public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
                 .description("RAG 共享向量存储")
                 .build();
 
-        milvusClient.createCollection(createReq);
-        log.info("已创建 Milvus 共享 collection: {}", sharedCollection);
+        try {
+            milvusClient.createCollection(createReq);
+            log.info("已创建 Milvus 共享 collection: {}", ragDefaultProperties.getCollectionName());
+        } catch (RuntimeException e) {
+            if (isAlreadyExists(e)) {
+                log.info("Milvus 共享 collection 已由并发首建创建，跳过, collection={}", ragDefaultProperties.getCollectionName());
+                return;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * L15：并发首建竞态——多个线程同时 hasCollection=false 后争相 createCollection，
+     * 落后者收到 already exist 类错误时应视作创建成功（与 EsKeywordIndexService.ensureSharedIndex 同款先例）
+     */
+    private boolean isAlreadyExists(Throwable e) {
+        while (e != null) {
+            String message = e.getMessage();
+            if (message != null && message.toLowerCase().contains("already exist")) {
+                return true;
+            }
+            e = e.getCause() == e ? null : e.getCause();
+        }
+        return false;
     }
 
     @Override
@@ -149,11 +172,16 @@ public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
     @Override
     public void dropVectorSpace(String collectionName) {
         // 共享 collection 模型：按 collection_name 标量字段删除该知识库的行，而非 drop 整个 collection
-        String filter = "collection_name == \"" + collectionName + "\"";
+        // M7：值转义后拼接，名称含引号不可逃逸表达式（与检索/删除侧同款）
+        String filter = "collection_name == \"" + escapeFilterValue(collectionName) + "\"";
         DeleteResp resp = milvusClient.delete(DeleteReq.builder()
                 .collectionName(ragDefaultProperties.getCollectionName())
                 .filter(filter)
                 .build());
         log.info("已删除 collection_name={} 的向量行，deleteCnt={}", collectionName, resp.getDeleteCnt());
+    }
+
+    private String escapeFilterValue(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

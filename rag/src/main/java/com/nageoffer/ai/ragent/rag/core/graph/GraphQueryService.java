@@ -58,17 +58,10 @@ public class GraphQueryService {
         int maxDepth = depth > 0 ? depth : 2;
         int maxNodes = limit > 0 ? Math.min(limit, 1000) : 200;
         String label = StrUtil.isNotBlank(entity) ? entity : "*";
-        // 范围过滤 token：文档最细粒度优先（docId 雪花唯一），否则按知识库 {collectionName}_ 前缀
-        // 与 LightRagClient.deleteByCollection/deleteByDoc 同款约定，命中节点 properties.file_path 承载的来源
-        String token = null;
-        if (StrUtil.isNotBlank(doc)) {
-            token = doc;
-        } else if (StrUtil.isNotBlank(collection)) {
-            token = collection + "_";
-        }
         // 有范围过滤时向 LightRAG 拉宽到服务端上限，保证按 file_path 过滤后仍有足量节点
-        int fetchNodes = token != null ? 1000 : maxNodes;
-        return mapGraph(client.fetchGraph(label, maxDepth, fetchNodes), token, maxNodes);
+        boolean scoped = StrUtil.isNotBlank(doc) || StrUtil.isNotBlank(collection);
+        int fetchNodes = scoped ? 1000 : maxNodes;
+        return mapGraph(client.fetchGraph(label, maxDepth, fetchNodes), doc, collection, maxNodes);
     }
 
     /**
@@ -92,13 +85,15 @@ public class GraphQueryService {
      * 节点展示名取 properties.entity_id、回退 labels[0]、再回退内部 id；类型 / 描述取 properties 对应字段
      * 边标签取 properties.keywords、回退 type，关系描述取 properties.description；缺失 id 的边用 source-target 兜底，防御式读取
      * <p>
-     * token 非空时按节点 properties.file_path 过滤（只保留来源含 token 的节点），并丢弃两端不全保留的悬空边；
+     * doc/collection 非空时按节点 properties.file_path 的解析归属过滤（GraphFileSource.parse + 全名等值，
+     * 库名可互为前缀，M6 前的 contains 子串匹配会让 kb 命中 kb_hr_123），并丢弃两端不全保留的悬空边；
      * 过滤后仍超 limit 则截断到 limit 并置 truncated，file_path 仅用于内部过滤、不进 VO
      *
-     * @param token 来源过滤 token，null 表示不过滤
-     * @param limit 展示节点上限
+     * @param doc        文档 id 过滤（最细粒度，优先于 collection），null 表示不按文档过滤
+     * @param collection 知识库 collectionName 过滤，null 表示不按库过滤
+     * @param limit      展示节点上限
      */
-    private GraphViewVO mapGraph(JsonNode root, String token, int limit) {
+    private GraphViewVO mapGraph(JsonNode root, String doc, String collection, int limit) {
         List<GraphViewVO.Node> nodes = new ArrayList<>();
         List<GraphViewVO.Edge> edges = new ArrayList<>();
         boolean truncated = false;
@@ -112,11 +107,17 @@ public class GraphQueryService {
                     if (StrUtil.isBlank(id)) {
                         continue;
                     }
-                    JsonNode props = node.path("properties");
-                    // 范围过滤：token 非空且该节点来源 file_path 不含 token 则剔除
-                    if (token != null && !props.path("file_path").asText("").contains(token)) {
-                        continue;
+                    // 范围过滤（M6）：解析归属后按 docId/collectionName 等值比较；
+                    // 无法解析归属的 file_path 在有范围过滤时剔除（保守丢弃，绝不进错库视图）
+                    if (doc != null || collection != null) {
+                        GraphFileSource source = GraphFileSource.parse(node.path("properties").path("file_path").asText(""));
+                        if (source == null
+                                || (doc != null && !doc.equals(source.docId()))
+                                || (doc == null && !collection.equals(source.collectionName()))) {
+                            continue;
+                        }
                     }
+                    JsonNode props = node.path("properties");
                     // 过滤后按展示上限截断：达上限即标记截断、停止收节点（LightRAG 已按跳数+度数排序，取前 limit 最相关）
                     if (nodes.size() >= limit) {
                         truncated = true;

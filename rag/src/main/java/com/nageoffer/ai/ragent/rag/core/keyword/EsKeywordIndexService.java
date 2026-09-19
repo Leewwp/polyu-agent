@@ -78,10 +78,16 @@ public class EsKeywordIndexService implements KeywordIndexService {
         try {
             BulkResponse resp = esClient.bulk(bulk.build());
             if (resp.errors()) {
-                log.warn("ES 关键词索引部分失败, collection={}, docId={}", collectionName, docId);
-            } else {
-                log.info("ES 关键词索引写入成功, collection={}, docId={}, rows={}", collectionName, docId, chunks.size());
+                // L10：item 级检查——部分失败不再仅 warn 静默吞掉（关键词/向量面漂移不可见），抛出交外层重试收敛
+                long failed = resp.items().stream()
+                        .filter(item -> item.error() != null)
+                        .count();
+                throw new RuntimeException("ES 关键词索引部分失败, collection=" + collectionName
+                        + ", docId=" + docId + ", failed=" + failed + "/" + chunks.size());
             }
+            log.info("ES 关键词索引写入成功, collection={}, docId={}, rows={}", collectionName, docId, chunks.size());
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("ES 关键词索引写入失败, collection=" + collectionName + ", docId=" + docId, e);
         }
@@ -95,10 +101,12 @@ public class EsKeywordIndexService implements KeywordIndexService {
     @Override
     public void deleteDocumentIndex(String collectionName, String docId) {
         try {
+            // L10：conflicts=proceed——删除过程中版本冲突不整单失败，已删即所得
             esClient.deleteByQuery(d -> d
                     .index(sharedIndex())
                     .ignoreUnavailable(true)
                     .allowNoIndices(true)
+                    .conflicts(co.elastic.clients.elasticsearch._types.Conflicts.Proceed)
                     .query(q -> q.bool(b -> b
                             .filter(f -> f.term(t -> t.field("collection_name").value(collectionName)))
                             .filter(f -> f.term(t -> t.field("doc_id").value(docId))))));
@@ -114,13 +122,20 @@ public class EsKeywordIndexService implements KeywordIndexService {
 
     @Override
     public void deleteChunkById(String collectionName, String chunkId) {
-        // chunkId 为全局唯一雪花主键，直接按 _id 删除，无需再限定 collection_name
+        // L13：chunkId 全局唯一，但调用方传错 id 即跨库误删——按 _id + collection_name 联合过滤
         try {
-            esClient.delete(d -> d.index(sharedIndex()).id(chunkId));
+            esClient.deleteByQuery(d -> d
+                    .index(sharedIndex())
+                    .ignoreUnavailable(true)
+                    .allowNoIndices(true)
+                    .conflicts(co.elastic.clients.elasticsearch._types.Conflicts.Proceed)
+                    .query(q -> q.bool(b -> b
+                            .filter(f -> f.ids(i -> i.values(chunkId)))
+                            .filter(f -> f.term(t -> t.field("collection_name").value(collectionName))))));
             log.info("ES 关键词索引按 chunk 删除成功, collection={}, chunkId={}", collectionName, chunkId);
         } catch (Exception e) {
             if (isNotFound(e)) {
-                log.info("ES 共享索引或 chunk 不存在，跳过按 chunk 删除, collection={}, chunkId={}", collectionName, chunkId);
+                log.info("ES 共享索引不存在，跳过按 chunk 删除, collection={}, chunkId={}", collectionName, chunkId);
                 return;
             }
             throw new RuntimeException("ES 关键词索引删除失败, collection=" + collectionName + ", chunkId=" + chunkId, e);
@@ -132,13 +147,16 @@ public class EsKeywordIndexService implements KeywordIndexService {
         if (CollUtil.isEmpty(chunkIds)) {
             return;
         }
-        String index = sharedIndex();
-        BulkRequest.Builder bulk = new BulkRequest.Builder();
-        for (String chunkId : chunkIds) {
-            bulk.operations(op -> op.delete(del -> del.index(index).id(chunkId)));
-        }
+        // L13：批量按 _id 集合 + collection_name 联合过滤（与单条删除同口径）
         try {
-            esClient.bulk(bulk.build());
+            esClient.deleteByQuery(d -> d
+                    .index(sharedIndex())
+                    .ignoreUnavailable(true)
+                    .allowNoIndices(true)
+                    .conflicts(co.elastic.clients.elasticsearch._types.Conflicts.Proceed)
+                    .query(q -> q.bool(b -> b
+                            .filter(f -> f.ids(i -> i.values(chunkIds)))
+                            .filter(f -> f.term(t -> t.field("collection_name").value(collectionName))))));
             log.info("ES 关键词索引批量删除成功, collection={}, count={}", collectionName, chunkIds.size());
         } catch (Exception e) {
             if (isNotFound(e)) {
@@ -156,6 +174,7 @@ public class EsKeywordIndexService implements KeywordIndexService {
                     .index(sharedIndex())
                     .ignoreUnavailable(true)
                     .allowNoIndices(true)
+                    .conflicts(co.elastic.clients.elasticsearch._types.Conflicts.Proceed)
                     .query(q -> q.term(t -> t.field("collection_name").value(collectionName))));
             log.info("ES 关键词索引按知识库删除成功, collection={}", collectionName);
         } catch (Exception e) {

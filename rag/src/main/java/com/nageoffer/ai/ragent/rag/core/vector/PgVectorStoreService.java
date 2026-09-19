@@ -44,9 +44,12 @@ public class PgVectorStoreService implements VectorStoreService {
             return;
         }
 
+        // M9：ON CONFLICT upsert（与 updateChunk 同款）——IndexerNode 直连路径无先删，
+        // 重放/重试复用同 chunkId 时裸 INSERT 撞主键整批失败且不可自愈
         // noinspection SqlDialectInspection,SqlNoDataSourceInspection
         jdbcTemplate.batchUpdate(
-                "INSERT INTO t_knowledge_vector (id, collection_name, content, metadata, embedding) VALUES (?, ?, ?, ?::jsonb, ?::vector)",
+                "INSERT INTO t_knowledge_vector (id, collection_name, content, metadata, embedding) VALUES (?, ?, ?, ?::jsonb, ?::vector) "
+                        + "ON CONFLICT (id) DO UPDATE SET collection_name = EXCLUDED.collection_name, content = EXCLUDED.content, metadata = EXCLUDED.metadata, embedding = EXCLUDED.embedding",
                 chunks, chunks.size(), (ps, chunk) -> {
                     ps.setString(1, chunk.chunkId());
                     ps.setString(2, collectionName);
@@ -69,8 +72,9 @@ public class PgVectorStoreService implements VectorStoreService {
 
     @Override
     public void deleteChunkById(String collectionName, String chunkId) {
+        // L13：id 全局唯一，但调用方传错 id 即跨库误删——叠加 collection_name 归属条件
         // noinspection SqlDialectInspection,SqlNoDataSourceInspection
-        jdbcTemplate.update("DELETE FROM t_knowledge_vector WHERE id = ?", chunkId);
+        jdbcTemplate.update("DELETE FROM t_knowledge_vector WHERE id = ? AND collection_name = ?", chunkId, collectionName);
     }
 
     @Override
@@ -79,8 +83,11 @@ public class PgVectorStoreService implements VectorStoreService {
             return;
         }
         String placeholders = chunkIds.stream().map(id -> "?").collect(java.util.stream.Collectors.joining(", "));
+        // L13：批量删除同样叠加 collection_name 归属条件
         // noinspection SqlDialectInspection,SqlNoDataSourceInspection
-        int deleted = jdbcTemplate.update("DELETE FROM t_knowledge_vector WHERE id IN (" + placeholders + ")", chunkIds.toArray());
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM t_knowledge_vector WHERE id IN (" + placeholders + ") AND collection_name = ?",
+                java.util.stream.Stream.concat(chunkIds.stream(), java.util.stream.Stream.of(collectionName)).toArray());
         log.info("批量删除 chunk 向量，collectionName={}, count={}, deleted={}", collectionName, chunkIds.size(), deleted);
     }
 
