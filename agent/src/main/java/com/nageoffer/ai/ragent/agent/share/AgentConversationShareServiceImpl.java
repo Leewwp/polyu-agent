@@ -23,6 +23,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentConversationDO;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentConversationMapper;
+import com.nageoffer.ai.ragent.agent.share.dao.AgentConversationShareMapper;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareAdminItemVO;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareCreatedVO;

@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.agent.share;
+package com.nageoffer.ai.ragent.agent.share.dao;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.nageoffer.ai.ragent.agent.share.AgentConversationShareDO;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
