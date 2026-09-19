@@ -1,92 +1,95 @@
-# polyu-agent — 香港理工大学校园信息问答助手（非官方）
+# polyu-agent — PolyU Campus Information Q&A Assistant (Unofficial)
+
+[![English](https://img.shields.io/badge/English-2f81f7?style=flat-square)](README.md)
+[![简体中文](https://img.shields.io/badge/简体中文-d0d7de?style=flat-square)](README.zh-CN.md)
 
 [![Deploy](https://github.com/Leewwp/polyu-agent/actions/workflows/deploy.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/deploy.yml)
 [![CI Backend](https://github.com/Leewwp/polyu-agent/actions/workflows/backend.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/backend.yml)
 [![CI Frontend](https://github.com/Leewwp/polyu-agent/actions/workflows/frontend.yml/badge.svg)](https://github.com/Leewwp/polyu-agent/actions/workflows/frontend.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
 
-基于 [nageoffer/ragent](https://github.com/nageoffer/ragent)（Apache-2.0，基线钉 tag **1.1.0**，commit `f64de341`）二次开发的垂直领域 RAG 问答项目。交付场景：**香港理工大学校园信息问答**——面向 PolyU 学生与教职工的教务注册、图书馆、校园设施预订、学生服务、奖助学金、重要日程与截止时间等信息咨询助手，带引用溯源与定时资讯更新。
+A vertical-domain RAG Q&A project built as a second-stage development on top of [nageoffer/ragent](https://github.com/nageoffer/ragent) (Apache-2.0, baseline pinned to tag **1.1.0**, commit `f64de341`). Delivered scenario: **campus information Q&A for The Hong Kong Polytechnic University** — an assistant for academic registration, library, facility booking, student services, scholarships, key dates and deadlines, with citation traceability and scheduled news updates.
 
-![PolyUGuide 对话页：Agentic 问答链路（提问 → 推理 → 知识库检索）与带「N 篇来源」徽章的引用溯源回答](docs/screenshots/chat-answer-zh.png)
+![PolyUGuide chat page: agentic Q&A pipeline (question → reasoning → knowledge-base retrieval) and a cited answer with the "N sources" badge](docs/screenshots/chat-answer-zh.png)
 
-## 重要声明
+## Important disclaimers
 
-- **本项目为个人独立项目，与香港理工大学无官方关联。** 回答内容来自公开官网信息，仅供参考，一切以学校官方发布为准。
-- **官方答案数据来源限于符合准入规则的公开网页**（polyu.edu.hk 及各部门站点，按 host 检查 robots.txt、访问属性和条款）。需要 NetID/SSO、认证会话、个性化信息或标记为 internal/confidential/staff only 的内容不进入知识库；门户域名下公开正文按页面级规则判断。
-- 小红书、贴吧等社交媒体只用于脱敏后的真实需求和评测集；社区回答不是标准答案。后续可提供相关社区问题链接，但与官方答案分离，不复制帖子回答。
-- 本项目为开源底座二次开发，非从零自研。底座能力（混合检索引擎、摄取管线、模型路由与容错、管理端等）来自 nageoffer/ragent，底座完整文档见上游仓库；二开工作集中在**业务域内容工程、检索链路落地与多语言化**。上游 main 分支正向 2.0 演进，本项目不整体跟随（仅按需摘合上游修复与改进，摘合记录见提交历史 cherry-pick 尾注），谱系固定以 1.1.0 为基线，并保留其 Apache-2.0 许可证（[LICENSE](./LICENSE)）。
+- **This is a personal project with no affiliation with The Hong Kong Polytechnic University.** Answers come from public official pages, are for reference only, and the university's official publications always prevail.
+- **Official answer data is restricted to public pages that pass the admission rules** (polyu.edu.hk and department sites; robots.txt, access attributes, and terms are checked per host). Content requiring NetID/SSO, authenticated sessions, personalized information, or marked internal/confidential/staff-only never enters the knowledge base; public body text under portal domains is judged by page-level rules.
+- Social platforms (Xiaohongshu, Tieba, etc.) are used only as de-identified sources of real demand and for the evaluation set; community answers are not ground truth. Links to community questions may be provided later, kept separate from official answers — posts are never copied.
+- This project is a second-stage development on an open-source base, not built from scratch. Base capabilities (hybrid retrieval engine, ingestion pipeline, model routing and fault tolerance, admin console) come from nageoffer/ragent — see the upstream repository for full base documentation. The downstream work concentrates on **business-domain content engineering, retrieval-pipeline localization, and multilingual support**. The upstream `main` branch is evolving toward 2.0; this project does not follow it wholesale (upstream fixes are cherry-picked on demand — see the cherry-pick footnotes in commit history). The lineage stays pinned to the 1.1.0 baseline and retains its Apache-2.0 license ([LICENSE](./LICENSE)).
 
-## 解决什么问题
+## The problem it solves
 
-PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO、包玉刚图书馆、ITS……），学生想弄清"怎么订游泳池""图书馆打印机怎么用""Add/Drop 怎么操作"这类问题，往往要翻多个文档，或去小红书求助有经验的人。本项目用**带引用溯源的 RAG 问答**聚合这些公开信息：
+PolyU information is scattered across dozens of department sites (Academic Registry, Student Affairs Office, Pao Yue-kong Library, ITS, …). Students trying to figure out "how do I book the swimming pool", "how does the library printer work", or "how does Add/Drop work" end up digging through multiple documents — or asking experienced seniors on Xiaohongshu. This project aggregates the public information into a **RAG Q&A with citation traceability**:
 
-| 能力 | 说明 |
+| Capability | Description |
 | --- | --- |
-| 分域问答 | 按部门/场景划分知识库 + 意图树路由（教务注册 / 图书馆 / 校园设施 / 学生服务 / 奖助 / 国际交流…） |
-| 引用溯源 | 回答内联引用标注 + 来源面板 + 官网原文预览；Agentic 链工具块带「N 篇来源」折叠徽章（文档名+摘录+原文跳转） |
-| 定时更新 | URL 来源文档按 cron 增量刷新（底座原生）；资讯流：定时发现官网/校级公开渠道动态 → AI 双语摘要与分类 → 信息流/热点榜/主题浏览，全局检索支持排序方向与分类范围（feature flag 门控） |
-| 多语言 | 首发正式支持简体中文与英文；底层保留三语文档身份和跨语检索能力，繁体中文先做兼容性冒烟，后续再正式开放 |
-| 站点反馈与关于页 | 匿名反馈（IP 日限）+ 后台管理；关于页 markdown 后台编辑与赞赏区（feature flag 门控） |
-| 真实需求闭环 | 社交媒体问题作为 Golden Set 与口语化问法来源；线上失败问题只保留脱敏场景和诊断信息，异步生成知识缺口报告 |
+| Domain-partitioned Q&A | knowledge bases partitioned by department/scenario + intent-tree routing (registration / library / facilities / student services / scholarships / exchange …) |
+| Citation traceability | inline citation markers + sources panel + official-page preview; the agentic tool block carries a collapsible "N sources" badge (document name + excerpt + jump-to-original) |
+| Scheduled refresh | URL-sourced documents refreshed incrementally on cron (native to the base); news feed: scheduled discovery of official/university channels → bilingual AI summaries and classification → feed / trending / topic browsing; global search with sort direction and category scope (feature-flag gated) |
+| Multilingual | simplified Chinese and English officially supported at launch; trilingual document identity and cross-lingual retrieval retained underneath; traditional Chinese is compatibility-smoke-tested only for now |
+| Feedback & about | anonymous feedback (daily IP limit) with back-office management; about page with markdown editing and a tip jar (feature-flag gated) |
+| Real-demand loop | social-media questions feed the golden set and colloquial query forms; failed online questions keep only de-identified scenario + diagnostics and asynchronously produce knowledge-gap reports |
 
-## 界面预览
+## Interface preview
 
-线上站点 [polyuguide.com](https://polyuguide.com) 无需注册即可游客试用（每日限量）。点击回答中的「N 篇来源」徽章可展开引用文档名、内容摘录与官网原文链接。
+The live site [polyuguide.com](https://polyuguide.com) can be tried as a guest without registration (daily quota). Click the "N sources" badge in an answer to expand document names, excerpts, and links to the original official pages.
 
-**资讯流（中文）**——AI 双语摘要卡片、分类筛选与当日热点榜：
+**News feed (Chinese)** — bilingual AI summary cards, category filters, and the daily trending board:
 
-![资讯流-中文](docs/screenshots/news-feed-zh.png)
+![News feed - Chinese](docs/screenshots/news-feed-zh.png)
 
-**英文界面**——中英文一键切换：
+**English UI** — one-click language switching:
 
-![资讯流-英文](docs/screenshots/news-feed-en.png)
+![News feed - English](docs/screenshots/news-feed-en.png)
 
-**关于页**——项目自述、非官方声明与反馈渠道：
+**About page** — project statement, unofficial disclaimer, and feedback channel:
 
-![关于页](docs/screenshots/about-zh.png)
+![About page](docs/screenshots/about-zh.png)
 
-## 目录结构
+## Repository layout
 
-- `bootstrap/` — Spring Boot 启动模块（主配置、生产 profile、应用装配）
-- `framework/` / `infra-ai/` — 底座框架层与 AI 基础设施（模型路由、中间件适配、通用支撑）
-- `rag/` — 检索域（知识库与摄取、意图树、查询改写、评测、资讯抓取与热度）
-- `agent/` — Agentic 问答链路（ReAct、确认卡、追踪）
-- `mcp-server/` — MCP 工具服务（示例工具）
-- `system/` — 用户、认证、审计、数据保留等系统面
-- `frontend/` — React 前端（Vite + zustand + Tailwind）
-- `resources/` — 建表 SQL 与增量升级脚本、知识语料、演示初始化器、本地中间件编排
-- `deploy/` — 生产部署（镜像、compose 编排、网关配置、部署指南）
-- `docs/` — 底座文档（架构图、发布说明、示例）
+- `bootstrap/` — Spring Boot startup module (main configuration, production profile, application assembly)
+- `framework/` / `infra-ai/` — base framework layer and AI infrastructure (model routing, middleware adapters, shared plumbing)
+- `rag/` — retrieval domain (knowledge bases and ingestion, intent tree, query rewriting, evaluation, news fetching and heat ranking)
+- `agent/` — agentic Q&A chain (ReAct, confirmation cards, tracing)
+- `mcp-server/` — MCP tool service (sample tools)
+- `system/` — users, auth, audit, data retention and other system concerns
+- `frontend/` — React frontend (Vite + zustand + Tailwind)
+- `resources/` — schema SQL and incremental upgrades, knowledge corpus, demo initializers, local middleware compose
+- `deploy/` — production deployment (images, compose orchestration, gateway config, deployment guide)
+- `docs/` — base documentation (architecture diagrams, release notes, samples)
 
-## 快速开始
+## Quick start
 
-环境与启动以上游文档与默认配置为准（[nageoffer/ragent](https://github.com/nageoffer/ragent) README、`bootstrap/src/main/resources/application.yaml`）。运行时文件存储复用同机私有 S3 兼容存储（MinIO），不使用托管对象存储服务。检索采用 pgvector 向量 + Elasticsearch 关键词双通道融合（ES 9.4.2 + IK，经词法检索实测达标后开启，保留整体回退开关）；Milvus / LightRAG 默认关闭。生产部署（容器镜像、单机编排、部署流水线）见 [deploy/README.md](./deploy/README.md)。
+Environment and startup follow the upstream documentation and defaults ([nageoffer/ragent](https://github.com/nageoffer/ragent) README, `bootstrap/src/main/resources/application.yaml`). Runtime file storage reuses a private S3-compatible store on the same host (MinIO) instead of a managed object-storage service. Retrieval uses fused pgvector semantic + Elasticsearch keyword channels (ES 9.4.2 + IK, enabled after lexical retrieval passed measured acceptance, with an overall rollback switch kept); Milvus / LightRAG stay off by default. For production deployment (container images, single-host orchestration, deploy pipeline) see [deploy/README.md](./deploy/README.md).
 
-## 当前状态
+## Current status
 
-站点已上线运行（https://polyuguide.com ）。主要能力：
+The site is live and running (https://polyuguide.com). Main capabilities:
 
-- **知识库**：官方来源语料采集、解析、入库与存储/检索一致性对账，280+ 条官方来源在库（含多语言版本）；chunk 档位经评测冻结
-- **检索**：pgvector + Elasticsearch（IK）双通道融合，回退开关保留；评测集（人工审核核心题 + 词法检索挑战题）持续维护
-- **问答**：多模型 Chat 路由（主位 + 故障转移 + 熔断自愈）、场景化双语提示词、意图树路由、无答案拒答与过期信息引用控制
-- **资讯流**：多型抓取器（sitemap / RSS / JSON API / HTML 列表）+ 热度模型 + 主题聚类，定时增量更新（feature flag 控制）
-- **账号**：邮箱注册/验证、匿名试用配额、公开答案分享（不可变快照）、账号注销（含冷静期恢复），均以功能开关控制、默认关闭
-- **站点文本**：隐私声明 / 服务条款 / 非官方声明页脚常驻，隐私声明含第三方模型传输披露与数据保留期说明
-- **移动端**：375–430px 聊天主流程可用（来源面板抽屉等），完整适配属后续迭代
-- **安全**：bcrypt 密码哈希与存量透明升级、管理接口服务端角色校验与写操作审计日志、登录限速与失败锁定、数据保留期自动清理、CORS 单域白名单、上传文档源 SSRF 守卫、网关层响应头收敛
-- **工程**：CI 门禁（后端质量门 / 前端 lint+test+build / 依赖巡检 / gitleaks 全历史秘密扫描 / CodeQL / 镜像漏洞扫描 / 依赖漏洞审计）与生产部署流水线
+- **Knowledge base**: official-source corpus crawling, parsing, ingestion, and storage/retrieval consistency reconciliation — 280+ official sources in the library (including multilingual versions); chunk sizing frozen by evaluation
+- **Retrieval**: fused pgvector + Elasticsearch (IK) dual channel with the rollback switch retained; the evaluation set (human-reviewed core questions + lexical-retrieval challenge questions) is maintained continuously
+- **Q&A**: multi-model chat routing (primary + failover + circuit-breaker self-healing), scenario-based bilingual prompts, intent-tree routing, no-answer refusal and stale-citation control
+- **News feed**: multi-type fetchers (sitemap / RSS / JSON API / HTML list) + heat model + topic clustering, scheduled incremental updates (feature-flag controlled)
+- **Accounts**: email registration/verification, anonymous-trial quota, public answer sharing (immutable snapshots), account deletion (with cooling-off recovery) — all feature-flag controlled and off by default
+- **Site copy**: privacy notice / terms of service / unofficial disclaimer permanently in the footer; the privacy notice discloses third-party model transmission and data-retention periods
+- **Mobile**: 375–430px chat main flow usable (sources panel drawer, etc.); full adaptation is a later iteration
+- **Security**: bcrypt password hashing with transparent upgrade of legacy entries, server-side role checks on admin endpoints with write-action audit logs, login rate limiting and lockout, automated data-retention cleanup, single-domain CORS allowlist, SSRF guards on uploaded document sources, gateway-layer response-header hardening
+- **Engineering**: CI gates (backend quality gate / frontend lint+test+build / dependency patrol / gitleaks full-history secret scanning / CodeQL / image vulnerability scanning / dependency audit) and the production deploy pipeline
 
-## 路线图
+## Roadmap
 
-- **近期**：上线压测；匿名试用与开放注册启用（功能开关）
-- **语料扩充**：从首发高价值来源向全站机制扩充
+- **Near term**: launch load test; enable anonymous trial and open registration (feature flags)
+- **Corpus expansion**: from launch high-value sources toward full-site mechanisms
 
-  | 维度 | 首发目标 |
+  | Dimension | Launch target |
   | --- | --- |
-  | 知识库语料 | 100–300 个高价值官方来源（高频问题域优先），全站扩充为后续机制 |
-  | 意图树 | 随评测基线从 3 域 10–15 意图扩展至 15–25 意图 |
-  | 评测集 | 30–60 道人工审核核心题 + 约 20 道词法检索挑战题，后续扩至 80–100 条 |
+  | Knowledge corpus | 100–300 high-value official sources (high-frequency question domains first); full-site expansion is a later mechanism |
+  | Intent tree | from 3 domains / 10–15 intents at the evaluation baseline toward 15–25 intents |
+  | Evaluation set | 30–60 human-reviewed core questions + ~20 lexical-retrieval challenge questions, later expanding to 80–100 |
 
-- **资讯流正式开放**：定时发现 → 自动分类 → 信息流展示
-- **国际化**：繁体中文正式支持
-- **机动扩展**：校历/截止日期 MCP 工具、LightRAG 图通道、视合规与反馈评估与校方接触可能
+- **News feed GA**: scheduled discovery → automatic classification → feed display
+- **i18n**: official traditional-Chinese support
+- **Stretch**: calendar/deadline MCP tools, a LightRAG graph channel, and — subject to compliance and feedback — evaluating contact with the university
