@@ -140,11 +140,15 @@ function RecentChatsSectionInternal({
   };
 
   const commitRename = (session: { id: string; title: string }) => {
+    // 防双提交：Enter 提交后 setEditingId(null) 卸输入框，卸载期间的 blur 再进即已被此闸拦下
+    if (editingId !== session.id) return;
     const next = draft.trim();
-    if (next && next !== (session.title || "")) {
-      renameSession(session.id, next).catch(() => null);
-    }
     setEditingId(null);
+    // L42：失败反馈在 store 层（toast+标题回滚——无乐观更新，sessions 仍持旧标题）；
+    // store 永不 reject，无需 catch
+    if (next && next !== (session.title || "")) {
+      void renameSession(session.id, next);
+    }
   };
 
   // 单删与批删都过确认弹窗；删到当前会话时聊天页自身会回落欢迎页（sessionExists→false）
@@ -156,7 +160,8 @@ function RecentChatsSectionInternal({
         : batchDeleteSessions(deleteTarget.ids);
     setDeleteTarget(null);
     exitSelect();
-    task.catch(() => null);
+    // L42：失败反馈在 store 层（toast+列表回滚——无乐观更新）；store 永不 reject
+    void task;
   };
 
   const keyword = query.trim().toLowerCase();
@@ -251,7 +256,8 @@ function RecentChatsSectionInternal({
                 value={draft}
                 spellCheck={false}
                 onChange={(event) => setDraft(event.target.value)}
-                onBlur={() => setEditingId(null)}
+                // L42：blur 与 Enter 同一提交路径（草稿不再直接丢弃）；Escape 仍为放弃编辑
+                onBlur={() => commitRename(session)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") commitRename(session);
                   else if (event.key === "Escape") setEditingId(null);

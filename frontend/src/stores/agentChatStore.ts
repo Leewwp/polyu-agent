@@ -25,7 +25,7 @@ import {
 } from "@/services/agentService";
 import { buildQuery } from "@/utils/helpers";
 import { classifyChatError } from "@/utils/chatErrors";
-import { toastErrorUnlessShown } from "@/utils/requestError";
+import { errorTextFor, toastErrorUnlessShown } from "@/utils/requestError";
 import { createAgentStreamResponse } from "@/hooks/useAgentStream";
 import {
   applyTextBlockSeal,
@@ -39,8 +39,13 @@ interface AgentChatState {
   sessions: AgentSession[];
   currentSessionId: string | null;
   messages: AgentMessage[];
+  // 消息加载态（loadMessages 专用；L33 与会话列表加载拆分）
   isLoading: boolean;
   sessionsLoaded: boolean;
+  // 会话列表加载态（L33 拆分面）：loadSessions 专用，不再染指 isLoading
+  sessionsLoading: boolean;
+  // 会话列表加载失败文案（L32：null=无错误；非空=列表不可信——深链不得据此判「会话不存在」踢回）
+  sessionsError: string | null;
   inputFocusKey: number;
   // 欢迎页示例问题点击后预填输入框 key 保证同文重复点击也能触发
   draft: { text: string; key: number } | null;
@@ -498,6 +503,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     messages: [],
     isLoading: false,
     sessionsLoaded: false,
+    sessionsLoading: false,
+    sessionsError: null,
     inputFocusKey: 0,
     draft: null,
     isStreaming: false,
@@ -511,7 +518,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     quotaError: null,
     dismissQuotaError: () => set({ quotaError: null }),
     loadSessions: async () => {
-      set({ isLoading: true });
+      // L33：列表加载走独立态，不再碰 isLoading（消息加载专用）
+      set({ sessionsLoading: true });
       try {
         const data = await listAgentSessions();
         const sessions = data
@@ -526,11 +534,13 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
             const timeB = b.lastTime ? new Date(b.lastTime).getTime() : 0;
             return timeB - timeA;
           });
-        set({ sessions });
+        // L32：成功才清错误；失败置错误文案（深链消费方据此保深链给重试、不误踢）
+        set({ sessions, sessionsError: null });
       } catch (error) {
         toastErrorUnlessShown(error, "加载会话失败");
+        set({ sessionsError: errorTextFor(error, "加载会话失败") });
       } finally {
-        set({ isLoading: false, sessionsLoaded: true });
+        set({ sessionsLoading: false, sessionsLoaded: true });
       }
     },
     loadMessages: async (sessionId, force) => {
