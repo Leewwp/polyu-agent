@@ -39,6 +39,7 @@ import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpMeta;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
@@ -48,6 +49,7 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.ToolCallState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
+import io.agentscope.core.tool.mcp.McpMeta;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -320,6 +322,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         RuntimeContext runtimeContext = RuntimeContext.builder()
                 .userId(scope.userId())
                 .sessionId(scope.conversationId())
+                .put(McpMeta.class, new McpMeta(AgentMcpMeta.ofUser(scope.userId())))
                 .put(AgentToolExecutionFacts.RUNTIME_CONTEXT_KEY, facts)
                 .build();
         runtimeContext.put(AgentTraceContextKeys.TASK_ID, scope.taskId());

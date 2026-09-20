@@ -340,7 +340,6 @@ CREATE TABLE t_intent_node (
     kind                  SMALLINT     NOT NULL DEFAULT 0,
     prompt_snippet        TEXT,
     prompt_template       TEXT,
-    param_prompt_template TEXT,
     sort_order            INTEGER      NOT NULL DEFAULT 0,
     enabled               SMALLINT     NOT NULL DEFAULT 1,
     create_by             VARCHAR(255),
@@ -850,10 +849,9 @@ COMMENT ON COLUMN t_intent_node.collection_names IS '知识库Collection集合';
 COMMENT ON COLUMN t_intent_node.top_k IS '知识库检索TopK';
 COMMENT ON COLUMN t_intent_node.mcp_tool_id IS 'MCP工具ID';
 COMMENT ON COLUMN t_intent_node.require_confirm IS '执行前是否需要用户确认 1：需要 0：不需要';
-COMMENT ON COLUMN t_intent_node.kind IS '类型 0：RAG知识库类 1：SYSTEM系统交互类';
+COMMENT ON COLUMN t_intent_node.kind IS '类型 0：知识库 1：系统交互 2：MCP 工具';
 COMMENT ON COLUMN t_intent_node.prompt_snippet IS '提示词片段';
 COMMENT ON COLUMN t_intent_node.prompt_template IS '提示词模板';
-COMMENT ON COLUMN t_intent_node.param_prompt_template IS '参数提取提示词模板（MCP模式专属）';
 COMMENT ON COLUMN t_intent_node.sort_order IS '排序字段';
 COMMENT ON COLUMN t_intent_node.enabled IS '是否启用 1：启用 0：禁用';
 COMMENT ON COLUMN t_intent_node.create_by IS '创建人';

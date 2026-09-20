@@ -19,11 +19,10 @@ package com.nageoffer.ai.ragent.agent.tool;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
 import com.nageoffer.ai.ragent.rag.enums.IntentKind;
@@ -31,7 +30,7 @@ import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
 import io.agentscope.core.permission.PermissionBehavior;
 import io.agentscope.core.tool.ToolBase;
 import io.agentscope.core.tool.Toolkit;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
@@ -56,17 +55,16 @@ class AgentToolCatalogTest {
     @Test
     void shouldRegisterKnowledgeAndIntentTreeConfiguredMcpToolsOnly() {
         IntentNodeRegistry intentNodeRegistry = mock(IntentNodeRegistry.class);
-        McpToolRegistry mcpToolRegistry = mock(McpToolRegistry.class);
+        AgentMcpClients mcpClients = mock(AgentMcpClients.class);
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of(
                 mcpNode("sales", "销售查询", "查询实时销售数据", "sales_query"),
                 mcpNode("missing", "缺失工具", "当前没有执行器", "missing_query")));
-        when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of(
-                executor("sales_query", "MCP 服务端描述"),
-                executor("unconfigured_query", "未配置到意图树")));
+        RemoteTool salesTool = executor("sales_query", "MCP 服务端描述");
+        when(mcpClients.get("sales_query")).thenReturn(salesTool);
         AgentToolCatalog catalog = new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
-                mcpToolRegistry,
+                mcpClients,
                 memoryProperties(false),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class));
@@ -110,6 +108,16 @@ class AgentToolCatalogTest {
 
         assertThat(toolkit.getTool("read_query").isReadOnly()).isTrue();
         assertThat(toolkit.getTool("write_query").isReadOnly()).isFalse();
+    }
+
+    @Test
+    void shouldHonorIntentConfirmationEvenForReadOnlyTool() {
+        RemoteTool remote = executor("read_query", "只读工具", readOnlyHint(true));
+        McpToolProxy tool = new McpToolProxy(
+                McpToolBinding.of("read_query", "查询", "只读工具", true, remote));
+
+        assertThat(tool.checkPermissions(Map.of(), null).block().getBehavior())
+                .isEqualTo(PermissionBehavior.ASK);
     }
 
     /**
@@ -159,10 +167,10 @@ class AgentToolCatalogTest {
                 executor("read_query", "只读工具", readOnlyHint(true)),
                 executor("plain_query", "没声明的工具", null));
 
-        // 三个节点都没勾确认：自报的写工具照样拦下，没声明的仍听意图树，否则查询工具会集体开始弹卡片
+        // 未明确声明只读时按可写处理，与生产目录的默认确认规则一致
         assertThat(behaviorOf(toolkit, "write_query")).isEqualTo(PermissionBehavior.ASK);
         assertThat(behaviorOf(toolkit, "read_query")).isEqualTo(PermissionBehavior.ALLOW);
-        assertThat(behaviorOf(toolkit, "plain_query")).isEqualTo(PermissionBehavior.ALLOW);
+        assertThat(behaviorOf(toolkit, "plain_query")).isEqualTo(PermissionBehavior.ASK);
     }
 
     /**
@@ -173,6 +181,9 @@ class AgentToolCatalogTest {
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("leaveType", Map.of("type", "string", "title", "假期类型"));
         properties.put("reason", Map.of("type", "string"));
+        // z 排在 a 前，防止转换为 HashMap 后按哈希桶顺序显示
+        properties.put("z", Map.of("type", "string", "title", "补充说明"));
+        properties.put("a", Map.of("type", "string", "title", "申请编号"));
         Tool tool = Tool.builder()
                 .name("leave_submit")
                 .description("提交请假申请")
@@ -186,7 +197,8 @@ class AgentToolCatalogTest {
 
         // 没写 title 的字段回落原名，总比在授权界面上凭空少一项强
         assertThat(resolved.fieldLabelsOf("leave_submit"))
-                .containsExactly(entry("leaveType", "假期类型"), entry("reason", "reason"));
+                .containsExactly(entry("leaveType", "假期类型"), entry("reason", "reason"),
+                        entry("z", "补充说明"), entry("a", "申请编号"));
         assertThat(resolved.fieldLabelsOf("search_knowledge")).isEmpty();
     }
 
@@ -241,7 +253,8 @@ class AgentToolCatalogTest {
         AgentToolCatalog.McpToolFingerprint readOnly = fingerprintOf(false, readOnlyHint(true));
         AgentToolCatalog.McpToolFingerprint readOnlyConfirmed = fingerprintOf(true, readOnlyHint(true));
 
-        assertThat(undeclared.needsConfirm()).isEqualTo(readOnly.needsConfirm());
+        assertThat(undeclared.needsConfirm()).isTrue();
+        assertThat(readOnly.needsConfirm()).isFalse();
         assertThat(undeclared).isNotEqualTo(readOnly);
         assertThat(readOnly.readOnly()).isEqualTo(readOnlyConfirmed.readOnly());
         assertThat(readOnly).isNotEqualTo(readOnlyConfirmed);
@@ -254,7 +267,7 @@ class AgentToolCatalogTest {
     void shouldResolveSameBindingRegardlessOfNodeOrder() {
         IntentNode first = mcpNode("a_sales", "销售查询", "查销售", "sales_query");
         IntentNode second = mcpNode("b_report", "销售报表", "查报表", "sales_query");
-        List<McpToolExecutor> executors = List.of(executor("sales_query", "服务端描述"));
+        List<RemoteTool> executors = List.of(executor("sales_query", "服务端描述"));
 
         AgentToolCatalog.ResolvedCatalog ordered = catalogFor(List.of(first, second), executors).resolve(KNOWLEDGE_ONLY);
         AgentToolCatalog.ResolvedCatalog shuffled = catalogFor(List.of(second, first), executors).resolve(KNOWLEDGE_ONLY);
@@ -273,26 +286,27 @@ class AgentToolCatalogTest {
         return tool.checkPermissions(Map.of(), null).block().getBehavior();
     }
 
-    private Toolkit buildToolkitFor(McpToolExecutor... executors) {
-        List<McpToolExecutor> executorList = List.of(executors);
+    private Toolkit buildToolkitFor(RemoteTool... executors) {
+        List<RemoteTool> executorList = List.of(executors);
         List<IntentNode> nodes = executorList.stream()
                 .map(executor -> mcpNode(
-                        executor.getToolId(), executor.getToolId(), "意图树描述", executor.getToolId()))
+                        executor.definition().name(), executor.definition().name(),
+                        "意图树描述", executor.definition().name()))
                 .toList();
         AgentToolCatalog catalog = catalogFor(nodes, executorList);
         return catalog.buildToolkit(catalog.resolve(KNOWLEDGE_ONLY));
     }
 
-    private AgentToolCatalog catalogFor(List<IntentNode> nodes, List<McpToolExecutor> executors) {
+    private AgentToolCatalog catalogFor(List<IntentNode> nodes, List<RemoteTool> executors) {
         IntentNodeRegistry intentNodeRegistry = mock(IntentNodeRegistry.class);
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(nodes);
-        McpToolRegistry mcpToolRegistry = mock(McpToolRegistry.class);
-        when(mcpToolRegistry.listAllExecutors()).thenReturn(executors);
+        AgentMcpClients mcpClients = mock(AgentMcpClients.class);
+        executors.forEach(executor -> when(mcpClients.get(executor.definition().name())).thenReturn(executor));
 
         return new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
-                mcpToolRegistry,
+                mcpClients,
                 memoryProperties(false),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class));
@@ -304,13 +318,12 @@ class AgentToolCatalogTest {
     private AgentToolCatalog catalogWithMemory(boolean longTermEnabled) {
         IntentNodeRegistry intentNodeRegistry = mock(IntentNodeRegistry.class);
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of());
-        McpToolRegistry mcpToolRegistry = mock(McpToolRegistry.class);
-        when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of());
+        AgentMcpClients mcpClients = mock(AgentMcpClients.class);
 
         return new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
-                mcpToolRegistry,
+                mcpClients,
                 memoryProperties(longTermEnabled),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class));
@@ -342,11 +355,11 @@ class AgentToolCatalogTest {
                 .build();
     }
 
-    private McpToolExecutor executor(String toolId, String description) {
+    private RemoteTool executor(String toolId, String description) {
         return executor(toolId, description, null);
     }
 
-    private McpToolExecutor executor(String toolId, String description, ToolAnnotations annotations) {
+    private RemoteTool executor(String toolId, String description, ToolAnnotations annotations) {
         JsonSchema schema = new JsonSchema("object", Map.of(), List.of(), false, null, null);
         return executor(Tool.builder()
                 .name(toolId)
@@ -356,17 +369,9 @@ class AgentToolCatalogTest {
                 .build());
     }
 
-    private McpToolExecutor executor(Tool tool) {
-        return new McpToolExecutor() {
-            @Override
-            public Tool getToolDefinition() {
-                return tool;
-            }
-
-            @Override
-            public CallToolResult execute(Map<String, Object> parameters, Map<String, Object> meta) {
-                return null;
-            }
-        };
+    private RemoteTool executor(Tool tool) {
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        when(client.getName()).thenReturn("default");
+        return new RemoteTool(tool, client);
     }
 }

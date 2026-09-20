@@ -81,8 +81,10 @@ public class BitOrderCreateMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification createOrderToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {

@@ -28,6 +28,8 @@ import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpMeta;
+import io.agentscope.core.tool.mcp.McpMeta;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
@@ -76,6 +78,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class AgentChatServiceImplTest {
@@ -184,7 +187,8 @@ class AgentChatServiceImplTest {
 
         service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
 
-        verifyNoInteractions(memoryPipeline);
+        verify(memoryPipeline).ensureExtractionBaseline(USER_ID);
+        verifyNoMoreInteractions(memoryPipeline);
     }
 
     /**
@@ -203,6 +207,8 @@ class AgentChatServiceImplTest {
         RuntimeContext captured = runtimeContext.getValue();
         assertThat(captured.getUserId()).isEqualTo(USER_ID);
         assertThat(captured.getSessionId()).isEqualTo(CONVERSATION_ID);
+        assertThat(captured.get(McpMeta.class).entries())
+                .containsEntry(AgentMcpMeta.USER_ID_KEY, USER_ID);
         // 与 SSE META 给前端的任务号一致
         assertThat(contextId(captured, AgentTraceContextKeys.TASK_ID)).isEqualTo(taskId.getValue());
         assertThat(contextId(captured, AgentTraceContextKeys.REPLY_TO_MESSAGE_ID)).isEqualTo("m-3003");

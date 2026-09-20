@@ -88,8 +88,10 @@ public class BitAfterSaleApplyMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification applyAfterSaleToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {

@@ -27,12 +27,13 @@ import com.nageoffer.ai.ragent.agent.dto.AgentToolProgress;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolBatchFact;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolSourceStash;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AllToolsDeniedEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
@@ -46,7 +47,6 @@ import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
@@ -684,19 +684,11 @@ class AgentStreamEventBridgeTest {
                 .description("提交请假申请")
                 .inputSchema(new JsonSchema("object", properties, List.of(), null, null, null))
                 .build();
-        McpToolExecutor executor = new McpToolExecutor() {
-            @Override
-            public Tool getToolDefinition() {
-                return tool;
-            }
-
-            @Override
-            public CallToolResult execute(Map<String, Object> parameters, Map<String, Object> meta) {
-                return null;
-            }
-        };
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        when(client.getName()).thenReturn("default");
         return new ResolvedCatalog("知识库工具描述", null,
-                List.of(McpToolBinding.of("leave_submit", "请假申请", "提交请假申请", true, executor)),
+                List.of(McpToolBinding.of("leave_submit", "请假申请", "提交请假申请", true,
+                        new RemoteTool(tool, client))),
                 List.of(), List.of());
     }
 

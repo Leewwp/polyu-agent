@@ -55,8 +55,10 @@ public class BitOrderCancelMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification cancelOrderToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {

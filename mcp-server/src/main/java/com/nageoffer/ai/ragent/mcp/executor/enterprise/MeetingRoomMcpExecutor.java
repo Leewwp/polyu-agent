@@ -79,14 +79,18 @@ public class MeetingRoomMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification meetingRoomQueryToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildQueryTool(),
-                (exchange, request) -> handleQuery(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildQueryTool())
+                .callHandler((exchange, request) -> handleQuery(request))
+                .build();
     }
 
     @Bean
     public McpServerFeatures.SyncToolSpecification meetingRoomBookToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildBookTool(),
-                (exchange, request) -> handleBook(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildBookTool())
+                .callHandler((exchange, request) -> handleBook(request))
+                .build();
     }
 
     private Tool buildQueryTool() {

@@ -8,7 +8,7 @@
 
 | 模板 | 面向 | 确认词 | 额外要求 |
 | --- | --- | --- | --- |
-| `enterprise-knowledge-base` | 企业内部知识助手，`workflow` 档 | `RESET-ENTERPRISE-KNOWLEDGE-BASE` | 无 |
+| `enterprise-knowledge-base` | 企业内部知识助手，`agent` 档 | `RESET-ENTERPRISE-KNOWLEDGE-BASE` | 预热会查询 MCP 数据 |
 | `bit-selection` | 比特严选电商 Agent，`agent` 档 | `RESET-BIT-SELECTION` | 另有业务库，见该目录下的 README |
 
 两套模板的数据是互斥的：任何一套跑完，另一套的知识库、意图、技能、示例问题和记忆都已被清掉。下文
@@ -26,6 +26,7 @@
 - RagentAI、PostgreSQL、Redis 已启动；
 - 服务读的是 `bootstrap/src/main/resources/application.yaml`，也就是模板所指向的那一份；
 - 服务运行在 `ragent.demo-mode=false`，否则写接口会被拒绝；
+- 服务运行在 `ragent.engine.type=agent`，模板中的实时数据问题由 Agent 调用 MCP 工具；
 - `mcp-server` 已启动，模板里有 9 个意图节点挂着 MCP 工具，预热会真的调到它。
 
 以下命令在项目根目录执行，先编译再初始化：
@@ -125,7 +126,7 @@ java -cp /tmp/ragent-initializer-classes \
 
 人设必须排在清理之后：清理按 `builtin = 0` 删非内置人设，先建的那份会被它删掉。
 
-预热逐题调用 `/rag/v3/chat`，每题一个独立会话，上一题读完 SSE 才发下一题。问题之间没有先后依赖，
+预热逐题调用 `/agent/v1/chat`，每题一个独立会话，上一题读完 SSE 才发下一题。问题之间没有先后依赖，
 所以提问顺序每次随机，让初始化产生的会话列表不与欢迎页示例问题一一对齐；实际顺序由日志中的
 `warmup.shuffle-seed` 给出，把它填回 `initializer.properties` 就能复现某次运行。
 

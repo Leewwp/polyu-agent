@@ -97,8 +97,10 @@ public class TicketMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification ticketToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {

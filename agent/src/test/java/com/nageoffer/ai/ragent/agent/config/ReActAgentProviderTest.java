@@ -29,8 +29,8 @@ import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog;
 import com.nageoffer.ai.ragent.agent.tool.KnowledgeSearchTool;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
@@ -38,7 +38,7 @@ import com.nageoffer.ai.ragent.rag.enums.IntentKind;
 import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
 import io.agentscope.core.model.ExecutionConfig;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +59,7 @@ import static org.mockito.Mockito.when;
 class ReActAgentProviderTest {
 
     private IntentNodeRegistry intentNodeRegistry;
-    private McpToolRegistry mcpToolRegistry;
+    private AgentMcpClients mcpClients;
     private AgentPromptResolver agentPromptResolver;
     private AgentToolCatalog toolCatalog;
     private ReActAgentProvider provider;
@@ -67,19 +67,20 @@ class ReActAgentProviderTest {
     @BeforeEach
     void setUp() {
         intentNodeRegistry = mock(IntentNodeRegistry.class);
-        mcpToolRegistry = mock(McpToolRegistry.class);
+        mcpClients = mock(AgentMcpClients.class);
         agentPromptResolver = mock(AgentPromptResolver.class);
         when(agentPromptResolver.resolveAll()).thenReturn(Map.of(
                 AgentPromptSlot.AGENT_MAIN.name(), "你是 Ragent",
                 AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION.name(), "当前 Agent 的知识库工具描述"));
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of(
                 mcpNode("sales", "销售查询", "sales_query")));
-        when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of(executor("sales_query")));
+        RemoteTool salesTool = executor("sales_query");
+        when(mcpClients.get("sales_query")).thenReturn(salesTool);
 
         toolCatalog = spy(new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
-                mcpToolRegistry,
+                mcpClients,
                 new AgentMemoryProperties(),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class)));
@@ -113,7 +114,7 @@ class ReActAgentProviderTest {
 
         // 解析两次就有两份现实，指纹与 Toolkit 各信一份，中间注册表一变就长期不再自愈
         verify(toolCatalog, times(1)).resolve(any());
-        verify(mcpToolRegistry, times(1)).listAllExecutors();
+        verify(mcpClients, times(1)).get("sales_query");
         // 提示词一次读全，分两次读会拼出半新半旧的实例
         verify(agentPromptResolver, times(1)).resolveAll();
     }
@@ -138,8 +139,8 @@ class ReActAgentProviderTest {
     @Test
     void shouldRebuildWhenMcpToolAppears() {
         var first = provider.getAgent();
-        when(mcpToolRegistry.listAllExecutors())
-                .thenReturn(List.of(executor("sales_query"), executor("orders_query")));
+        RemoteTool ordersTool = executor("orders_query");
+        when(mcpClients.get("orders_query")).thenReturn(ordersTool);
         when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of(
                 mcpNode("sales", "销售查询", "sales_query"),
                 mcpNode("orders", "订单查询", "orders_query")));
@@ -196,22 +197,14 @@ class ReActAgentProviderTest {
                 .build();
     }
 
-    private McpToolExecutor executor(String toolId) {
+    private RemoteTool executor(String toolId) {
         Tool tool = Tool.builder()
                 .name(toolId)
                 .description("MCP 服务端描述")
                 .inputSchema(new JsonSchema("object", Map.of(), List.of(), false, null, null))
                 .build();
-        return new McpToolExecutor() {
-            @Override
-            public Tool getToolDefinition() {
-                return tool;
-            }
-
-            @Override
-            public CallToolResult execute(Map<String, Object> parameters, Map<String, Object> meta) {
-                return null;
-            }
-        };
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        when(client.getName()).thenReturn("default");
+        return new RemoteTool(tool, client);
     }
 }

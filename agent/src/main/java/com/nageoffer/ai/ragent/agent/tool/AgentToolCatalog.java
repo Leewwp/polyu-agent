@@ -17,21 +17,20 @@
 
 package com.nageoffer.ai.ragent.agent.tool;
 
-import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.skill.SkillLoadTool;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkill;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
 import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.mcp.McpTool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
@@ -46,7 +45,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -66,7 +64,7 @@ public class AgentToolCatalog {
 
     private final KnowledgeSearchFacade knowledgeSearchFacade;
     private final IntentNodeRegistry intentNodeRegistry;
-    private final McpToolRegistry mcpToolRegistry;
+    private final AgentMcpClients mcpClients;
     private final AgentMemoryProperties memoryProperties;
     private final AgentMemoryPipeline memoryPipeline;
     private final AgentSkillRegistry skillRegistry;
@@ -96,12 +94,14 @@ public class AgentToolCatalog {
             log.warn("AGENT_MEMORY_TOOL_DESCRIPTION 提示词为空, 本次不挂载 {}", MemoryFlushTool.TOOL_NAME);
         }
         if (catalog.hasSkills) {
-            toolkit.registerAgentTool(new SkillLoadTool(skillRegistry, catalog.displayNames));
+            Map<String, String> mountedMcpNames = catalog.bindings.stream()
+                    .collect(Collectors.toMap(McpToolBinding::toolId, McpToolBinding::displayName));
+            toolkit.registerAgentTool(new SkillLoadTool(skillRegistry, mountedMcpNames));
         }
-        catalog.bindings.forEach(binding -> toolkit.registerAgentTool(new McpToolBridge(binding)));
+        catalog.bindings.forEach(binding -> toolkit.registerAgentTool(new McpToolProxy(binding)));
         // 只在构建实例时记，不随每次 resolve 刷日志
         catalog.unavailableToolIds.forEach(toolId ->
-                log.warn("意图树配置的 MCP 工具未挂载: 无执行器或与内置工具重名, toolId: {}", toolId));
+                log.warn("意图树配置的 MCP 工具未挂载: 服务端未发现或与内置工具重名, toolId: {}", toolId));
         return toolkit;
     }
 
@@ -132,7 +132,7 @@ public class AgentToolCatalog {
     }
 
     /**
-     * 意图树配置与 MCP 注册表取交集，无执行器或与内置工具重名的记入 unavailableToolIds
+     * 意图树配置与 AgentScope 发现的工具取交集，无工具或与内置工具重名的记入 unavailableToolIds
      * 两处排序都为了指纹稳定，只排组内不够：分组序取决于各组最小的节点 id
      */
     private McpResolution resolveMcpTools() {
@@ -143,25 +143,22 @@ public class AgentToolCatalog {
                         LinkedHashMap::new,
                         Collectors.toList()));
 
-        Map<String, McpToolExecutor> executors = mcpToolRegistry.listAllExecutors().stream()
-                .collect(Collectors.toMap(McpToolExecutor::getToolId, Function.identity()));
-
         List<McpToolBinding> bindings = new ArrayList<>();
         List<String> unavailableToolIds = new ArrayList<>();
         nodesByToolId.forEach((toolId, nodes) -> {
-            McpToolExecutor executor = executors.get(toolId);
-            if (executor == null || RESERVED_TOOL_NAMES.contains(toolId)) {
+            RemoteTool remote = mcpClients.get(toolId);
+            if (remote == null || RESERVED_TOOL_NAMES.contains(toolId)) {
                 unavailableToolIds.add(toolId);
                 return;
             }
-            bindings.add(toBinding(toolId, nodes, executor));
+            bindings.add(toBinding(toolId, nodes, remote));
         });
         bindings.sort(Comparator.comparing(McpToolBinding::toolId));
         unavailableToolIds.sort(Comparator.naturalOrder());
         return new McpResolution(bindings, unavailableToolIds);
     }
 
-    private McpToolBinding toBinding(String toolId, List<IntentNode> nodes, McpToolExecutor executor) {
+    private McpToolBinding toBinding(String toolId, List<IntentNode> nodes, RemoteTool remote) {
         String displayName = nodes.stream()
                 .map(IntentNode::getName)
                 .filter(StrUtil::isNotBlank)
@@ -174,14 +171,14 @@ public class AgentToolCatalog {
                 .collect(Collectors.joining("\n"));
         // 同一工具挂在多个意图下，任一节点勾选即需确认
         boolean confirmConfigured = nodes.stream().anyMatch(IntentNode::isRequireConfirm);
-        return McpToolBinding.of(toolId, displayName, description, confirmConfigured, executor);
+        return McpToolBinding.of(toolId, displayName, description, confirmConfigured, remote);
     }
 
     private record McpResolution(List<McpToolBinding> bindings, List<String> unavailableToolIds) {
     }
 
     /**
-     * MCP 工具的生效值，Bridge 与指纹都读这里
+     * MCP 工具的生效值，AgentScope 工具与指纹都读这里
      *
      * @param description  意图树描述为空时回落服务端描述
      * @param needsConfirm 意图树勾选，或服务端未明确声明 readOnlyHint=true
@@ -193,51 +190,27 @@ public class AgentToolCatalog {
             Map<String, Object> inputSchema,
             boolean readOnly,
             boolean needsConfirm,
-            McpToolExecutor executor) {
+            RemoteTool remote) {
 
         public static McpToolBinding of(String toolId, String displayName, String description,
-                                        boolean confirmConfigured, McpToolExecutor executor) {
-            Tool definition = executor.getToolDefinition();
+                                        boolean confirmConfigured, RemoteTool remote) {
+            Tool definition = remote.definition();
             ToolAnnotations annotations = definition.annotations();
             Boolean readOnlyHint = annotations == null ? null : annotations.readOnlyHint();
             String effectiveDescription = StrUtil.isNotBlank(description)
                     ? description
                     : StrUtil.emptyIfNull(definition.description());
             return new McpToolBinding(toolId, displayName, effectiveDescription,
-                    toInputSchema(definition.inputSchema()),
+                    McpTool.convertMcpSchemaToParameters(definition.inputSchema(), Set.of()),
                     Boolean.TRUE.equals(readOnlyHint),
                     confirmConfigured || !Boolean.TRUE.equals(readOnlyHint),
-                    executor);
+                    remote);
         }
 
         public McpToolFingerprint fingerprint() {
             return new McpToolFingerprint(toolId, displayName, description, inputSchema, readOnly, needsConfirm);
         }
 
-        /**
-         * additionalProperties 要带上，服务端靠它禁止模型自造参数名
-         */
-        private static Map<String, Object> toInputSchema(JsonSchema schema) {
-            Map<String, Object> parameters = new LinkedHashMap<>();
-            parameters.put("type", schema == null || StrUtil.isBlank(schema.type()) ? "object" : schema.type());
-            parameters.put("properties", schema == null || schema.properties() == null ? Map.of() : schema.properties());
-            if (schema == null) {
-                return Collections.unmodifiableMap(parameters);
-            }
-            if (CollUtil.isNotEmpty(schema.required())) {
-                parameters.put("required", schema.required());
-            }
-            if (schema.additionalProperties() != null) {
-                parameters.put("additionalProperties", schema.additionalProperties());
-            }
-            if (schema.defs() != null) {
-                parameters.put("$defs", schema.defs());
-            }
-            if (schema.definitions() != null) {
-                parameters.put("definitions", schema.definitions());
-            }
-            return Collections.unmodifiableMap(parameters);
-        }
     }
 
     /**
@@ -287,7 +260,7 @@ public class AgentToolCatalog {
             Map<String, Map<String, String>> labels = new LinkedHashMap<>();
             this.bindings.forEach(binding -> {
                 names.put(binding.toolId(), binding.displayName());
-                labels.put(binding.toolId(), fieldLabels(binding.inputSchema()));
+                labels.put(binding.toolId(), fieldLabels(binding.remote().definition().inputSchema()));
             });
             this.displayNames = Map.copyOf(names);
             this.fieldLabels = Collections.unmodifiableMap(labels);
@@ -315,14 +288,15 @@ public class AgentToolCatalog {
         }
 
         /**
-         * 从生效 schema 提取字段标签，用 LinkedHashMap 保持声明序
+         * 从服务端 schema 提取字段标签，用 LinkedHashMap 保持声明序
          */
-        private static Map<String, String> fieldLabels(Map<String, Object> inputSchema) {
-            if (!(inputSchema.get("properties") instanceof Map<?, ?> properties)) {
+        private static Map<String, String> fieldLabels(JsonSchema inputSchema) {
+            if (inputSchema == null || inputSchema.properties() == null) {
                 return Map.of();
             }
             Map<String, String> labels = new LinkedHashMap<>();
-            properties.forEach((field, spec) -> labels.put(String.valueOf(field), titleOf(spec, String.valueOf(field))));
+            inputSchema.properties().forEach((field, spec) ->
+                    labels.put(field, titleOf(spec, field)));
             return Collections.unmodifiableMap(labels);
         }
 

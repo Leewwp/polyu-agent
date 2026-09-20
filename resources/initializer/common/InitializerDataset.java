@@ -278,8 +278,7 @@ final class InitializerDataset {
                         requiredInt(values, "sort-order", file),
                         optionalBoolean(values, "enabled", true),
                         readOptionalText(agentTypeDir, values.getProperty("prompt-snippet-file")),
-                        readOptionalText(agentTypeDir, values.getProperty("prompt-template-file")),
-                        readOptionalText(agentTypeDir, values.getProperty("param-prompt-template-file"))
+                        readOptionalText(agentTypeDir, values.getProperty("prompt-template-file"))
                 ));
             }
         }
@@ -476,7 +475,7 @@ final class InitializerDataset {
     record IntentDefinition(String code, String name, int level, String parentCode, int kind,
                             String knowledgeBaseRef, String description, List<String> examples,
                             String mcpToolId, boolean requireConfirm, Integer topK, int sortOrder, boolean enabled,
-                            String promptSnippet, String promptTemplate, String paramPromptTemplate) {
+                            String promptSnippet, String promptTemplate) {
     }
 
     record SkillDefinition(String skillCode, String name, String description, String content,

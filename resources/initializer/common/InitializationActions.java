@@ -309,7 +309,6 @@ final class InitializationActions {
             payload.put("enabled", intent.enabled() ? 1 : 0);
             putIfNotNull(payload, "promptSnippet", intent.promptSnippet());
             putIfNotNull(payload, "promptTemplate", intent.promptTemplate());
-            putIfNotNull(payload, "paramPromptTemplate", intent.paramPromptTemplate());
             if (intent.knowledgeBaseRef() != null) {
                 InitializerContext.KnowledgeBaseRuntime runtime =
                         context.knowledgeBases().get(intent.knowledgeBaseRef());

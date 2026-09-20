@@ -147,4 +147,46 @@ class DefaultIntentClassifierTest {
         assertFalse(intentList.contains("id=system-welcome"));
         assertEquals(List.of("kb-leave"), scores.stream().map(score -> score.getNode().getId()).toList());
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void workflowModeExcludesMcpCandidatesButKeepsSystemAndKnowledge() {
+        orchestrationProperties.setType("workflow");
+        IntentNode kb = IntentNode.builder()
+                .id("kb-leave")
+                .name("请假制度")
+                .kind(IntentKind.KB)
+                .build();
+        IntentNode mcp = IntentNode.builder()
+                .id("mcp-leave")
+                .name("提交请假")
+                .kind(IntentKind.MCP)
+                .mcpToolId("leave_submit")
+                .build();
+        IntentNode system = IntentNode.builder()
+                .id("system-welcome")
+                .name("欢迎语")
+                .kind(IntentKind.SYSTEM)
+                .build();
+        when(intentTreeCacheManager.getIntentTreeFromCache()).thenReturn(List.of(kb, mcp, system));
+        when(promptTemplateLoader.render(anyString(), anyMap())).thenReturn("system-prompt");
+        when(llmService.chat(any())).thenReturn("""
+                [
+                  {"id":"kb-leave","score":0.9},
+                  {"id":"mcp-leave","score":0.8},
+                  {"id":"system-welcome","score":0.7}
+                ]
+                """);
+
+        List<NodeScore> scores = classifier.classifyTargets("帮我请假");
+
+        ArgumentCaptor<Map<String, String>> captor = ArgumentCaptor.forClass(Map.class);
+        verify(promptTemplateLoader).render(anyString(), captor.capture());
+        String intentList = captor.getValue().get("intent_list");
+        assertTrue(intentList.contains("id=kb-leave"));
+        assertTrue(intentList.contains("id=system-welcome"));
+        assertFalse(intentList.contains("id=mcp-leave"));
+        assertEquals(List.of("kb-leave", "system-welcome"),
+                scores.stream().map(score -> score.getNode().getId()).toList());
+    }
 }
