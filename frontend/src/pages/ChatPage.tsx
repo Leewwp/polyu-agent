@@ -19,6 +19,7 @@ export function ChatPage() {
     isStreaming,
     currentSessionId,
     sessions,
+    sessionsError,
     isCreatingNew,
     fetchSessions,
     selectSession,
@@ -47,7 +48,9 @@ export function ChatPage() {
 
   React.useEffect(() => {
     if (sessionId) {
-      if (sessionsReady && !sessionExists) {
+      // L32：仅列表确实加载成功（sessionsError 为空）才允许判「会话不存在」踢回——
+      // 列表加载失败时 sessions 为空不可信，保深链由重试条兜底，不误踢不清深链
+      if (sessionsReady && !sessionsError && !sessionExists) {
         createSession().catch(() => null);
         navigate("/chat", { replace: true });
         return;
@@ -68,6 +71,7 @@ export function ChatPage() {
   }, [
     sessionId,
     sessionsReady,
+    sessionsError,
     sessionExists,
     isCreatingNew,
     currentSessionId,
@@ -97,6 +101,23 @@ export function ChatPage() {
           消息气泡与 ChatInput 本体的白卡层次保持（灰底白卡与资讯页同构） */}
       <div className="flex h-full">
         <div className="flex h-full min-w-0 flex-1 flex-col">
+          {/* L32：会话列表加载失败条——深链不误踢，由这里给重试入口 */}
+          {sessionsError ? (
+            <div className="mx-auto w-full max-w-[840px] px-6 pt-3">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] px-3.5 py-2 text-[12.5px] text-[var(--feed-text-secondary)]">
+                <span>{sessionsError}——左侧最近对话暂不可用</span>
+                <button
+                  type="button"
+                  className="flex-none rounded-full border border-[var(--feed-line)] px-3 py-1 font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
+                  onClick={() => {
+                    fetchSessions().catch(() => null);
+                  }}
+                >
+                  重试
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="flex-1 min-h-0">
             <MessageList
               messages={messages}

@@ -6,6 +6,7 @@ import { FeedShell } from "@/components/feed/FeedShell";
 import { NewsCard } from "@/components/feed/NewsCard";
 import { groupByDay } from "@/components/feed/NewsList";
 import { useFeedLang } from "@/components/feed/feedLang";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import type { NewsItem } from "@/types/news";
 import { formatUpdatedLabel } from "@/services/newsMapping";
 import { TOPIC_MISSING_MESSAGE, fetchTopicDetail } from "@/services/newsService";
@@ -90,20 +91,31 @@ function TopicDetailBody({ detail }: { detail: TopicDetailData }) {
   const [items, setItems] = useState<NewsItem[]>(detail.page.records);
   const [hasMore, setHasMore] = useState(detail.page.hasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  // L31：loadMore 失败态——按钮转「重试」入口，不再静默吞错
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const nextPageRef = useRef(2);
+  // L31：M19 请求序守卫——迟到的旧 loadMore 响应不回写（同 FeedPage 口径）
+  const { begin, isCurrent } = useStaleRequest();
 
   const loadMore = () => {
     if (loadingMore) {
       return;
     }
     setLoadingMore(true);
+    setLoadMoreFailed(false);
+    const requestId = begin();
     fetchTopicDetail(topic.slug, nextPageRef.current)
       .then((data) => {
+        if (!isCurrent(requestId)) return;
         setItems((prev) => [...prev, ...data.page.records]);
         setHasMore(data.page.hasMore);
         nextPageRef.current += 1;
       })
-      .catch(() => null)
+      .catch(() => {
+        if (isCurrent(requestId)) {
+          setLoadMoreFailed(true);
+        }
+      })
       .finally(() => setLoadingMore(false));
   };
 
@@ -229,13 +241,28 @@ function TopicDetailBody({ detail }: { detail: TopicDetailData }) {
 
       {hasMore && (
         <div className="mt-4 text-center">
+          {/* L31：loadMore 失败转重试入口（不再吞错） */}
           <button
             type="button"
             disabled={loadingMore}
-            className="rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)] disabled:opacity-60"
+            className={
+              loadMoreFailed
+                ? "rounded-full border border-[var(--polyu-red)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)] disabled:opacity-60"
+                : "rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)] disabled:opacity-60"
+            }
             onClick={loadMore}
           >
-            {loadingMore ? (zh ? "加载中…" : "Loading…") : zh ? "加载更多" : "Load more"}
+            {loadingMore
+              ? zh
+                ? "加载中…"
+                : "Loading…"
+              : loadMoreFailed
+                ? zh
+                  ? "加载失败，点击重试"
+                  : "Failed — tap to retry"
+                : zh
+                  ? "加载更多"
+                  : "Load more"}
           </button>
         </div>
       )}

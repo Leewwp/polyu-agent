@@ -84,14 +84,27 @@ const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/**
+ * HKT 日键 → HKT 日历分量（月/日/周/年）。正午 HKT 恒等于 04:00Z 同一历日，
+ * 故对该 instant 取 **UTC** 分量即 HKT 分量；禁用本地 getter——美洲时区
+ * （UTC-4 以西）下正午 HKT 落在前一本地日，getMonth/getDate 会整体偏一天
+ * （与 dayDiff「今天/昨天」前缀自相矛盾）。
+ */
+function hktCalendarParts(dateKey: string): { year: number; month: number; day: number; weekday: number } {
+  const noon = new Date(`${dateKey}T12:00:00+08:00`);
+  return {
+    year: noon.getUTCFullYear(),
+    month: noon.getUTCMonth(),
+    day: noon.getUTCDate(),
+    weekday: noon.getUTCDay()
+  };
+}
+
 /** 日期分组标签（原型口径）：今天/昨天带前后缀，更早=「9月8日 周二」/「Tue 8 Sep」 */
 export function dayLabels(publishDateKey: string, todayKey: string): { zh: string; en: string } {
-  const publish = new Date(`${publishDateKey}T12:00:00+08:00`);
-  const month = publish.getMonth() + 1;
-  const day = publish.getDate();
-  const weekday = publish.getDay();
-  const zhDate = `${month}月${day}日 周${WEEKDAYS_ZH[weekday]}`;
-  const enDate = `${WEEKDAYS_EN[weekday]} ${day} ${MONTHS_EN[publish.getMonth()]}`;
+  const { month, day, weekday } = hktCalendarParts(publishDateKey);
+  const zhDate = `${month + 1}月${day}日 周${WEEKDAYS_ZH[weekday]}`;
+  const enDate = `${WEEKDAYS_EN[weekday]} ${day} ${MONTHS_EN[month]}`;
   const dayDiff = Math.round(
     (Date.parse(`${publishDateKey}T00:00:00+08:00`) - Date.parse(`${todayKey}T00:00:00+08:00`)) / 86400000
   );
@@ -106,35 +119,33 @@ export function dayLabels(publishDateKey: string, todayKey: string): { zh: strin
 
 /**
  * 「数据更新至」统计位（主题详情页；格式对齐原型定版「9月10日 14:22」/「10 Sep 14:22」）。
- * 日期部分经 hktDateKey 固定日键后以正午 HKT 重解析，避免本地时区跨日偏移。
+ * 日期部分经 hktDateKey 固定日键后取 HKT 日历分量（正午 HKT=04:00Z，UTC getter 恒等于
+ * HKT 分量），时钟部分 hktClockSafe 本就钉 Asia/Hong_Kong——全链路无本地时区依赖。
  */
 export function formatUpdatedLabel(date: Date, lang: "zh" | "en"): string {
-  const key = hktDateKey(date);
-  const noon = new Date(`${key}T12:00:00+08:00`);
+  const { month, day } = hktCalendarParts(hktDateKey(date));
   const clock = hktClockSafe(date);
   return lang === "zh"
-    ? `数据更新至 ${noon.getMonth() + 1}月${noon.getDate()}日 ${clock}`
-    : `Updated ${noon.getDate()} ${MONTHS_EN[noon.getMonth()]} ${clock}`;
+    ? `数据更新至 ${month + 1}月${day}日 ${clock}`
+    : `Updated ${day} ${MONTHS_EN[month]} ${clock}`;
 }
 
 /**
  * 顶栏实时日期（替换 newsMockData 写死常量）：桌面长形态
  * 「9月13日 · 周日 · 2026」/「Sun · 13 Sep 2026」、移动短形态「9月13日 · 周日」/「13 Sep · Sun」
- * ——形状逐字承接原 mock 定版常量；日期部分经 hktDateKey 固定日键后正午重解析（同 formatUpdatedLabel 口径）。
+ * ——形状逐字承接原 mock 定版常量；日期部分经 hktDateKey 固定日键后取 HKT 日历分量
+ * （同 formatUpdatedLabel 口径，全时区不漂）。
  */
 export function feedDateLabels(date: Date, lang: "zh" | "en"): { long: string; short: string } {
-  const key = hktDateKey(date);
-  const noon = new Date(`${key}T12:00:00+08:00`);
-  const month = noon.getMonth() + 1;
-  const day = noon.getDate();
-  const weekdayZh = `周${WEEKDAYS_ZH[noon.getDay()]}`;
-  const weekdayEn = WEEKDAYS_EN[noon.getDay()];
+  const { year, month, day, weekday } = hktCalendarParts(hktDateKey(date));
+  const weekdayZh = `周${WEEKDAYS_ZH[weekday]}`;
+  const weekdayEn = WEEKDAYS_EN[weekday];
   if (lang === "zh") {
-    return { long: `${month}月${day}日 · ${weekdayZh} · ${noon.getFullYear()}`, short: `${month}月${day}日 · ${weekdayZh}` };
+    return { long: `${month + 1}月${day}日 · ${weekdayZh} · ${year}`, short: `${month + 1}月${day}日 · ${weekdayZh}` };
   }
   return {
-    long: `${weekdayEn} · ${day} ${MONTHS_EN[noon.getMonth()]} ${noon.getFullYear()}`,
-    short: `${day} ${MONTHS_EN[noon.getMonth()]} · ${weekdayEn}`
+    long: `${weekdayEn} · ${day} ${MONTHS_EN[month]} ${year}`,
+    short: `${day} ${MONTHS_EN[month]} · ${weekdayEn}`
   };
 }
 
