@@ -249,3 +249,37 @@ describe("chatStore L32/L33：列表态与消息态拆分", () => {
     expect(useChatStore.getState().isLoading).toBe(false);
   });
 });
+
+describe("chatStore L34：问题全文走 POST body", () => {
+  beforeEach(() => {
+    toastError.mockClear();
+    resetStore();
+    vi.mocked(listMessages).mockReset();
+    vi.mocked(listSessions).mockReset();
+  });
+
+  it("sendMessage 以无查询串 URL + body 携带 question/conversationId/deepThinking", async () => {
+    useChatStore.setState({ currentSessionId: "c-95" });
+    await useChatStore.getState().sendMessage("图书馆开放时间？");
+    expect(createStreamResponse).toHaveBeenCalledTimes(1);
+    const [options] = vi.mocked(createStreamResponse).mock.calls[0];
+    expect((options as { url: string }).url).not.toContain("?");
+    expect((options as { url: string }).url).toContain("/rag/v3/chat");
+    expect((options as { body: unknown }).body).toEqual({
+      question: "图书馆开放时间？",
+      conversationId: "c-95",
+      deepThinking: undefined
+    });
+  });
+
+  it("深思考开启时 body 携带 deepThinking=true", async () => {
+    useChatStore.setState({ currentSessionId: null, deepThinkingEnabled: true });
+    await useChatStore.getState().sendMessage("深思考问题");
+    const [options] = vi.mocked(createStreamResponse).mock.calls[0];
+    expect((options as { body: unknown }).body).toEqual({
+      question: "深思考问题",
+      conversationId: undefined,
+      deepThinking: true
+    });
+  });
+});

@@ -20,19 +20,20 @@ package com.nageoffer.ai.ragent.rag.controller;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
-import com.nageoffer.ai.ragent.framework.validation.ChatQuestion;
 import com.nageoffer.ai.ragent.framework.idempotent.IdempotentSubmit;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.rag.config.RAGDefaultProperties;
+import com.nageoffer.ai.ragent.rag.controller.request.RAGChatRequest;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import com.nageoffer.ai.ragent.rag.service.AnonymousTrialGuard;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -53,16 +54,21 @@ public class RAGChatController {
 
     /**
      * 发起 SSE 流式对话
+     * <p>
+     * L34（#95）：问题全文改经 POST body 携带——原先 GET 查询串里的 question
+     * 会进浏览器历史与 nginx access log，与隐私声明口径不一致；消费方仅本前端，
+     * GET 变体已随前端同窗移除（对齐 agent 链 /agent/v1/chat 的 POST 形态）。
      */
     @IdempotentSubmit(
             key = "T(com.nageoffer.ai.ragent.framework.context.UserContext).getUserId()",
             message = "当前会话处理中，请稍后再发起新的对话"
     )
-    @GetMapping(value = "/rag/v3/chat", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter chat(@RequestParam @ChatQuestion String question,
-                           @RequestParam(required = false) String conversationId,
-                           @RequestParam(required = false, defaultValue = "false") Boolean deepThinking,
+    @PostMapping(value = "/rag/v3/chat", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter chat(@Valid @RequestBody RAGChatRequest chatRequest,
                            HttpServletRequest request) {
+        String question = chatRequest.getQuestion();
+        String conversationId = chatRequest.getConversationId();
+        boolean deepThinking = Boolean.TRUE.equals(chatRequest.getDeepThinking());
         SseEmitter emitter = new SseEmitter(ragDefaultProperties.getSseTimeoutMs());
         try {
             // 匿名试用配额：仅对 role=guest 会话生效，普通用户零开销放行

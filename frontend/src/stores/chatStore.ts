@@ -20,7 +20,6 @@ import {
   cancelFeedback,
   generateRecommendedQuestions
 } from "@/services/chatService";
-import { buildQuery } from "@/utils/helpers";
 import { classifyChatError, noticeTextFor } from "@/utils/chatErrors";
 import { errorTextFor, toastErrorUnlessShown } from "@/utils/requestError";
 import { createStreamResponse } from "@/hooks/useStreamResponse";
@@ -377,12 +376,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
 
     const conversationId = get().currentSessionId;
-    const query = buildQuery({
-      question: trimmed,
-      conversationId: conversationId || undefined,
-      deepThinking: deepThinkingEnabled ? true : undefined
-    });
-    const url = `${API_BASE_URL}/rag/v3/chat${query}`;
 
     const handlers = {
       onMeta: (payload: { conversationId: string; taskId: string }) => {
@@ -571,9 +564,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     };
 
+    // L34（#95）：问题全文经 POST body 携带——不再经 buildQuery 进 GET 查询串
+    // （会落浏览器历史与 nginx access log，与隐私声明口径不一致；对齐 agent 链 POST 形态）
     const { start, cancel } = createStreamResponse(
       {
-        url,
+        url: `${API_BASE_URL}/rag/v3/chat`,
+        body: {
+          question: trimmed,
+          conversationId: conversationId || undefined,
+          deepThinking: deepThinkingEnabled || undefined
+        },
         retryCount: 1
       },
       handlers

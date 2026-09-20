@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.audit.controller.vo.BizChangeLogVO;
 import com.nageoffer.ai.ragent.audit.dao.entity.BizChangeLogDO;
 import com.nageoffer.ai.ragent.audit.dao.mapper.BizChangeLogMapper;
 import com.nageoffer.ai.ragent.audit.service.BizChangeLogService;
+import com.nageoffer.ai.ragent.audit.support.AuditSnapshotMasker;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,7 @@ import org.springframework.util.StringUtils;
 public class BizChangeLogServiceImpl implements BizChangeLogService {
 
     private final BizChangeLogMapper bizChangeLogMapper;
+    private final AuditSnapshotMasker auditSnapshotMasker;
 
     @Override
     public IPage<BizChangeLogVO> page(BizChangeLogPageRequest requestParam) {
@@ -52,7 +54,7 @@ public class BizChangeLogServiceImpl implements BizChangeLogService {
                 .le(requestParam.getEndTime() != null, BizChangeLogDO::getCreateTime, requestParam.getEndTime())
                 .orderByDesc(BizChangeLogDO::getCreateTime);
         return bizChangeLogMapper.selectPage(page, queryWrapper)
-                .convert(each -> BeanUtil.toBean(each, BizChangeLogVO.class));
+                .convert(this::toMaskedVo);
     }
 
     @Override
@@ -61,6 +63,18 @@ public class BizChangeLogServiceImpl implements BizChangeLogService {
         if (record == null) {
             throw new ClientException("变更审计日志不存在");
         }
-        return BeanUtil.toBean(record, BizChangeLogVO.class);
+        return toMaskedVo(record);
+    }
+
+    /**
+     * L44（#95）：读时脱敏——USER 快照 PII 掩码（列表与详情同口径，避免列表接口成为旁路）。
+     * 掩码只针对响应出参，库内原文不动（审计证据链不受影响）。
+     */
+    private BizChangeLogVO toMaskedVo(BizChangeLogDO record) {
+        BizChangeLogVO vo = BeanUtil.toBean(record, BizChangeLogVO.class);
+        vo.setBeforeSnapshot(auditSnapshotMasker.maskSnapshot(record.getBizType(), record.getBeforeSnapshot()));
+        vo.setAfterSnapshot(auditSnapshotMasker.maskSnapshot(record.getBizType(), record.getAfterSnapshot()));
+        vo.setChangeDiff(auditSnapshotMasker.maskDiff(record.getBizType(), record.getChangeDiff()));
+        return vo;
     }
 }

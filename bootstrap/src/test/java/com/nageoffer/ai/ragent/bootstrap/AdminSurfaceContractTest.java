@@ -59,7 +59,7 @@ class AdminSurfaceContractTest {
      * 每条附 controller 归属，挪动归属时同步维护。
      */
     private static final String[] USER_FACING_PATTERNS = {
-            // RAGChatController：/rag/v3/chat、/rag/v3/stop（GET 状态变更=已知项）
+            // RAGChatController：/rag/v3/chat（L34/#95 起为 POST body，GET 查询串形态已移除）、/rag/v3/stop
             "/rag/v3/**",
             // RAGSettingsController 引擎档位迷你端点（登录态可读，只返 {type}；
             // 同 controller 的 /rag/settings 整体仍是管理面——精确模式不吞子路径）

@@ -117,3 +117,33 @@ describe("agentChatStore M17 切会话×在途流竞态", () => {
     expect(useAgentChatStore.getState().isCreatingNew).toBe(true);
   });
 });
+
+describe("agentChatStore L34：首问问题全文走 POST body", () => {
+  beforeEach(() => {
+    vi.mocked(createAgentStreamResponse).mockClear();
+    useAgentChatStore.setState({
+      sessions: [],
+      currentSessionId: null,
+      messages: [],
+      isStreaming: false,
+      isCreatingNew: false,
+      streamingMessageId: null,
+      streamOpenBlockId: null,
+      streamAbort: null,
+      cancelRequested: false
+    });
+  });
+
+  it("sendMessage 以无查询串 URL + body 携带 question/conversationId", async () => {
+    useAgentChatStore.setState({ currentSessionId: "ac-95" });
+    await useAgentChatStore.getState().sendMessage("图书馆开放时间？");
+    expect(createAgentStreamResponse).toHaveBeenCalledTimes(1);
+    const [options] = vi.mocked(createAgentStreamResponse).mock.calls[0];
+    expect((options as { url: string }).url).not.toContain("?");
+    expect((options as { url: string }).url).toContain("/agent/v1/chat");
+    expect((options as { body: unknown }).body).toEqual({
+      question: "图书馆开放时间？",
+      conversationId: "ac-95"
+    });
+  });
+});

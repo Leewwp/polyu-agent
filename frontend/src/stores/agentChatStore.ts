@@ -23,7 +23,6 @@ import {
   renameAgentSession,
   stopAgentTask
 } from "@/services/agentService";
-import { buildQuery } from "@/utils/helpers";
 import { classifyChatError } from "@/utils/chatErrors";
 import { errorTextFor, toastErrorUnlessShown } from "@/utils/requestError";
 import { createAgentStreamResponse } from "@/hooks/useAgentStream";
@@ -756,13 +755,17 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       }));
 
       const conversationId = get().currentSessionId;
-      const query = buildQuery({
-        question: trimmed,
-        conversationId: conversationId || undefined
+      // L34（#95 扩展面）：agent 链首问与 workflow 链同病（问题全文进 GET 查询串）——
+      // 一并切 POST body，与 /agent/v1/chat/confirm 的既有 POST 形态对齐
+      await runStream({
+        url: `${API_BASE_URL}/agent/v1/chat`,
+        body: {
+          question: trimmed,
+          conversationId: conversationId || undefined
+        },
+        assistantId,
+        originConversationId: conversationId
       });
-      const url = `${API_BASE_URL}/agent/v1/chat${query}`;
-
-      await runStream({ url, assistantId, originConversationId: conversationId });
     },
     confirmPendingTool: async (messageId, blockId, approved) => {
       const conversationId = get().currentSessionId;
