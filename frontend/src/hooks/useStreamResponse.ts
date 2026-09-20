@@ -15,6 +15,8 @@ export interface StreamHandlers {
 
 export interface StreamOptions {
   url: string;
+  /** L34（#95）：携带 body 即以 POST 发起（问题全文不再进 URL 查询串），缺省维持 GET */
+  body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
   retryCount?: number;
@@ -175,9 +177,11 @@ async function streamWithRetry(
   options: StreamOptions,
   handlers: StreamHandlers
 ): Promise<void> {
-  const { url, headers, signal } = options;
+  const { url, headers, signal, body } = options;
   const retryCount = options.retryCount ?? 2;
   const retryDelayMs = options.retryDelayMs ?? 600;
+  // L34：携带 body 即 POST（与 agent 链 useAgentStream 同口径），否则维持 GET
+  const post = body !== undefined;
 
   let attempt = 0;
   while (attempt <= retryCount) {
@@ -187,11 +191,13 @@ async function streamWithRetry(
     let receivedStreamBytes = false;
     try {
       const response = await fetch(url, {
-        method: "GET",
+        method: post ? "POST" : "GET",
         headers: {
           Accept: "text/event-stream",
+          ...(post ? { "Content-Type": "application/json" } : {}),
           ...headers
         },
+        body: post ? JSON.stringify(body) : undefined,
         signal
       });
 
