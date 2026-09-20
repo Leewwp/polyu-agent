@@ -15,7 +15,8 @@ interface AgentMessageListProps {
 
 // 用户消息开启新一轮 其后的助手消息全部配对入同一张 Turn 卡
 // 一问对多答只出在确认续跑上：挂起那条与续答同属一次提问 拆两张卡会读成问了两次
-function groupTurns(messages: AgentMessage[]): AgentTurn[] {
+// 导出供分享视图（issue #91）复用同一分组口径——静态快照无流式，直接逐卡渲染
+export function groupTurns(messages: AgentMessage[]): AgentTurn[] {
   const turns: AgentTurn[] = [];
   for (const message of messages) {
     if (message.role === "user") {
