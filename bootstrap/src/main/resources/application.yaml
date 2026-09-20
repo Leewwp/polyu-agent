@@ -98,7 +98,7 @@ agent:
   share:
     enabled: ${AGENT_SHARE_ENABLED:false}   # 会话只读分享 feature flag（issue #82）：默认关；关闭时相关端点不装配、公开路径由兜底统一「链接无效」
     default-expire-days: ${AGENT_SHARE_EXPIREDAYS:90}  # 分享默认过期天数，0/负=不过期；默认 90 天
-    content-version: v1     # 随分享快照落库的内容/知识版本标记
+    content-version: v2     # 随分享快照落库的内容/知识版本标记（v2=assistant 条目携带 sources 投影，issue #91）
   max-iters: 10         # ReAct 循环上限，超出后熔断收尾
   max-retries: 1        # 最大尝试次数含首次，1 即不重试
   sse-timeout-ms: 900000

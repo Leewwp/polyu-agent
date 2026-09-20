@@ -23,22 +23,28 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentConversationDO;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentConversationMapper;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.share.dao.AgentConversationShareMapper;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareAdminItemVO;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareCreatedVO;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareMineItemVO;
 import com.nageoffer.ai.ragent.agent.share.vo.PublicAgentShareVO;
+import com.nageoffer.ai.ragent.agent.tool.KnowledgeSearchTool;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Agent 会话只读分享服务实现（issue #82）
@@ -46,6 +52,8 @@ import java.util.Objects;
  * <p>克隆 AnswerShareServiceImpl 契约形态；差异仅在快照粒度——本服务做会话级
  * 快照：标题 + 按序白名单消息对（role/content/createTime），空白正文消息自然
  * 跳过，blocks/思考/耗时/ID/身份字段一律不进快照（隐私负面清单）。
+ * v2（issue #91）：assistant 条目追加可选 sources 投影（search_knowledge
+ * 工具块来源 → 前端来源徽章）；快照其余语义（冻结/撤销/过期）零变更。
  */
 @Service
 @RequiredArgsConstructor
@@ -55,6 +63,8 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
     private static final String STATUS_REVOKED = "REVOKED";
     private static final String ROLE_ASSISTANT = "assistant";
     private static final String ROLE_USER = "user";
+    private static final String ROLE_GUEST = "guest";
+    private static final String BLOCK_KIND_TOOL = "tool";
     private static final String LANG_ZH = "zh";
     private static final String LANG_EN = "en";
     private static final int TOKEN_BYTES = 32;
@@ -73,14 +83,17 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
     private int defaultExpireDays;
 
     /**
-     * 内容/知识版本标记（随分享快照落库）
+     * 内容/知识版本标记（随分享快照落库）；v2 起 assistant 条目携带 sources 投影
      */
-    @Value("${agent.share.content-version:v1}")
+    @Value("${agent.share.content-version:v2}")
     private String contentVersion;
 
     @Override
-    public AgentShareCreatedVO createShare(String conversationId, String userId) {
+    public AgentShareCreatedVO createShare(String conversationId, String userId, String role) {
         Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
+        // 游客硬阻断（issue #91 增补，2026-09-19 维护者裁定）：游客为临时身份，cookie
+        // 丢失后其分享成为无人可撤销的孤儿、仅剩 admin 兜底；与前端按钮对 guest 隐藏互为双保险
+        Assert.isTrue(!ROLE_GUEST.equals(role), () -> new ClientException("游客身份不支持创建分享，请登录后使用"));
         Assert.notBlank(conversationId, () -> new ClientException("会话ID不能为空"));
 
         AgentConversationDO conversation = conversationMapper.selectOne(
@@ -94,7 +107,8 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
                         .eq(AgentMessageDO::getConversationId, conversationId)
                         .orderByAsc(AgentMessageDO::getId));
 
-        // 快照白名单：仅 role/content/createTime；空白正文（挂起确认卡、空轮）自然跳过
+        // 快照白名单：role/content/createTime +（v2）assistant 条目的可选 sources 投影；
+        // 空白正文（挂起确认卡、空轮）自然跳过
         List<AgentShareSnapshotItem> snapshot = messages.stream()
                 .filter(message -> ROLE_USER.equals(message.getRole()) || ROLE_ASSISTANT.equals(message.getRole()))
                 .filter(message -> message.getContent() != null && !message.getContent().isBlank())
@@ -102,6 +116,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
                         .role(message.getRole())
                         .content(message.getContent())
                         .createTime(message.getCreateTime())
+                        .sources(ROLE_ASSISTANT.equals(message.getRole()) ? extractSources(message) : null)
                         .build())
                 .toList();
         boolean hasQuestion = snapshot.stream().anyMatch(item -> ROLE_USER.equals(item.getRole()));
@@ -196,6 +211,46 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
                     return item;
                 })
                 .toList();
+    }
+
+    /**
+     * 从 assistant 消息 blocks 提取检索来源投影（issue #91 白名单 v2）：
+     * 只认 search_knowledge 工具块携带的 sources，按块序摊平、docId 去重
+     * （同一文档多次命中只保留首次），展示序号按合并后顺序 1 基编号；
+     * 工具块的入参/结果/耗时等其余字段不外发。无可投影来源返回 null（user 条目同）。
+     */
+    private List<AgentShareSnapshotSource> extractSources(AgentMessageDO message) {
+        if (message.getBlocks() == null || message.getBlocks().isEmpty()) {
+            return null;
+        }
+        Set<String> seenDocIds = new HashSet<>();
+        List<AgentShareSnapshotSource> merged = new ArrayList<>();
+        for (AgentBlock block : message.getBlocks()) {
+            if (block == null || !BLOCK_KIND_TOOL.equals(block.getKind())
+                    || !KnowledgeSearchTool.TOOL_NAME.equals(block.getName())
+                    || block.getSources() == null) {
+                continue;
+            }
+            for (AgentBlockSource source : block.getSources()) {
+                if (source == null || source.getDocId() == null || !seenDocIds.add(source.getDocId())) {
+                    continue;
+                }
+                merged.add(AgentShareSnapshotSource.builder()
+                        .docId(source.getDocId())
+                        .docName(source.getDocName())
+                        .excerpt(source.getExcerpt())
+                        .sourceType(source.getSourceType())
+                        .url(source.getUrl())
+                        .build());
+            }
+        }
+        if (merged.isEmpty()) {
+            return null;
+        }
+        for (int i = 0; i < merged.size(); i++) {
+            merged.get(i).setIndex(i + 1);
+        }
+        return merged;
     }
 
     private AgentShareMineItemVO toItemVO(AgentConversationShareDO share) {
