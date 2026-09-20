@@ -33,12 +33,19 @@ export interface FeedShellProps {
    * 移动端底部 tab 不渲染（聊天页底部为输入条，tab 由顶栏菜单钮替代回资讯）。
    */
   fluid?: boolean;
+  /**
+   * 分享视图态（issue #91，/share/c/:token 壳化）：presence 即生效——
+   * 顶栏标题优先用快照标题（null 回落页面名）、不挂「分享对话」钮；
+   * 侧栏「最近对话」区换只读单条目并守零网络请求。title=null 表示
+   * 加载中/无效态（无被分享会话可示）。
+   */
+  shareView?: { title: string | null };
 }
 
-export function FeedShell({ title, children, fluid = false }: FeedShellProps) {
+export function FeedShell({ title, children, fluid = false, shareView }: FeedShellProps) {
   return (
     <FeedLangProvider>
-      <FeedShellInner title={title} fluid={fluid}>
+      <FeedShellInner title={title} fluid={fluid} shareView={shareView}>
         {children}
       </FeedShellInner>
     </FeedLangProvider>
@@ -90,25 +97,35 @@ function useChatSessionTitle(): string | null {
 }
 
 /** 桌面顶栏（content 档嵌主区列顶、fluid 档横贯；全站检索入口在 FeedPage chips 行，顶栏不设搜索框） */
-function DesktopTopbar({ title, fluid }: { title: { zh: string; en: string }; fluid: boolean }) {
+function DesktopTopbar({
+  title,
+  fluid,
+  shareView
+}: {
+  title: { zh: string; en: string };
+  fluid: boolean;
+  shareView?: { title: string | null };
+}) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   const engineType = useEngineStore((state) => state.engineType);
   // 实时 HKT 日期（渲染时计算；跨零点长驻由下一次渲染自然纠正）
   const dateLabels = useMemo(() => feedDateLabels(new Date(), lang), [lang]);
   const chatTitle = useChatSessionTitle();
+  // 分享视图：标题优先用快照标题（store 里可能残留访客自己会话的标题，不可采信）
+  const fluidTitle = shareView ? shareView.title : chatTitle;
   return (
     <header className="sticky top-0 z-30 hidden items-center gap-3.5 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.92)] px-7 py-3 backdrop-blur min-[861px]:flex">
       <div className="min-w-0">
         <div className="truncate text-[17px] font-bold">
-          {(fluid && chatTitle) || (zh ? title.zh : title.en)}
+          {(fluid && fluidTitle) || (zh ? title.zh : title.en)}
         </div>
         <div className="text-[12.5px] text-[var(--feed-text-tertiary)]">{dateLabels.long}</div>
       </div>
-      {fluid && engineType === "agent" && <EngineBadge />}
+      {fluid && !shareView && engineType === "agent" && <EngineBadge />}
       <div className="ml-auto flex items-center gap-2.5">
         <LangPill />
-        <AgentSessionShareButton />
+        {!shareView && <AgentSessionShareButton />}
         <UserMenu />
       </div>
     </header>
@@ -121,7 +138,7 @@ function DesktopTopbar({ title, fluid }: { title: { zh: string; en: string }; fl
  * （与桌面顶栏同一全局值，feed/hot/topics/detail 五页共用）。
  * 补身份入口（登录钮/头像下拉，与桌面同一 UserMenu mobile 档）。
  */
-function MobileTopbar({ onOpenMenu }: { onOpenMenu: () => void }) {
+function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; shareView?: { title: string | null } }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   const dateLabels = useMemo(() => feedDateLabels(new Date(), lang), [lang]);
@@ -140,7 +157,7 @@ function MobileTopbar({ onOpenMenu }: { onOpenMenu: () => void }) {
       </div>
       <div className="ml-auto text-[11.5px] text-[var(--feed-text-tertiary)]">{dateLabels.short}</div>
       <div className="flex flex-none">
-        <AgentSessionShareButton />
+        {!shareView && <AgentSessionShareButton />}
         <LangPill />
       </div>
       <UserMenu variant="mobile" />
@@ -148,7 +165,7 @@ function MobileTopbar({ onOpenMenu }: { onOpenMenu: () => void }) {
   );
 }
 
-function FeedShellInner({ title, children, fluid }: FeedShellProps) {
+function FeedShellInner({ title, children, fluid, shareView }: FeedShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (fluid) {
@@ -157,10 +174,10 @@ function FeedShellInner({ title, children, fluid }: FeedShellProps) {
     // 顶栏只盖主区），此前侧栏被顶栏压在下方与全站形态不一致。
     return (
       <div className="flex h-screen bg-[var(--feed-bg)] text-[var(--feed-text-primary)]">
-        <FeedSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} fullHeight />
+        <FeedSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} fullHeight shareView={shareView} />
         <div className="flex min-w-0 flex-1 flex-col">
-          <DesktopTopbar title={title} fluid />
-          <MobileTopbar onOpenMenu={() => setSidebarOpen(true)} />
+          <DesktopTopbar title={title} fluid shareView={shareView} />
+          <MobileTopbar onOpenMenu={() => setSidebarOpen(true)} shareView={shareView} />
           <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
         </div>
       </div>

@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useFeedLang } from "@/components/feed/feedLang";
 import { useAgentChatStore } from "@/stores/agentChatStore";
+import { useAuthStore } from "@/stores/authStore";
 import { useEngineStore } from "@/stores/engineStore";
 import { createAgentShare } from "@/services/agentShareService";
 
@@ -21,16 +22,19 @@ import { createAgentShare } from "@/services/agentShareService";
  * Agent 会话「分享对话」钮（issue #82）：挂在聊天壳当前会话头部动作区。
  * 点击→双语隐私确认弹窗→创建快照→复制公开链接→成功 toast；生成中 loading 防重。
  * 仅 agent 引擎且有当前会话时渲染；后端 flag 默认关，未启用时请求 404 → 提示功能未开启。
+ * 游客硬阻断（issue #91 增补，2026-09-19 维护者裁定）：临时身份的分享会成为
+ * 无人可撤销的孤儿，前端对 role=guest 直接不渲染；后端 createShare 拒绝为双保险。
  */
 export function AgentSessionShareButton() {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   const engineType = useEngineStore((state) => state.engineType);
   const currentSessionId = useAgentChatStore((state) => state.currentSessionId);
+  const role = useAuthStore((state) => state.user?.role);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
 
-  if (engineType !== "agent" || !currentSessionId) {
+  if (role === "guest" || engineType !== "agent" || !currentSessionId) {
     return null;
   }
 

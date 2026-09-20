@@ -5118,6 +5118,100 @@ textarea {
   }
 }
 
+/* ── 会话分享只读视图（issue #91 壳化）─────────────────── */
+/* 主体三段=细横幅/静态事件流/CTA 条：快照无流式，flex 列即可（聊天档两行 grid 的分享态） */
+.agent-app .agent-main.agent-share-main {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 非官方+时效提示收敛为壳内细横幅：一行说清，不与正文抢版面 */
+.agent-app .agent-share-banner {
+  flex: none;
+  padding: 6px var(--agent-s6);
+  background: var(--agent-sunk);
+  border-bottom: var(--agent-hair);
+  color: var(--agent-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* 静态快照流：顶部起读（阅读顺序），列宽与轮次卡同 880 同列 */
+.agent-app .agent-share-stream {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--agent-s6) 0 var(--agent-s4);
+}
+
+.agent-app .agent-share-rows {
+  padding: 0 var(--agent-s6);
+}
+
+/* 加载/无效态：居中占位，无效态在壳内呈现统一语义 */
+.agent-app .agent-share-status {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 0 var(--agent-s6);
+}
+
+/* 底部 CTA 条（禁用态输入区的替代）：留白同 composer 档，按钮居中成组 */
+.agent-app .agent-share-cta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--agent-s3);
+  padding: var(--agent-s2) var(--agent-s6) var(--agent-s4);
+}
+
+/* 主钮：实底信号橙（唯一主动作=进入产品）；次钮：描边静色 */
+.agent-app .agent-share-cta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 18px;
+  border-radius: var(--agent-radius);
+  background: var(--agent-orange-ink);
+  color: #fff;
+  font-size: var(--agent-t-md);
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+
+.agent-app .agent-share-cta-primary:hover {
+  background: var(--agent-orange);
+}
+
+.agent-app .agent-share-cta-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: var(--agent-radius);
+  border: 1px solid var(--agent-grid-strong);
+  background: var(--agent-surface);
+  color: var(--agent-ink);
+  font-size: var(--agent-t-md);
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+
+.agent-app .agent-share-cta-secondary:hover {
+  border-color: var(--agent-muted);
+}
+
 /* ── 输入条 ─────────────────────────────── */
 /* 条只负责留白 不画边不铺底：横贯全宽的分界线与框在说相反的话（框是列里的下一个物件 不是页脚） */
 .agent-app .agent-composer {

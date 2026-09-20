@@ -370,12 +370,20 @@ function RecentChatsSectionInternal({
 export function FeedSidebar({
   open,
   onClose,
-  fullHeight = false
+  fullHeight = false,
+  shareView
 }: {
   open: boolean;
   onClose: () => void;
   /** 聊天档：桌面侧栏高度跟随满高外壳（fluid 主区）而非 100vh——顶栏占了一行 */
   fullHeight?: boolean;
+  /**
+   * 分享视图态（issue #91）：presence 即生效——内容导航与游客卡原样，
+   * 「最近对话」区换被分享会话单条目（标题+「分享·只读」徽标、固定 active、
+   * 不可切换）；title=null（加载中/无效态）不渲染条目。守零网络请求：
+   * 不探测引擎档位、不拉会话列表（对已登录访客同样守——分享视图无自家会话面）。
+   */
+  shareView?: { title: string | null };
 }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
@@ -413,19 +421,21 @@ export function FeedSidebar({
 
   useEffect(() => {
     // 已登录用户预探测引擎档位（一次 GET /rag/settings/engine，登录态可读）：
-    // 未探测时侧栏只能展示 workflow 会话，agent 档用户会被误导——匿名态零请求红线不变
-    if (isAuthenticated && !engineType) {
+    // 未探测时侧栏只能展示 workflow 会话，agent 档用户会被误导——匿名态零请求红线不变；
+    // 分享视图态跳过（无自家会话面，不探测）
+    if (!shareView && isAuthenticated && !engineType) {
       initializeEngine().catch(() => null);
     }
-  }, [isAuthenticated, engineType, initializeEngine]);
+  }, [shareView, isAuthenticated, engineType, initializeEngine]);
 
-  // 已登录时拉取当前引擎的真实会话；匿名零请求（公开页红线）
+  // 已登录时拉取当前引擎的真实会话；匿名零请求（公开页红线）；
+  // 分享视图态不拉——「最近对话」区由被分享会话单条目替代
   useEffect(() => {
-    if (isAuthenticated && engineResolved && !sessionsLoaded) {
+    if (!shareView && isAuthenticated && engineResolved && !sessionsLoaded) {
       const fetch = isAgentEngine ? agLoadSessions : wfFetchSessions;
       fetch().catch(() => null);
     }
-  }, [isAuthenticated, engineResolved, sessionsLoaded, isAgentEngine, agLoadSessions, wfFetchSessions]);
+  }, [shareView, isAuthenticated, engineResolved, sessionsLoaded, isAgentEngine, agLoadSessions, wfFetchSessions]);
 
   const role = user?.role;
   const isGuest = role === "guest";
@@ -536,17 +546,38 @@ export function FeedSidebar({
         </nav>
 
         <div className="flex min-h-0 flex-col gap-0.5">
-          <RecentChatsSection
-            sessions={sessions}
-            isAgentEngine={isAgentEngine}
-            manageable={isAuthenticated && !isGuest}
-            zh={zh}
-            onNavigate={onClose}
-          />
-          {!isAuthenticated && (
-            <div className="px-2.5 pt-0.5 text-[11.5px] text-[var(--feed-text-tertiary)]">
-              {zh ? "登录后可同步全部历史对话" : "Sign in to sync full history"}
-            </div>
+          {shareView ? (
+            shareView.title ? (
+              <>
+                <div className={navTitleClass()}>{zh ? "最近对话" : "RECENT CHATS"}</div>
+                {/* 被分享会话单条目：固定 active、只读徽标，不可切换（分享视图态） */}
+                <div
+                  className={cn(navItemClass(true), "cursor-default select-none")}
+                  title={shareView.title}
+                  aria-current="page"
+                >
+                  <span className="truncate">{shareView.title}</span>
+                  <span className="ml-auto flex-none rounded-full bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-[var(--polyu-red-dark)] ring-1 ring-[var(--polyu-red-100)]">
+                    {zh ? "分享 · 只读" : "Shared · read-only"}
+                  </span>
+                </div>
+              </>
+            ) : null
+          ) : (
+            <>
+              <RecentChatsSection
+                sessions={sessions}
+                isAgentEngine={isAgentEngine}
+                manageable={isAuthenticated && !isGuest}
+                zh={zh}
+                onNavigate={onClose}
+              />
+              {!isAuthenticated && (
+                <div className="px-2.5 pt-0.5 text-[11.5px] text-[var(--feed-text-tertiary)]">
+                  {zh ? "登录后可同步全部历史对话" : "Sign in to sync full history"}
+                </div>
+              )}
+            </>
           )}
         </div>
 

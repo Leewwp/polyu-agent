@@ -206,6 +206,9 @@ function RowBody({ row }: { row: TraceRow }) {
     return (
       <div className="agent-answer-form">
         <AgentMarkdownRenderer content={row.text ?? ""} />
+        {/* 分享视图（issue #91）：快照投影的 sources 挂在合成的 answer 块上随答案
+            渲染徽章；实况链 sources 只在 tool 块（search_knowledge 专属），此处恒空 */}
+        {row.block?.sources ? <AgentSourcesBadge sources={row.block.sources} /> : null}
       </div>
     );
   }

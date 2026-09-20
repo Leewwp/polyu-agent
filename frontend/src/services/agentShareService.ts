@@ -6,11 +6,28 @@ export interface AgentShareCreated {
   expireTime?: string | null;
 }
 
-/** 快照消息条目：role/content/createTime 三字段白名单（隐私负面清单外字段不存在） */
+/**
+ * 快照来源条目（issue #91 v2 可选字段）：SourceRef 等价投影，
+ * v1 旧快照无此字段——前端缺省即不渲染来源徽章（优雅降级）
+ */
+export interface AgentShareSnapshotSource {
+  index?: number | null;
+  docId: string;
+  docName?: string | null;
+  excerpt?: string | null;
+  url?: string | null;
+  sourceType?: string | null;
+}
+
+/**
+ * 快照消息条目：role/content/createTime 白名单 +（v2）assistant 条目可选 sources
+ * （隐私负面清单外字段不存在）
+ */
 export interface AgentShareSnapshotItem {
   role: string;
   content: string;
   createTime?: string | null;
+  sources?: AgentShareSnapshotSource[] | null;
 }
 
 /** 会话分享公开载荷（匿名可读，字段白名单） */

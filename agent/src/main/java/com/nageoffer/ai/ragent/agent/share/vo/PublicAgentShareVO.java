@@ -30,8 +30,9 @@ import java.util.List;
  * 会话分享公开载荷（匿名可读，字段白名单）
  *
  * <p>只含标题快照、白名单消息序列与展示元信息；消息条目类型即快照白名单
- * {@link AgentShareSnapshotItem}（role/content/createTime），公开读不存在
- * 携带身份/ID/思考/轨迹字段的路径。
+ * {@link AgentShareSnapshotItem}（role/content/createTime + v2 起 assistant
+ * 条目可选 sources 投影，随 messages 透传），公开读不存在携带身份/ID/思考/
+ * 轨迹字段的路径。
  */
 @Data
 @NoArgsConstructor
@@ -45,7 +46,7 @@ public class PublicAgentShareVO {
     private String title;
 
     /**
-     * 按时间序的白名单消息对（提问与终答）
+     * 按时间序的白名单消息对（提问与终答；assistant 条目含可选 sources 投影）
      */
     private List<AgentShareSnapshotItem> messages;
 

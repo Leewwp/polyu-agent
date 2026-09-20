@@ -33,9 +33,10 @@ import java.util.List;
 public interface AgentConversationShareService {
 
     /**
-     * 创建会话分享快照（校验会话存在、属于本人、含至少一组有效问答）
+     * 创建会话分享快照（校验会话存在、属于本人、含至少一组有效问答）；
+     * role 供游客硬阻断判定（issue #91 增补：guest 拒绝）
      */
-    AgentShareCreatedVO createShare(String conversationId, String userId);
+    AgentShareCreatedVO createShare(String conversationId, String userId, String role);
 
     /**
      * 匿名读公开载荷（不存在/已撤销/已过期统一抛「分享链接无效或已撤销」）

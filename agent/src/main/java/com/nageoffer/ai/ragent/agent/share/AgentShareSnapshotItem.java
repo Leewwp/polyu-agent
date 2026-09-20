@@ -23,14 +23,17 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
+import java.util.List;
 
 /**
  * 会话分享快照的消息条目（隐私负面清单白名单）
  *
- * <p>每条消息仅保留 role / 终答或提问正文 / createTime 三字段，与用户所见逐字一致；
- * blocks（工具调用轨迹）、thinkingContent、durationMs、messageStatus、消息与会话 ID、
- * userId 一律不进快照（issue #82 快照白名单，沿用 V1 总决议 §10 公开载荷负面清单先例）。
- * 该类型同时是公开载荷 VO 的消息条目——公开读不存在超出白名单的路径。
+ * <p>每条消息保留 role / 终答或提问正文 / createTime，与用户所见逐字一致；
+ * v2（issue #91）起 assistant 条目追加可选 sources 投影（检索来源徽章依据）。
+ * blocks 本体（工具调用轨迹/入参/结果）、thinkingContent、durationMs、messageStatus、
+ * 消息与会话 ID、userId 一律仍不进快照（issue #82 快照白名单，沿用 V1 总决议 §10
+ * 公开载荷负面清单先例）。该类型同时是公开载荷 VO 的消息条目——公开读不存在超出
+ * 白名单的路径。
  */
 @Data
 @NoArgsConstructor
@@ -52,4 +55,11 @@ public class AgentShareSnapshotItem {
      * 原消息创建时间快照
      */
     private Date createTime;
+
+    /**
+     * 检索来源投影（v2 可选，issue #91）：仅 assistant 条目，从 blocks 的
+     * search_knowledge 工具块提取；user 条目与 v1 旧快照恒为 null——前端缺省
+     * 即不渲染来源徽章（老链接优雅降级）
+     */
+    private List<AgentShareSnapshotSource> sources;
 }

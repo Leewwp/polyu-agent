@@ -231,4 +231,68 @@ describe("FeedSidebar", () => {
       expect(screen.getByText("LOGIN_PAGE_MARK")).toBeTruthy();
     });
   });
+
+  it("share view: replaces recent chats with the single shared entry and stays offline (issue #91)", async () => {
+    // 已登录用户打开分享视图：不探测引擎档位、不拉会话列表（零网络，含登录态）
+    const { requestedUrls } = instrumentNetwork();
+    const initializeEngine = vi.fn(async () => {});
+    const fetchSessions = vi.fn(async () => {});
+    const agLoadSessions = vi.fn(async () => {});
+    useAuthStore.setState({
+      user: { userId: "u-1", username: "alice", role: "user" },
+      isAuthenticated: true
+    });
+    useEngineStore.setState({ engineType: null, loading: false, error: null, initialize: initializeEngine });
+    useChatStore.setState({ sessions: [], sessionsLoaded: false, fetchSessions });
+    useAgentChatStore.setState({ sessions: [], sessionsLoaded: false, loadSessions: agLoadSessions });
+
+    render(
+      <MemoryRouter initialEntries={["/share/c/TOKEN"]}>
+        <FeedLangContext.Provider value={{ lang: "zh", setLang: () => {} }}>
+          <Routes>
+            <Route
+              path="/share/c/:token"
+              element={<FeedSidebar open={false} onClose={() => {}} shareView={{ title: "宿舍申请咨询" }} />}
+            />
+          </Routes>
+        </FeedLangContext.Provider>
+      </MemoryRouter>
+    );
+
+    // 内容导航原样保留；「最近对话」=被分享会话单条目（只读徽标、非链接不可切换）
+    expect(screen.getByRole("link", { name: /精选/ }).getAttribute("href")).toBe("/");
+    expect(screen.getByText("最近对话")).toBeTruthy();
+    expect(screen.getByText("宿舍申请咨询")).toBeTruthy();
+    expect(screen.getByText("分享 · 只读")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "宿舍申请咨询" })).toBeNull();
+    expect(screen.queryByText("登录后可同步全部历史对话")).toBeNull();
+
+    // 零网络：不探引擎档位、两 store 均不拉会话（公开页红线在分享视图态对登录态同样守）
+    await act(async () => {});
+    expect(initializeEngine).not.toHaveBeenCalled();
+    expect(fetchSessions).not.toHaveBeenCalled();
+    expect(agLoadSessions).not.toHaveBeenCalled();
+    expect(requestedUrls).toEqual([]);
+
+    // 已登录非游客：游客卡不渲染（正常口径不变）
+    expect(screen.queryByText(/游客身份/)).toBeNull();
+  });
+
+  it("share view without a loaded title (loading/invalid) renders no shared entry", () => {
+    render(
+      <MemoryRouter initialEntries={["/share/c/BAD"]}>
+        <FeedLangContext.Provider value={{ lang: "zh", setLang: () => {} }}>
+          <Routes>
+            <Route
+              path="/share/c/:token"
+              element={<FeedSidebar open={false} onClose={() => {}} shareView={{ title: null }} />}
+            />
+          </Routes>
+        </FeedLangContext.Provider>
+      </MemoryRouter>
+    );
+    expect(screen.queryByText("分享 · 只读")).toBeNull();
+    // 内容导航仍在（壳不因加载/无效态退场）
+    expect(screen.getByRole("link", { name: /精选/ })).toBeTruthy();
+  });
 });

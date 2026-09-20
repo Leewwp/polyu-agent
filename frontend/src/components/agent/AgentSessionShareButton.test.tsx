@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
 import { FeedLangProvider } from "@/components/feed/feedLang";
 import { useAgentChatStore } from "@/stores/agentChatStore";
+import { useAuthStore } from "@/stores/authStore";
 import { useEngineStore } from "@/stores/engineStore";
 
 const createAgentShareMock = vi.hoisted(() => vi.fn());
@@ -20,7 +21,8 @@ vi.mock("sonner", () => ({
 
 /**
  * issue #82 会话分享钮：隐私确认弹窗→创建→复制 /share/c/ 链接；
- * flag 未开启（404）提示「分享功能未开启」；无当前会话不渲染。
+ * flag 未开启（404）提示「分享功能未开启」；无当前会话不渲染；
+ * issue #91 增补：游客身份（role=guest）硬阻断不渲染（后端拒绝为双保险）。
  */
 function setup() {
   render(
@@ -39,6 +41,11 @@ describe("AgentSessionShareButton", () => {
     toastError.mockClear();
     useEngineStore.setState({ engineType: "agent" });
     useAgentChatStore.setState({ currentSessionId: null });
+    useAuthStore.setState({ user: null, isAuthenticated: false });
+  });
+
+  beforeEach(() => {
+    useAuthStore.setState({ user: null, isAuthenticated: false });
   });
 
   it("确认弹窗出现隐私提醒，创建成功后复制 /share/c/ 链接", async () => {
@@ -82,5 +89,17 @@ describe("AgentSessionShareButton", () => {
     useAgentChatStore.setState({ currentSessionId: null });
     setup();
     expect(screen.queryByRole("button", { name: /分享对话|Share conversation/ })).toBeNull();
+  });
+
+  it("游客身份（role=guest）硬阻断不渲染（issue #91 增补，后端拒绝为双保险）", () => {
+    useAuthStore.setState({
+      user: { userId: "g-1", username: "guest-abc", role: "guest" },
+      isAuthenticated: true
+    });
+    useEngineStore.setState({ engineType: "agent" });
+    useAgentChatStore.setState({ currentSessionId: "conv-guest" });
+    setup();
+    expect(screen.queryByRole("button", { name: /分享对话|Share conversation/ })).toBeNull();
+    expect(createAgentShareMock).not.toHaveBeenCalled();
   });
 });
