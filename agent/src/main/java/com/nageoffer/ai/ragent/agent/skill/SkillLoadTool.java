@@ -61,11 +61,6 @@ public class SkillLoadTool implements AgentTool {
 
     private final AgentSkillRegistry skillRegistry;
 
-    /**
-     * 已挂载 MCP 工具的展示名，用于告诉模型这份手册解锁了什么
-     */
-    private final Map<String, String> toolDisplayNames;
-
     @Override
     public String getName() {
         return TOOL_NAME;
@@ -128,21 +123,9 @@ public class SkillLoadTool implements AgentTool {
     }
 
     private ToolResultBlock success(String toolCallId, AgentSkill skill) {
-        StringBuilder text = new StringBuilder()
-                .append("已加载技能「").append(skill.name()).append("」。以下是这件事的办理手册，接下来按它执行：\n\n")
-                .append(StrUtil.emptyIfNull(skill.content()));
-        List<String> mountedToolIds = skill.toolIds().stream()
-                .filter(toolDisplayNames::containsKey)
-                .toList();
-        if (!mountedToolIds.isEmpty()) {
-            text.append("\n\n本技能解锁的工具：").append(mountedToolIds.stream()
-                    .map(toolId -> {
-                        String display = toolDisplayNames.get(toolId);
-                        return display == null || display.equals(toolId) ? toolId : toolId + "（" + display + "）";
-                    })
-                    .collect(Collectors.joining("、")));
-        }
-        return block(toolCallId, text.toString(),
+        String text = "已加载技能「" + skill.name() + "」。以下是这件事的办理手册，接下来按它执行：\n\n"
+                + StrUtil.emptyIfNull(skill.content());
+        return block(toolCallId, text,
                 Map.of(LOADED_SKILL_METADATA_KEY, skill.skillCode()), ToolResultState.SUCCESS);
     }
 

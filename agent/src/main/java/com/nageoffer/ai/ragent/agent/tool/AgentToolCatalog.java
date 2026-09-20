@@ -94,9 +94,7 @@ public class AgentToolCatalog {
             log.warn("AGENT_MEMORY_TOOL_DESCRIPTION 提示词为空, 本次不挂载 {}", MemoryFlushTool.TOOL_NAME);
         }
         if (catalog.hasSkills) {
-            Map<String, String> mountedMcpNames = catalog.bindings.stream()
-                    .collect(Collectors.toMap(McpToolBinding::toolId, McpToolBinding::displayName));
-            toolkit.registerAgentTool(new SkillLoadTool(skillRegistry, mountedMcpNames));
+            toolkit.registerAgentTool(new SkillLoadTool(skillRegistry));
         }
         catalog.bindings.forEach(binding -> toolkit.registerAgentTool(new McpToolProxy(binding)));
         // 只在构建实例时记，不随每次 resolve 刷日志
