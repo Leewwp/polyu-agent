@@ -35,7 +35,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 拦截器却不生效。用与 Spring MVC 同一套 {@link PathPatternParser} 求值，
  * 避免靠肉眼比对字符串。
  *
- * <p>此处只覆盖已确认的管理面端点；全量 controller 的覆盖面审计见安全审查报告。
+ * <p>此处只覆盖已确认的管理面端点；**全量覆盖面契约**（classpath 扫全部 controller、
+ * 任何映射未归类即红——含逐模块哨兵）由 bootstrap 模块
+ * {@code AdminSurfaceContractTest} 承担：新增端点默认须分类，忘补管理面清单即 CI 红（#96）。
  */
 class AdminPathPatternsTest {
 
