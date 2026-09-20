@@ -96,3 +96,62 @@ describe("useStreamResponse M16 断流重试闸", () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("useStreamResponse L34 POST 变体", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("携带 body 即以 POST+JSON 发起，问题全文不进 URL", async () => {
+    fetchMock.mockReturnValue(
+      Promise.resolve(sseResponse({ chunks: ["event: done\ndata: \n\n"], complete: true }))
+    );
+    const { start } = createStreamResponse(
+      {
+        url: "https://example.invalid/rag/v3/chat",
+        body: { question: "图书馆几点开门？", conversationId: "c1", deepThinking: true },
+        retryCount: 0
+      },
+      {}
+    );
+    await expect(start()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://example.invalid/rag/v3/chat");
+    expect(url).not.toContain("?");
+    expect(init.method).toBe("POST");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual({ question: "图书馆几点开门？", conversationId: "c1", deepThinking: true });
+  });
+
+  it("不携带 body 维持 GET（既有消费方口径不变）", async () => {
+    fetchMock.mockReturnValue(
+      Promise.resolve(sseResponse({ chunks: ["event: done\ndata: \n\n"], complete: true }))
+    );
+    const { start } = createStreamResponse({ url: "https://example.invalid/stream", retryCount: 0 }, {});
+    await expect(start()).resolves.toBeUndefined();
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("POST 零字节失败保留重试（M16 闸口径与 GET 一致）", async () => {
+    fetchMock
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockReturnValueOnce(Promise.resolve(sseResponse({ chunks: ["data: ok\n\n"], complete: true })));
+    const { start } = createStreamResponse(
+      { url: "https://example.invalid/rag/v3/chat", body: { question: "q" }, retryCount: 1, retryDelayMs: 1 },
+      {}
+    );
+    await expect(start()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].method).toBe("POST");
+  });
+});

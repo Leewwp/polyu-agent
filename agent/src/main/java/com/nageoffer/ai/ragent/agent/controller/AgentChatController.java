@@ -20,19 +20,19 @@ package com.nageoffer.ai.ragent.agent.controller;
 import com.nageoffer.ai.ragent.agent.config.AgentProperties;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.controller.request.ConfirmRequest;
+import com.nageoffer.ai.ragent.agent.controller.request.AgentChatRequest;
 import com.nageoffer.ai.ragent.agent.service.AgentChatService;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
-import com.nageoffer.ai.ragent.framework.validation.ChatQuestion;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
 import com.nageoffer.ai.ragent.rag.service.AnonymousTrialGuard;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -53,10 +53,15 @@ public class AgentChatController {
     private final AgentProperties agentProperties;
     private final AnonymousTrialGuard anonymousTrialGuard;
 
-    @GetMapping(value = "/agent/v1/chat", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter chat(@RequestParam @ChatQuestion String question,
-                           @RequestParam(required = false) String conversationId,
+    /**
+     * L34（#95 扩展面）：问题全文改经 POST body——与 RAG v3 链同款；GET 查询串形态
+     * （问题进浏览器历史与 access log）随前端同窗移除，消费方仅本前端。
+     */
+    @PostMapping(value = "/agent/v1/chat", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter chat(@Valid @RequestBody AgentChatRequest chatRequest,
                            HttpServletRequest request) {
+        String question = chatRequest.question();
+        String conversationId = chatRequest.conversationId();
         SseEmitter emitter = new SseEmitter(agentProperties.getSseTimeoutMs());
         try {
             // 匿名试用配额（方案 A 硬前置，2026-09-13）：agent 链此前无 guard，
