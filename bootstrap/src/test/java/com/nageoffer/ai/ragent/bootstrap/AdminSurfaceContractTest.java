@@ -19,15 +19,18 @@ package com.nageoffer.ai.ragent.bootstrap;
 
 import com.nageoffer.ai.ragent.user.config.SaTokenConfig;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.config.BeanDefinition;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.annotation.AnnotatedElementUtils;
-import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.core.io.support.ResourcePatternResolver;
+import org.springframework.core.type.AnnotationMetadata;
+import org.springframework.core.type.classreading.CachingMetadataReaderFactory;
 import org.springframework.http.server.PathContainer;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.pattern.PathPatternParser;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -43,8 +46,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>管理面靠 {@link SaTokenConfig#ADMIN_PATH_PATTERNS} 手写清单单层门禁——清单错漏时
  * 新 controller 会默认落在「登录态即可访问」。本契约把防线前移到 CI：
  * <ol>
- *   <li>classpath 扫描 bootstrap 运行类路径上全部 {@code *Controller}（rag/agent/system
- *       三业务模块的汇合点；mcp-server 为独立进程不在扫描面）；</li>
+ *   <li>字节码层扫描 bootstrap 运行类路径上全部 {@code *Controller}（rag/agent/system
+ *       三业务模块的汇合点；mcp-server 为独立进程不在扫描面）——不经 {@code @Conditional*}
+ *       求值，flag 关闭的模块（如 {@code @ConditionalOnAgentEngine} 的 agent）同样进契约面；</li>
  *   <li>提取类级+方法级 mapping 的完整路径；</li>
  *   <li>断言每条路径落入三集合之一：管理面清单 / 登录排除表 / 用户面白名单，否则失败。</li>
  * </ol>
@@ -107,6 +111,16 @@ class AdminSurfaceContractTest {
     }
 
     @Test
+    void 三业务模块哨兵_防整模块静默漏扫() throws Exception {
+        // 总数下限挡不住「整模块从扫描面消失」（例如 agent 类路径缺位时总数仍可能 >60）——
+        // 逐模块钉哨兵端点：rag / agent / system 各至少一条真实映射必须被扫到（#96）
+        Set<String> paths = scanControllerMappingPaths();
+        assertThat(paths).as("rag 模块哨兵缺失——扫描面疑丢 rag 控制器").contains("/rag/v3/chat", "/rag/v3/stop");
+        assertThat(paths).as("agent 模块哨兵缺失——扫描面疑丢 agent 控制器").contains("/agent/v1/chat", "/agent/v1/chat/confirm");
+        assertThat(paths).as("system 模块哨兵缺失——扫描面疑丢 system 控制器").contains("/auth/login", "/users");
+    }
+
+    @Test
     void 契约可判红_未归类样张不得漏报() {
         // 防契约本身空转：喂一个肯定没归类的样张，分类器必须能识别出来
         assertThat(unclassifiedPath("/rogue-controller/secret-endpoint"))
@@ -141,17 +155,33 @@ class AdminSurfaceContractTest {
     /**
      * 扫描运行类路径上全部 @RestController/@Controller 的类级+方法级 mapping，
      * 合成完整请求路径（类前缀+方法路径，与 Spring 组合规则同构）。
+     *
+     * <p>候选枚举走字节码注解元数据（ASM）而非 ClassPathScanningCandidateComponentProvider：
+     * 后者对 {@code @Conditional*} 求值，flag 关闭的模块会被整模块静默过滤（#96 哨兵实测——
+     * agent 控制器带 {@code @ConditionalOnAgentEngine}，测试环境无 ragent.engine.type=agent
+     * 时整模块从扫描面消失，契约面对其长期盲）。字节码层不评估条件：只要类在运行类路径上
+     * 就进契约面，与生产 agent 档的真实暴露面同构。路径提取仍走反射，保证
+     * {@code @GetMapping} 等组合注解的合并语义与 Spring 运行时一致。
      */
-    static Set<String> scanControllerMappingPaths() throws ClassNotFoundException {
-        ClassPathScanningCandidateComponentProvider scanner =
-                new ClassPathScanningCandidateComponentProvider(false);
-        // 两个过滤器 OR 组合：@RestController 与裸 @Controller 都纳入契约面
-        scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
-        scanner.addIncludeFilter(new AnnotationTypeFilter(org.springframework.stereotype.Controller.class));
+    static Set<String> scanControllerMappingPaths() throws IOException, ClassNotFoundException {
+        ResourcePatternResolver resourceResolver = new PathMatchingResourcePatternResolver();
+        CachingMetadataReaderFactory metadataReaderFactory = new CachingMetadataReaderFactory();
+        String packageSearchPath = ResourcePatternResolver.CLASSPATH_ALL_URL_PREFIX
+                + "com/nageoffer/ai/ragent/**/*.class";
 
         Set<String> paths = new LinkedHashSet<>();
-        for (BeanDefinition definition : scanner.findCandidateComponents("com.nageoffer.ai.ragent")) {
-            Class<?> clazz = Class.forName(definition.getBeanClassName());
+        for (Resource resource : resourceResolver.getResources(packageSearchPath)) {
+            AnnotationMetadata metadata =
+                    metadataReaderFactory.getMetadataReader(resource).getAnnotationMetadata();
+            // module-info 等无类名形态与抽象/非独立类跳过；isAnnotated 含元注解（@RestController 自带 @Controller）
+            if (metadata.getClassName().isBlank() || !metadata.isConcrete() || !metadata.isIndependent()) {
+                continue;
+            }
+            if (!metadata.isAnnotated(RestController.class.getName())
+                    && !metadata.isAnnotated(org.springframework.stereotype.Controller.class.getName())) {
+                continue;
+            }
+            Class<?> clazz = Class.forName(metadata.getClassName());
             if (AnnotatedElementUtils.findMergedAnnotation(clazz, RestController.class) == null
                     && AnnotatedElementUtils.findMergedAnnotation(clazz,
                             org.springframework.stereotype.Controller.class) == null) {
