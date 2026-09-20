@@ -31,8 +31,14 @@ interface ChatState {
   messages: Message[];
   // 会话消息加载失败文案（行内错误态 + 重试入口消费；null=无错误）
   messagesError: string | null;
+  // 消息加载态（selectSession 专用；L33 与会话列表加载拆分——
+  // 共用时切会话/首屏列表加载瞬间会误闪 Welcome）
   isLoading: boolean;
   sessionsLoaded: boolean;
+  // 会话列表加载态（L33 拆分面）：fetchSessions 专用，不再染指 isLoading
+  sessionsLoading: boolean;
+  // 会话列表加载失败文案（L32：null=无错误；非空=列表不可信——深链不得据此判「会话不存在」踢回）
+  sessionsError: string | null;
   inputFocusKey: number;
   isStreaming: boolean;
   isCreatingNew: boolean;
@@ -112,6 +118,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messagesError: null,
   isLoading: false,
   sessionsLoaded: false,
+  sessionsLoading: false,
+  sessionsError: null,
   inputFocusKey: 0,
   isStreaming: false,
   isCreatingNew: false,
@@ -124,7 +132,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   openedSourceMessageId: null,
   recommendReveal: null,
   fetchSessions: async () => {
-    set({ isLoading: true });
+    // L33：列表加载走独立态，不再碰 isLoading（消息加载专用）
+    set({ sessionsLoading: true });
     try {
       const data = await listSessions();
       const sessions = data
@@ -138,11 +147,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const timeB = b.lastTime ? new Date(b.lastTime).getTime() : 0;
           return timeB - timeA;
         });
-      set({ sessions });
+      // L32：成功才清错误；sessionsLoaded=true 维持「已尝试」语义（侧栏防重拉）
+      set({ sessions, sessionsError: null });
     } catch (error) {
       toastErrorUnlessShown(error, "加载会话失败");
+      // L32：失败置错误文案——列表为空不可信，深链消费方据此保深链给重试、不误踢
+      set({ sessionsError: errorTextFor(error, "加载会话失败") });
     } finally {
-      set({ isLoading: false, sessionsLoaded: true });
+      set({ sessionsLoading: false, sessionsLoaded: true });
     }
   },
   createSession: async () => {

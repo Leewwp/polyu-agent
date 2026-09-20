@@ -76,8 +76,13 @@ export function UserListPage() {
   };
 
   const handleRefresh = () => {
-    setPageNo(1);
-    loadUsers(1, keyword);
+    // L43：收敛单请求——pageNo>1 时 setPageNo(1) 会经 effect 再发一次请求，
+    // 与手动 loadUsers 叠成双请求；仅在已在第 1 页时手动拉，否则交给 effect 承接
+    if (pageNo === 1) {
+      loadUsers(1, keyword);
+    } else {
+      setPageNo(1);
+    }
   };
 
   const handleDelete = async () => {

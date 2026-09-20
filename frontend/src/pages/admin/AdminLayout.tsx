@@ -286,6 +286,23 @@ export function AdminLayout() {
     };
   }, [kbQuery, searchFocused]);
 
+  // L43：顶栏「Ctrl K」提示接线为真快捷键——聚焦知识库筛选框
+  // （Mac 上 Cmd+K 同义；preventDefault 阻断浏览器默认地址栏搜索）
+  useEffect(() => {
+    // 文件顶已 import React 的 KeyboardEvent 类型，这里指 DOM 原生事件
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   const breadcrumbs = useMemo(() => {
     const segments = location.pathname.split("/").filter(Boolean);
     const items: { label: string; to?: string }[] = [
@@ -715,7 +732,7 @@ export function AdminLayout() {
               <Button
                 variant="outline"
                 className="hidden items-center gap-2 sm:inline-flex"
-                onClick={() => window.open("/chat", "_blank")}
+                onClick={() => window.open("/chat", "_blank", "noopener,noreferrer")}
               >
                 <MessageSquare className="h-4 w-4" />
                 返回聊天

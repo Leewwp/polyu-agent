@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { dayLabels, formatUpdatedLabel, hktClockSafe, hktDateKey, mapHotEntry, mapNewsItem, mapTopic } from "./newsMapping";
+import { dayLabels, feedDateLabels, formatUpdatedLabel, hktClockSafe, hktDateKey, mapHotEntry, mapNewsItem, mapTopic } from "./newsMapping";
 
 /**
  * 真数据映射层单测：HKT 日期件（切日/今天昨天/普通日双语）、
@@ -163,5 +163,46 @@ describe("mapTopic", () => {
 describe("hktClockSafe", () => {
   it("formats HKT clock", () => {
     expect(hktClockSafe(new Date("2026-09-10T22:22:00Z"))).toBe("06:22");
+  });
+});
+
+describe("L40 跨时区（America/Los_Angeles）——日期分量不随本地时区漂移", () => {
+  // 病灶：正午 HKT=04:00Z，LA（UTC-7）本地 getter 读成前一本地日（9/10→9/9），
+  // 与 dayDiff「今天/昨天」前缀自相矛盾。修复=HKT 日键取 UTC 分量（恒等于 HKT 历日）。
+  // Node 在 POSIX 下支持运行时改 process.env.TZ（CI=ubuntu/本机=darwin 均适用）。
+  const originalTz = process.env.TZ;
+
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+
+  afterAll(() => {
+    if (originalTz === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = originalTz;
+    }
+  });
+
+  it("dayLabels keeps HKT date under LA local timezone", () => {
+    // 正午 HKT 2026-09-10 = LA 前一日 21:00——旧实现此处会输出 9月9日 周三
+    expect(dayLabels("2026-09-10", "2026-09-10")).toEqual({ zh: "今天 · 9月10日 周四", en: "Today · Thu 10 Sep" });
+    expect(dayLabels("2026-09-09", "2026-09-10")).toEqual({ zh: "昨天 · 9月9日 周三", en: "Yesterday · Wed 9 Sep" });
+    expect(dayLabels("2026-09-02", "2026-09-10")).toEqual({ zh: "9月2日 周三", en: "Wed 2 Sep" });
+  });
+
+  it("formatUpdatedLabel keeps HKT date part under LA local timezone", () => {
+    expect(formatUpdatedLabel(new Date("2026-09-10T06:22:00+08:00"), "zh")).toBe("数据更新至 9月10日 06:22");
+    expect(formatUpdatedLabel(new Date("2026-09-10T06:22:00+08:00"), "en")).toBe("Updated 10 Sep 06:22");
+  });
+
+  it("feedDateLabels keeps HKT weekday/date under LA local timezone", () => {
+    // 2026-09-13 HKT = 周日；正午 HKT 在 LA 是 9/12 21:00（周六）——旧实现会输出 周六
+    const labels = feedDateLabels(new Date("2026-09-13T18:00:00+08:00"), "zh");
+    expect(labels.long).toBe("9月13日 · 周日 · 2026");
+    expect(labels.short).toBe("9月13日 · 周日");
+    const en = feedDateLabels(new Date("2026-09-13T18:00:00+08:00"), "en");
+    expect(en.long).toBe("Sun · 13 Sep 2026");
+    expect(en.short).toBe("13 Sep · Sun");
   });
 });

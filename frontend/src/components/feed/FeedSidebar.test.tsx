@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { toast } from "sonner";
@@ -294,5 +294,70 @@ describe("FeedSidebar", () => {
     expect(screen.queryByText("分享 · 只读")).toBeNull();
     // 内容导航仍在（壳不因加载/无效态退场）
     expect(screen.getByRole("link", { name: /精选/ })).toBeTruthy();
+  });
+});
+
+/**
+ * L42（#94）：重命名 blur 草稿不再直接丢弃——blur 与 Enter 同一提交路径；
+ * Escape 保持放弃编辑语义；失败反馈在 store 层（本文件只验提交路径与防双提交）。
+ */
+describe("FeedSidebar 最近对话重命名（L42）", () => {
+  beforeEach(() => {
+    useAuthStore.setState({
+      user: { id: "1", username: "alice", role: "user" } as never,
+      isAuthenticated: true,
+      isLoading: false
+    });
+    useEngineStore.setState({ engineType: "workflow", loading: false, error: null });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  async function openRename() {
+    await userEvent.click(screen.getByRole("button", { name: "会话操作" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /重命名/ }));
+    return screen.getByRole("textbox", { name: "会话标题" }) as HTMLInputElement;
+  }
+
+  it("blur commits the draft through the same path as Enter", async () => {
+    const renameSession = vi.fn(async () => undefined);
+    useChatStore.setState({
+      sessions: [{ id: "s1", title: "旧标题", lastTime: "2026-09-20T10:00:00Z" }],
+      sessionsLoaded: true,
+      renameSession
+    });
+    renderSidebar();
+
+    const input = await openRename();
+    await userEvent.clear(input);
+    await userEvent.type(input, "新标题");
+    await userEvent.tab();
+
+    await waitFor(() => {
+      expect(renameSession).toHaveBeenCalledTimes(1);
+    });
+    expect(renameSession).toHaveBeenCalledWith("s1", "新标题");
+  });
+
+  it("Escape discards the draft without submitting", async () => {
+    const renameSession = vi.fn(async () => undefined);
+    useChatStore.setState({
+      sessions: [{ id: "s1", title: "旧标题", lastTime: "2026-09-20T10:00:00Z" }],
+      sessionsLoaded: true,
+      renameSession
+    });
+    renderSidebar();
+
+    const input = await openRename();
+    await userEvent.clear(input);
+    await userEvent.type(input, "不该提交");
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(renameSession).not.toHaveBeenCalled();
+    // 退出编辑态回到原标题展示
+    expect(screen.getByText("旧标题")).toBeTruthy();
   });
 });

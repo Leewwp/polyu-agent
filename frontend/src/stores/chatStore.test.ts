@@ -47,6 +47,8 @@ function resetStore() {
     messagesError: null,
     isLoading: false,
     sessionsLoaded: false,
+    sessionsLoading: false,
+    sessionsError: null,
     isStreaming: false,
     isCreatingNew: false
   });
@@ -187,5 +189,63 @@ describe("chatStore M17 会话切换×在途流竞态", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(useChatStore.getState().currentSessionId).toBeNull();
     expect(useChatStore.getState().isStreaming).toBe(false);
+  });
+});
+
+describe("chatStore L32/L33：列表态与消息态拆分", () => {
+  beforeEach(() => {
+    toastError.mockClear();
+    resetStore();
+    vi.mocked(listMessages).mockReset();
+    vi.mocked(listSessions).mockReset();
+  });
+
+  it("L32：fetchSessions 失败置 sessionsError（sessionsLoaded 仍 true 防侧栏重拉循环），成功清空", async () => {
+    vi.mocked(listSessions).mockRejectedValueOnce(new Error("boom"));
+    await useChatStore.getState().fetchSessions();
+    const failed = useChatStore.getState();
+    expect(failed.sessionsError).toBe("boom");
+    expect(failed.sessionsLoaded).toBe(true);
+    expect(failed.sessions).toEqual([]);
+
+    vi.mocked(listSessions).mockResolvedValueOnce([
+      { conversationId: "s1", title: "会话一", lastTime: "2026-09-20T10:00:00Z" }
+    ]);
+    await useChatStore.getState().fetchSessions();
+    const ok = useChatStore.getState();
+    expect(ok.sessionsError).toBeNull();
+    expect(ok.sessions.map((session) => session.id)).toEqual(["s1"]);
+    expect(ok.sessionsLoaded).toBe(true);
+  });
+
+  it("L33：fetchSessions 全程不碰 isLoading（消息加载专用），走独立 sessionsLoading", async () => {
+    let release: (value: []) => void = () => {};
+    vi.mocked(listSessions).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve as (value: []) => void;
+      })
+    );
+    const pending = useChatStore.getState().fetchSessions();
+    expect(useChatStore.getState().sessionsLoading).toBe(true);
+    // 拆分核心：列表加载中不得染指消息加载态（否则切会话/首屏瞬间误闪 Welcome）
+    expect(useChatStore.getState().isLoading).toBe(false);
+    release([]);
+    await pending;
+    expect(useChatStore.getState().sessionsLoading).toBe(false);
+    expect(useChatStore.getState().isLoading).toBe(false);
+  });
+
+  it("L33：selectSession 仍以 isLoading 表达消息加载（拆分后语义不变）", async () => {
+    let release: (value: []) => void = () => {};
+    vi.mocked(listMessages).mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve as (value: []) => void;
+      })
+    );
+    const pending = useChatStore.getState().selectSession("s1");
+    expect(useChatStore.getState().isLoading).toBe(true);
+    release([]);
+    await pending;
+    expect(useChatStore.getState().isLoading).toBe(false);
   });
 });

@@ -28,6 +28,7 @@ export function AgentChatPage() {
     isStreaming,
     currentSessionId,
     sessions,
+    sessionsError,
     isCreatingNew,
     loadSessions,
     loadMessages,
@@ -55,7 +56,9 @@ export function AgentChatPage() {
 
   React.useEffect(() => {
     if (sessionId) {
-      if (sessionsReady && !sessionExists) {
+      // L32：仅列表确实加载成功（sessionsError 为空）才允许判「会话不存在」踢回——
+      // 列表加载失败时 sessions 为空不可信，保深链由重试条兜底，不误踢不清深链
+      if (sessionsReady && !sessionsError && !sessionExists) {
         startNewChat();
         navigate("/chat", { replace: true });
         return;
@@ -76,6 +79,7 @@ export function AgentChatPage() {
   }, [
     sessionId,
     sessionsReady,
+    sessionsError,
     sessionExists,
     isCreatingNew,
     currentSessionId,
@@ -105,6 +109,23 @@ export function AgentChatPage() {
     <FeedShell title={{ zh: "智能体对话", en: "Agent chat" }} fluid>
       <AgentQuotaModal />
       <div className="agent-app agent-embedded h-full">
+        {/* L32：会话列表加载失败条——深链不误踢，由这里给重试入口 */}
+        {sessionsError ? (
+          <div className="mx-auto w-full max-w-[840px] px-6 pt-3">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] px-3.5 py-2 text-[12.5px] text-[var(--feed-text-secondary)]">
+              <span>{sessionsError}——左侧最近对话暂不可用</span>
+              <button
+                type="button"
+                className="flex-none rounded-full border border-[var(--feed-line)] px-3 py-1 font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
+                onClick={() => {
+                  loadSessions().catch(() => null);
+                }}
+              >
+                重试
+              </button>
+            </div>
+          </div>
+        ) : null}
         {/* agent-main 网格两行：事件流占满 输入条贴底 */}
         <div className="agent-main h-full">
           <AgentMessageList

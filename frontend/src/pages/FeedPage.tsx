@@ -8,6 +8,7 @@ import { HotPanel } from "@/components/feed/HotPanel";
 import { NewsList } from "@/components/feed/NewsList";
 import { NewsSearchBar } from "@/components/feed/NewsSearchBar";
 import { useFeedLang } from "@/components/feed/feedLang";
+import { useStaleRequest } from "@/hooks/useStaleRequest";
 import type { HotRankEntry, NewsCategory, NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_CHIPS } from "@/services/newsMockData";
 import { fetchHotRank, fetchNewsFeed, searchNewsFeed, type NewsSearchOrder, type NewsSearchSort } from "@/services/newsService";
@@ -182,49 +183,69 @@ export function FeedPage() {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // L31：loadMore 失败态——按钮转为「重试」入口，不再静默吞错
+  const [loadMoreFailed, setLoadMoreFailed] = useState(false);
   const [page, setPage] = useState(1);
   const [hot, setHot] = useState<HotRankEntry[]>([]);
   const [failed, setFailed] = useState(false);
 
+  // L31：M19 请求序守卫——首屏 effect 与 loadMore 共用同一序号，
+  // 切分类/检索条件后迟到的旧 loadMore 响应不再追加进新列表
+  const { begin, isCurrent } = useStaleRequest();
+
   // 首屏/切分类/提交检索/切排序：重置到第 1 页（首屏 20 条+加载更多）
   useEffect(() => {
     let alive = true;
+    const requestId = begin();
     setFailed(false);
+    setLoadMoreFailed(false);
     setPage(1);
     const request = isSearch
       ? searchNewsFeed({ q: qParam, sort, order, category, page: 1 })
       : fetchNewsFeed({ category, page: 1 });
     request
       .then((data) => {
-        if (!alive) return;
+        if (!alive || !isCurrent(requestId)) return;
         setItems(data.records);
         setHasMore(data.hasMore);
       })
-      .catch(() => alive && setFailed(true));
+      .catch(() => {
+        if (alive && isCurrent(requestId)) {
+          setFailed(true);
+        }
+      });
     if (!isSearch) {
       fetchHotRank(5)
-        .then((data) => alive && setHot(data))
+        .then((data) => alive && isCurrent(requestId) && setHot(data))
         .catch(() => null);
     }
     return () => {
       alive = false;
     };
+    // begin/isCurrent 为稳定 ref 读写，不进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, isSearch, qParam, sort, order]);
 
   // 加载更多：追加下一页（检索态走同一分页语义）
   const loadMore = () => {
     if (loadingMore) return;
     setLoadingMore(true);
+    setLoadMoreFailed(false);
+    const requestId = begin();
     const request = isSearch
       ? searchNewsFeed({ q: qParam, sort, order, category, page: page + 1 })
       : fetchNewsFeed({ category, page: page + 1 });
     request
       .then((data) => {
+        if (!isCurrent(requestId)) return;
         setItems((prev) => [...prev, ...data.records]);
         setHasMore(data.hasMore);
         setPage(page + 1);
       })
-      .catch(() => null)
+      .catch(() => {
+        if (!isCurrent(requestId)) return;
+        setLoadMoreFailed(true);
+      })
       .finally(() => setLoadingMore(false));
   };
 
@@ -349,13 +370,18 @@ export function FeedPage() {
           <NewsList items={items} />
           {hasMore && (
             <div className="mb-2 text-center">
+              {/* L31：loadMore 失败转重试入口（不再吞错） */}
               <button
                 type="button"
                 disabled={loadingMore}
-                className="rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)] disabled:opacity-60"
+                className={
+                  loadMoreFailed
+                    ? "rounded-full border border-[var(--polyu-red)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)] disabled:opacity-60"
+                    : "rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-5 py-2 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)] disabled:opacity-60"
+                }
                 onClick={loadMore}
               >
-                {loadingMore ? "加载中…" : "加载更多"}
+                {loadingMore ? "加载中…" : loadMoreFailed ? "加载失败，点击重试" : "加载更多"}
               </button>
             </div>
           )}

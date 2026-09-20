@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { ChatPage } from "./ChatPage";
 import { useChatStore } from "@/stores/chatStore";
@@ -69,5 +69,100 @@ describe("ChatPage (FeedShell 换壳)", () => {
     renderPage();
     expect(screen.getByTestId("message-list")).toBeTruthy();
     expect(screen.getByTestId("sources-panel")).toBeTruthy();
+  });
+});
+
+/**
+ * L32（#94）：深链「会话列表加载失败」≠「会话不存在」——
+ * 列表失败时保深链给重试条，不踢回 /chat 不清深链；重试成功且会话确实不存在才踢。
+ */
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname}</div>;
+}
+
+function renderWithRoutes(entry: string) {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <LocationProbe />
+      <Routes>
+        <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+describe("ChatPage 深链 × 会话列表失败（L32）", () => {
+  beforeEach(() => {
+    useChatStore.setState({
+      sessions: [],
+      currentSessionId: null,
+      messages: [],
+      isLoading: false,
+      sessionsLoaded: false,
+      sessionsLoading: false,
+      sessionsError: null,
+      isStreaming: false,
+      isCreatingNew: false
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps the deep link and offers retry when the session list fails to load", async () => {
+    useChatStore.setState({
+      fetchSessions: vi.fn(async () => {
+        useChatStore.setState({ sessionsError: "加载会话失败", sessionsLoaded: true, sessionsLoading: false });
+      }),
+      selectSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => "")
+    });
+
+    renderWithRoutes("/chat/s-deep");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
+    });
+    // 列表失败态：重试条出现、不误踢
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+    });
+    expect(useChatStore.getState().selectSession).toHaveBeenCalledWith("s-deep");
+    expect(useChatStore.getState().createSession).not.toHaveBeenCalled();
+  });
+
+  it("kicks back to /chat only after a successful list load confirms the session missing", async () => {
+    let attempts = 0;
+    useChatStore.setState({
+      fetchSessions: vi.fn(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          // 首拉失败
+          useChatStore.setState({ sessionsError: "加载会话失败", sessionsLoaded: true, sessionsLoading: false });
+          return;
+        }
+        // 重试成功：列表确实没有 s-deep
+        useChatStore.setState({ sessions: [], sessionsError: null, sessionsLoaded: true, sessionsLoading: false });
+      }),
+      selectSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => "")
+    });
+
+    renderWithRoutes("/chat/s-deep");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
+    });
+    expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("location").textContent).toBe("/chat");
+    });
+    expect(useChatStore.getState().createSession).toHaveBeenCalled();
   });
 });
