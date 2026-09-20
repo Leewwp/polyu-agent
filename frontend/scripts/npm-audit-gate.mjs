@@ -9,10 +9,9 @@
 import { spawnSync } from 'node:child_process';
 
 const ALLOWED_ADVISORY_IDS = new Set([
-  // vite 6→8（semver-major）修，留待常规依赖升级处理
-  '1123525', // GHSA-fx2h-pf6j-xcff · vite server.fs.deny bypass on Windows alternate paths (high)
-  // vitest 4→5（semver-major）修，同上
-  '1139528', // GHSA-5xrq-8626-4rwp · vitest UI server listening 时任意文件读写 (critical)
+  // 2026-09-20 随 #70 工具链对齐（vite 8 / vitest 5）清空：
+  // 原 vite GHSA-fx2h-pf6j-xcff（1123525）与 vitest GHSA-5xrq-8626-4rwp（1139528）
+  // 两条 known-unfixed 已随大版本升级修复，门自然收紧。
 ]);
 
 // npm audit 在存在漏洞时退出码为 1（stdout 仍带完整 JSON）——spawnSync 不抛错才能拿到报告。

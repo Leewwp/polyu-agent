@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src")
+      // import.meta.dirname：__dirname 不被 vite configLoader:'native' 支持（未来默认）
+      "@": path.resolve(import.meta.dirname, "./src")
     }
   },
   server: {
