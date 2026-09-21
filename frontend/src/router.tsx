@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { AccountPage } from "@/pages/AccountPage";
 import { EngineGate } from "@/components/common/EngineGate";
 import { ChangeLogsPage } from "@/pages/ChangeLogsPage";
 import { DocPreviewPage } from "@/pages/DocPreviewPage";
@@ -46,6 +47,18 @@ import { useAuthStore } from "@/stores/authStore";
 function RequireAuth({ children }: { children: JSX.Element }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
+}
+
+/**
+ * 个人中心守卫（#104）：游客 isAuthenticated=true 会穿过 RequireAuth，须显式拦（跳 /login）
+ */
+export function RequireAccount({ children }: { children: JSX.Element }) {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isGuest = useAuthStore((state) => state.isGuest);
+  if (!isAuthenticated || isGuest) {
     return <Navigate to="/login" replace />;
   }
   return children;
@@ -175,6 +188,14 @@ export const router = createBrowserRouter([
       <RequireAuth>
         <EngineGate />
       </RequireAuth>
+    )
+  },
+  {
+    path: "/account",
+    element: (
+      <RequireAccount>
+        <AccountPage />
+      </RequireAccount>
     )
   },
   {

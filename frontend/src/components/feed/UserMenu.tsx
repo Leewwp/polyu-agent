@@ -1,29 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useFeedLang } from "./feedLang";
 import { cn } from "@/lib/utils";
 import { isSafeUrl } from "@/utils/urlSafety";
 import { useAuthStore } from "@/stores/authStore";
-import { MyAgentSharesDialog } from "@/components/feed/MyAgentSharesDialog";
 
 /**
- * 顶栏身份区（2026-09-13 定稿形态）：
+ * 顶栏身份区（2026-09-13 定稿形态；#104 增账号设置入口）：
  * - 未登录/游客态 → 登录钮（游客身份与余量由侧栏游客卡承载，口径=游客态回落登录钮）；
- * - 已登录（user/admin）→ 头像+邮箱 chip，点击出下拉：身份信息（username 即邮箱）、
- *   管理后台（仅 admin）、退出登录（authStore.logout 清 cookie 与本地态）；
+ * - 已登录（user/admin）→ 头像+用户名 chip，点击出下拉：身份信息、管理后台（仅 admin）、
+ *   账号设置（/account 个人中心，#104 唯一权威入口）、我的分享（跳 /account 页内）、
+ *   退出登录（authStore.logout 清 cookie 与本地态）；
  * - desktop 档=头像+用户名 chip；mobile 档=仅头像钮，共用同一下拉。
  * 换壳丢掉的上游 Sidebar/AgentSidebar 身份区由此回补（上游文件不动）。
  */
 export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobile" }) {
   const { lang } = useFeedLang();
+  const navigate = useNavigate();
   const zh = lang === "zh";
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const logout = useAuthStore((state) => state.logout);
 
   const [open, setOpen] = useState(false);
-  const [sharesOpen, setSharesOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // 外点/Esc 关闭（SourceListPopover 同款语义；下拉无悬停需求，纯点击开关）
@@ -142,13 +142,21 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
               {zh ? "管理后台" : "Admin console"}
             </Link>
           )}
+          <Link
+            to="/account"
+            role="menuitem"
+            className="block rounded-lg px-3 py-2 text-[13px] text-[var(--feed-text-secondary)] transition-colors hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+            onClick={() => setOpen(false)}
+          >
+            {zh ? "账号设置" : "Account settings"}
+          </Link>
           <button
             type="button"
             role="menuitem"
             className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-[var(--feed-text-secondary)] transition-colors hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
             onClick={() => {
               setOpen(false);
-              setSharesOpen(true);
+              navigate("/account");
             }}
           >
             {zh ? "我的分享" : "My shares"}
@@ -163,7 +171,6 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
           </button>
         </div>
       )}
-      <MyAgentSharesDialog open={sharesOpen} onClose={() => setSharesOpen(false)} />
     </div>
   );
 }

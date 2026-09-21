@@ -19,9 +19,12 @@ package com.nageoffer.ai.ragent.user.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.nageoffer.ai.ragent.user.controller.request.ChangePasswordRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeConfirmRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserCreateRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserPageRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserUpdateRequest;
+import com.nageoffer.ai.ragent.user.controller.vo.CurrentUserVO;
 import com.nageoffer.ai.ragent.user.controller.vo.UserVO;
 
 public interface UserService {
@@ -50,4 +53,19 @@ public interface UserService {
      * 修改当前用户密码
      */
     void changePassword(ChangePasswordRequest requestParam);
+
+    /**
+     * 当前登录用户资料（#104 个人中心）：/user/me 的扩展口径，补 email/emailVerified/createTime
+     */
+    CurrentUserVO currentUserDetail();
+
+    /**
+     * 改邮箱第一步（#104）：当前密码校验 + 新邮箱占用检查 + 发 scene=change 验证码 + 老邮箱通知信
+     */
+    void requestEmailChange(EmailChangeRequest requestParam);
+
+    /**
+     * 改邮箱第二步（#104）：验码落库（email + email_verified=1）+ 老邮箱成功通知信
+     */
+    void confirmEmailChange(EmailChangeConfirmRequest requestParam);
 }

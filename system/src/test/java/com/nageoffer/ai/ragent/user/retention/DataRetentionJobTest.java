@@ -116,6 +116,14 @@ class DataRetentionJobTest {
     }
 
     @Test
+    void deletesExpiredAgentConversationSharesToo() {
+        // #104 补洞：agent 会话分享过期行与答案分享同款清理（此前只清 t_answer_share）
+        jobWithClock(NOW).sweep();
+
+        verify(jdbcTemplate).update(contains("DELETE FROM t_agent_conversation_share"), eq(Timestamp.from(NOW)));
+    }
+
+    @Test
     void deletesFeedbackOlderThan400Days() {
         jobWithClock(NOW).sweep();
 
