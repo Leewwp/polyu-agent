@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import { RedirectIfAuth } from "./router";
+import { RedirectIfAuth, RequireAccount } from "./router";
 import { useAuthStore } from "@/stores/authStore";
 
 /**
@@ -76,5 +76,59 @@ describe("RedirectIfAuth 游客豁免", () => {
   it("未登录渲染登录页", () => {
     renderGuard();
     expect(screen.getByText("auth-page")).toBeTruthy();
+  });
+});
+
+describe("RequireAccount 个人中心守卫（#104）", () => {
+  beforeEach(() => {
+    useAuthStore.setState({ user: null, isAuthenticated: false, isGuest: false, isLoading: false });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderAccountGuard() {
+    return render(
+      <MemoryRouter initialEntries={["/account"]}>
+        <Routes>
+          <Route
+            path="/account"
+            element={
+              <RequireAccount>
+                <div>account-page</div>
+              </RequireAccount>
+            }
+          />
+          <Route path="/login" element={<div>login-page</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+  }
+
+  it("游客会话（isAuthenticated=true）被拦去 /login，不进个人中心", () => {
+    useAuthStore.setState({
+      user: { userId: "g1", username: "guest-x", role: "guest" },
+      isAuthenticated: true,
+      isGuest: true
+    });
+    renderAccountGuard();
+    expect(screen.getByText("login-page")).toBeTruthy();
+    expect(screen.queryByText("account-page")).toBeNull();
+  });
+
+  it("未登录被拦去 /login；正式用户放行", () => {
+    renderAccountGuard();
+    expect(screen.getByText("login-page")).toBeTruthy();
+
+    cleanup();
+    useAuthStore.setState({
+      user: { userId: "u1", username: "alice", role: "user" },
+      isAuthenticated: true,
+      isGuest: false
+    });
+    renderAccountGuard();
+    expect(screen.getByText("account-page")).toBeTruthy();
   });
 });

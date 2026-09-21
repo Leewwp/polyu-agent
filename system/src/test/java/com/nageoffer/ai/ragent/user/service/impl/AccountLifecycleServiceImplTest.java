@@ -588,4 +588,27 @@ class AccountLifecycleServiceImplTest {
         req.setPassword(password);
         return req;
     }
+
+    @Test
+    void restoreAcceptsUsernameKeyForNonEmailAccounts() {
+        // #103 用户名≠邮箱后：不含 @ 的恢复键按用户名查，不再被邮箱格式门拒
+        UserDO softDeleted = UserDO.builder()
+                .id("100")
+                .username("newstudent")
+                .password(passwordCodec.encode(PASSWORD))
+                .role("user")
+                .email("someone@example.com")
+                .emailVerified(1)
+                .deleteTime(new Date(System.currentTimeMillis() - 86_400_000L))
+                .build();
+        when(userMapper.selectSoftDeletedByUsernameOrEmail("newstudent")).thenReturn(softDeleted);
+
+        AccountRestoreRequest req = new AccountRestoreRequest();
+        req.setAccount("newstudent");
+        req.setPassword(PASSWORD);
+        LoginVO vo = service.restoreAccount(req);
+
+        assertEquals("100", vo.getUserId());
+        verify(userMapper).restoreById(eq("100"), any(Date.class));
+    }
 }

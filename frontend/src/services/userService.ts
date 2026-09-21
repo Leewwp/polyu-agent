@@ -61,3 +61,13 @@ export async function deleteUser(id: string): Promise<void> {
 export async function changePassword(payload: ChangePasswordPayload): Promise<void> {
   await api.put("/user/password", payload);
 }
+
+/** 改邮箱第一步（#104）：当前密码 + 新邮箱 → 新邮箱验码 + 老邮箱通知信 */
+export async function requestEmailChange(newEmail: string, currentPassword: string): Promise<void> {
+  await api.post("/user/email/request", { newEmail, currentPassword });
+}
+
+/** 改邮箱第二步（#104）：新邮箱 + 验证码 → 落库 verified=1 + 老邮箱成功通知信 */
+export async function confirmEmailChange(newEmail: string, code: string): Promise<void> {
+  await api.post("/user/email/confirm", { newEmail, code });
+}

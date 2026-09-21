@@ -125,11 +125,14 @@ public class DataRetentionJob {
     }
 
     /**
-     * 分享快照 90 天主动清理：expire_time 到期即删行（含 REVOKED 行，撤销只管公开面失效、行保留随快照期）
+     * 分享快照 90 天主动清理：expire_time 到期即删行（含 REVOKED 行，撤销只管公开面失效、行保留随快照期）。
+     * #104 补洞：agent 会话分享过期行同款清理（此前只清答案分享，agent 行过期后永久残留）
      */
     private void deleteExpiredShares() {
         int rows = jdbcTemplate.update(
                 "DELETE FROM t_answer_share WHERE expire_time IS NOT NULL AND expire_time < ?", now());
+        rows += jdbcTemplate.update(
+                "DELETE FROM t_agent_conversation_share WHERE expire_time IS NOT NULL AND expire_time < ?", now());
         logDeletedRows("分享快照", rows);
     }
 

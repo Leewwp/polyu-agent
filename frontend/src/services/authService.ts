@@ -56,3 +56,11 @@ export async function requestPasswordReset(email: string) {
 export async function resetPassword(email: string, code: string, newPassword: string) {
   return api.post<void, void>("/auth/password/reset", { email, code, newPassword });
 }
+
+/**
+ * 自助注销（#104 个人中心接线）：密码确认进入 30 天冷静期软删；
+ * 恢复走既有 POST /auth/account/restore（登录页口径），此处只负责申请
+ */
+export async function deleteAccount(password: string) {
+  return api.post<void, void>("/auth/account/delete", { password });
+}

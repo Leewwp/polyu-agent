@@ -20,12 +20,13 @@ package com.nageoffer.ai.ragent.user.controller;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.nageoffer.ai.ragent.user.controller.request.ChangePasswordRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeConfirmRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserCreateRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserPageRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserUpdateRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.CurrentUserVO;
 import com.nageoffer.ai.ragent.user.controller.vo.UserVO;
-import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
@@ -50,17 +51,30 @@ public class UserController {
     private final UserService userService;
 
     /**
-     * 获取当前登录用户信息
+     * 获取当前登录用户信息（#104 扩展：email/emailVerified/createTime）
      */
     @GetMapping("/user/me")
     public Result<CurrentUserVO> currentUser() {
-        LoginUser user = UserContext.requireUser();
-        return Results.success(new CurrentUserVO(
-                user.getUserId(),
-                user.getUsername(),
-                user.getRole(),
-                user.getAvatar()
-        ));
+        UserContext.requireUser();
+        return Results.success(userService.currentUserDetail());
+    }
+
+    /**
+     * 改邮箱第一步（#104）：当前密码 + 新邮箱 → 发验证码到新邮箱 + 老邮箱通知信
+     */
+    @PostMapping("/user/email/request")
+    public Result<Void> requestEmailChange(@RequestBody EmailChangeRequest requestParam) {
+        userService.requestEmailChange(requestParam);
+        return Results.success();
+    }
+
+    /**
+     * 改邮箱第二步（#104）：新邮箱 + 验证码 → 落库 + 老邮箱成功通知信
+     */
+    @PostMapping("/user/email/confirm")
+    public Result<Void> confirmEmailChange(@RequestBody EmailChangeConfirmRequest requestParam) {
+        userService.confirmEmailChange(requestParam);
+        return Results.success();
     }
 
     /**

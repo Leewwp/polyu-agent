@@ -218,14 +218,20 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
 
     @Override
     public LoginVO restoreAccount(AccountRestoreRequest requestParam) {
-        String account = normalizeEmail(requestParam == null ? null : requestParam.getAccount());
+        // 恢复=登录等价面，账号键双通道（#103 后用户名≠邮箱）：含 @ 才按邮箱规范化，
+        // 不含 @ 按用户名原样查（selectSoftDeletedByUsernameOrEmail 双列匹配；用户名规则本就禁 @）
+        String account = StrUtil.trimToNull(requestParam == null ? null : requestParam.getAccount());
+        if (account == null) {
+            throw new ClientException("账号不能为空");
+        }
+        String key = account.contains("@") ? normalizeEmail(account) : account.toLowerCase();
         String password = requestParam == null ? null : requestParam.getPassword();
         // 恢复=登录等价面，与 login 同口径双键限速（O1/M3），防绕过登录锁定的旁路爆破
-        loginRateLimiter.checkLocked(ClientIps.resolve(), account);
-        UserDO user = userMapper.selectSoftDeletedByUsernameOrEmail(account);
+        loginRateLimiter.checkLocked(ClientIps.resolve(), key);
+        UserDO user = userMapper.selectSoftDeletedByUsernameOrEmail(key);
         if (user == null || !passwordCodec.matches(password, user.getPassword())) {
             // 账号或密码错误计失败（账号不存在同样计，口径同登录防探测）
-            loginRateLimiter.recordFailure(ClientIps.resolve(), account);
+            loginRateLimiter.recordFailure(ClientIps.resolve(), key);
             // 与登录失败同口径，不区分「账号不存在/已不在冷静期/密码错」
             throw new ClientException("账号或密码错误");
         }
@@ -246,7 +252,8 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
         return new LoginVO(user.getId(), user.getRole(), StpUtil.getTokenValue(), avatar);
     }
 
-    private String normalizeEmail(String raw) {
+    /** 邮箱规范化（去空白+小写+格式校验）；包内共用（UserServiceImpl 改邮箱同口径） */
+    static String normalizeEmail(String raw) {
         String email = StrUtil.trimToNull(raw);
         if (email == null) {
             throw new ClientException("邮箱不能为空");

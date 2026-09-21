@@ -80,6 +80,23 @@ describe("UserMenu identity area", () => {
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
+  it("dropdown links to /account for settings and my shares (#104)", async () => {
+    useAuthStore.setState({
+      user: { userId: "u-1", username: "alice", role: "user" },
+      isAuthenticated: true,
+      logout: vi.fn(async () => {})
+    });
+    renderMenu();
+
+    await userEvent.click(screen.getByRole("button", { name: /账号菜单/ }));
+    const settings = screen.getByRole("menuitem", { name: "账号设置" });
+    expect(settings.getAttribute("href")).toBe("/account");
+    // 「我的分享」不再开弹窗（MyAgentSharesDialog 已删），同为跳页入口
+    const shares = screen.getByRole("menuitem", { name: "我的分享" });
+    expect(shares.tagName).toBe("BUTTON");
+    expect(screen.queryByText("你分享出去的对话快照；撤销后链接立即失效。")).toBeNull();
+  });
+
   it("admin gets the admin console link in the dropdown (mobile variant shares the menu)", async () => {
     useAuthStore.setState({
       user: { userId: "u-3", username: "test-admin@example.com", role: "admin" },

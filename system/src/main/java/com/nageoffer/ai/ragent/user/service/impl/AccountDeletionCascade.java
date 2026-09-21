@@ -76,14 +76,23 @@ public class AccountDeletionCascade {
         jdbcTemplate.update("DELETE FROM t_agent_context_compaction WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_memory WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", userId);
+        // #104 级联补洞：注销前漏清的三张 user_id 关联表（残行即永久孤儿）
+        jdbcTemplate.update("DELETE FROM t_agent_memory_control WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM t_agent_state WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM t_conversation_summary WHERE user_id = ?", userId);
         // 反馈匿名化断链：行保留（400 天保留期），评价统计不受账号消亡影响
         jdbcTemplate.update(
                 "UPDATE t_message_feedback SET user_id = '" + ANONYMOUS_USER_ID
                         + "', update_time = CURRENT_TIMESTAMP WHERE user_id = ?",
                 userId);
-        // 名下有效分享撤销：不删行（快照保留期 90 天），公开访问立即失效
+        // 名下有效分享撤销：不删行（快照保留期 90 天），公开访问立即失效。
+        // #104 级联补洞：agent 会话分享同款撤销——此前漏撤，注销硬删后 ACTIVE 链接继续公开可访问（隐私缺陷）
         jdbcTemplate.update(
                 "UPDATE t_answer_share SET status = 'REVOKED', revoked_time = CURRENT_TIMESTAMP, "
+                        + "update_time = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND status = 'ACTIVE'",
+                userId);
+        jdbcTemplate.update(
+                "UPDATE t_agent_conversation_share SET status = 'REVOKED', revoked_time = CURRENT_TIMESTAMP, "
                         + "update_time = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND status = 'ACTIVE'",
                 userId);
         // 邮箱墓碑（180 天回查；同邮箱再注销刷新过期时间）
