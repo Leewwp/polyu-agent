@@ -18,8 +18,9 @@
 package com.nageoffer.ai.ragent.ingestion.util;
 
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
+import com.nageoffer.ai.ragent.rag.security.GuardedDns;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
-import lombok.RequiredArgsConstructor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -36,16 +37,26 @@ import java.util.Map;
 
 /**
  * HTTP 请求工具类，用于获取网络资源。
- * 全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转目标（O2/M4）。
+ * 全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转目标（O2/M4）；
+ * 连接层经 {@link GuardedDns} 对建连解析结果复校内网/元数据地址（#101 DNS 重绑定收口）。
  */
 @Component
-@RequiredArgsConstructor
 public class HttpClientHelper {
 
-    @Qualifier("syncHttpClient")
     private final OkHttpClient client;
 
     private final RedirectGuard redirectGuard;
+
+    /**
+     * 派生守护副本：syncHttpClient 共享 bean 不动（MinerU/LightRAG/WebSearchChannel
+     * 可信内部端点同 bean）；newBuilder 共享连接池与线程池，只换 Dns。
+     */
+    public HttpClientHelper(@Qualifier("syncHttpClient") OkHttpClient syncClient,
+                            RedirectGuard redirectGuard,
+                            IngestionUrlGuard urlGuard) {
+        this.client = syncClient.newBuilder().dns(new GuardedDns(urlGuard)).build();
+        this.redirectGuard = redirectGuard;
+    }
 
     public HttpFetchResponse get(String url, Map<String, String> headers) {
         return doGet(url, headers, -1);
