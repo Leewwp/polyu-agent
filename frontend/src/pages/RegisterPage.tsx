@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 
 import { AuthShell } from "@/components/common/AuthShell";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { register, resendVerificationCode, verifyEmail } from "@/services/authService";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** 与后端 UsernamePolicy 镜像：小写字母/数字/_/-，3–20 位（不区分大小写，提交前小写化） */
+const USERNAME_RE = /^[a-z0-9_-]{3,20}$/;
 const RESEND_COOLDOWN_SECONDS = 60;
 
 type Step = "form" | "verify" | "done";
@@ -22,7 +24,7 @@ type Step = "form" | "verify" | "done";
 export function RegisterPage() {
   const navigate = useNavigate();
   const [step, setStep] = React.useState<Step>("form");
-  const [form, setForm] = React.useState({ email: "", password: "" });
+  const [form, setForm] = React.useState({ username: "", email: "", password: "" });
   const [agreed, setAgreed] = React.useState(false);
   const [code, setCode] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
@@ -41,9 +43,10 @@ export function RegisterPage() {
     return () => window.clearInterval(timer);
   }, [cooldown]);
 
+  const usernameValid = USERNAME_RE.test(form.username.trim().toLowerCase());
   const emailValid = EMAIL_RE.test(form.email.trim());
   const passwordValid = form.password.length >= 8 && form.password.length <= 64;
-  const canSubmit = emailValid && passwordValid && agreed && !isSubmitting;
+  const canSubmit = usernameValid && emailValid && passwordValid && agreed && !isSubmitting;
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -51,15 +54,15 @@ export function RegisterPage() {
       setError("请先阅读并勾选同意隐私声明与服务条款。");
       return;
     }
-    if (!emailValid || !passwordValid) {
-      setError("请填写有效的邮箱与 8–64 位密码。");
+    if (!usernameValid || !emailValid || !passwordValid) {
+      setError("请填写有效的用户名（3–20 位小写字母/数字/_/-）、邮箱与 8–64 位密码。");
       return;
     }
     setError(null);
     setIsSubmitting(true);
     try {
-      // 注册受理口径统一（邮箱已注册静默受理），无返回数据可判断注册状态
-      await register(form.email.trim(), form.password);
+      // 重复邮箱/用户名由后端显式报错（#103），错误文案经此透传内联展示
+      await register(form.username.trim().toLowerCase(), form.email.trim(), form.password);
       setCooldown(RESEND_COOLDOWN_SECONDS);
       setStep("verify");
     } catch (err) {
@@ -107,6 +110,25 @@ export function RegisterPage() {
     <AuthShell title="创建账号" titleEn="Create your account">
       {step === "form" ? (
         <form className="space-y-4" onSubmit={handleRegister}>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              用户名 · Username
+            </label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="3–20 位小写字母、数字、_ 或 -"
+                value={form.username}
+                onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
+                className="pl-10"
+                autoComplete="username"
+                maxLength={20}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              注册后不可修改 · 不区分大小写 · 用于登录与展示。Cannot be changed after sign-up.
+            </p>
+          </div>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               邮箱 · Email

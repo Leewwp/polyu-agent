@@ -30,12 +30,14 @@ import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
@@ -45,6 +47,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final PasswordCodec passwordCodec;
     private final LoginRateLimiter loginRateLimiter;
+    private final GuestSessionMigration guestSessionMigration;
 
     @Override
     public LoginVO login(LoginRequest requestParam) {
@@ -78,9 +81,36 @@ public class AuthServiceImpl implements AuthService {
             throw new ClientException("用户信息异常");
         }
         String loginId = user.getId().toString();
+        // 游客会话升级迁移（#103）：认证成功后、写新登录态前捕获当前会话身份——
+        // StpUtil.login 会就地替换 loginId，错过这个窗口就再也拿不到 guest 身份了
+        Object previousLoginId = StpUtil.getLoginIdDefaultNull();
+        if (previousLoginId != null && !loginId.equals(String.valueOf(previousLoginId))) {
+            migrateGuestDataOnLogin(String.valueOf(previousLoginId), loginId);
+        }
         StpUtil.login(loginId);
         String avatar = StrUtil.isBlank(user.getAvatar()) ? DEFAULT_AVATAR_URL : user.getAvatar();
         return new LoginVO(loginId, user.getRole(), StpUtil.getTokenValue(), avatar);
+    }
+
+    /**
+     * 游客态登录正式账号：把 guest 名下四表会话平移给正式账号。
+     * 仅当前会话确实是 guest 用户行时触发；迁移失败不阻断登录（记 error 日志）。
+     */
+    private void migrateGuestDataOnLogin(String guestLoginId, String loginId) {
+        try {
+            UserDO current = userMapper.selectById(guestLoginId);
+            if (current == null || !ROLE_GUEST.equals(current.getRole())) {
+                return;
+            }
+            int moved = guestSessionMigration.migrate(guestLoginId, loginId);
+            if (moved > 0) {
+                log.info("[guest-migrate] 游客会话升级迁移完成：guestId={} -> userId={} rows={}",
+                        guestLoginId, loginId, moved);
+            }
+        } catch (Exception ex) {
+            log.error("[guest-migrate] 游客会话迁移失败（不阻断登录）：guestId={} target={} 原因={}",
+                    guestLoginId, loginId, ex.getMessage());
+        }
     }
 
     @Override

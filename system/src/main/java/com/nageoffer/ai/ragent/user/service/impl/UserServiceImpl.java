@@ -39,6 +39,7 @@ import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.enums.UserRole;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.user.security.PasswordPolicy;
+import com.nageoffer.ai.ragent.user.security.UsernamePolicy;
 import com.nageoffer.ai.ragent.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -84,10 +85,10 @@ public class UserServiceImpl implements UserService {
     )
     public String create(UserCreateRequest requestParam) {
         Assert.notNull(requestParam, () -> new ClientException("请求不能为空"));
-        String username = StrUtil.trimToNull(requestParam.getUsername());
+        // 用户名与注册同规则（#103 提取公共校验器）：小写化+格式+保留字，admin 面不另开口径
+        String username = UsernamePolicy.normalize(requestParam.getUsername());
         String password = StrUtil.trimToNull(requestParam.getPassword());
         String role = StrUtil.trimToNull(requestParam.getRole());
-        Assert.notBlank(username, () -> new ClientException("用户名不能为空"));
         Assert.notBlank(password, () -> new ClientException("密码不能为空"));
 
         if (DEFAULT_ADMIN_USERNAME.equalsIgnoreCase(username)) {
