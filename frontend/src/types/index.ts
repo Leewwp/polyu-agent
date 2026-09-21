@@ -29,6 +29,10 @@ export interface User {
   role: string;
   token: string;
   avatar?: string;
+  /** 注册邮箱（#104 个人中心）；存量/管理员建/游客为 null（页面显示「未设置」） */
+  email?: string | null;
+  emailVerified?: number | null;
+  createTime?: string | null;
 }
 
 export type CurrentUser = Omit<User, "token">;

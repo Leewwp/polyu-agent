@@ -15,37 +15,18 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.user.controller.vo;
+package com.nageoffer.ai.ragent.user.controller.request;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
+/**
+ * 改邮箱第一步（#104）：当前密码 + 新邮箱。成功即向新邮箱发 scene=change 验证码，
+ * 并向老邮箱发无链接通知信（模板族 #102 已备）
+ */
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class CurrentUserVO {
+public class EmailChangeRequest {
 
-    private String userId;
+    private String newEmail;
 
-    private String username;
-
-    private String role;
-
-    private String avatar;
-
-    /**
-     * 注册邮箱（#104）：存量/管理员建/游客为 NULL——个人中心显示「未设置」
-     */
-    private String email;
-
-    /**
-     * 邮箱是否已验证：0 未验证 / 1 已验证；email 为 NULL 时无意义（置 0）
-     */
-    private Integer emailVerified;
-
-    /**
-     * 账号创建时间（个人中心资料展示）
-     */
-    private java.util.Date createTime;
+    private String currentPassword;
 }

@@ -46,7 +46,7 @@ public class MailVerificationService {
     private static final String HOURLY_KEY_PREFIX = "mail:hourly:";
     private static final String FAIL_KEY_PREFIX = "mail:fail:";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-    private static final Set<String> SCENES = Set.of("verify", "reset", "delete");
+    private static final Set<String> SCENES = Set.of("verify", "reset", "delete", "change");
 
     private final StringRedisTemplate stringRedisTemplate;
     private final MailSender mailSender;

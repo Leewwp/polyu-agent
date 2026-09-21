@@ -30,21 +30,29 @@ import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.user.controller.request.ChangePasswordRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeConfirmRequest;
+import com.nageoffer.ai.ragent.user.controller.request.EmailChangeRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserCreateRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserPageRequest;
 import com.nageoffer.ai.ragent.user.controller.request.UserUpdateRequest;
+import com.nageoffer.ai.ragent.user.controller.vo.CurrentUserVO;
 import com.nageoffer.ai.ragent.user.controller.vo.UserVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
 import com.nageoffer.ai.ragent.user.enums.UserRole;
+import com.nageoffer.ai.ragent.user.mail.MailSender;
+import com.nageoffer.ai.ragent.user.mail.MailTemplates;
+import com.nageoffer.ai.ragent.user.mail.MailVerificationService;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.user.security.PasswordPolicy;
 import com.nageoffer.ai.ragent.user.security.UsernamePolicy;
 import com.nageoffer.ai.ragent.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
@@ -55,6 +63,8 @@ public class UserServiceImpl implements UserService {
     private final BizChangeLogContext bizChangeLogContext;
     private final PasswordCodec passwordCodec;
     private final AccountDeletionCascade accountDeletionCascade;
+    private final MailVerificationService mailVerificationService;
+    private final MailSender mailSender;
 
     @Override
     public IPage<UserVO> pageQuery(UserPageRequest requestParam) {
@@ -208,6 +218,85 @@ public class UserServiceImpl implements UserService {
         record.setPassword(passwordCodec.encode(next));
         userMapper.updateById(record);
         bizChangeLogContext.put(loginUser.getUserId(), before, toVO(userMapper.selectById(loginUser.getUserId())));
+    }
+
+    // ---------- 个人中心（#104） ----------
+
+    @Override
+    public CurrentUserVO currentUserDetail() {
+        LoginUser loginUser = UserContext.requireUser();
+        UserDO record = loadById(loginUser.getUserId());
+        return new CurrentUserVO(
+                String.valueOf(record.getId()),
+                record.getUsername(),
+                record.getRole(),
+                record.getAvatar(),
+                record.getEmail(),
+                record.getEmail() == null ? 0 : record.getEmailVerified(),
+                record.getCreateTime());
+    }
+
+    @Override
+    public void requestEmailChange(EmailChangeRequest requestParam) {
+        Assert.notNull(requestParam, () -> new ClientException("请求不能为空"));
+        String currentPassword = StrUtil.trimToNull(requestParam.getCurrentPassword());
+        Assert.notBlank(currentPassword, () -> new ClientException("当前密码不能为空"));
+        String newEmail = AccountLifecycleServiceImpl.normalizeEmail(requestParam.getNewEmail());
+
+        LoginUser loginUser = UserContext.requireUser();
+        UserDO record = loadById(loginUser.getUserId());
+        if (!passwordCodec.matches(currentPassword, record.getPassword())) {
+            throw new ClientException("当前密码不正确");
+        }
+        if (newEmail.equals(record.getEmail())) {
+            throw new ClientException("新邮箱不能与当前邮箱相同");
+        }
+        if (userMapper.selectActiveByUsernameOrEmail(newEmail) != null) {
+            throw new ClientException("该邮箱已被其他账号绑定");
+        }
+        // scene=change：复用 60s 冷却 + 每小时 3 封跨场景限流（SCENES 由本票放行）
+        mailVerificationService.sendCode(newEmail, "change");
+        notifyOldEmail(record.getEmail(), MailTemplates.NotifyKind.REQUESTED);
+    }
+
+    @Override
+    public void confirmEmailChange(EmailChangeConfirmRequest requestParam) {
+        Assert.notNull(requestParam, () -> new ClientException("请求不能为空"));
+        String code = StrUtil.trimToNull(requestParam.getCode());
+        Assert.notBlank(code, () -> new ClientException("验证码不能为空"));
+        String newEmail = AccountLifecycleServiceImpl.normalizeEmail(requestParam.getNewEmail());
+
+        LoginUser loginUser = UserContext.requireUser();
+        UserDO record = loadById(loginUser.getUserId());
+        if (!mailVerificationService.verifyCode(newEmail, "change", code)) {
+            throw new ClientException("验证码无效或已过期");
+        }
+        // 验码与落库之间的占用复核：窗口内被抢注则拒绝（uk_user_email_active 兜底并发）
+        if (!newEmail.equals(record.getEmail())
+                && userMapper.selectActiveByUsernameOrEmail(newEmail) != null) {
+            throw new ClientException("该邮箱已被其他账号绑定");
+        }
+        String oldEmail = record.getEmail();
+        record.setEmail(newEmail);
+        record.setEmailVerified(1);
+        userMapper.updateById(record);
+        notifyOldEmail(oldEmail, MailTemplates.NotifyKind.COMPLETED);
+    }
+
+    /**
+     * 老邮箱通知信（#102 模板族通知类）：发信失败不阻断主流程（新地址已验证成功，
+     * 老邮箱收不到通知不产生数据一致性问题），记日志供排查。email 为空（存量/管理员建号）无从通知跳过
+     */
+    private void notifyOldEmail(String oldEmail, MailTemplates.NotifyKind kind) {
+        if (StrUtil.isBlank(oldEmail)) {
+            return;
+        }
+        try {
+            mailSender.send(MailTemplates.buildEmailChangeNotify(oldEmail, kind));
+        } catch (Exception ex) {
+            log.warn("[email-change] 老邮箱通知信发送失败（不阻断）：to={} kind={} 原因={}",
+                    oldEmail, kind, ex.getMessage());
+        }
     }
 
     private UserDO loadById(String id) {
