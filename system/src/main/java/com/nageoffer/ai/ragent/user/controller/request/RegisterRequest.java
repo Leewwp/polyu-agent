@@ -20,10 +20,13 @@ package com.nageoffer.ai.ragent.user.controller.request;
 import lombok.Data;
 
 /**
- * 自助注册请求（U2）：邮箱 + 密码；用户名由邮箱派生，邮箱验证码随后发送
+ * 自助注册请求（U2；#103 增唯一用户名）：用户名 + 邮箱 + 密码；用户名经
+ * {@link com.nageoffer.ai.ragent.user.security.UsernamePolicy} 规范化，邮箱验证码随后发送
  */
 @Data
 public class RegisterRequest {
+
+    private String username;
 
     private String email;
 

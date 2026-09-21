@@ -31,4 +31,14 @@ describe("LoginPage entry links", () => {
       "/forgot-password"
     );
   });
+
+  it("labels the account field as username-or-email (dual-channel login)", () => {
+    render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    );
+    expect(screen.getByText("用户名或邮箱")).toBeTruthy();
+    expect(screen.getByPlaceholderText("请输入用户名或邮箱")).toBeTruthy();
+  });
 });

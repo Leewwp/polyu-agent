@@ -46,12 +46,12 @@ export function LoginPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                用户名
+                用户名或邮箱
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="请输入用户名"
+                  placeholder="请输入用户名或邮箱"
                   value={form.username}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, username: event.target.value }))

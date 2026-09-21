@@ -47,6 +47,7 @@ class AuthServiceImplTest {
 
     private UserMapper userMapper;
     private LoginRateLimiter loginRateLimiter;
+    private GuestSessionMigration guestSessionMigration;
     private AuthServiceImpl authService;
     private MockedStatic<StpUtil> stpUtil;
 
@@ -54,7 +55,8 @@ class AuthServiceImplTest {
     void setUp() {
         userMapper = mock(UserMapper.class);
         loginRateLimiter = mock(LoginRateLimiter.class);
-        authService = new AuthServiceImpl(userMapper, new PasswordCodec(), loginRateLimiter);
+        guestSessionMigration = mock(GuestSessionMigration.class);
+        authService = new AuthServiceImpl(userMapper, new PasswordCodec(), loginRateLimiter, guestSessionMigration);
         stpUtil = mockStatic(StpUtil.class);
         stpUtil.when(StpUtil::getTokenValue).thenReturn("token");
     }
@@ -89,8 +91,17 @@ class AuthServiceImplTest {
     @Test
     void wrongPasswordFailsWithoutUpgrade() {
         when(userMapper.selectActiveByUsernameOrEmail("admin")).thenReturn(user("right-pass"));
-        assertThrows(ClientException.class, () -> authService.login(req("admin", "wrong")));
+        ClientException ex = assertThrows(ClientException.class, () -> authService.login(req("admin", "wrong")));
+        // 与「用户不存在」分支同文案（#103 核实锁定）：不泄露账号存在性
+        assertEquals("用户名或密码错误", ex.getMessage());
         verify(userMapper, never()).updateById(any(UserDO.class));
+    }
+
+    @Test
+    void unknownUserFailsWithSameGenericMessage() {
+        when(userMapper.selectActiveByUsernameOrEmail("nobody")).thenReturn(null);
+        ClientException ex = assertThrows(ClientException.class, () -> authService.login(req("nobody", "wrong")));
+        assertEquals("用户名或密码错误", ex.getMessage());
     }
 
     @Test
@@ -182,5 +193,64 @@ class AuthServiceImplTest {
         r.setUsername(username);
         r.setPassword(password);
         return r;
+    }
+
+    // ---------- 游客会话升级迁移（#103） ----------
+
+    private UserDO activeUser(String id, String username) {
+        return UserDO.builder().id(id).username(username)
+                .password(new PasswordCodec().encode("right-pass"))
+                .role("user").emailVerified(1).build();
+    }
+
+    @Test
+    void guestSessionIsMigratedToRealAccountOnLogin() {
+        when(userMapper.selectActiveByUsernameOrEmail("alice")).thenReturn(activeUser("2", "alice"));
+        when(userMapper.selectById("900")).thenReturn(
+                UserDO.builder().id("900").username("guest-abc").role("guest").build());
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn("900");
+
+        var vo = authService.login(req("alice", "right-pass"));
+
+        assertEquals("user", vo.getRole());
+        verify(guestSessionMigration).migrate("900", "2");
+    }
+
+    @Test
+    void nonGuestSessionLoginDoesNotMigrate() {
+        when(userMapper.selectActiveByUsernameOrEmail("alice")).thenReturn(activeUser("2", "alice"));
+        // 当前会话是另一个正式账号（非 guest）：不触发迁移
+        when(userMapper.selectById("1")).thenReturn(
+                UserDO.builder().id("1").username("bob").role("user").build());
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn("1");
+
+        authService.login(req("alice", "right-pass"));
+
+        verify(guestSessionMigration, never()).migrate(anyString(), anyString());
+    }
+
+    @Test
+    void sameAccountReloginDoesNotMigrate() {
+        when(userMapper.selectActiveByUsernameOrEmail("alice")).thenReturn(activeUser("2", "alice"));
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn("2");
+
+        authService.login(req("alice", "right-pass"));
+
+        verify(guestSessionMigration, never()).migrate(anyString(), anyString());
+    }
+
+    @Test
+    void migrationFailureDoesNotBlockLogin() {
+        when(userMapper.selectActiveByUsernameOrEmail("alice")).thenReturn(activeUser("2", "alice"));
+        when(userMapper.selectById("900")).thenReturn(
+                UserDO.builder().id("900").username("guest-abc").role("guest").build());
+        stpUtil.when(StpUtil::getLoginIdDefaultNull).thenReturn("900");
+        org.mockito.Mockito.doThrow(new RuntimeException("db down"))
+                .when(guestSessionMigration).migrate("900", "2");
+
+        var vo = authService.login(req("alice", "right-pass"));
+
+        assertEquals("user", vo.getRole());
+        stpUtil.verify(() -> StpUtil.login("2"));
     }
 }

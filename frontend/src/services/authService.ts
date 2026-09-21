@@ -37,8 +37,8 @@ export async function fetchGuestQuota() {
  * ragent.registration.enabled flag 后，关闭态后端统一回「注册通道当前未开放」，
  * 由页面内联展示该文案，不在前端二次判断 flag。
  */
-export async function register(email: string, password: string) {
-  return api.post<void, void>("/auth/register", { email, password });
+export async function register(username: string, email: string, password: string) {
+  return api.post<void, void>("/auth/register", { username, email, password });
 }
 
 export async function verifyEmail(email: string, code: string) {
