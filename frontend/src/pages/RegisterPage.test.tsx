@@ -32,6 +32,7 @@ function renderPage() {
 }
 
 async function fillRegisterForm(user: ReturnType<typeof userEvent.setup>) {
+  await user.type(screen.getByPlaceholderText("3–20 位小写字母、数字、_ 或 -"), "newuser");
   await user.type(screen.getByPlaceholderText("you@example.com"), "newuser@example.com");
   await user.type(screen.getByPlaceholderText("8–64 位字符"), "password123");
 }
@@ -59,8 +60,48 @@ describe("RegisterPage", () => {
 
     await user.click(submit);
     await waitFor(() => {
-      expect(registerMock).toHaveBeenCalledWith("newuser@example.com", "password123");
+      expect(registerMock).toHaveBeenCalledWith("newuser", "newuser@example.com", "password123");
     });
+  });
+
+  it("submits the username lowercased (case-insensitive rule)", async () => {
+    registerMock.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPage();
+    await fillRegisterForm(user);
+    await user.type(screen.getByPlaceholderText("3–20 位小写字母、数字、_ 或 -"), "UU");
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "注册" }));
+
+    await waitFor(() => {
+      expect(registerMock).toHaveBeenCalledWith("newuseruu", "newuser@example.com", "password123");
+    });
+  });
+
+  it("surfaces explicit duplicate email/username errors from the backend inline", async () => {
+    registerMock.mockRejectedValue(new Error("该邮箱已注册"));
+    const user = userEvent.setup();
+    renderPage();
+    await fillRegisterForm(user);
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "注册" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("该邮箱已注册")).toBeTruthy();
+    });
+    expect(screen.getByPlaceholderText("you@example.com")).toBeTruthy();
+  });
+
+  it("blocks usernames containing @ client-side before any request", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(screen.getByPlaceholderText("3–20 位小写字母、数字、_ 或 -"), "some@mail.com");
+    await user.type(screen.getByPlaceholderText("you@example.com"), "newuser@example.com");
+    await user.type(screen.getByPlaceholderText("8–64 位字符"), "password123");
+    await user.click(screen.getByRole("checkbox"));
+
+    expect(screen.getByRole("button", { name: "注册" }).hasAttribute("disabled")).toBe(true);
+    expect(registerMock).not.toHaveBeenCalled();
   });
 
   it("shows the privacy/terms agreement copy with legal links", () => {

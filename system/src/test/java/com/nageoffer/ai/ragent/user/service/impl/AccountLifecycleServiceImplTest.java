@@ -61,6 +61,7 @@ class AccountLifecycleServiceImplTest {
 
     private static final String EMAIL = "u2@example.com";
     private static final String PASSWORD = "right-pass-123";
+    private static final String USERNAME = "newuser";
 
     private UserMapper userMapper;
     private MailVerificationService mailVerificationService;
@@ -96,6 +97,14 @@ class AccountLifecycleServiceImplTest {
                 .build();
     }
 
+    private RegisterRequest registerRequest() {
+        RegisterRequest req = new RegisterRequest();
+        req.setUsername(USERNAME);
+        req.setEmail(EMAIL);
+        req.setPassword(PASSWORD);
+        return req;
+    }
+
     // ---------- 注册 ----------
 
     @Test
@@ -106,15 +115,13 @@ class AccountLifecycleServiceImplTest {
             return 1;
         });
 
-        RegisterRequest req = new RegisterRequest();
-        req.setEmail(EMAIL);
-        req.setPassword(PASSWORD);
+        RegisterRequest req = registerRequest();
         service.register(req);
 
         ArgumentCaptor<UserDO> captor = ArgumentCaptor.forClass(UserDO.class);
         verify(userMapper).insert(captor.capture());
         UserDO created = captor.getValue();
-        assertEquals(EMAIL, created.getUsername());
+        assertEquals("newuser", created.getUsername());
         assertEquals(EMAIL, created.getEmail());
         assertEquals("user", created.getRole());
         assertEquals(0, created.getEmailVerified());
@@ -123,51 +130,84 @@ class AccountLifecycleServiceImplTest {
     }
 
     @Test
-    void registerNormalizesEmailToLowercase() {
-        when(userMapper.selectActiveByUsernameOrEmail("u2@example.com")).thenReturn(null);
+    void registerNormalizesEmailAndUsernameToLowercase() {
         when(userMapper.insert(any(UserDO.class))).thenReturn(1);
 
         RegisterRequest req = new RegisterRequest();
+        req.setUsername("  NewUser ");
         req.setEmail("  U2@Example.COM ");
         req.setPassword(PASSWORD);
         service.register(req);
 
-        verify(userMapper).insert(any(UserDO.class));
+        ArgumentCaptor<UserDO> captor = ArgumentCaptor.forClass(UserDO.class);
+        verify(userMapper).insert(captor.capture());
+        assertEquals("newuser", captor.getValue().getUsername());
         verify(mailVerificationService).sendCode("u2@example.com", "verify");
     }
 
     @Test
-    void registerSilentlyAcceptsWhenEmailTaken() {
+    void registerExplicitlyRejectsWhenEmailTaken() {
         when(userMapper.selectActiveByUsernameOrEmail(EMAIL)).thenReturn(registeredUser());
 
-        RegisterRequest req = new RegisterRequest();
-        req.setEmail(EMAIL);
-        req.setPassword(PASSWORD);
-        service.register(req);
-
-        // 不建号、不发码、不报错——与可注册路径的响应不可区分（反枚举）
+        ClientException ex = assertThrows(ClientException.class, () -> service.register(registerRequest()));
+        assertEquals("该邮箱已注册", ex.getMessage());
         verify(userMapper, never()).insert(any(UserDO.class));
         verify(mailVerificationService, never()).sendCode(anyString(), anyString());
     }
 
     @Test
-    void registerDuplicateKeyRaceIsSilentlyAccepted() {
-        when(userMapper.selectActiveByUsernameOrEmail(EMAIL)).thenReturn(null);
-        when(userMapper.insert(any(UserDO.class)))
-                .thenThrow(new org.springframework.dao.DuplicateKeyException("uk_user_email_active"));
+    void registerExplicitlyRejectsWhenUsernameTaken() {
+        when(userMapper.selectActiveByUsernameOrEmail("newuser")).thenReturn(registeredUser());
 
-        RegisterRequest req = new RegisterRequest();
-        req.setEmail(EMAIL);
-        req.setPassword(PASSWORD);
-        service.register(req);
-
+        ClientException ex = assertThrows(ClientException.class, () -> service.register(registerRequest()));
+        assertEquals("用户名已被占用", ex.getMessage());
+        verify(userMapper, never()).insert(any(UserDO.class));
         verify(mailVerificationService, never()).sendCode(anyString(), anyString());
     }
 
     @Test
+    void registerDuplicateKeyRaceConvertsToExplicitError() {
+        // 兜底覆盖并发窗口与冷静期软删行占名（uk_user_username 全表唯一含软删行）
+        when(userMapper.insert(any(UserDO.class)))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException("uk_user_username"));
+
+        ClientException ex = assertThrows(ClientException.class, () -> service.register(registerRequest()));
+        assertEquals("用户名已被占用", ex.getMessage());
+        verify(mailVerificationService, never()).sendCode(anyString(), anyString());
+    }
+
+    @Test
+    void registerRejectsIllegalUsernameCharacters() {
+        String[] illegal = {"ab", "a".repeat(21), "has@mailer.com", "用户名", "sp ace", "new.user"};
+        for (String username : illegal) {
+            RegisterRequest req = registerRequest();
+            req.setUsername(username);
+            assertThrows(ClientException.class, () -> service.register(req), "username=" + username);
+        }
+        verify(userMapper, never()).insert(any(UserDO.class));
+    }
+
+    @Test
+    void registerRejectsReservedUsername() {
+        for (String reserved : new String[]{"admin", "Admin", "GUEST", "system", "root", "official", "polyuguide"}) {
+            RegisterRequest req = registerRequest();
+            req.setUsername(reserved);
+            assertThrows(ClientException.class, () -> service.register(req), "username=" + reserved);
+        }
+        verify(userMapper, never()).insert(any(UserDO.class));
+    }
+
+    @Test
+    void registerRejectsMissingUsername() {
+        RegisterRequest req = registerRequest();
+        req.setUsername(" ");
+        assertThrows(ClientException.class, () -> service.register(req));
+        verify(userMapper, never()).insert(any(UserDO.class));
+    }
+
+    @Test
     void registerRejectsWeakPassword() {
-        RegisterRequest req = new RegisterRequest();
-        req.setEmail(EMAIL);
+        RegisterRequest req = registerRequest();
         req.setPassword("short");
         assertThrows(ClientException.class, () -> service.register(req));
         verify(userMapper, never()).insert(any(UserDO.class));
@@ -175,8 +215,7 @@ class AccountLifecycleServiceImplTest {
 
     @Test
     void registerRejectsOverlongPassword() {
-        RegisterRequest req = new RegisterRequest();
-        req.setEmail(EMAIL);
+        RegisterRequest req = registerRequest();
         req.setPassword("x".repeat(65));
         assertThrows(ClientException.class, () -> service.register(req));
         verify(userMapper, never()).insert(any(UserDO.class));
@@ -184,9 +223,8 @@ class AccountLifecycleServiceImplTest {
 
     @Test
     void registerRejectsMalformedEmail() {
-        RegisterRequest req = new RegisterRequest();
+        RegisterRequest req = registerRequest();
         req.setEmail("not-an-email");
-        req.setPassword(PASSWORD);
         assertThrows(ClientException.class, () -> service.register(req));
         verify(userMapper, never()).insert(any(UserDO.class));
     }

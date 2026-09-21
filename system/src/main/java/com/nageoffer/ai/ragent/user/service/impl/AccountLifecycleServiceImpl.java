@@ -36,6 +36,7 @@ import com.nageoffer.ai.ragent.user.security.ClientIps;
 import com.nageoffer.ai.ragent.user.security.LoginRateLimiter;
 import com.nageoffer.ai.ragent.user.security.PasswordCodec;
 import com.nageoffer.ai.ragent.user.security.PasswordPolicy;
+import com.nageoffer.ai.ragent.user.security.UsernamePolicy;
 import com.nageoffer.ai.ragent.user.service.AccountLifecycleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,18 +90,24 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
 
     @Override
     public void register(RegisterRequest requestParam) {
+        // 用户名规则/保留字/小写化（#103）；email 归一化在前，两键格式都过再走限速与占用检查
+        String username = UsernamePolicy.normalize(requestParam == null ? null : requestParam.getUsername());
         String email = normalizeEmail(requestParam == null ? null : requestParam.getEmail());
         String password = requestParam == null ? null : requestParam.getPassword();
         PasswordPolicy.validate(password);
-        // 注册限速：3 次/小时/IP——计入一切注册尝试（含静默受理路径），防枚举探测
+        // 注册限速：3 次/小时/IP——计入一切注册尝试（含重复报错路径），防枚举探测
         loginRateLimiter.tryAcquire("ragent:rl:register:ip:", ClientIps.resolve(), 3, java.time.Duration.ofHours(1));
 
-        // 邮箱已注册（或被同用户名占用）：静默受理，不建号不发码，与可注册路径返回完全一致
+        // 重复显式报错（#103 反转既有静默策略；忘记密码端点已可探测存在性，防枚举收益趋零）
+        // 禁 @ 规则使「含 @ 的键只匹配 email 列、不含 @ 的键只匹配 username 列」，两键互不串台
         if (userMapper.selectActiveByUsernameOrEmail(email) != null) {
-            return;
+            throw new ClientException("该邮箱已注册");
+        }
+        if (userMapper.selectActiveByUsernameOrEmail(username) != null) {
+            throw new ClientException("用户名已被占用");
         }
         UserDO record = UserDO.builder()
-                .username(email)
+                .username(username)
                 .password(passwordCodec.encode(password))
                 .role(UserRole.USER.getCode())
                 .email(email)
@@ -109,9 +116,11 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
         try {
             userMapper.insert(record);
         } catch (DuplicateKeyException ex) {
-            // 并发窗口内同邮箱双写：按已注册处理，静默受理
-            log.info("[register] 并发注册冲突按已注册受理：emailHashPresent=true");
-            return;
+            // 兜底覆盖并发窗口与冷静期软删行占名（uk_user_username 全表唯一含软删行；
+            // 邮箱唯一索引只盖活跃行，活跃占用已被前置检查显式报错）
+            log.info("[register] 注册唯一键冲突转显式报错：emailHashPresent={}",
+                    StrUtil.isNotBlank(email));
+            throw new ClientException("用户名已被占用");
         }
         mailVerificationService.sendCode(email, "verify");
     }
