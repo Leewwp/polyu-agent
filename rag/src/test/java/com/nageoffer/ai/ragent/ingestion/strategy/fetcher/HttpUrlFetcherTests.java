@@ -54,7 +54,8 @@ class HttpUrlFetcherTests {
         server.start();
         // 回环 MockWebServer：宽松档守卫（与 News/RedirectGuard 测试同口径）
         fetcher = new HttpUrlFetcher(new HttpClientHelper(
-                new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true))));
+                new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)),
+                new IngestionUrlGuard(true)));
         ReflectionTestUtils.setField(fetcher, "maxFileSize", DataSize.ofBytes(16));
     }
 
