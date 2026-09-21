@@ -17,22 +17,30 @@
 
 package com.nageoffer.ai.ragent.user.mail;
 
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+
 /**
- * SMTP 模式邮件发送（2026-09-14 接线落地：阿里云 DirectMail 465 SSL）
+ * SMTP 模式邮件发送（2026-09-14 接线落地：阿里云 DirectMail 465 SSL；#102 HTML 化）
  *
  * <p>ragent.mail.mode=smtp 时装配；连接参数见 application.yaml spring.mail 段
  * （MAIL_* 环境注入，凭据按密钥纪律入 ~/.polyu-agent/secrets.yaml，不入仓库）。
  * 发信身份=独立别名 no-reply@polyuguide.com；
  * DirectMail 要求 From=认证发信地址，from 未配置时回落 username（Spring 不自动带 From）。
+ *
+ * <p>#102 起 multipart/alternative 双 part：HTML 主体 + 纯文本降级
+ * （文本客户端可读、垃圾邮件评分友好），整体 UTF-8（中文主题编码一并覆盖）。
  */
 @Slf4j
 @Component
@@ -47,14 +55,19 @@ public class SmtpMailSender implements MailSender {
 
     @Override
     public void send(MailMessage message) {
-        SimpleMailMessage mail = new SimpleMailMessage();
-        if (StringUtils.hasText(from)) {
-            mail.setFrom(from);
+        MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+        try {
+            MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, StandardCharsets.UTF_8.name());
+            if (StringUtils.hasText(from)) {
+                helper.setFrom(from);
+            }
+            helper.setTo(message.to());
+            helper.setSubject(message.subject());
+            helper.setText(message.textBody(), message.htmlBody());
+        } catch (MessagingException ex) {
+            throw new MailSendException("邮件组装失败: " + message.subject(), ex);
         }
-        mail.setTo(message.to());
-        mail.setSubject(message.subject());
-        mail.setText(message.textBody());
-        javaMailSender.send(mail);
+        javaMailSender.send(mimeMessage);
         log.info("[mail:smtp] sent to={} subject={}", message.to(), message.subject());
     }
 }
