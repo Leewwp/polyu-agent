@@ -78,8 +78,9 @@ class AdminSurfaceContractTest {
             "/share/**",
             // SampleQuestionController：读=登录态前台资源；写=admin 走方法级 StpUtil.checkRole
             "/sample-questions/**",
-            // UserController 自服务两端点（/users/** 管理面已由清单覆盖）
-            "/user/me", "/user/password"};
+            // UserController 自服务端点（/users/** 管理面已由清单覆盖）：
+            // /user/me、/user/password、#104 改邮箱两端点（登录态，密码+验码双因子）
+            "/user/me", "/user/password", "/user/email/request", "/user/email/confirm"};
 
     private final PathPatternParser parser = new PathPatternParser();
 
