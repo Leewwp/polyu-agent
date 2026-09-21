@@ -35,8 +35,10 @@ public class LoggerMailSender implements MailSender {
 
     @Override
     public void send(MailMessage message) {
-        log.info("[mail:logger] to={} subject={} code={} bodyChars={}",
+        // HTML 不整段进日志（体积大且无信息量），只记字符数作 multipart 双 part 的在场证据
+        log.info("[mail:logger] to={} subject={} code={} textChars={} htmlChars={}",
                 message.to(), message.subject(), message.code(),
-                message.textBody() == null ? 0 : message.textBody().length());
+                message.textBody() == null ? 0 : message.textBody().length(),
+                message.htmlBody() == null ? 0 : message.htmlBody().length());
     }
 }

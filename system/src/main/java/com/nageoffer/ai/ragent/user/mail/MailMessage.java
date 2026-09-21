@@ -18,10 +18,11 @@
 package com.nageoffer.ai.ragent.user.mail;
 
 /**
- * 待发送邮件（T10 脚手架）
+ * 待发送邮件（multipart/alternative：HTML 主体 + 纯文本降级）
  *
- * @param code 验证码原文（仅非验证类邮件为 null）。logger 模式靠它在日志中取码完成内测闭环；
- *             smtp 模式的发送器不得打印该值
+ * @param htmlBody HTML 主体（#102 模板族：内联 CSS + 表格布局，Gmail/Outlook 剥 style 块仍完整呈现）
+ * @param code     验证码原文（仅验证码类邮件非 null）。logger 模式靠它在日志中取码完成内测闭环；
+ *                 smtp 模式的发送器不得打印该值
  */
-public record MailMessage(String to, String subject, String textBody, String code) {
+public record MailMessage(String to, String subject, String textBody, String htmlBody, String code) {
 }
