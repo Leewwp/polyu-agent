@@ -81,13 +81,17 @@ public class NewsHttpFetchClient {
     private final Map<String, Long> lastRequestAtMillis = new ConcurrentHashMap<>();
 
     /**
-     * Spring 装配构造器
+     * Spring 装配构造器。连接层挂 {@link com.nageoffer.ai.ragent.rag.security.GuardedDns}
+     * （#101 DNS 重绑定收口）：fetchOnce 与 robots.txt 拉取共用同一派生 client——
+     * syncHttpClient 共享 bean 不动（可信内部端点同 bean），newBuilder 共享连接池只换 Dns
      */
     @org.springframework.beans.factory.annotation.Autowired
     public NewsHttpFetchClient(@Qualifier("syncHttpClient") OkHttpClient httpClient,
                                RedirectGuard redirectGuard,
+                               com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard urlGuard,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
-        this(httpClient, redirectGuard, userAgent, millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
+        this(httpClient.newBuilder().dns(new com.nageoffer.ai.ragent.rag.security.GuardedDns(urlGuard)).build(),
+                redirectGuard, userAgent, millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**

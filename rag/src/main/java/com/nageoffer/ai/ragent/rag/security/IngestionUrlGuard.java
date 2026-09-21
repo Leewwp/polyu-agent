@@ -100,6 +100,27 @@ public class IngestionUrlGuard {
         }
     }
 
+    /**
+     * 连接级复校（#101 Dns SPI 复用面）：对建连时实际解析出的地址逐个做内网/元数据判定，
+     * 命中即抛 ClientException（调用方整单失败）。与 {@link #checkHostIsPublic} 同一
+     * {@link #isInternalAddress} 判定，不复制逻辑；allow-private-hosts 开启时同口径放行
+     * （本地档抓 localhost 源文件不被拦）。
+     */
+    public void checkResolvedAddresses(String host, java.util.List<InetAddress> addresses) {
+        if (allowPrivateHosts) {
+            return;
+        }
+        String normalized = normalizeHost(host);
+        if (BLOCKED_HOST_NAMES.contains(normalized)) {
+            throw new ClientException("出站连接指向内部主机，已拒绝");
+        }
+        for (InetAddress address : addresses) {
+            if (isInternalAddress(address)) {
+                throw new ClientException("出站连接解析到内网或保留地址，已拒绝（DNS 重绑定防护）");
+            }
+        }
+    }
+
     private URI parse(String location) {
         if (location == null || location.isBlank()) {
             throw new ClientException("文档源地址不能为空");
