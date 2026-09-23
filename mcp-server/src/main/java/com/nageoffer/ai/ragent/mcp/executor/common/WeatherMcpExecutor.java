@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -36,6 +37,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 @Slf4j
 @Component
@@ -75,33 +79,21 @@ public class WeatherMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification weatherToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("city", Map.of(
-                "type", "string",
-                "description", "城市名称，如北京、上海、广州等"
-        ));
-
-        properties.put("queryType", Map.of(
-                "type", "string",
-                "description", "查询类型：current(当前天气)、forecast(未来预报)",
-                "enum", List.of("current", "forecast"),
-                "default", "current"
-        ));
-
-        properties.put("days", Map.of(
-                "type", "integer",
-                "description", "预报天数，仅forecast模式有效，默认3天，最多7天",
-                "default", 3
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("city"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("city", "城市名称，如北京、上海、广州等"))
+                .optional(string("queryType", "查询类型：current(当前天气)、forecast(未来预报)")
+                        .options(List.of("current", "forecast"))
+                        .defaultTo("current"))
+                .optional(integer("days", "预报天数，仅forecast模式有效，默认3天，最多7天")
+                        .defaultTo(3))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -141,7 +133,7 @@ public class WeatherMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 

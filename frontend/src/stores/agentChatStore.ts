@@ -1,3 +1,4 @@
+import axios from "axios";
 import { create } from "zustand";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -222,6 +223,21 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     }));
   };
 
+  // 停止失败时恢复按钮；流若已收尾则保持安静，避免迟到的网络错误覆盖成功状态
+  const requestStop = (taskId: string) => {
+    void stopAgentTask(taskId).catch((error: unknown) => {
+      const state = get();
+      if (!state.isStreaming || !state.cancelRequested || state.streamTaskId !== taskId) {
+        return;
+      }
+      set({ cancelRequested: false });
+      // HTTP / 网络错误已由全局拦截器提示；业务 code 异常是普通 Error，由这里补提示
+      if (!axios.isAxiosError(error)) {
+        toast.error("停止请求未确认，请重试");
+      }
+    });
+  };
+
   /**
    * 首问与确认续跑共用，返回是否收到过 meta（后端是否受理）
    */
@@ -270,7 +286,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
         }));
         // meta 前用户已点停止：此刻才拿到 taskId 补发停止指令
         if (get().cancelRequested) {
-          stopAgentTask(payload.taskId).catch(() => null);
+          requestStop(payload.taskId);
         }
       },
       onMessage: (payload: AgentMessageDelta) => {
@@ -807,12 +823,12 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       }
     },
     cancelGeneration: () => {
-      const { isStreaming, streamTaskId } = get();
-      if (!isStreaming) return;
+      const { isStreaming, streamTaskId, cancelRequested } = get();
+      if (!isStreaming || cancelRequested) return;
       // 不中断 fetch：后端落库部分内容后回发 cancel + done 完成收尾
       set({ cancelRequested: true });
       if (streamTaskId) {
-        stopAgentTask(streamTaskId).catch(() => null);
+        requestStop(streamTaskId);
       }
     }
   };

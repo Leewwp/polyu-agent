@@ -32,7 +32,6 @@ import java.util.Map;
 
 /**
  * Agent 引擎装配：模型与状态存储
- * MCP 不走 AgentScope 自带客户端（其 MCP SDK 0.17.0 被根 pom 的 1.1.2 压制），统一桥接 rag 既有连接
  */
 @Configuration
 @ConditionalOnAgentEngine

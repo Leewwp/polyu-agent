@@ -41,6 +41,15 @@ public class AgentBlock {
     public static final String DURATION_SOURCE_TOOL = "tool";
 
     /**
+     * kind 取值，产出方与读取方共用这一套字面量
+     */
+    public static final String KIND_ANSWER = "answer";
+    public static final String KIND_REASONING = "reasoning";
+    public static final String KIND_ERROR = "error";
+    public static final String KIND_TOOL = "tool";
+    public static final String KIND_CONFIRM = "confirm";
+
+    /**
      * reasoning / answer / tool / confirm / error
      */
     private String kind;

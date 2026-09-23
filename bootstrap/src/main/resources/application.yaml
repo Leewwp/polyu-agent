@@ -98,6 +98,8 @@ share:
 
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
+  mcp:
+    servers: []  # 上游 MCP 配置自 rag.mcp 迁来（fd58ec76 去 rag-mcp SDK 化）；维持 D14 裁定不挂 localhost:9099 死端点——空表即不注册远程 MCP 工具（非致命），需要时按需追加
   chat:
     provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
     model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
@@ -247,9 +249,6 @@ rag:
       lock-seconds: 900
       batch-size: 20
       min-interval-seconds: 60
-
-  mcp:
-    servers: []  # 生产/本地默认不挂 MCP Server（D14 裁定清理 localhost:9099 死端点）；需要时按需追加条目，未配置时 MCP 客户端跳过远程工具注册（非致命）
 
   search:
     # 检索漏斗三段预算，各自独立、单调收窄，启动时校验 recall-budget ≥ default-top-k 且 rerank-candidate-limit ≥ default-top-k

@@ -40,7 +40,7 @@ public class AgentRunGate {
     private static final String RUNNING_KEY_PREFIX = "ragent:agent:running:";
 
     /**
-     * 运行位存 taskId|conversationId：删会话时要凭它认出该停的是哪条流，两段都是雪花数字串，不含竖线
+     * 运行位存 taskId|conversationId：删会话时要凭它认出在跑的是不是这一个，两段都是雪花数字串，不含竖线
      */
     private static final String SLOT_SEPARATOR = "|";
 

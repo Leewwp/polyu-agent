@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -35,11 +36,11 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 当前日期 MCP 工具，供 Agent 解析“今天、明天、下周”等相对日期。
@@ -67,20 +68,17 @@ public class CurrentDateMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification currentDateToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("timezone", Map.of(
-                "type", "string",
-                "description", "IANA 时区名称，如 Asia/Shanghai、UTC；不填默认 Asia/Shanghai",
-                "default", DEFAULT_ZONE_ID.getId()
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("timezone", "IANA 时区名称，如 Asia/Shanghai、UTC；不填默认 Asia/Shanghai")
+                        .defaultTo(DEFAULT_ZONE_ID.getId()))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -113,7 +111,7 @@ public class CurrentDateMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("日期查询失败: " + e.getMessage());
+            return McpToolResults.failure("日期查询", e);
         }
     }
 }

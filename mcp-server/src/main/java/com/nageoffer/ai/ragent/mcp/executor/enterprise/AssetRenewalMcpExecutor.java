@@ -22,6 +22,7 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -33,10 +34,11 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * IT 资产换新工单提交，写操作示例
@@ -61,40 +63,24 @@ public class AssetRenewalMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification assetRenewalToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("assetNo", Map.of(
-                "type", "string",
-                "title", "资产编号",
-                "description", "待换新的资产编号，如 IT-NB-2021-0473，需取自名下资产查询结果"
-        ));
-
-        properties.put("reason", Map.of(
-                "type", "string",
-                "title", "换新原因",
-                "description", "换新原因：已达服役年限、性能不足、硬件故障、损坏遗失",
-                "enum", REASONS
-        ));
-
-        properties.put("expectedModel", Map.of(
-                "type", "string",
-                "title", "期望机型",
-                "description", "期望机型，用户未指定则留空，不要代为推荐"
-        ));
-
-        properties.put("remark", Map.of(
-                "type", "string",
-                "title", "补充说明",
-                "description", "补充说明，如故障现象，用户未提及则留空"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("assetNo", "reason"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("assetNo", "待换新的资产编号，如 IT-NB-2021-0473，需取自名下资产查询结果")
+                        .title("资产编号"))
+                .required(string("reason", "换新原因：已达服役年限、性能不足、硬件故障、损坏遗失")
+                        .title("换新原因")
+                        .options(REASONS))
+                .optional(string("expectedModel", "期望机型，用户未指定则留空，不要代为推荐")
+                        .title("期望机型"))
+                .optional(string("remark", "补充说明，如故障现象，用户未提及则留空")
+                        .title("补充说明"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -131,7 +117,7 @@ public class AssetRenewalMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("提交失败: " + e.getMessage());
+            return McpToolResults.failure("提交", e);
         }
     }
 

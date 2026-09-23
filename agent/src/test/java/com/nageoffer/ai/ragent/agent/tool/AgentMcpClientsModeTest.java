@@ -15,22 +15,23 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.core.prompt;
+package com.nageoffer.ai.ragent.agent.tool;
 
-import lombok.Builder;
-import lombok.Data;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-@Data
-@Builder
-public class PromptBuildPlan {
+import static org.assertj.core.api.Assertions.assertThat;
 
-    private PromptScene scene;
+class AgentMcpClientsModeTest {
 
-    private String baseTemplate;
+    private final ApplicationContextRunner contexts = new ApplicationContextRunner()
+            .withUserConfiguration(AgentMcpClients.class);
 
-    private String mcpContext;
-
-    private String kbContext;
-
-    private String question;
+    @Test
+    void shouldCreateAgentScopeClientOnlyInAgentMode() {
+        contexts.withPropertyValues("ragent.engine.type=agent")
+                .run(context -> assertThat(context).hasSingleBean(AgentMcpClients.class));
+        contexts.withPropertyValues("ragent.engine.type=workflow")
+                .run(context -> assertThat(context).doesNotHaveBean(AgentMcpClients.class));
+    }
 }

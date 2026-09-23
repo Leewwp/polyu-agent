@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.mcp.dao.entity.TicketDO;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.TicketMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -35,9 +36,10 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 转人工工单，Agent 办不下去时的逃生门
@@ -63,29 +65,21 @@ public class BitTicketSubmitMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification submitTicketToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("category", Map.of(
-                "type", "string",
-                "title", "问题分类",
-                "description", "问题分类",
-                "enum", CATEGORIES
-        ));
-
-        properties.put("content", Map.of(
-                "type", "string",
-                "title", "问题描述",
-                "description", "问题描述，把用户原话的诉求、涉及的订单号或商品型号、已经尝试过的处理一并写清楚，"
-                        + "人工接手时不用再问一遍"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("category", "content"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("category", "问题分类")
+                        .title("问题分类")
+                        .options(CATEGORIES))
+                .required(string("content", "问题描述，把用户原话的诉求、涉及的订单号或商品型号、已经尝试过的处理一并写清楚，"
+                        + "人工接手时不用再问一遍")
+                        .title("问题描述"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -136,7 +130,7 @@ public class BitTicketSubmitMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("工单提交失败: " + e.getMessage());
+            return McpToolResults.failure("工单提交", e);
         }
     }
 

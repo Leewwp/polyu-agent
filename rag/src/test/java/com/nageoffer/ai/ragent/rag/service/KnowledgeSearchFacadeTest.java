@@ -33,7 +33,6 @@ import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.nageoffer.ai.ragent.rag.core.rewrite.QueryRewriteService;
 import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
-import com.nageoffer.ai.ragent.rag.dto.IntentGroup;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import org.junit.jupiter.api.Test;
@@ -81,7 +80,7 @@ class KnowledgeSearchFacadeTest {
         KnowledgeSearchFacade facade = facade(true);
         stubRetrievalHit();
 
-        facade.search(QUESTION, List.of());
+        facade.search(QUESTION);
 
         String kbContext = capturePromptContext().getKbContext();
         assertFalse(kbContext.contains("data-ragent-doc-id"), "内部文档 ID 不得进入模型可见文本");
@@ -90,22 +89,21 @@ class KnowledgeSearchFacadeTest {
     }
 
     /**
-     * 主 Agent 的近期轮次只走改写，合成阶段仍不带历史
+     * 改写与合成两端都不带历史
+     * <p>
+     * 主 Agent 传进来的已是消解过、且被它有意收窄的查询，再喂历史会让改写拿上一轮的
+     * 实体把它反向补全，产出看着合理却检索错的问题
      */
     @Test
-    void passesRecentTurnsToRewriteOnly() {
+    void passesNoHistoryToRewriteNorSynthesis() {
         KnowledgeSearchFacade facade = facade(false);
         stubRetrievalHit();
-        List<ChatMessage> recentHistory = List.of(
-                ChatMessage.user("差旅报销走什么流程"),
-                ChatMessage.assistant("先在 OA 提交申请单")
-        );
 
-        facade.search("它的上限是多少", recentHistory);
+        facade.search("它的上限是多少");
 
         ArgumentCaptor<List<ChatMessage>> rewriteHistory = ArgumentCaptor.forClass(List.class);
         verify(queryRewriteService).rewriteWithSplit(anyString(), rewriteHistory.capture());
-        assertEquals(recentHistory, rewriteHistory.getValue());
+        assertTrue(rewriteHistory.getValue().isEmpty(), "改写阶段不得拿到会话历史");
 
         ArgumentCaptor<List<ChatMessage>> promptHistory = ArgumentCaptor.forClass(List.class);
         verify(promptService).buildStructuredMessages(
@@ -131,8 +129,7 @@ class KnowledgeSearchFacadeTest {
                 new SubQuestionIntent("报销标准是多少", List.of(kbNode)),
                 new SubQuestionIntent("公司福利有哪些", List.of())
         ));
-        when(intentResolver.mergeIntentGroup(anyList()))
-                .thenReturn(new IntentGroup(List.of(), List.of(kbNode)));
+        when(intentResolver.mergeKbIntents(anyList())).thenReturn(List.of(kbNode));
         when(retrievalEngine.retrieve(anyList()))
                 .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).build());
         when(promptService.buildStructuredMessages(
@@ -140,7 +137,7 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("答案");
 
-        facade.search(QUESTION, List.of());
+        facade.search(QUESTION);
 
         ArgumentCaptor<List<SubQuestionIntent>> retrieved = ArgumentCaptor.forClass(List.class);
         verify(retrievalEngine).retrieve(retrieved.capture());
@@ -169,7 +166,7 @@ class KnowledgeSearchFacadeTest {
         when(guidanceService.detectAmbiguity(QUESTION, subIntents))
                 .thenReturn(GuidanceDecision.prompt(prompt));
 
-        String result = facade.search(QUESTION, List.of());
+        String result = facade.search(QUESTION);
 
         assertEquals(prompt, result);
         verify(retrievalEngine, never()).retrieve(anyList());
@@ -192,8 +189,8 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
         when(intentResolver.resolve(any(RewriteResult.class)))
                 .thenReturn(List.of(new SubQuestionIntent(QUESTION, List.of(kbNode))));
-        when(intentResolver.mergeIntentGroup(anyList()))
-                .thenReturn(new IntentGroup(List.of(), List.of(kbNode)));
+        when(intentResolver.mergeKbIntents(anyList()))
+                .thenReturn(List.of(kbNode));
         // doc-a 跨意图重复出现只算一篇；doc-b..doc-j 共 9 篇新文档，凑满 10 篇后截 8 条（doc-h 止）
         java.util.Map<String, List<RetrievedChunk>> intentChunks = new java.util.LinkedHashMap<>();
         // chunk 原文先于 kbContext 装配（锚点是 context-format.st 装配时才加的），摘录天然无锚点；防御性 strip 仍在
@@ -218,7 +215,7 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("答案");
 
-        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION);
 
         assertEquals("答案", outcome.answer());
         assertEquals(8, outcome.sources().size(), "来源上限 8 条");
@@ -246,7 +243,7 @@ class KnowledgeSearchFacadeTest {
         when(guidanceService.detectAmbiguity(QUESTION, subIntents))
                 .thenReturn(GuidanceDecision.prompt("请选择系统"));
 
-        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION);
 
         assertEquals("请选择系统", outcome.answer());
         assertTrue(outcome.sources().isEmpty());
@@ -269,8 +266,7 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
         when(intentResolver.resolve(any(RewriteResult.class)))
                 .thenReturn(List.of(new SubQuestionIntent(QUESTION, List.of(kbNode))));
-        when(intentResolver.mergeIntentGroup(anyList()))
-                .thenReturn(new IntentGroup(List.of(), List.of(kbNode)));
+        when(intentResolver.mergeKbIntents(anyList())).thenReturn(List.of(kbNode));
         when(retrievalEngine.retrieve(anyList()))
                 .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).build());
         when(promptService.buildStructuredMessages(

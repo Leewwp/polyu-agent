@@ -27,12 +27,13 @@ import com.nageoffer.ai.ragent.agent.dto.AgentToolProgress;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolBatchFact;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolSourceStash;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.agentscope.core.event.AgentResultEvent;
 import io.agentscope.core.event.AllToolsDeniedEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
@@ -46,7 +47,6 @@ import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
-import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
@@ -322,6 +322,24 @@ class AgentStreamEventBridgeTest {
         assertThat(blocks).extracting(AgentBlock::getKind).containsExactly("answer", "tool", "answer");
         assertThat(blocks.get(0).getText()).isEqualTo("先说一句");
         assertThat(blocks.get(2).getText()).isEqualTo("再说一句");
+        // content 是正文全文，被工具块切成几段也要按序接回来，末段收尾前还没封口
+        assertThat(capturedContent()).isEqualTo("先说一句再说一句");
+    }
+
+    /**
+     * 思考与正文各走各的全文，分段规则一致
+     */
+    @Test
+    void shouldPersistThinkingAcrossSegments() {
+        bridge.onEvent(new ThinkingBlockDeltaEvent("r-1", "b-1", "先想一下"));
+        bridge.onEvent(new ToolCallStartEvent("r-1", "call-1", "search_knowledge"));
+        bridge.onEvent(new ToolResultEndEvent("r-1", "call-1", "search_knowledge", ToolResultState.SUCCESS));
+        bridge.onEvent(new ThinkingBlockDeltaEvent("r-1", "b-2", "再想一下"));
+        bridge.onComplete();
+
+        assertThat(capturedBlocks()).extracting(AgentBlock::getKind)
+                .containsExactly("reasoning", "tool", "reasoning");
+        assertThat(capturedThinking()).isEqualTo("先想一下再想一下");
     }
 
     @Test
@@ -666,19 +684,11 @@ class AgentStreamEventBridgeTest {
                 .description("提交请假申请")
                 .inputSchema(new JsonSchema("object", properties, List.of(), null, null, null))
                 .build();
-        McpToolExecutor executor = new McpToolExecutor() {
-            @Override
-            public Tool getToolDefinition() {
-                return tool;
-            }
-
-            @Override
-            public CallToolResult execute(Map<String, Object> parameters, Map<String, Object> meta) {
-                return null;
-            }
-        };
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        when(client.getName()).thenReturn("default");
         return new ResolvedCatalog("知识库工具描述", null,
-                List.of(new McpToolBinding("leave_submit", "请假申请", "提交请假申请", true, executor)),
+                List.of(McpToolBinding.of("leave_submit", "请假申请", "提交请假申请", true,
+                        new RemoteTool(tool, client))),
                 List.of(), List.of());
     }
 
@@ -687,6 +697,20 @@ class AgentStreamEventBridgeTest {
         ArgumentCaptor<List<AgentBlock>> captor = ArgumentCaptor.forClass(List.class);
         verify(conversationService).addAssistantMessage(
                 any(), any(), any(), any(), captor.capture(), any(), any(), any());
+        return captor.getValue();
+    }
+
+    private String capturedContent() {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).addAssistantMessage(
+                any(), any(), captor.capture(), any(), any(), any(), any(), any());
+        return captor.getValue();
+    }
+
+    private String capturedThinking() {
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).addAssistantMessage(
+                any(), any(), any(), captor.capture(), any(), any(), any(), any());
         return captor.getValue();
     }
 
@@ -701,7 +725,7 @@ class AgentStreamEventBridgeTest {
     }
 
     private AgentStreamEventBridge newBridge(ResolvedCatalog catalog) {
-        return new AgentStreamEventBridge(AgentStreamEventBridge.Params.builder()
+        return AgentStreamEventBridge.builder()
                 .runHandle(new AgentRunHandle(TASK_ID, sender, taskManager, facts, null))
                 .conversationService(conversationService)
                 .catalog(catalog)
@@ -711,7 +735,7 @@ class AgentStreamEventBridgeTest {
                 .replyToMessageId("m-3003")
                 .clock(clock)
                 .facts(facts)
-                .build());
+                .build();
     }
 
     /**

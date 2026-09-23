@@ -19,15 +19,13 @@ package com.nageoffer.ai.ragent.agent.trace;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
-import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients;
+import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNodeRegistry;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolExecutor;
-import com.nageoffer.ai.ragent.rag.core.mcp.McpToolRegistry;
-import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkill;
 import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
@@ -38,9 +36,11 @@ import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.tool.AgentTool;
 import io.agentscope.core.tool.ToolCallParam;
 import io.agentscope.core.tool.Toolkit;
+import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.context.Scope;
@@ -56,6 +56,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Mono;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -65,6 +66,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -184,11 +187,12 @@ class AgentToolBodyTracerCoverageTest {
                 .kind(IntentKind.MCP)
                 .mcpToolId("leave_submit")
                 .build()));
-        McpToolRegistry mcpToolRegistry = mock(McpToolRegistry.class);
-        when(mcpToolRegistry.listAllExecutors()).thenReturn(List.of(executor()));
-        AgentPromptResolver promptResolver = mock(AgentPromptResolver.class);
-        when(promptResolver.resolve(AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION)).thenReturn("知识库工具描述");
-        when(promptResolver.resolve(AgentPromptSlot.AGENT_MEMORY_TOOL_DESCRIPTION)).thenReturn("记忆工具描述");
+        AgentMcpClients mcpClients = mock(AgentMcpClients.class);
+        RemoteTool leaveTool = executor();
+        when(mcpClients.get("leave_submit")).thenReturn(leaveTool);
+        Map<String, String> prompts = Map.of(
+                AgentPromptSlot.KNOWLEDGE_TOOL_DESCRIPTION.name(), "知识库工具描述",
+                AgentPromptSlot.AGENT_MEMORY_TOOL_DESCRIPTION.name(), "记忆工具描述");
         AgentSkillRegistry skillRegistry = mock(AgentSkillRegistry.class);
         when(skillRegistry.listEnabled()).thenReturn(List.of(
                 new AgentSkill("leave", "请假", "请假办理步骤", "手册正文", List.of("leave_submit"))));
@@ -197,33 +201,25 @@ class AgentToolBodyTracerCoverageTest {
 
         AgentToolCatalog catalog = new AgentToolCatalog(
                 mock(KnowledgeSearchFacade.class),
-                mock(AgentConversationService.class),
                 intentNodeRegistry,
-                mcpToolRegistry,
-                promptResolver,
+                mcpClients,
                 memoryProperties,
                 mock(AgentMemoryPipeline.class),
                 skillRegistry);
-        return catalog.buildToolkit(catalog.resolve());
+        return catalog.buildToolkit(catalog.resolve(prompts));
     }
 
-    private McpToolExecutor executor() {
+    private RemoteTool executor() {
         Tool tool = Tool.builder()
                 .name("leave_submit")
                 .description("提交请假申请")
                 .inputSchema(new JsonSchema("object", Map.of(), List.of(), false, null, null))
                 .build();
-        return new McpToolExecutor() {
-            @Override
-            public Tool getToolDefinition() {
-                return tool;
-            }
-
-            @Override
-            public CallToolResult execute(Map<String, Object> parameters, Map<String, Object> meta) {
-                return null;
-            }
-        };
+        McpClientWrapper client = mock(McpClientWrapper.class);
+        when(client.getName()).thenReturn("default");
+        when(client.callTool(eq("leave_submit"), anyMap(), anyMap())).thenReturn(Mono.just(
+                CallToolResult.builder().content(List.of(new TextContent("已处理"))).isError(false).build()));
+        return new RemoteTool(tool, client);
     }
 
     private record CollectingExporter(List<SpanData> sink) implements SpanExporter {

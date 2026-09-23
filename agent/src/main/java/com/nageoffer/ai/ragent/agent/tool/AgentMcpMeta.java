@@ -15,30 +15,29 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.core.prompt;
+package com.nageoffer.ai.ragent.agent.tool;
+
+import cn.hutool.core.util.StrUtil;
+import lombok.NoArgsConstructor;
+
+import java.util.Map;
 
 /**
- * Prompt 构建场景枚举，根据检索来源（知识库 / MCP）确定系统提示词模板
+ * MCP 调用扩展元数据
+ * 身份只通过 _meta 传递，不进入模型可控制的工具参数
+ * 仅适用于可信内部调用链，不作为开放网络认证凭据
  */
-public enum PromptScene {
+@NoArgsConstructor(access = lombok.AccessLevel.PRIVATE)
+public final class AgentMcpMeta {
 
     /**
-     * 仅命中知识库检索，使用企业知识库专用提示词模板
+     * 当前登录主体标识
      */
-    KB_ONLY,
+    public static final String USER_ID_KEY = "com.nageoffer.ragent/userId";
 
-    /**
-     * 仅命中 MCP 工具调用，使用 MCP 专用提示词模板
-     */
-    MCP_ONLY,
-
-    /**
-     * 同时命中知识库和 MCP，使用混合提示词模板
-     */
-    MIXED,
-
-    /**
-     * 无任何检索命中，返回空提示词
-     */
-    EMPTY
+    public static Map<String, Object> ofUser(String userId) {
+        return StrUtil.isBlank(userId)
+                ? Map.of()
+                : Map.of(USER_ID_KEY, userId);
+    }
 }

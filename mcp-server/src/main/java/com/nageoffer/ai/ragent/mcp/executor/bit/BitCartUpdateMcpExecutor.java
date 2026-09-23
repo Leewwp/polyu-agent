@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.CartMapper;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.ProductSkuMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -37,9 +38,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 /**
  * 设置购物车里某个 SKU 的目标数量，0 即移除
@@ -60,28 +62,20 @@ public class BitCartUpdateMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification setCartItemToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("skuCode", Map.of(
-                "type", "string",
-                "title", "商品型号",
-                "description", "商品 SKU 型号，如 BIT-A18，来自商品查询或购物车查询"
-        ));
-
-        properties.put("quantity", Map.of(
-                "type", "integer",
-                "title", "目标数量",
-                "description", "购物车里这件商品最终要有几件，填 0 表示从购物车移除。"
-                        + "注意是最终数量而不是增量：车里已有 1 件、用户说再加 1 件，这里填 2"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("skuCode", "quantity"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("skuCode", "商品 SKU 型号，如 BIT-A18，来自商品查询或购物车查询")
+                        .title("商品型号"))
+                .required(integer("quantity", "购物车里这件商品最终要有几件，填 0 表示从购物车移除。"
+                        + "注意是最终数量而不是增量：车里已有 1 件、用户说再加 1 件，这里填 2")
+                        .title("目标数量"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -136,7 +130,7 @@ public class BitCartUpdateMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("购物车调整失败: " + e.getMessage());
+            return McpToolResults.failure("购物车调整", e);
         }
     }
 

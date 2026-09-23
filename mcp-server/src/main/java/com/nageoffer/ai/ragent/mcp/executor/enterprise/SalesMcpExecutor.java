@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -33,11 +34,13 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 @Slf4j
 @Component
@@ -66,52 +69,28 @@ public class SalesMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification salesToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("region", Map.of(
-                "type", "string",
-                "description", "地区筛选：华东、华南、华北、西南、西北，不填则查询全国",
-                "enum", List.of("华东", "华南", "华北", "西南", "西北")
-        ));
-
-        properties.put("period", Map.of(
-                "type", "string",
-                "description", "时间段：本月、上月、本季度、上季度、本年，默认本月",
-                "enum", List.of("本月", "上月", "本季度", "上季度", "本年"),
-                "default", "本月"
-        ));
-
-        properties.put("product", Map.of(
-                "type", "string",
-                "description", "产品筛选：企业版、专业版、基础版，不填则查询全部产品",
-                "enum", List.of("企业版", "专业版", "基础版")
-        ));
-
-        properties.put("salesPerson", Map.of(
-                "type", "string",
-                "description", "销售人员姓名，不填则查询全部销售"
-        ));
-
-        properties.put("queryType", Map.of(
-                "type", "string",
-                "description", "查询类型：summary(汇总)、ranking(排名)、detail(明细)、trend(趋势)",
-                "enum", List.of("summary", "ranking", "detail", "trend"),
-                "default", "summary"
-        ));
-
-        properties.put("limit", Map.of(
-                "type", "integer",
-                "description", "返回记录数限制，默认10",
-                "default", 10
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("region", "地区筛选：华东、华南、华北、西南、西北，不填则查询全国")
+                        .options(List.of("华东", "华南", "华北", "西南", "西北")))
+                .optional(string("period", "时间段：本月、上月、本季度、上季度、本年，默认本月")
+                        .options(List.of("本月", "上月", "本季度", "上季度", "本年"))
+                        .defaultTo("本月"))
+                .optional(string("product", "产品筛选：企业版、专业版、基础版，不填则查询全部产品")
+                        .options(List.of("企业版", "专业版", "基础版")))
+                .optional(string("salesPerson", "销售人员姓名，不填则查询全部销售"))
+                .optional(string("queryType", "查询类型：summary(汇总)、ranking(排名)、detail(明细)、trend(趋势)")
+                        .options(List.of("summary", "ranking", "detail", "trend"))
+                        .defaultTo("summary"))
+                .optional(integer("limit", "返回记录数限制，默认10")
+                        .defaultTo(10))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -152,7 +131,7 @@ public class SalesMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 

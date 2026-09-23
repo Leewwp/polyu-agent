@@ -35,9 +35,7 @@ import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
-import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -47,10 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -68,7 +63,6 @@ public class AgentConversationServiceImpl implements AgentConversationService {
     private static final int RENAME_MAX_LENGTH = 128;
     private static final String ROLE_USER = "user";
     private static final String ROLE_ASSISTANT = "assistant";
-    private static final String BLOCK_KIND_CONFIRM = "confirm";
     private static final String CONFIRM_STATUS_PENDING = "pending";
     private static final String CONFIRM_STATUS_APPROVED = "approved";
     private static final String CONFIRM_STATUS_DENIED = "denied";
@@ -78,7 +72,6 @@ public class AgentConversationServiceImpl implements AgentConversationService {
     private final AgentMessageMapper messageMapper;
     private final PgAgentStateStore agentStateStore;
     private final AgentRunGate runGate;
-    private final StreamTaskManager taskManager;
     /**
      * 延迟获取，避免与 ReActAgentProvider 循环依赖
      */
@@ -169,6 +162,19 @@ public class AgentConversationServiceImpl implements AgentConversationService {
     }
 
     @Override
+    public AgentConfirmSettlement getPendingConfirm(String conversationId, String userId, String messageId) {
+        AgentConversationDO conversation = selectConversation(conversationId, userId);
+        if (conversation == null) {
+            throw new ClientException("会话不存在");
+        }
+        PendingConfirm pending = selectPendingConfirm(conversationId, userId, messageId);
+        if (pending == null) {
+            throw new ClientException("待确认的操作不存在或已处理");
+        }
+        return new AgentConfirmSettlement(conversation.getTitle(), pending.message().getReplyToMessageId());
+    }
+
+    @Override
     public AgentConfirmSettlement settlePendingConfirm(String conversationId, String userId,
                                                       String messageId, boolean approved) {
         AgentConversationDO conversation = selectConversation(conversationId, userId);
@@ -196,6 +202,22 @@ public class AgentConversationServiceImpl implements AgentConversationService {
      */
     private AgentMessageDO settleConfirmBlock(String conversationId, String userId,
                                               String messageId, String blockStatus) {
+        PendingConfirm pending = selectPendingConfirm(conversationId, userId, messageId);
+        if (pending == null) {
+            return null;
+        }
+        pending.block().setStatus(blockStatus);
+        // 卡片有了终态，消息改回 NORMAL 以解除新提问的阻塞
+        AgentMessageDO message = pending.message();
+        message.setMessageStatus(AgentMessageStatus.NORMAL.name());
+        messageMapper.updateById(message);
+        return message;
+    }
+
+    /**
+     * 查出仍挂着 pending 确认卡片的消息，连同卡片块一起返回，没有则返回 null
+     */
+    private PendingConfirm selectPendingConfirm(String conversationId, String userId, String messageId) {
         AgentMessageDO message = messageMapper.selectOne(Wrappers.lambdaQuery(AgentMessageDO.class)
                 .eq(AgentMessageDO::getId, messageId)
                 .eq(AgentMessageDO::getConversationId, conversationId)
@@ -203,15 +225,14 @@ public class AgentConversationServiceImpl implements AgentConversationService {
         if (message == null || !AgentMessageStatus.AWAITING_CONFIRM.name().equals(message.getMessageStatus())) {
             return null;
         }
-        AgentBlock confirmBlock = findPendingConfirmBlock(message);
-        if (confirmBlock == null) {
-            return null;
-        }
-        confirmBlock.setStatus(blockStatus);
-        // 卡片有了终态，消息改回 NORMAL 以解除新提问的阻塞
-        message.setMessageStatus(AgentMessageStatus.NORMAL.name());
-        messageMapper.updateById(message);
-        return message;
+        AgentBlock block = findPendingConfirmBlock(message);
+        return block == null ? null : new PendingConfirm(message, block);
+    }
+
+    /**
+     * 一次查询查出的两样东西：待确认的那条消息，和它里面那张 pending 卡片
+     */
+    private record PendingConfirm(AgentMessageDO message, AgentBlock block) {
     }
 
     @Override
@@ -227,7 +248,7 @@ public class AgentConversationServiceImpl implements AgentConversationService {
             return null;
         }
         return message.getBlocks().stream()
-                .filter(block -> BLOCK_KIND_CONFIRM.equals(block.getKind()))
+                .filter(block -> AgentBlock.KIND_CONFIRM.equals(block.getKind()))
                 .filter(block -> CONFIRM_STATUS_PENDING.equals(block.getStatus()))
                 .findFirst()
                 .orElse(null);
@@ -307,71 +328,13 @@ public class AgentConversationServiceImpl implements AgentConversationService {
                 .toList();
     }
 
-    /**
-     * 按 replyToMessageId 配对取最近 N 轮，只取正文不含 blocks
-     */
-    @Override
-    public List<ChatMessage> loadRecentTurns(String conversationId, String userId, int turns) {
-        if (StrUtil.isBlank(conversationId) || StrUtil.isBlank(userId) || turns <= 0) {
-            return List.of();
-        }
-        List<AgentMessageDO> latestFirst = messageMapper.selectList(Wrappers.lambdaQuery(AgentMessageDO.class)
-                .eq(AgentMessageDO::getConversationId, conversationId)
-                .eq(AgentMessageDO::getUserId, userId)
-                .orderByDesc(AgentMessageDO::getId)
-                .last("limit " + scanWindow(turns)));
-        if (CollUtil.isEmpty(latestFirst)) {
-            return List.of();
-        }
-
-        Map<String, AgentMessageDO> answers = new HashMap<>();
-        for (AgentMessageDO message : latestFirst) {
-            if (ROLE_ASSISTANT.equals(message.getRole()) && isUsableAnswer(message)) {
-                // 倒序遍历，同一提问有多条回答时取最新
-                answers.putIfAbsent(message.getReplyToMessageId(), message);
-            }
-        }
-
-        List<ChatMessage> history = new ArrayList<>(turns * 2);
-        int paired = 0;
-        for (AgentMessageDO question : latestFirst) {
-            if (!ROLE_USER.equals(question.getRole()) || StrUtil.isBlank(question.getContent())) {
-                continue;
-            }
-            AgentMessageDO answer = answers.get(question.getId());
-            // 没配到答案：可能是刚提问还没回答，或者被打断的作废轮次
-            if (answer == null) {
-                continue;
-            }
-            history.add(ChatMessage.assistant(answer.getContent()));
-            history.add(ChatMessage.user(question.getContent()));
-            if (++paired >= turns) {
-                break;
-            }
-        }
-        Collections.reverse(history);
-        return history;
-    }
-
-    /**
-     * 查询行数 = 轮数 × 4 + 1，多取一倍以容纳作废轮次
-     */
-    private static int scanWindow(int turns) {
-        return turns * 4 + 1;
-    }
-
-    /**
-     * 有 replyTo、有正文、状态是 NORMAL 的才算可用答案
-     */
-    private static boolean isUsableAnswer(AgentMessageDO message) {
-        return StrUtil.isNotBlank(message.getReplyToMessageId())
-                && StrUtil.isNotBlank(message.getContent())
-                && AgentMessageStatus.NORMAL.name().equals(message.getMessageStatus());
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(String conversationId, String userId) {
+        // 在途流收尾会把状态和消息写回来，必须先拦住
+        if (runGate.runningTaskId(userId, conversationId) != null) {
+            throw new ClientException("该会话消息正在生成中，请先停止后再删除");
+        }
         conversationMapper.delete(Wrappers.lambdaQuery(AgentConversationDO.class)
                 .eq(AgentConversationDO::getConversationId, conversationId)
                 .eq(AgentConversationDO::getUserId, userId));
@@ -381,7 +344,7 @@ public class AgentConversationServiceImpl implements AgentConversationService {
         // Agent 状态同库，随事务一起删
         agentStateStore.delete(userId, conversationId);
         // 提交后再清内存缓存和停止在途流
-        afterCommit(() -> releaseRuntimeState(conversationId, userId));
+        afterCommit(() -> evictStateCache(userId, conversationId));
     }
 
     @Override
@@ -392,18 +355,6 @@ public class AgentConversationServiceImpl implements AgentConversationService {
         }
         // 自调用不经代理，各会话的删除逻辑并入当前事务
         conversationIds.stream().distinct().forEach(id -> delete(id, userId));
-    }
-
-    /**
-     * 停止在途流并清除内存缓存，防止流跑完后把状态和消息写回已删除的会话
-     */
-    private void releaseRuntimeState(String conversationId, String userId) {
-        String runningTaskId = runGate.runningTaskId(userId, conversationId);
-        if (runningTaskId != null) {
-            // runGate 按 userId 隔离，这里拿到的一定是该用户自己的任务
-            taskManager.cancel(runningTaskId);
-        }
-        evictStateCache(userId, conversationId);
     }
 
     private void evictStateCache(String userId, String conversationId) {

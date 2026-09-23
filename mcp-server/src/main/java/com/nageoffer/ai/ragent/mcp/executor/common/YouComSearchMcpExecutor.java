@@ -22,7 +22,9 @@ import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolException;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -41,9 +43,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 /**
  * You.com 联网搜索 MCP 工具
@@ -90,32 +94,20 @@ public class YouComSearchMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification youComSearchToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("query", Map.of(
-                "type", "string",
-                "description", "检索关键词或问题"
-        ));
-
-        properties.put("count", Map.of(
-                "type", "integer",
-                "description", "最多返回的结果条数（网页+新闻合计），默认 5，最大 20",
-                "default", 5
-        ));
-
-        properties.put("freshness", Map.of(
-                "type", "string",
-                "description", "结果时效过滤：day(一天内)、week(一周内)、month(一月内)、year(一年内)，不传则不限",
-                "enum", FRESHNESS_VALUES
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("query"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("query", "检索关键词或问题"))
+                .optional(integer("count", "最多返回的结果条数（网页+新闻合计），默认 5，最大 20")
+                        .defaultTo(5))
+                .optional(string("freshness", "结果时效过滤：day(一天内)、week(一周内)、month(一月内)、year(一年内)，不传则不限")
+                        .options(FRESHNESS_VALUES))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -156,7 +148,7 @@ public class YouComSearchMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("搜索失败: " + e.getMessage());
+            return McpToolResults.failure("搜索", e);
         }
     }
 
@@ -180,7 +172,7 @@ public class YouComSearchMcpExecutor {
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
             // 不回显响应体，避免泄露账号信息；401 鉴权失败 / 429 限流 / 5xx 服务端异常
-            throw new IllegalStateException("You.com API 返回异常状态码: " + response.statusCode());
+            throw new McpToolException("You.com API 返回异常状态码: " + response.statusCode());
         }
 
         return formatResults(objectMapper.readTree(response.body()), count);

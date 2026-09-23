@@ -22,6 +22,7 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -36,11 +37,13 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 /**
  * 会议室空闲查询与预订，一读一写两个工具
@@ -76,41 +79,27 @@ public class MeetingRoomMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification meetingRoomQueryToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildQueryTool(),
-                (exchange, request) -> handleQuery(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildQueryTool())
+                .callHandler((exchange, request) -> handleQuery(request))
+                .build();
     }
 
     @Bean
     public McpServerFeatures.SyncToolSpecification meetingRoomBookToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildBookTool(),
-                (exchange, request) -> handleBook(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildBookTool())
+                .callHandler((exchange, request) -> handleBook(request))
+                .build();
     }
 
     private Tool buildQueryTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("date", Map.of(
-                "type", "string",
-                "description", "查询日期，格式 yyyy-MM-dd，如 2026-09-07"
-        ));
-
-        properties.put("startTime", Map.of(
-                "type", "string",
-                "description", "时段开始时间，格式 HH:mm，如 14:00，不填则返回全天占用情况"
-        ));
-
-        properties.put("endTime", Map.of(
-                "type", "string",
-                "description", "时段结束时间，格式 HH:mm，如 15:30，与开始时间成对提供"
-        ));
-
-        properties.put("capacity", Map.of(
-                "type", "integer",
-                "description", "最少容纳人数，不填则不限"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("date"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("date", "查询日期，格式 yyyy-MM-dd，如 2026-09-07"))
+                .optional(string("startTime", "时段开始时间，格式 HH:mm，如 14:00，不填则返回全天占用情况"))
+                .optional(string("endTime", "时段结束时间，格式 HH:mm，如 15:30，与开始时间成对提供"))
+                .optional(integer("capacity", "最少容纳人数，不填则不限"))
+                .build();
 
         return Tool.builder()
                 .name(QUERY_TOOL_ID)
@@ -122,41 +111,19 @@ public class MeetingRoomMcpExecutor {
     }
 
     private Tool buildBookTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("roomId", Map.of(
-                "type", "string",
-                "title", "会议室ID",
-                "description", "会议室ID（不是会议室名称），如 A701，需取自空闲查询结果",
-                "enum", ROOMS.stream().map(Room::id).toList()
-        ));
-
-        properties.put("date", Map.of(
-                "type", "string",
-                "title", "日期",
-                "description", "预订日期，格式 yyyy-MM-dd"
-        ));
-
-        properties.put("startTime", Map.of(
-                "type", "string",
-                "title", "开始时间",
-                "description", "开始时间，格式 HH:mm，可预订时段为 09:00 至 21:00"
-        ));
-
-        properties.put("endTime", Map.of(
-                "type", "string",
-                "title", "结束时间",
-                "description", "结束时间，格式 HH:mm"
-        ));
-
-        properties.put("topic", Map.of(
-                "type", "string",
-                "title", "会议主题",
-                "description", "会议主题，据实填写用户说明的内容，不要代为编造"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("roomId", "date", "startTime", "endTime", "topic"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("roomId", "会议室ID（不是会议室名称），如 A701，需取自空闲查询结果")
+                        .title("会议室ID")
+                        .options(ROOMS.stream().map(Room::id).toList()))
+                .required(string("date", "预订日期，格式 yyyy-MM-dd")
+                        .title("日期"))
+                .required(string("startTime", "开始时间，格式 HH:mm，可预订时段为 09:00 至 21:00")
+                        .title("开始时间"))
+                .required(string("endTime", "结束时间，格式 HH:mm")
+                        .title("结束时间"))
+                .required(string("topic", "会议主题，据实填写用户说明的内容，不要代为编造")
+                        .title("会议主题"))
+                .build();
 
         return Tool.builder()
                 .name(BOOK_TOOL_ID)
@@ -196,7 +163,7 @@ public class MeetingRoomMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     QUERY_TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 
@@ -231,7 +198,7 @@ public class MeetingRoomMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     BOOK_TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("预订失败: " + e.getMessage());
+            return McpToolResults.failure("预订", e);
         }
     }
 

@@ -156,11 +156,11 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             return List.of();
         }
 
-        // Agent 已由模型直接承担 SYSTEM 应答与 MCP 工具路由；search_knowledge 内部只识别 KB 作用域
-        // Workflow 仍沿用原有三类意图，保证旧编排链路兼容
-        List<IntentNode> candidates = orchestrationProperties.getMode() == OrchestrationMode.AGENT
-                ? data.leafNodes.stream().filter(IntentNode::isKB).toList()
-                : data.leafNodes;
+        // Agent 的知识库工具只识别 KB，Workflow 额外保留 SYSTEM 应答
+        List<IntentNode> candidates = data.leafNodes.stream()
+                .filter(node -> node.isKB()
+                        || (orchestrationProperties.getMode() == OrchestrationMode.WORKFLOW && node.isSystem()))
+                .toList();
         if (candidates.isEmpty()) {
             log.debug("当前编排模式没有可用意图叶子节点，跳过 LLM 意图识别, mode={}",
                     orchestrationProperties.getMode());
@@ -247,24 +247,11 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
     }
 
     /**
-     * 方便使用：
-     * - 只取前 topN
-     * - 过滤掉 score < minScore 的分类
-     */
-    @Override
-    public List<NodeScore> topKAboveThreshold(String question, int topN, double minScore) {
-        return classifyTargets(question).stream()
-                .filter(ns -> ns.getScore() >= minScore)
-                .limit(topN)
-                .toList();
-    }
-
-    /**
      * 构造给 LLM 的 Prompt：
      * - 列出当前编排模式可用的【候选叶子节点】的 id / 路径 / 描述 / 示例问题
      * - 要求 LLM 只在这些 id 中选择，输出 JSON 数组：[{"id": "...", "score": 0.9, "reason": "..."}]
      * - 特别强调：如果问题里只提到 "OA系统"，不要选 "保险系统" 的分类
-     * - 每个节点都带 type 标识，MCP 节点额外带 toolId，模板据此区分文档检索、实时查询和交互应答
+     * - 每个节点都带 type 标识，模板据此区分知识库检索和系统交互
      */
     private String buildPrompt(List<IntentNode> leafNodes) {
         StringBuilder sb = new StringBuilder();
@@ -274,17 +261,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             sb.append("  path=").append(node.getFullPath()).append("\n");
             sb.append("  description=").append(node.getDescription()).append("\n");
 
-            // 添加节点类型标识（V3 Enterprise 支持 MCP）
-            if (node.isMCP()) {
-                sb.append("  type=MCP\n");
-                if (node.getMcpToolId() != null) {
-                    sb.append("  toolId=").append(node.getMcpToolId()).append("\n");
-                }
-            } else if (node.isSystem()) {
-                sb.append("  type=SYSTEM\n");
-            } else {
-                sb.append("  type=KB\n");
-            }
+            sb.append(node.isSystem() ? "  type=SYSTEM\n" : "  type=KB\n");
 
             if (node.getExamples() != null && !node.getExamples().isEmpty()) {
                 sb.append("  examples=");
@@ -321,7 +298,6 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             node.setParentId(each.getParentCode());
             node.setMcpToolId(each.getMcpToolId());
             node.setRequireConfirm(Objects.equals(each.getRequireConfirm(), 1));
-            node.setParamPromptTemplate(each.getParamPromptTemplate());
             node.setExamples(parseExamples(each.getExamples()));
             if (CollUtil.isEmpty(each.getCollectionNames())) {
                 node.setCollectionNames(

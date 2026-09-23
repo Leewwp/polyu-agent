@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Loader2, Square } from "lucide-react";
 
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { awaitingConfirm, useAgentChatStore } from "@/stores/agentChatStore";
@@ -12,8 +12,15 @@ export function AgentChatInput() {
   const [value, setValue] = React.useState("");
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const { sendMessage, isStreaming, cancelGeneration, inputFocusKey, draft, messages } =
-    useAgentChatStore();
+  const {
+    sendMessage,
+    isStreaming,
+    cancelRequested,
+    cancelGeneration,
+    inputFocusKey,
+    draft,
+    messages
+  } = useAgentChatStore();
   // 挂起在写操作确认上时输入条让位：这会儿只有卡片上那两枚钮是有效的下一步
   const awaiting = awaitingConfirm(messages);
 
@@ -98,14 +105,25 @@ export function AgentChatInput() {
             type="button"
             className="agent-composer-btn"
             data-stop="true"
-            aria-label={zh ? "停止生成" : "Stop generating"}
-            title={zh ? "停止生成" : "Stop generating"}
+            data-stopping={cancelRequested ? "true" : undefined}
+            aria-label={cancelRequested
+              ? zh ? "正在停止" : "Stopping"
+              : zh ? "停止生成" : "Stop generating"}
+            aria-busy={cancelRequested}
+            title={cancelRequested
+              ? zh ? "正在停止…" : "Stopping…"
+              : zh ? "停止生成" : "Stop generating"}
+            disabled={cancelRequested}
             onClick={() => {
               cancelGeneration();
               focusInput();
             }}
           >
-            <Square className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+            {cancelRequested ? (
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
+            ) : (
+              <Square className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+            )}
           </button>
         ) : (
           <button
@@ -121,7 +139,11 @@ export function AgentChatInput() {
         )}
       </div>
       {/* 免责一行在框外：框里不摆第二行是因为没有真控件 这句有真职责 */}
-      <p className="agent-composer-note">{zh ? "内容由 AI 生成，请仔细甄别" : "AI-generated — verify important details"}</p>
+      <p className="agent-composer-note" aria-live="polite">
+        {cancelRequested
+          ? zh ? "正在停止并保存已生成内容…" : "Stopping and saving generated content…"
+          : zh ? "内容由 AI 生成，请仔细甄别" : "AI-generated — verify important details"}
+      </p>
     </div>
   );
 }

@@ -32,10 +32,11 @@ import java.util.regex.Pattern;
 public final class PromptFenceSanitizer {
 
     /**
-     * 与 context-format.st 全部伪标签同名的开/闭标签形序列（大小写不敏感，词边界防误伤普通词）
+     * 与 context-format.st 全部伪标签同名的开/闭标签形序列（大小写不敏感，词边界防误伤普通词）；
+     * data/errors 为模板已不再使用的防御性保留（fence-data-rules.st 围栏段名）
      */
     private static final Pattern FENCE_BREAKERS = Pattern.compile(
-            "(?i)</?(?:content|documents|rules|data|errors|question|conversation-summary|system)\\b");
+            "(?i)</?(?:content|documents|document|rules|data|errors|questions|question|conversation-summary|system)\\b");
 
     private PromptFenceSanitizer() {
     }

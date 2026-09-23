@@ -25,6 +25,7 @@ import com.nageoffer.ai.ragent.mcp.dao.entity.OrderDO;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.LogisticsTraceMapper;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.OrderMapper;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -35,9 +36,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 物流轨迹查询，入参只收运单号
@@ -56,20 +58,16 @@ public class BitLogisticsQueryMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification queryLogisticsToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("trackingNo", Map.of(
-                "type", "string",
-                "description", "运单号，如 BIT9100000233，从订单查询的结果里取"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("trackingNo"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("trackingNo", "运单号，如 BIT9100000233，从订单查询的结果里取"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -104,7 +102,7 @@ public class BitLogisticsQueryMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("物流查询失败: " + e.getMessage());
+            return McpToolResults.failure("物流查询", e);
         }
     }
 
