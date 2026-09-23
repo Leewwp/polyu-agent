@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/public/share")
-@ConditionalOnProperty(name = "rag.share.enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(name = "share.enabled", havingValue = "false", matchIfMissing = true)
 public class PublicShareDisabledController {
 
     @GetMapping("/{token}")

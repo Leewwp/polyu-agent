@@ -39,9 +39,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.nageoffer.ai.ragent.agent.dao.mapper",
         "com.nageoffer.ai.ragent.news.dao.mapper",
         "com.nageoffer.ai.ragent.site.dao.mapper",
-        // 会话分享自有新包（issue #82）：MapperScan 会把包内全部接口注册为 mapper，
-        // 服务接口混扫会与 @Service 实现撞双 bean——mapper 独占 dao 子包，扫描只指子包
-        "com.nageoffer.ai.ragent.agent.share.dao"
+        // 分享 mapper 独占 dao 子包（#85 判例）：MapperScan 会把包内全部接口注册为
+        // mapper，服务接口混扫会与 @Service 实现撞双 bean——统一分享快照合表后
+        // 两旧 mapper 包收编为一（issue #124，agent.share.dao 已随旧 mapper 删除清空）
+        "com.nageoffer.ai.ragent.share.dao.mapper"
 })
 public class RagentApplication {
 

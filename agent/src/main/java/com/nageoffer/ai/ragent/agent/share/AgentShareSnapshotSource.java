@@ -28,8 +28,8 @@ import lombok.NoArgsConstructor;
  * <p>assistant 消息 blocks 中 search_knowledge 工具块 sources 的公开投影，
  * 字段与前端 SourceRef 等价（docId/docName/excerpt/url/sourceType + 展示序号）；
  * 工具入参/结果/耗时等块内其余字段仍不进快照（隐私负面清单口径不变）。
- * 必须保持 Lombok getter/setter 形态（不可改 record）：快照列经
- * {@link AgentShareSnapshotListTypeHandler} 用 hutool 序列化，hutool 只认
+ * 必须保持 Lombok getter/setter 形态（不可改 record）：快照载荷经
+ * AgentConversationSharePayload 用 hutool 序列化进 t_share_snapshot，hutool 只认
  * getXxx/setXxx（AgentBlockSource 同判例）。
  */
 @Data

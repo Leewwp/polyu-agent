@@ -1088,70 +1088,40 @@ COMMENT ON COLUMN t_agent_memory_control.create_time IS '建行时刻，兼作�
 COMMENT ON COLUMN t_agent_memory_control.update_time IS '更新时间';
 
 -- ============================================================
--- 公开答案分享（2026-09-08）
--- 不可变 Q&A 快照：创建时值复制 question/answer/citations，
--- 公开读绝不回链 t_message；不含用户身份/思考/工具轨迹/IP。
+-- 统一分享快照（2026-09-22，issue #124）
+-- 答案分享与会话分享是同一机制的两种粒度（CONTEXT.md 伞词条「分享快照」）：
+-- kind 判别 + payload 不透明 JSONB（answer=messageId/question/answerMd/citations/contentVersion；
+-- conversation=title/messages/contentVersion；类型与序列化归各粒度 adapter，本表零解析）。
+-- 不可变快照：创建时值复制，公开读绝不回链 t_message/t_agent_conversation/t_agent_message；
+-- 不含用户身份/思考/工具轨迹/IP（隐私负面清单）。存量两表由
+-- upgrades/v2.0.0/260922_share_snapshot_unification.sql 合并迁移（token 原样平移）。
 -- ============================================================
-CREATE TABLE t_answer_share (
+CREATE TABLE t_share_snapshot (
     id                VARCHAR(20)    NOT NULL PRIMARY KEY,
     token             VARCHAR(64)    NOT NULL,
     owner_user_id     VARCHAR(20)    NOT NULL,
-    message_id        VARCHAR(20)    NOT NULL,
+    kind              VARCHAR(16)    NOT NULL,
     conversation_id   VARCHAR(20)    NOT NULL,
-    question          TEXT           NOT NULL,
-    answer_md         TEXT           NOT NULL,
-    citations         JSONB,
     lang              VARCHAR(8),
-    content_version   VARCHAR(64),
     status            VARCHAR(16)    NOT NULL DEFAULT 'ACTIVE',
     expire_time       TIMESTAMP,
     revoked_time      TIMESTAMP,
     create_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted           SMALLINT       NOT NULL DEFAULT 0,
-    CONSTRAINT uk_answer_share_token UNIQUE (token)
+    payload           JSONB          NOT NULL,
+    CONSTRAINT uk_share_snapshot_token UNIQUE (token)
 );
-CREATE INDEX idx_answer_share_owner ON t_answer_share (owner_user_id, create_time);
-COMMENT ON TABLE t_answer_share IS '公开答案分享快照表（不可变快照；token 加密随机不可枚举）';
-COMMENT ON COLUMN t_answer_share.token IS 'SecureRandom 32 字节 Base64URL（43 字符）';
-COMMENT ON COLUMN t_answer_share.owner_user_id IS '创建者用户ID（仅归属校验与撤销用，公开载荷不返回）';
-COMMENT ON COLUMN t_answer_share.citations IS '结构化官方引用快照（List<SourceRef>）';
-COMMENT ON COLUMN t_answer_share.content_version IS '内容/知识版本标记（rag.share.content-version）';
-COMMENT ON COLUMN t_answer_share.status IS 'ACTIVE/REVOKED';
-
--- ============================================================
--- Agent 会话只读分享（2026-09-19，issue #82）
--- 不可变会话快照：创建时值复制标题与白名单消息对（role/content/createTime），
--- 公开读绝不回链 t_agent_conversation/t_agent_message；
--- 不含用户身份/思考/工具轨迹/消息与会话ID/IP（隐私负面清单）。
--- ============================================================
-CREATE TABLE t_agent_conversation_share (
-    id                VARCHAR(20)    NOT NULL PRIMARY KEY,
-    token             VARCHAR(64)    NOT NULL,
-    owner_user_id     VARCHAR(20)    NOT NULL,
-    conversation_id   VARCHAR(20)    NOT NULL,
-    title             TEXT           NOT NULL,
-    messages          JSONB          NOT NULL,
-    lang              VARCHAR(8),
-    content_version   VARCHAR(64),
-    status            VARCHAR(16)    NOT NULL DEFAULT 'ACTIVE',
-    expire_time       TIMESTAMP,
-    revoked_time      TIMESTAMP,
-    create_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time       TIMESTAMP      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted           SMALLINT       NOT NULL DEFAULT 0,
-    CONSTRAINT uk_agent_conversation_share_token UNIQUE (token)
-);
-CREATE INDEX idx_agent_conversation_share_owner ON t_agent_conversation_share (owner_user_id, create_time);
-COMMENT ON TABLE t_agent_conversation_share IS 'Agent 会话只读分享快照表（issue #82；不可变快照，token 加密随机不可枚举）';
-COMMENT ON COLUMN t_agent_conversation_share.token IS 'SecureRandom 32 字节 Base64URL（43 字符）';
-COMMENT ON COLUMN t_agent_conversation_share.owner_user_id IS '创建者用户ID（仅归属校验与治理用，公开载荷不返回）';
-COMMENT ON COLUMN t_agent_conversation_share.conversation_id IS '源会话业务ID（仅撤销/我的列表溯源，不进公开载荷）';
-COMMENT ON COLUMN t_agent_conversation_share.messages IS '白名单消息快照有序数组（role/content/createTime；blocks/thinking/ID/userId 一律排除）';
-COMMENT ON COLUMN t_agent_conversation_share.content_version IS '内容/知识版本标记（agent.share.content-version）';
-COMMENT ON COLUMN t_agent_conversation_share.status IS 'ACTIVE/REVOKED';
-
-COMMENT ON COLUMN t_answer_share.expire_time IS '过期时刻，NULL 即不过期';
+CREATE INDEX idx_share_snapshot_owner ON t_share_snapshot (owner_user_id, create_time);
+CREATE INDEX idx_share_snapshot_kind ON t_share_snapshot (kind);
+COMMENT ON TABLE t_share_snapshot IS '统一分享快照表（issue #124；答案/会话两粒度合表，kind 判别+payload 不透明 JSONB；token 加密随机不可枚举）';
+COMMENT ON COLUMN t_share_snapshot.token IS 'SecureRandom 32 字节 Base64URL（43 字符）';
+COMMENT ON COLUMN t_share_snapshot.owner_user_id IS '创建者用户ID（仅归属校验与撤销/治理用，公开载荷不返回）';
+COMMENT ON COLUMN t_share_snapshot.kind IS '快照粒度判别：answer / conversation';
+COMMENT ON COLUMN t_share_snapshot.conversation_id IS '来源会话ID（仅撤销/我的列表溯源，不进公开载荷）';
+COMMENT ON COLUMN t_share_snapshot.status IS 'ACTIVE/REVOKED；注销级联=软撤销行保留，保留任务按 expire_time 硬删';
+COMMENT ON COLUMN t_share_snapshot.expire_time IS '过期时刻，NULL 即不过期';
+COMMENT ON COLUMN t_share_snapshot.payload IS '粒度侧不透明载荷 JSON（module 零解析；answer=messageId/question/answerMd/citations/contentVersion，conversation=title/messages/contentVersion）';
 
 -- ============================================================
 -- 资讯流四表（2026-09-10）

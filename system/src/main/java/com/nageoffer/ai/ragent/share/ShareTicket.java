@@ -15,15 +15,36 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.dao.mapper;
+package com.nageoffer.ai.ragent.share;
 
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.nageoffer.ai.ragent.rag.dao.entity.AnswerShareDO;
-import org.apache.ibatis.annotations.Mapper;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.Date;
 
 /**
- * 公开答案分享快照 Mapper
+ * 创建分享的回执：token 即对外链接凭据，expireAt 为 NULL 时表示不过期
  */
-@Mapper
-public interface AnswerShareMapper extends BaseMapper<AnswerShareDO> {
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ShareTicket {
+
+    /**
+     * 分享 token（43 字符 Base64URL，已落库）
+     */
+    private String token;
+
+    /**
+     * 快照行 ID
+     */
+    private String id;
+
+    /**
+     * 过期时刻；NULL=不过期
+     */
+    private Date expireAt;
 }

@@ -25,6 +25,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * rag 模块测试启动配置，注解镜像 bootstrap 的 RagentApplication
  * 差异：agent.dao.mapper 不在 rag 测试类路径上，故不镜像该扫描包
+ * （agent.share.dao 同理；system 的 share.dao.mapper 在类路径上，须镜像——issue #124）
  */
 @SpringBootApplication
 @EnableScheduling
@@ -37,7 +38,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "com.nageoffer.ai.ragent.audit.dao.mapper",
         "com.nageoffer.ai.ragent.sample.dao.mapper",
         "com.nageoffer.ai.ragent.news.dao.mapper",
-        "com.nageoffer.ai.ragent.site.dao.mapper"
+        "com.nageoffer.ai.ragent.site.dao.mapper",
+        "com.nageoffer.ai.ragent.share.dao.mapper"
 })
 public class TestRagentApplication {
 }

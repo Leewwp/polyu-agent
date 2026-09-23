@@ -15,15 +15,31 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.agent.share.dao;
-
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.nageoffer.ai.ragent.agent.share.AgentConversationShareDO;
-import org.apache.ibatis.annotations.Mapper;
+package com.nageoffer.ai.ragent.share;
 
 /**
- * Agent 会话分享快照 Mapper
+ * 分享快照粒度（issue #124 统一机制）：答案分享与会话分享是同一机制的两种粒度，
+ * kind 只是 t_share_snapshot 的判别列，载荷形状由各粒度 adapter 自持——module 对 payload 零解析
  */
-@Mapper
-public interface AgentConversationShareMapper extends BaseMapper<AgentConversationShareDO> {
+public enum ShareKind {
+
+    /**
+     * 单条问答快照（原 t_answer_share；载荷=messageId/question/answerMd/citations/contentVersion）
+     */
+    ANSWER("answer"),
+
+    /**
+     * agent 会话快照（原 t_agent_conversation_share；载荷=title/messages/contentVersion）
+     */
+    CONVERSATION("conversation");
+
+    private final String code;
+
+    ShareKind(String code) {
+        this.code = code;
+    }
+
+    public String getCode() {
+        return code;
+    }
 }

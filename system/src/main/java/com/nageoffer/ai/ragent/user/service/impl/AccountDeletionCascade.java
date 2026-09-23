@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,6 +63,7 @@ public class AccountDeletionCascade {
     private static final int EMAIL_TOMBSTONE_DAYS = 180;
 
     private final JdbcTemplate jdbcTemplate;
+    private final ShareSnapshotService shareSnapshotService;
 
     /**
      * 对指定用户执行硬删级联（事务内）。调用方负责前置校验（密码确认/权限/冷静期到期）
@@ -86,15 +88,9 @@ public class AccountDeletionCascade {
                         + "', update_time = CURRENT_TIMESTAMP WHERE user_id = ?",
                 userId);
         // 名下有效分享撤销：不删行（快照保留期 90 天），公开访问立即失效。
-        // #104 级联补洞：agent 会话分享同款撤销——此前漏撤，注销硬删后 ACTIVE 链接继续公开可访问（隐私缺陷）
-        jdbcTemplate.update(
-                "UPDATE t_answer_share SET status = 'REVOKED', revoked_time = CURRENT_TIMESTAMP, "
-                        + "update_time = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND status = 'ACTIVE'",
-                userId);
-        jdbcTemplate.update(
-                "UPDATE t_agent_conversation_share SET status = 'REVOKED', revoked_time = CURRENT_TIMESTAMP, "
-                        + "update_time = CURRENT_TIMESTAMP WHERE owner_user_id = ? AND status = 'ACTIVE'",
-                userId);
+        // issue #124 起两粒度统一走 ShareSnapshotService.revokeOwnedBy——此前两段手写表名
+        // SQL 曾漏掉 agent 侧（#104 级联补洞：注销硬删后 ACTIVE 链接继续公开可访问的隐私缺陷）
+        shareSnapshotService.revokeOwnedBy(userId);
         // 邮箱墓碑（180 天回查；同邮箱再注销刷新过期时间）
         if (email != null && !email.isBlank()) {
             jdbcTemplate.update(

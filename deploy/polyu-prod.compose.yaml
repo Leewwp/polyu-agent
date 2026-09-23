@@ -47,9 +47,9 @@ services:
       RAG_NEWS_ENABLED: ${RAG_NEWS_ENABLED:-false}
       # 站点反馈/关于页 flag（doc 25）：go-live 开闸新增键——2026-09-16 曾漏列致静默 no-op（D18 续）
       RAG_SITE_ENABLED: ${RAG_SITE_ENABLED:-false}
-      # 会话只读分享 flag（issue #82）：默认关；开启=env 文件翻转 AGENT_SHARE_ENABLED=true 后 recreate
-      AGENT_SHARE_ENABLED: ${AGENT_SHARE_ENABLED:-false}
-      AGENT_SHARE_EXPIREDAYS: ${AGENT_SHARE_EXPIREDAYS:-90}
+      # 统一分享 flag（issue #124）：答案+会话两粒度共用（原 AGENT_SHARE_* 两键归一为 SHARE_*）
+      SHARE_ENABLED: ${SHARE_ENABLED:-true}
+      SHARE_EXPIREDAYS: ${SHARE_EXPIREDAYS:-90}
       # 资讯回填六临时键（go-live P8 用；缺省=application.yaml 日常节奏，P8 跑完删 env 值即还原）
       RAG_NEWS_BACKFILLDAYS: ${RAG_NEWS_BACKFILLDAYS:-14}
       RAG_NEWS_MAXITEMSPERSOURCE: ${RAG_NEWS_MAXITEMSPERSOURCE:-50}

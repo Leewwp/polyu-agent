@@ -21,10 +21,15 @@ import com.nageoffer.ai.ragent.framework.convention.SourceRef;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.rag.controller.vo.PublicShareVO;
 import com.nageoffer.ai.ragent.rag.controller.vo.ShareCreatedVO;
-import com.nageoffer.ai.ragent.rag.dao.entity.AnswerShareDO;
+import com.nageoffer.ai.ragent.rag.controller.vo.ShareMineItemVO;
 import com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO;
-import com.nageoffer.ai.ragent.rag.dao.mapper.AnswerShareMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMessageMapper;
+import com.nageoffer.ai.ragent.share.RevocationActor;
+import com.nageoffer.ai.ragent.share.ShareKind;
+import com.nageoffer.ai.ragent.share.ShareOwnedView;
+import com.nageoffer.ai.ragent.share.SharePublicView;
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
+import com.nageoffer.ai.ragent.share.ShareTicket;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,34 +39,33 @@ import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 公开答案分享服务单元测试
- *
- * <p>覆盖设计合同（share-feature-design.md §6）：快照卫生、不可变语义、
- * 越权拒绝、撤销/过期统一语义、token 形状。
+ * 公开答案分享 adapter 单元测试（issue #124 统一机制后）：断言面与旧版一致——
+ * 快照卫生（载荷值复制+隐私负面清单不进载荷）、归属校验、载荷序列化 round-trip、
+ * module 视图到 VO 的白名单投影、撤销委托形状（owner/admin 双通道）。
  */
 class AnswerShareServiceImplTest {
 
-    private AnswerShareMapper answerShareMapper;
+    private ShareSnapshotService shareSnapshotService;
     private ConversationMessageMapper conversationMessageMapper;
     private AnswerShareServiceImpl answerShareService;
 
     @BeforeEach
     void setUp() {
-        answerShareMapper = mock(AnswerShareMapper.class);
+        shareSnapshotService = mock(ShareSnapshotService.class);
         conversationMessageMapper = mock(ConversationMessageMapper.class);
-        answerShareService = new AnswerShareServiceImpl(answerShareMapper, conversationMessageMapper);
-        ReflectionTestUtils.setField(answerShareService, "defaultExpireDays", 90);
+        answerShareService = new AnswerShareServiceImpl(shareSnapshotService, conversationMessageMapper);
         ReflectionTestUtils.setField(answerShareService, "contentVersion", "v1");
     }
 
@@ -92,27 +96,27 @@ class AnswerShareServiceImplTest {
     void createShareBuildsImmutableSnapshot() {
         when(conversationMessageMapper.selectById("m1")).thenReturn(assistantMessage("m1", "u1"));
         when(conversationMessageMapper.selectById("q1")).thenReturn(userQuestion("q1", "u1"));
+        when(shareSnapshotService.create(any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(ShareTicket.builder().token("t".repeat(43)).id("s1")
+                        .expireAt(new Date()).build());
 
         ShareCreatedVO created = answerShareService.createShare("m1", "u1");
 
         assertNotNull(created);
-        assertEquals(43, created.getToken().length());
-        assertTrue(created.getToken().matches("[A-Za-z0-9_-]+"));
+        assertEquals("t".repeat(43), created.getToken());
         assertNotNull(created.getExpireTime());
 
-        ArgumentCaptor<AnswerShareDO> captor = ArgumentCaptor.forClass(AnswerShareDO.class);
-        verify(answerShareMapper).insert(captor.capture());
-        AnswerShareDO snapshot = captor.getValue();
-        // 快照卫生：question/answer/citations 已值复制
-        assertEquals("How to apply for accommodation?", snapshot.getQuestion());
-        assertEquals("answer **markdown**", snapshot.getAnswerMd());
-        assertNotNull(snapshot.getCitations());
-        assertEquals(1, snapshot.getCitations().size());
-        assertEquals("u1", snapshot.getOwnerUserId());
-        assertEquals("ACTIVE", snapshot.getStatus());
-        assertEquals("v1", snapshot.getContentVersion());
-        // zh/en 启发：英文问题 → en
-        assertEquals("en", snapshot.getLang());
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(shareSnapshotService).create(eq(ShareKind.ANSWER), eq("u1"), eq("c1"), eq("en"), payloadCaptor.capture());
+        // 快照卫生：载荷值复制 question/answer/citations/contentVersion；思考内容不进载荷
+        AnswerSharePayload payload = AnswerSharePayload.parse(payloadCaptor.getValue());
+        assertEquals("How to apply for accommodation?", payload.getQuestion());
+        assertEquals("answer **markdown**", payload.getAnswerMd());
+        assertNotNull(payload.getCitations());
+        assertEquals(1, payload.getCitations().size());
+        assertEquals("v1", payload.getContentVersion());
+        assertEquals("m1", payload.getMessageId());
+        assertTrue(!payloadCaptor.getValue().contains("SECRET-THINKING"));
     }
 
     @Test
@@ -120,32 +124,35 @@ class AnswerShareServiceImplTest {
         when(conversationMessageMapper.selectById("m1")).thenReturn(assistantMessage("m1", "u1"));
         assertThrows(ClientException.class, () -> answerShareService.createShare("m1", "u2"));
 
-        ConversationMessageDO userMsg = userQuestion("q1", "u1");
-        when(conversationMessageMapper.selectById("q1")).thenReturn(userMsg);
+        when(conversationMessageMapper.selectById("q1")).thenReturn(userQuestion("q1", "u1"));
         assertThrows(ClientException.class, () -> answerShareService.createShare("q1", "u1"));
 
         when(conversationMessageMapper.selectById("missing")).thenReturn(null);
         assertThrows(ClientException.class, () -> answerShareService.createShare("missing", "u1"));
+
+        when(conversationMessageMapper.selectById("m1")).thenReturn(assistantMessage("m1", "u1"));
+        when(conversationMessageMapper.selectById("q1")).thenReturn(null);
+        assertThrows(ClientException.class, () -> answerShareService.createShare("m1", "u1"));
     }
 
     @Test
     void publicPayloadIsFieldWhitelist() {
-        AnswerShareDO stored = AnswerShareDO.builder()
-                .token("t".repeat(43))
-                .ownerUserId("u1")
-                .messageId("m1")
-                .conversationId("c1")
-                .question("q")
-                .answerMd("a")
-                .citations(List.of(new SourceRef()))
+        // 载荷 round-trip：module 只回吐不透明 JSON，投影字段全部来自载荷+视图
+        when(shareSnapshotService.readByToken(anyString())).thenReturn(SharePublicView.builder()
+                .kind(ShareKind.ANSWER)
                 .lang("en")
-                .contentVersion("v1")
-                .status("ACTIVE")
+                .payload(AnswerSharePayload.toJson(AnswerSharePayload.builder()
+                        .messageId("m1")
+                        .question("q")
+                        .answerMd("a")
+                        .citations(List.of(new SourceRef()))
+                        .contentVersion("v1")
+                        .build()))
                 .createTime(new Date())
-                .build();
-        when(answerShareMapper.selectOne(any())).thenReturn(stored);
+                .expireTime(null)
+                .build());
 
-        PublicShareVO vo = answerShareService.getPublicShare(stored.getToken());
+        PublicShareVO vo = answerShareService.getPublicShare("t".repeat(43));
         // 白名单：问题/回答/引用/语言/版本/时间；身份与溯源字段不存在于公开类型
         assertEquals("q", vo.getQuestion());
         assertEquals("a", vo.getAnswerMd());
@@ -153,58 +160,59 @@ class AnswerShareServiceImplTest {
         assertEquals("en", vo.getLang());
         assertEquals("v1", vo.getContentVersion());
         assertNotNull(vo.getCreateTime());
+        assertNull(vo.getExpireTime());
     }
 
     @Test
-    void revokedExpiredAndMissingShareShareOneSemantics() {
-        String msg = "分享链接无效或已撤销";
+    void publicPayloadToleratesNullCitationsLikeLegacyRows() {
+        // 旧表 citations NULL 的行迁移后载荷里是 JSON null：投影回 null（与迁移前行为一致）
+        when(shareSnapshotService.readByToken(anyString())).thenReturn(SharePublicView.builder()
+                .kind(ShareKind.ANSWER)
+                .lang("zh")
+                .payload("{\"question\":\"q\",\"answerMd\":\"a\",\"citations\":null}")
+                .createTime(new Date())
+                .build());
 
-        when(answerShareMapper.selectOne(any())).thenReturn(null);
-        ClientException missing = assertThrows(ClientException.class, () -> answerShareService.getPublicShare("nope"));
-        assertEquals(msg, missing.getMessage());
-
-        AnswerShareDO revoked = AnswerShareDO.builder().token("t".repeat(43)).status("REVOKED").build();
-        when(answerShareMapper.selectOne(any())).thenReturn(revoked);
-        ClientException revokedEx = assertThrows(ClientException.class, () -> answerShareService.getPublicShare(revoked.getToken()));
-        assertEquals(msg, revokedEx.getMessage());
-
-        AnswerShareDO expired = AnswerShareDO.builder().token("t".repeat(43)).status("ACTIVE")
-                .expireTime(new Date(System.currentTimeMillis() - 1000)).build();
-        when(answerShareMapper.selectOne(any())).thenReturn(expired);
-        ClientException expiredEx = assertThrows(ClientException.class, () -> answerShareService.getPublicShare(expired.getToken()));
-        assertEquals(msg, expiredEx.getMessage());
+        PublicShareVO vo = answerShareService.getPublicShare("t".repeat(43));
+        assertNull(vo.getCitations());
     }
 
     @Test
-    void revokeChecksOwnershipAndIsIdempotent() {
-        AnswerShareDO stored = AnswerShareDO.builder().id("s1").token("t".repeat(43))
-                .ownerUserId("u1").status("ACTIVE").build();
-        when(answerShareMapper.selectOne(any())).thenReturn(stored);
+    void revokeDelegatesOwnerAndAdminActors() {
+        answerShareService.revokeShare("t".repeat(43), "u1", false);
+        verify(shareSnapshotService).revoke(eq("t".repeat(43)),
+                org.mockito.Mockito.argThat(actor -> "u1".equals(actor.getUserId()) && !actor.isAdminOverride()));
 
-        // 非 owner 且非管理员：拒绝
-        assertThrows(ClientException.class, () -> answerShareService.revokeShare(stored.getToken(), "u2", false));
-        verify(answerShareMapper, never()).updateById(any(AnswerShareDO.class));
-
-        // owner：撤销成功
-        answerShareService.revokeShare(stored.getToken(), "u1", false);
-        ArgumentCaptor<AnswerShareDO> captor = ArgumentCaptor.forClass(AnswerShareDO.class);
-        verify(answerShareMapper).updateById(captor.capture());
-        assertEquals("REVOKED", captor.getValue().getStatus());
-        assertNotNull(captor.getValue().getRevokedTime());
-
-        // 管理员覆盖：跳过 owner 校验
-        answerShareService.revokeShare(stored.getToken(), null, true);
-        verify(answerShareMapper, org.mockito.Mockito.times(2)).updateById(any(AnswerShareDO.class));
+        answerShareService.revokeShare("t".repeat(43), null, true);
+        verify(shareSnapshotService).revoke(eq("t".repeat(43)),
+                org.mockito.Mockito.argThat(actor -> actor.isAdminOverride()));
     }
 
     @Test
-    void tokenGenerationIsUniqueAndUrlSafe() {
-        when(conversationMessageMapper.selectById("m1")).thenReturn(assistantMessage("m1", "u1"));
-        when(conversationMessageMapper.selectById("q1")).thenReturn(userQuestion("q1", "u1"));
-        ShareCreatedVO first = answerShareService.createShare("m1", "u1");
-        ShareCreatedVO second = answerShareService.createShare("m1", "u1");
-        assertEquals(43, first.getToken().length());
-        assertEquals(43, second.getToken().length());
-        assertNotEquals(first.getToken(), second.getToken());
+    void listMineProjectsQuestionPreview() {
+        when(shareSnapshotService.listByOwner("u1", ShareKind.ANSWER)).thenReturn(List.of(ShareOwnedView.builder()
+                .token("t".repeat(43))
+                .kind(ShareKind.ANSWER)
+                .status("ACTIVE")
+                .payload(AnswerSharePayload.toJson(AnswerSharePayload.builder()
+                        .question("很长的提问".repeat(30))
+                        .build()))
+                .expireTime(new Date())
+                .createTime(new Date())
+                .build()));
+
+        List<ShareMineItemVO> mine = answerShareService.listMine("u1");
+        assertEquals(1, mine.size());
+        assertEquals("t".repeat(43), mine.get(0).getToken());
+        assertEquals(51, mine.get(0).getQuestionPreview().length());
+        assertTrue(mine.get(0).getQuestionPreview().endsWith("…"));
+        assertEquals("ACTIVE", mine.get(0).getStatus());
+        assertNotNull(mine.get(0).getExpireTime());
+    }
+
+    @Test
+    void blankUserIsRejectedWithStableMessage() {
+        ClientException ex = assertThrows(ClientException.class, () -> answerShareService.listMine(" "));
+        assertEquals("未获取到当前登录用户", ex.getMessage());
     }
 }

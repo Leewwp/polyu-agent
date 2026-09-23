@@ -18,72 +18,62 @@
 package com.nageoffer.ai.ragent.agent.share;
 
 import cn.hutool.core.lang.Assert;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentConversationDO;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentConversationMapper;
+import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
-import com.nageoffer.ai.ragent.agent.share.dao.AgentConversationShareMapper;
-import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareAdminItemVO;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareCreatedVO;
 import com.nageoffer.ai.ragent.agent.share.vo.AgentShareMineItemVO;
 import com.nageoffer.ai.ragent.agent.share.vo.PublicAgentShareVO;
 import com.nageoffer.ai.ragent.agent.tool.KnowledgeSearchTool;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.share.RevocationActor;
+import com.nageoffer.ai.ragent.share.ShareAdminView;
+import com.nageoffer.ai.ragent.share.ShareKind;
+import com.nageoffer.ai.ragent.share.ShareOwnedView;
+import com.nageoffer.ai.ragent.share.SharePublicView;
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
+import com.nageoffer.ai.ragent.share.ShareTicket;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
- * Agent 会话只读分享服务实现（issue #82）
+ * Agent 会话只读分享服务实现——统一机制 adapter（issue #82 → #124）
  *
- * <p>克隆 AnswerShareServiceImpl 契约形态；差异仅在快照粒度——本服务做会话级
- * 快照：标题 + 按序白名单消息对（role/content/createTime），空白正文消息自然
- * 跳过，blocks/思考/耗时/ID/身份字段一律不进快照（隐私负面清单）。
- * v2（issue #91）：assistant 条目追加可选 sources 投影（search_knowledge
- * 工具块来源 → 前端来源徽章）；快照其余语义（冻结/撤销/过期）零变更。
+ * <p>只负责本粒度的三件事：从会话/消息库装配快照载荷（含归属校验与游客硬阻断）、
+ * 载荷序列化/反序列化、module 视图到对外 VO 的白名单投影。token 熵/状态机/撤销
+ * 幂等/过期数学/防枚举语义全在 system 的 ShareSnapshotService。快照白名单：
+ * role/content/createTime +（v2）assistant 条目的可选 sources 投影；
+ * blocks/思考/耗时/ID/身份字段一律不进快照（隐私负面清单）。
  */
 @Service
 @RequiredArgsConstructor
 public class AgentConversationShareServiceImpl implements AgentConversationShareService {
 
-    private static final String STATUS_ACTIVE = "ACTIVE";
-    private static final String STATUS_REVOKED = "REVOKED";
     private static final String ROLE_ASSISTANT = "assistant";
     private static final String ROLE_USER = "user";
     private static final String ROLE_GUEST = "guest";
     private static final String BLOCK_KIND_TOOL = "tool";
     private static final String LANG_ZH = "zh";
-    private static final String LANG_EN = "en";
-    private static final int TOKEN_BYTES = 32;
     private static final int TITLE_PREVIEW_LENGTH = 50;
 
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
-    private final AgentConversationShareMapper shareMapper;
+    private final ShareSnapshotService shareSnapshotService;
     private final AgentConversationMapper conversationMapper;
     private final AgentMessageMapper messageMapper;
 
     /**
-     * 过期默认天数；0 或负数 = 不过期（agent.share.default-expire-days）
-     */
-    @Value("${agent.share.default-expire-days:90}")
-    private int defaultExpireDays;
-
-    /**
-     * 内容/知识版本标记（随分享快照落库）；v2 起 assistant 条目携带 sources 投影
+     * 内容/知识版本标记（随分享快照落 payload；粒度侧自持键）；v2 起 assistant 条目携带 sources 投影
      */
     @Value("${agent.share.content-version:v2}")
     private String contentVersion;
@@ -125,85 +115,55 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
             throw new ClientException("会话中没有可分享的问答内容");
         }
 
-        Date now = new Date();
-        Date expireTime = defaultExpireDays > 0 ? new Date(now.getTime() + defaultExpireDays * 86_400_000L) : null;
-
         String title = conversation.getTitle() != null && !conversation.getTitle().isBlank()
                 ? conversation.getTitle() : "新对话";
-        AgentConversationShareDO share = AgentConversationShareDO.builder()
-                .token(generateToken())
-                .ownerUserId(userId)
-                .conversationId(conversationId)
+        // 值复制语义：装配时即把标题与消息对固化进载荷，读路径不回链业务表
+        String payloadJson = AgentConversationSharePayload.toJson(AgentConversationSharePayload.builder()
                 .title(title)
-                // 值复制语义：typeHandler 落库时序列化快照，读路径不再回链业务表
                 .messages(snapshot)
-                .lang(detectLang(snapshot))
                 .contentVersion(contentVersion)
-                .status(STATUS_ACTIVE)
-                .expireTime(expireTime)
-                .build();
-        shareMapper.insert(share);
-        return AgentShareCreatedVO.builder().token(share.getToken()).expireTime(expireTime).build();
+                .build());
+        ShareTicket ticket = shareSnapshotService.create(
+                ShareKind.CONVERSATION, userId, conversationId, detectLang(snapshot), payloadJson);
+        return AgentShareCreatedVO.builder().token(ticket.getToken()).expireTime(ticket.getExpireAt()).build();
     }
 
     @Override
     public PublicAgentShareVO getPublicShare(String token) {
-        AgentConversationShareDO share = selectByToken(token);
-        // 不存在/已撤销/已过期统一同一语义，防 token 探测侧信道
-        if (share == null || STATUS_REVOKED.equals(share.getStatus()) || isExpired(share)) {
-            throw new ClientException("分享链接无效或已撤销");
-        }
+        SharePublicView view = shareSnapshotService.readByToken(token);
+        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(view.getPayload());
         return PublicAgentShareVO.builder()
-                .title(share.getTitle())
-                .messages(share.getMessages())
-                .lang(share.getLang())
-                .contentVersion(share.getContentVersion())
-                .createTime(share.getCreateTime())
-                .expireTime(share.getExpireTime())
+                .title(payload.getTitle())
+                .messages(payload.getMessages())
+                .lang(view.getLang())
+                .contentVersion(payload.getContentVersion())
+                .createTime(view.getCreateTime())
+                .expireTime(view.getExpireTime())
                 .build();
     }
 
     @Override
     public void revokeShare(String token, String userId, boolean adminOverride) {
-        if (!adminOverride) {
-            Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
-        }
-        AgentConversationShareDO share = selectByToken(token);
-        Assert.notNull(share, () -> new ClientException("分享不存在"));
-        if (!adminOverride && !Objects.equals(userId, share.getOwnerUserId())) {
-            throw new ClientException("无权撤销该分享");
-        }
-        if (STATUS_REVOKED.equals(share.getStatus())) {
-            return;
-        }
-        AgentConversationShareDO update = new AgentConversationShareDO();
-        update.setId(share.getId());
-        update.setStatus(STATUS_REVOKED);
-        update.setRevokedTime(new Date());
-        shareMapper.updateById(update);
+        shareSnapshotService.revoke(token, adminOverride ? RevocationActor.admin() : RevocationActor.owner(userId));
     }
 
     @Override
     public List<AgentShareMineItemVO> listMine(String userId) {
         Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
-        return shareMapper.selectList(new LambdaQueryWrapper<AgentConversationShareDO>()
-                        .eq(AgentConversationShareDO::getOwnerUserId, userId)
-                        .orderByDesc(AgentConversationShareDO::getCreateTime))
-                .stream()
+        return shareSnapshotService.listByOwner(userId, ShareKind.CONVERSATION).stream()
                 .map(this::toItemVO)
                 .toList();
     }
 
     @Override
     public List<AgentShareAdminItemVO> listAllForAdmin() {
-        return shareMapper.selectList(new LambdaQueryWrapper<AgentConversationShareDO>()
-                        .orderByDesc(AgentConversationShareDO::getCreateTime))
-                .stream()
+        return shareSnapshotService.adminList(ShareKind.CONVERSATION).stream()
                 .map(share -> {
+                    AgentConversationSharePayload payload = AgentConversationSharePayload.parse(share.getPayload());
                     AgentShareAdminItemVO item = new AgentShareAdminItemVO();
                     item.setToken(share.getToken());
-                    item.setTitlePreview(preview(share.getTitle()));
-                    item.setMessageCount(share.getMessages() == null ? 0 : share.getMessages().size());
+                    item.setTitlePreview(preview(payload.getTitle()));
+                    item.setMessageCount(payload.getMessages() == null ? 0 : payload.getMessages().size());
                     item.setStatus(share.getStatus());
                     item.setExpireTime(share.getExpireTime());
                     item.setCreateTime(share.getCreateTime());
@@ -253,36 +213,16 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
         return merged;
     }
 
-    private AgentShareMineItemVO toItemVO(AgentConversationShareDO share) {
+    private AgentShareMineItemVO toItemVO(ShareOwnedView share) {
+        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(share.getPayload());
         return AgentShareMineItemVO.builder()
                 .token(share.getToken())
-                .titlePreview(preview(share.getTitle()))
-                .messageCount(share.getMessages() == null ? 0 : share.getMessages().size())
+                .titlePreview(preview(payload.getTitle()))
+                .messageCount(payload.getMessages() == null ? 0 : payload.getMessages().size())
                 .status(share.getStatus())
                 .expireTime(share.getExpireTime())
                 .createTime(share.getCreateTime())
                 .build();
-    }
-
-    private AgentConversationShareDO selectByToken(String token) {
-        if (token == null || token.isBlank()) {
-            return null;
-        }
-        return shareMapper.selectOne(new LambdaQueryWrapper<AgentConversationShareDO>()
-                .eq(AgentConversationShareDO::getToken, token));
-    }
-
-    private boolean isExpired(AgentConversationShareDO share) {
-        return share.getExpireTime() != null && share.getExpireTime().before(new Date());
-    }
-
-    /**
-     * 256-bit 加密随机 token（Base64URL 无填充，43 字符），不可枚举
-     */
-    private String generateToken() {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        SECURE_RANDOM.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     /**
@@ -293,7 +233,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
                 .map(AgentShareSnapshotItem::getContent)
                 .anyMatch(text -> text != null && text.chars().anyMatch(cp ->
                         (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF)))
-                ? LANG_ZH : LANG_EN;
+                ? LANG_ZH : "en";
     }
 
     private String preview(String text) {

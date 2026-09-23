@@ -25,9 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 /**
- * 会话分享 feature flag 装配面测试（克隆 PublicNewsFeatureFlagTest 模式）
+ * 统一分享 feature flag 装配面测试（会话粒度四件，克隆 PublicNewsFeatureFlagTest 模式；share.enabled 两粒度共用，issue #124）
  *
- * <p>孪生语义：agent.share.enabled=true 时装配启用态控制器三件（登录面/公开面/管理面）；
+ * <p>孪生语义：share.enabled=true 时装配启用态控制器三件（登录面/公开面/管理面）；
  * false/缺省时公开路径只装配 DisabledController（与「链接无效」同源兜底，不泄漏开关状态）。
  */
 class AgentShareFeatureFlagTest {
@@ -39,7 +39,7 @@ class AgentShareFeatureFlagTest {
 
     @Test
     void flagOffAssemblesOnlyDisabledTwin() {
-        runner.withPropertyValues("agent.share.enabled=false").run(context -> {
+        runner.withPropertyValues("share.enabled=false").run(context -> {
             assertThat(context).hasSingleBean(PublicAgentShareDisabledController.class);
             assertThat(context).doesNotHaveBean(PublicAgentShareController.class);
             assertThat(context).doesNotHaveBean(AgentShareController.class);
@@ -59,7 +59,7 @@ class AgentShareFeatureFlagTest {
 
     @Test
     void flagOnAssemblesEnabledControllers() {
-        runner.withPropertyValues("agent.share.enabled=true").run(context -> {
+        runner.withPropertyValues("share.enabled=true").run(context -> {
             assertThat(context).hasSingleBean(AgentShareController.class);
             assertThat(context).hasSingleBean(PublicAgentShareController.class);
             assertThat(context).hasSingleBean(AdminAgentShareController.class);
@@ -74,19 +74,19 @@ class AgentShareFeatureFlagTest {
     void twinAnnotationsAreComplementary() {
         assertThat(PublicAgentShareController.class.getAnnotation(ConditionalOnProperty.class))
                 .satisfies(annotation -> {
-                    assertThat(annotation.name()).containsExactly("agent.share.enabled");
+                    assertThat(annotation.name()).containsExactly("share.enabled");
                     assertThat(annotation.havingValue()).isEqualTo("true");
                     assertThat(annotation.matchIfMissing()).isFalse();
                 });
         assertThat(PublicAgentShareDisabledController.class.getAnnotation(ConditionalOnProperty.class))
                 .satisfies(annotation -> {
-                    assertThat(annotation.name()).containsExactly("agent.share.enabled");
+                    assertThat(annotation.name()).containsExactly("share.enabled");
                     assertThat(annotation.havingValue()).isEqualTo("false");
                     assertThat(annotation.matchIfMissing()).isTrue();
                 });
         assertThat(AgentShareController.class.getAnnotation(ConditionalOnProperty.class))
                 .satisfies(annotation -> {
-                    assertThat(annotation.name()).containsExactly("agent.share.enabled");
+                    assertThat(annotation.name()).containsExactly("share.enabled");
                     assertThat(annotation.havingValue()).isEqualTo("true");
                     assertThat(annotation.matchIfMissing()).isFalse();
                 });

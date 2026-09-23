@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,13 +48,15 @@ import static org.mockito.Mockito.verify;
 class AccountDeletionCascadeTest {
 
     private JdbcTemplate jdbcTemplate;
+    private ShareSnapshotService shareSnapshotService;
     private AccountDeletionCascade cascade;
     private MockedStatic<StpUtil> stpUtil;
 
     @BeforeEach
     void setUp() {
         jdbcTemplate = mock(JdbcTemplate.class);
-        cascade = new AccountDeletionCascade(jdbcTemplate);
+        shareSnapshotService = mock(ShareSnapshotService.class);
+        cascade = new AccountDeletionCascade(jdbcTemplate, shareSnapshotService);
         stpUtil = mockStatic(StpUtil.class);
     }
 
@@ -66,7 +69,7 @@ class AccountDeletionCascadeTest {
     void purgeTouchesEveryCascadeStatement() {
         cascade.purge("100", "u2@example.com");
 
-        InOrder order = inOrder(jdbcTemplate);
+        InOrder order = inOrder(jdbcTemplate, shareSnapshotService);
         order.verify(jdbcTemplate).update("DELETE FROM t_conversation WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_message WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_conversation WHERE user_id = ?", "100");
@@ -74,13 +77,13 @@ class AccountDeletionCascadeTest {
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_context_compaction WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", "100");
-        // #104 级联补洞：三张漏清表 + agent 会话分享撤销（隐私缺陷）
+        // #104 级联补洞：三张漏清表
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_control WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_state WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_conversation_summary WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update(containsSql("UPDATE t_message_feedback"), eq("100"));
-        order.verify(jdbcTemplate).update(containsSql("UPDATE t_answer_share"), eq("100"));
-        order.verify(jdbcTemplate).update(containsSql("UPDATE t_agent_conversation_share"), eq("100"));
+        // 分享撤销（issue #124 起两粒度统一走 ShareSnapshotService，软撤销行保留）
+        order.verify(shareSnapshotService).revokeOwnedBy("100");
         order.verify(jdbcTemplate).update(containsSql("INSERT INTO t_user_email_tombstone"),
                 anyString(), anyString(), eq("100"), org.mockito.ArgumentMatchers.any());
         order.verify(jdbcTemplate).update("DELETE FROM t_user WHERE id = ?", "100");
