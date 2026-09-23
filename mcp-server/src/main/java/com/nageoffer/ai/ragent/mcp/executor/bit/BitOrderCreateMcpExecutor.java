@@ -32,6 +32,7 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.UserCouponMapper;
 import com.nageoffer.ai.ragent.mcp.dao.result.CartLineResult;
 import com.nageoffer.ai.ragent.mcp.dao.result.HeldCouponResult;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolException;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -42,6 +43,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -129,8 +131,9 @@ public class BitOrderCreateMcpExecutor {
                     StrUtil.trimToNull(MapUtil.getStr(args, "receiverPhone")),
                     StrUtil.trimToNull(MapUtil.getStr(args, "receiverAddress")));
 
-            CallToolResult result = bitTransactionTemplate.execute(
-                    status -> placeOrder(status, userId, skuCodes, couponCode, input));
+            // M14：订单号 MAX+1 无锁生成，跨用户并发下单撞 uk_order_no 时在事务外重算重试一次
+            // （事务内一旦报错整个 tx 已中止，重试必须新开事务）；仍撞则如实上抛走分类文案
+            CallToolResult result = placeOrderWithNumberRetry(userId, skuCodes, couponCode, input);
 
             log.info("MCP 工具调用完成, toolId={}, 指定商品={}, 用券={}, elapsed={}ms",
                     TOOL_ID, skuCodes.size(), couponCode != null, System.currentTimeMillis() - startMs);
@@ -138,8 +141,41 @@ public class BitOrderCreateMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.failure("下单", e);
+            // M14：底层异常原文（含 SQL/约束细节）不透给用户面，收敛为分类文案；
+            // 工具自身抛出的 McpToolException 文案受控，仍走统一 helper 原文透出
+            if (e instanceof McpToolException) {
+                return McpToolResults.failure("下单", e);
+            }
+            return McpToolResults.error(friendlyOrderFailure(e));
         }
+    }
+
+    CallToolResult placeOrderWithNumberRetry(String userId, List<String> skuCodes,
+                                                     String couponCode, Receiver input) {
+        DuplicateKeyException lastConflict = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                return bitTransactionTemplate.execute(
+                        status -> placeOrder(status, userId, skuCodes, couponCode, input));
+            } catch (DuplicateKeyException e) {
+                lastConflict = e;
+                log.warn("订单号并发碰撞（第 {} 次尝试），重算后重试", attempt + 1);
+            }
+        }
+        throw lastConflict;
+    }
+
+    /**
+     * M14：下单失败的分类文案——DB 异常细节（SQL/约束/驱动原文）只进日志
+     */
+    String friendlyOrderFailure(Exception e) {
+        if (e instanceof DuplicateKeyException) {
+            return "下单失败：并发冲突，请稍后重试";
+        }
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            return "下单失败：" + e.getMessage();
+        }
+        return "下单失败：系统繁忙，请稍后重试";
     }
 
     /**

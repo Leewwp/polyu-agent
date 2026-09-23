@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.rag.core.prompt;
 
+import com.nageoffer.ai.ragent.rag.core.prompt.PromptFenceSanitizer;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
@@ -207,12 +208,16 @@ public class DefaultContextFormatter implements ContextFormatter {
 
     /**
      * 组内拼接文本：同文档的块按 index 排好后用换行顺次拼接
+     * <p>
+     * M10：chunk 原文过围栏中和——含 {@code </content>} 或伪造 {@code <rules>} 的外部抓取内容
+     * 不再能逃逸 <content> 围栏改写回答行为
      */
     private String joinDocBody(List<RetrievedChunk> ordered) {
         return ordered.stream()
                 .map(RetrievedChunk::getText)
                 .map(StrUtil::emptyIfNull)
                 .filter(text -> !text.isEmpty())
+                .map(PromptFenceSanitizer::neutralize)
                 .collect(Collectors.joining("\n"));
     }
 

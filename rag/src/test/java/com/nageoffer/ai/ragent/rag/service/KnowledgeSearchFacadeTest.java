@@ -189,8 +189,8 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
         when(intentResolver.resolve(any(RewriteResult.class)))
                 .thenReturn(List.of(new SubQuestionIntent(QUESTION, List.of(kbNode))));
-        when(intentResolver.mergeIntentGroup(anyList()))
-                .thenReturn(new IntentGroup(List.of(), List.of(kbNode)));
+        when(intentResolver.mergeKbIntents(anyList()))
+                .thenReturn(List.of(kbNode));
         // doc-a 跨意图重复出现只算一篇；doc-b..doc-j 共 9 篇新文档，凑满 10 篇后截 8 条（doc-h 止）
         java.util.Map<String, List<RetrievedChunk>> intentChunks = new java.util.LinkedHashMap<>();
         // chunk 原文先于 kbContext 装配（锚点是 context-format.st 装配时才加的），摘录天然无锚点；防御性 strip 仍在
@@ -215,7 +215,7 @@ class KnowledgeSearchFacadeTest {
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("答案");
 
-        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION);
 
         assertEquals("答案", outcome.answer());
         assertEquals(8, outcome.sources().size(), "来源上限 8 条");
@@ -243,7 +243,7 @@ class KnowledgeSearchFacadeTest {
         when(guidanceService.detectAmbiguity(QUESTION, subIntents))
                 .thenReturn(GuidanceDecision.prompt("请选择系统"));
 
-        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION, List.of());
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade.searchWithSources(QUESTION);
 
         assertEquals("请选择系统", outcome.answer());
         assertTrue(outcome.sources().isEmpty());
