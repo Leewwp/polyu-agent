@@ -38,16 +38,6 @@ public enum AgentPromptSlot {
             "Agent 模式下由主 Agent 直接应答",
             Set.of()),
 
-    MCP_ANSWER("MCP数据应答", Group.WORKFLOW,
-            Set.of(OrchestrationMode.WORKFLOW),
-            "Agent 模式下改用原生工具调用，无独立的数据合成环节",
-            Set.of()),
-
-    MIXED_ANSWER("混合来源应答", Group.WORKFLOW,
-            Set.of(OrchestrationMode.WORKFLOW),
-            "Agent 模式下由主 Agent 综合多个工具的结果",
-            Set.of()),
-
     AGENT_MAIN("Agent人设", Group.AGENT,
             Set.of(OrchestrationMode.AGENT),
             "WorkFlow 模式不经过 ReAct 架构",

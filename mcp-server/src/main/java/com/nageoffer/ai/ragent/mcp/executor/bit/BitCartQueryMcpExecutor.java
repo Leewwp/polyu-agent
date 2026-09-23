@@ -21,6 +21,7 @@ import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.CartMapper;
 import com.nageoffer.ai.ragent.mcp.dao.result.CartLineResult;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -32,10 +33,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+
+
 
 /**
  * 购物车查询
@@ -53,13 +55,15 @@ public class BitCartQueryMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification queryCartToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        JsonSchema inputSchema = new JsonSchema(
-                "object", new LinkedHashMap<>(), List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -86,7 +90,7 @@ public class BitCartQueryMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("购物车查询失败: " + e.getMessage());
+            return McpToolResults.failure("购物车查询", e);
         }
     }
 

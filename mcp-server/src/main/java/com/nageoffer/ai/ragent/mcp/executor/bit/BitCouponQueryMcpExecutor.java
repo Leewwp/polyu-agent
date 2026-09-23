@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.UserCouponMapper;
 import com.nageoffer.ai.ragent.mcp.dao.result.HeldCouponResult;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -37,6 +38,9 @@ import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.number;
 
 /**
  * 优惠券查询与可用性试算
@@ -59,33 +63,21 @@ public class BitCouponQueryMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification queryCouponsToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("amount", Map.of(
-                "type", "number",
-                "description", "本次结算总金额，填了才会逐张试算能不能用、能抵多少"
-        ));
-
-        properties.put("categoryAmounts", Map.of(
-                "type", "string",
-                "description", "本次结算的品类小计，形如 手机:3999,耳机:1200，从购物车查询的「品类小计」一行照抄；"
-                        + "不知道金额时只写品类名也可以，如 手机,耳机"
-        ));
-
-        properties.put("status", Map.of(
-                "type", "string",
-                "description", "持券状态，默认只看未使用的",
-                "enum", STATUSES,
-                "default", DEFAULT_STATUS
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(number("amount", "本次结算总金额，填了才会逐张试算能不能用、能抵多少"))
+                .optional(string("categoryAmounts", "本次结算的品类小计，形如 手机:3999,耳机:1200，从购物车查询的「品类小计」一行照抄；"
+                        + "不知道金额时只写品类名也可以，如 手机,耳机"))
+                .optional(string("status", "持券状态，默认只看未使用的")
+                        .options(STATUSES)
+                        .defaultTo(DEFAULT_STATUS))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -124,7 +116,7 @@ public class BitCouponQueryMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("优惠券查询失败: " + e.getMessage());
+            return McpToolResults.failure("优惠券查询", e);
         }
     }
 

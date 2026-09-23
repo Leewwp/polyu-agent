@@ -58,7 +58,7 @@ public class AgentMessageDO {
 
     /**
      * 终答正文，与用户所见逐字一致，不截断
-     * 唯一读者是改写上下文 loadRecentTurns 与前端的无 blocks 兜底，回放时间线不读它
+     * 唯一读者是前端的无 blocks 兜底，回放时间线不读它
      */
     private String content;
 

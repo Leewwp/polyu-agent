@@ -81,6 +81,48 @@ class McpToolResultsTest {
         assertFalse(text.contains("登录"));
     }
 
+    /**
+     * 底层异常的原文一个字都不许进返回值：返回值是给模型看的，模型会把 SQL 片段、连接串
+     * 当业务结论转述给用户
+     */
+    @Test
+    void failureMustNotLeakUnderlyingMessage() {
+        String secret = "ERROR: relation \"t_order\" does not exist, jdbc:postgresql://10.0.0.7:5432/bit";
+
+        CallToolResult result = McpToolResults.failure("订单查询", new IllegalStateException(secret));
+
+        String text = ((TextContent) result.content().get(0)).text();
+        assertTrue(result.isError());
+        assertTrue(text.contains("订单查询失败"));
+        assertFalse(text.contains("t_order"));
+        assertFalse(text.contains("10.0.0.7"));
+    }
+
+    /**
+     * 空 message、异常自身的类名也算原文：{@code getMessage()} 为 null 时不许退化成把 toString 拼进去
+     */
+    @Test
+    void failureMustNotLeakExceptionType() {
+        String text = ((TextContent) McpToolResults.failure("下单", new NullPointerException())
+                .content().get(0)).text();
+
+        assertFalse(text.contains("NullPointerException"));
+        assertFalse(text.contains("null"));
+    }
+
+    /**
+     * {@link McpToolException} 是抛出方自己拼的文案，已声明可以给模型看——它带的状态码正是模型
+     * 区分「限流待会再试」和「鉴权坏了别再试」的依据，脱掉就等于让模型盲猜
+     */
+    @Test
+    void failureMustPassThroughDeclaredSafeMessage() {
+        CallToolResult result = McpToolResults.failure("搜索", new McpToolException("上游返回异常状态码: 429"));
+
+        String text = ((TextContent) result.content().get(0)).text();
+        assertTrue(result.isError());
+        assertTrue(text.contains("429"));
+    }
+
     private CallToolRequest request(Map<String, Object> meta) {
         return new CallToolRequest(TOOL_ID, new HashMap<>(), meta);
     }

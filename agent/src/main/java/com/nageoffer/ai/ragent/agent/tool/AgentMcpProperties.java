@@ -15,29 +15,37 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.core.prompt;
+package com.nageoffer.ai.ragent.agent.tool;
 
-import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
-import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * MCP 客户端配置属性
+ */
 @Data
-@RequiredArgsConstructor
-@AllArgsConstructor
-@Builder
-public class PromptPlan {
+@ConfigurationProperties(prefix = "agent.mcp")
+public class AgentMcpProperties {
 
     /**
-     * 用于选择模板的候选意图
+     * MCP Server 列表
      */
-    private List<NodeScore> retainedIntents;
+    private List<ServerConfig> servers = new ArrayList<>();
 
-    /**
-     * 选用的基模板（单意图且有模板才会有值，否则为 null 表示用默认模板）
-     */
-    private String baseTemplate;
+    @Data
+    public static class ServerConfig {
+
+        /**
+         * 服务名称
+         */
+        private String name;
+
+        /**
+         * 服务地址
+         */
+        private String url;
+    }
 }

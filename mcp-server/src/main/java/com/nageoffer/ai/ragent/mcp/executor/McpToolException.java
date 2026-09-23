@@ -15,37 +15,18 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.core.mcp;
-
-import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-
-import java.util.ArrayList;
-import java.util.List;
+package com.nageoffer.ai.ragent.mcp.executor;
 
 /**
- * MCP 客户端配置属性
+ * 消息可以原样返回给模型的工具异常
+ * <p>
+ * 一条异常消息能不能给模型看，只有抛出它的那行代码知道：自己拼的「上游返回 503」是安全的，
+ * 底层库抛的可能带着 SQL 片段或连接串。把这件事做成类型，抛出方声明一次，
+ * {@link McpToolResults#failure} 照着办，捕获方不必在 catch 里猜
  */
-@Data
-@ConfigurationProperties(prefix = "rag.mcp")
-public class McpClientProperties {
+public class McpToolException extends RuntimeException {
 
-    /**
-     * MCP Server 列表
-     */
-    private List<ServerConfig> servers = new ArrayList<>();
-
-    @Data
-    public static class ServerConfig {
-
-        /**
-         * 服务名称
-         */
-        private String name;
-
-        /**
-         * 服务地址
-         */
-        private String url;
+    public McpToolException(String message) {
+        super(message);
     }
 }

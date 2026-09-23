@@ -21,6 +21,7 @@ import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
@@ -33,10 +34,12 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.integer;
 
 @Slf4j
 @Component
@@ -54,39 +57,23 @@ public class LeaveMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification leaveToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("employeeName", Map.of(
-                "type", "string",
-                "description", "员工姓名或工号，不填则查询当前登录员工"
-        ));
-
-        properties.put("leaveType", Map.of(
-                "type", "string",
-                "description", "假期类型：年假、调休、病假、事假，默认年假",
-                "enum", LEAVE_TYPES,
-                "default", "年假"
-        ));
-
-        properties.put("year", Map.of(
-                "type", "integer",
-                "description", "查询年度，如 2026，不填则查询当前年度"
-        ));
-
-        properties.put("queryType", Map.of(
-                "type", "string",
-                "description", "查询类型：balance(余额与额度)、detail(请假明细)",
-                "enum", List.of("balance", "detail"),
-                "default", "balance"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("employeeName", "员工姓名或工号，不填则查询当前登录员工"))
+                .optional(string("leaveType", "假期类型：年假、调休、病假、事假，默认年假")
+                        .options(LEAVE_TYPES)
+                        .defaultTo("年假"))
+                .optional(integer("year", "查询年度，如 2026，不填则查询当前年度"))
+                .optional(string("queryType", "查询类型：balance(余额与额度)、detail(请假明细)")
+                        .options(List.of("balance", "detail"))
+                        .defaultTo("balance"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -123,7 +110,7 @@ public class LeaveMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("查询失败: " + e.getMessage());
+            return McpToolResults.failure("查询", e);
         }
     }
 

@@ -127,7 +127,6 @@ CREATE TABLE `t_intent_node`
     `kind`                  tinyint(1) NOT NULL DEFAULT '0' COMMENT '类型 0：RAG知识库类 1：SYSTEM系统交互类',
     `prompt_snippet`        text COMMENT '提示词片段',
     `prompt_template`       text COMMENT '提示词模板',
-    `param_prompt_template` text COMMENT '参数提取提示词模板（MCP模式专属）',
     `sort_order`            int(11) NOT NULL DEFAULT '0' COMMENT '排序字段',
     `enabled`               tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用 1：启用 0：禁用',
     `create_by`             varchar(64)          DEFAULT NULL COMMENT '创建人',

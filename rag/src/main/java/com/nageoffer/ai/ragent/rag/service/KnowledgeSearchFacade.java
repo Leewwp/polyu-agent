@@ -35,7 +35,6 @@ import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.nageoffer.ai.ragent.rag.core.rewrite.QueryRewriteService;
 import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
-import com.nageoffer.ai.ragent.rag.dto.IntentGroup;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import lombok.RequiredArgsConstructor;
@@ -50,16 +49,16 @@ import java.util.Map;
 
 /**
  * 知识检索门面：Agent 模式下 rag 对外的唯一检索窄口
- * 改写 -> 意图解析（内置 KB-only 过滤）-> 歧义引导 -> 多通道检索 -> KB_ANSWER 合成，返回可直接引用的答案文本
+ * 改写 -> KB 意图解析 -> 歧义引导 -> 多通道检索 -> KB_ANSWER 合成，返回可直接引用的答案文本
  * 引用/来源装配定死不走，与 rag.citation.enabled 无关
- * 近期轮次只喂给改写做指代消解，合成阶段不带历史：工具结论只依据本次证据
+ * 不带任何会话历史：主 Agent 已消解过指代，合成阶段也只依据本次证据
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeSearchFacade {
 
-    public static final String EMPTY_RESULT = "未在知识库中检索到与该问题相关的内容。";
+    private static final String EMPTY_RESULT = "未在知识库中检索到与该问题相关的内容。";
 
     /**
      * 来源摘录长度：只够认出文档，不搬运正文（file 型带官网下载页时放宽见 FILE_EXCERPT_CHARS）
@@ -88,19 +87,18 @@ public class KnowledgeSearchFacade {
 
     /**
      * 检索并合成答案，供主 Agent 的 search_knowledge 工具调用
-     *
-     * @param recentHistory 主 Agent 会话的近期 user/assistant 轮次，仅用于改写阶段的指代消解
      */
-    public String search(String query, List<ChatMessage> recentHistory) {
-        return searchWithSources(query, recentHistory).answer();
+    public String search(String query) {
+        return searchWithSources(query).answer();
     }
 
     /**
      * 检索并合成答案，同时带出结构化来源（docId 按纪律不进模型上下文，仅供前端徽章旁路消费）
      * 歧义引导与空检索路径 sources 为空
      */
-    public KnowledgeSearchOutcome searchWithSources(String query, List<ChatMessage> recentHistory) {
-        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, recentHistory);
+    public KnowledgeSearchOutcome searchWithSources(String query) {
+        // 不喂历史：主 Agent 手握完整对话，传进来的已是消解过、且被它有意收窄的查询
+        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, List.of());
         List<SubQuestionIntent> subIntents = filterKbOnly(intentResolver.resolve(rewriteResult));
 
         GuidanceDecision guidance = guidanceService.detectAmbiguity(
@@ -119,11 +117,9 @@ public class KnowledgeSearchFacade {
         // 工具不渲染角标，但内部 docId 一定要抹掉，否则会随工具结果漏进主 Agent 的可见文本
         String kbContext = citationContextEnricher.stripDocIdAnchors(retrievalCtx.getKbContext());
 
-        IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
         PromptContext promptContext = PromptContext.builder()
-                .question(rewriteResult.rewrittenQuestion())
                 .kbContext(kbContext)
-                .kbIntents(mergedGroup.kbIntents())
+                .kbIntents(intentResolver.mergeKbIntents(subIntents))
                 .eligibleIntentIds(retrievalCtx.getEligibleIntentIds())
                 .build();
         List<ChatMessage> messages = promptService.buildStructuredMessages(

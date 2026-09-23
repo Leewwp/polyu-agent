@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.mcp.dao.entity.OrderDO;
 import com.nageoffer.ai.ragent.mcp.dao.mapper.OrderMapper;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -34,9 +35,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 修改收货信息，只对还没出库的订单开放
@@ -64,40 +66,24 @@ public class BitOrderAddressMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification changeAddressToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("orderNo", Map.of(
-                "type", "string",
-                "title", "订单号",
-                "description", "要修改的订单号，来自订单查询，不要凭对话内容拼"
-        ));
-
-        properties.put("receiverName", Map.of(
-                "type", "string",
-                "title", "收货人",
-                "description", "新的收货人姓名，不改则不要传"
-        ));
-
-        properties.put("receiverPhone", Map.of(
-                "type", "string",
-                "title", "收货手机号",
-                "description", "新的收货手机号，不改则不要传。查询返回的手机号是打码的，不要拿打码值回填"
-        ));
-
-        properties.put("receiverAddress", Map.of(
-                "type", "string",
-                "title", "收货地址",
-                "description", "新的完整收货地址，要到门牌号，不改则不要传。"
-                        + "查询返回的地址只到区级，不要拿它拼出「完整」地址"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema(
-                "object", properties, List.of("orderNo"), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .required(string("orderNo", "要修改的订单号，来自订单查询，不要凭对话内容拼")
+                        .title("订单号"))
+                .optional(string("receiverName", "新的收货人姓名，不改则不要传")
+                        .title("收货人"))
+                .optional(string("receiverPhone", "新的收货手机号，不改则不要传。查询返回的手机号是打码的，不要拿打码值回填")
+                        .title("收货手机号"))
+                .optional(string("receiverAddress", "新的完整收货地址，要到门牌号，不改则不要传。"
+                        + "查询返回的地址只到区级，不要拿它拼出「完整」地址")
+                        .title("收货地址"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -149,7 +135,7 @@ public class BitOrderAddressMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            return McpToolResults.error("收货信息修改失败: " + e.getMessage());
+            return McpToolResults.failure("收货信息修改", e);
         }
     }
 

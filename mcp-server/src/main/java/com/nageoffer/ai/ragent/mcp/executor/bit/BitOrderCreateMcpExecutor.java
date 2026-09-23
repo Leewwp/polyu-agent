@@ -17,7 +17,6 @@
 
 package com.nageoffer.ai.ragent.mcp.executor.bit;
 
-import org.springframework.dao.DuplicateKeyException;
 import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.mcp.config.bit.BitProperties;
@@ -33,7 +32,9 @@ import com.nageoffer.ai.ragent.mcp.dao.mapper.UserCouponMapper;
 import com.nageoffer.ai.ragent.mcp.dao.result.CartLineResult;
 import com.nageoffer.ai.ragent.mcp.dao.result.HeldCouponResult;
 import com.nageoffer.ai.ragent.mcp.config.McpToolAnnotations;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolException;
 import com.nageoffer.ai.ragent.mcp.executor.McpToolResults;
+import com.nageoffer.ai.ragent.mcp.executor.McpToolSchema;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -42,6 +43,7 @@ import io.modelcontextprotocol.spec.McpSchema.Tool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -51,6 +53,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 
 /**
  * 从购物车下单，一个事务里走完校验、扣库存、核销券、建单、清车
@@ -79,47 +83,28 @@ public class BitOrderCreateMcpExecutor {
 
     @Bean
     public McpServerFeatures.SyncToolSpecification createOrderToolSpecification() {
-        return new McpServerFeatures.SyncToolSpecification(buildTool(),
-                (exchange, request) -> handleCall(request));
+        return McpServerFeatures.SyncToolSpecification.builder()
+                .tool(buildTool())
+                .callHandler((exchange, request) -> handleCall(request))
+                .build();
     }
 
     private Tool buildTool() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-
-        properties.put("skuCodes", Map.of(
-                "type", "string",
-                "title", "要下单的商品型号",
-                "description", "要下单的商品 SKU 型号，多个用逗号分隔，如 BIT-A18,BIT-W3。"
-                        + "不传表示购物车里的全部商品一起下单"
-        ));
-
-        properties.put("couponCode", Map.of(
-                "type", "string",
-                "title", "优惠券编码",
-                "description", "要使用的优惠券编码，来自券包查询。不确定能不能用就先查券包试算，"
-                        + "能不能用最终由本工具判定"
-        ));
-
-        properties.put("receiverName", Map.of(
-                "type", "string",
-                "title", "收货人",
-                "description", "收货人姓名，不传则沿用该用户最近一笔订单的收货信息"
-        ));
-
-        properties.put("receiverPhone", Map.of(
-                "type", "string",
-                "title", "收货手机号",
-                "description", "收货手机号，不传则沿用最近一笔订单的。查询返回的手机号是打码的，不要拿打码值回填"
-        ));
-
-        properties.put("receiverAddress", Map.of(
-                "type", "string",
-                "title", "收货地址",
-                "description", "完整收货地址，要到门牌号，不传则沿用最近一笔订单的。"
-                        + "查询返回的地址只到区级，不要拿它拼出「完整」地址"
-        ));
-
-        JsonSchema inputSchema = new JsonSchema("object", properties, List.of(), null, null, null);
+        JsonSchema inputSchema = McpToolSchema.object()
+                .optional(string("skuCodes", "要下单的商品 SKU 型号，多个用逗号分隔，如 BIT-A18,BIT-W3。"
+                        + "不传表示购物车里的全部商品一起下单")
+                        .title("要下单的商品型号"))
+                .optional(string("couponCode", "要使用的优惠券编码，来自券包查询。不确定能不能用就先查券包试算，"
+                        + "能不能用最终由本工具判定")
+                        .title("优惠券编码"))
+                .optional(string("receiverName", "收货人姓名，不传则沿用该用户最近一笔订单的收货信息")
+                        .title("收货人"))
+                .optional(string("receiverPhone", "收货手机号，不传则沿用最近一笔订单的。查询返回的手机号是打码的，不要拿打码值回填")
+                        .title("收货手机号"))
+                .optional(string("receiverAddress", "完整收货地址，要到门牌号，不传则沿用最近一笔订单的。"
+                        + "查询返回的地址只到区级，不要拿它拼出「完整」地址")
+                        .title("收货地址"))
+                .build();
 
         return Tool.builder()
                 .name(TOOL_ID)
@@ -156,7 +141,11 @@ public class BitOrderCreateMcpExecutor {
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
                     TOOL_ID, System.currentTimeMillis() - startMs, e);
-            // M14：底层异常原文（含 SQL/约束细节）不透给用户面，收敛为分类文案
+            // M14：底层异常原文（含 SQL/约束细节）不透给用户面，收敛为分类文案；
+            // 工具自身抛出的 McpToolException 文案受控，仍走统一 helper 原文透出
+            if (e instanceof McpToolException) {
+                return McpToolResults.failure("下单", e);
+            }
             return McpToolResults.error(friendlyOrderFailure(e));
         }
     }
