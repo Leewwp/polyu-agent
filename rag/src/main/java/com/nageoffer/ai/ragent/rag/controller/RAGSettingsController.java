@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.rag.controller;
 
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
@@ -68,8 +69,7 @@ public class RAGSettingsController {
     @Value("${rag.vector.type:milvus}")
     private String vectorType;
 
-    @Value("${spring.servlet.multipart.max-file-size:50MB}")
-    private DataSize maxFileSize;
+    private final FetchLimits fetchLimits;
 
     @Value("${spring.servlet.multipart.max-request-size:100MB}")
     private DataSize maxRequestSize;
@@ -87,7 +87,7 @@ public class RAGSettingsController {
                 .rag(toRagSettings())
                 .ai(toAISettings(aiModelProperties))
                 .upload(SystemSettingsVO.UploadSettings.builder()
-                        .maxFileSize(maxFileSize.toBytes())
+                        .maxFileSize(fetchLimits.maxFetchBytes())
                         .maxRequestSize(maxRequestSize.toBytes())
                         .build())
                 .build();

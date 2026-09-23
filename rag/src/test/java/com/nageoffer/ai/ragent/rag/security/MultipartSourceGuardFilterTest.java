@@ -43,8 +43,9 @@ class MultipartSourceGuardFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new MultipartSourceGuardFilter(new IngestionUrlGuard(false));
-        ReflectionTestUtils.setField(filter, "maxFileSize", "50MB");
+        com.nageoffer.ai.ragent.rag.config.FetchLimits limits = new com.nageoffer.ai.ragent.rag.config.FetchLimits();
+        ReflectionTestUtils.setField(limits, "maxFileSize", "50MB");
+        filter = new MultipartSourceGuardFilter(new IngestionUrlGuard(false), limits);
         ReflectionTestUtils.setField(filter, "maxRequestSize", "100MB");
     }
 

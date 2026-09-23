@@ -18,6 +18,9 @@
 package com.nageoffer.ai.ragent.news.fetch;
 
 import com.nageoffer.ai.ragent.framework.exception.AbstractException;
+import com.nageoffer.ai.ragent.framework.exception.ServiceException;
+import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -71,8 +74,14 @@ public class NewsHttpFetchClient {
      */
     private static final RobotsRules ROBOTS_UNRESOLVED = RobotsRules.allowAll();
 
+    /**
+     * 正文缺省上限（生产 FetchLimits 同键 50MB；测试五参构造器沿用）
+     */
+    private static final long DEFAULT_MAX_BODY_BYTES = 50L * 1024 * 1024;
+
     private final OkHttpClient httpClient;
     private final RedirectGuard redirectGuard;
+    private final long maxBodyBytes;
     private final String userAgent;
     private final Sleeper sleeper;
     private final MonotonicClock clock;
@@ -81,29 +90,42 @@ public class NewsHttpFetchClient {
     private final Map<String, Long> lastRequestAtMillis = new ConcurrentHashMap<>();
 
     /**
-     * Spring 装配构造器。连接层挂 {@link com.nageoffer.ai.ragent.rag.security.GuardedDns}
-     * （#101 DNS 重绑定收口）：fetchOnce 与 robots.txt 拉取共用同一派生 client——
-     * syncHttpClient 共享 bean 不动（可信内部端点同 bean），newBuilder 共享连接池只换 Dns
+     * Spring 装配构造器。注入守卫式客户端（guardedHttpClient bean，GuardedDns 连接级
+     * 复校，#101/#125）：fetchOnce 与 robots.txt 拉取共用同一 client；正文读入带上限
+     * （issue #125：资讯条目外部内容按不可信内容对待，超限拒绝不整读进堆）
      */
     @org.springframework.beans.factory.annotation.Autowired
-    public NewsHttpFetchClient(@Qualifier("syncHttpClient") OkHttpClient httpClient,
+    public NewsHttpFetchClient(@Qualifier("guardedHttpClient") OkHttpClient httpClient,
                                RedirectGuard redirectGuard,
-                               com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard urlGuard,
+                               FetchLimits fetchLimits,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
-        this(httpClient.newBuilder().dns(new com.nageoffer.ai.ragent.rag.security.GuardedDns(urlGuard)).build(),
-                redirectGuard, userAgent, millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
+        this(httpClient, redirectGuard, fetchLimits.maxFetchBytes(), userAgent,
+                millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**
-     * 全参构造器（测试注入守卫与假 sleeper/时钟）
+     * 既有五参构造器（测试兼容）：正文上限取生产默认 50MB
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
+        this(httpClient, redirectGuard, DEFAULT_MAX_BODY_BYTES, userAgent, sleeper, clock);
+    }
+
+    /**
+     * 全参构造器（测试注入守卫、上限与假 sleeper/时钟）
+     */
+    NewsHttpFetchClient(OkHttpClient httpClient,
+                        RedirectGuard redirectGuard,
+                        long maxBodyBytes,
+                        String userAgent,
+                        Sleeper sleeper,
+                        MonotonicClock clock) {
         this.httpClient = httpClient;
         this.redirectGuard = redirectGuard;
+        this.maxBodyBytes = maxBodyBytes;
         this.userAgent = userAgent;
         this.sleeper = sleeper;
         this.clock = clock;
@@ -165,7 +187,17 @@ public class NewsHttpFetchClient {
             int code = response.code();
             if (code >= 200 && code < 300) {
                 ResponseBody body = response.body();
-                return body == null ? new byte[0] : body.bytes();
+                if (body == null) {
+                    return new byte[0];
+                }
+                // issue #125：正文读入带上限（复用 helper 限读原语），超大响应拒绝。
+                // catch 只包正文限读——RedirectGuard 的 ServiceException 必须继续走
+                // 下方「重定向拦截」口径（既有语义，不因收窄面改变）
+                try {
+                    return HttpClientHelper.readWithLimit(body.byteStream(), maxBodyBytes);
+                } catch (ServiceException limitExceeded) {
+                    throw new NewsFetchException(limitExceeded.errorMessage, false, limitExceeded);
+                }
             }
             boolean transientError = (code >= 500 && code < 600) || code == 408 || code == 429;
             throw new NewsFetchException("HTTP " + code, transientError);

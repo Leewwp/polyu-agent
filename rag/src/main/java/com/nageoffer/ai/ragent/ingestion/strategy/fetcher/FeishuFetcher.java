@@ -24,6 +24,7 @@ import com.nageoffer.ai.ragent.ingestion.domain.context.DocumentSource;
 import com.nageoffer.ai.ragent.ingestion.domain.enums.SourceType;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.core.parser.mime.MimeTypeDetector;
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
 import lombok.RequiredArgsConstructor;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -51,6 +52,7 @@ public class FeishuFetcher implements DocumentFetcher {
     @Qualifier("syncHttpClient")
     private final OkHttpClient okHttpClient;
     private final HttpClientHelper httpClientHelper;
+    private final FetchLimits fetchLimits;
 
     @Override
     public SourceType supportedType() {
@@ -73,7 +75,8 @@ public class FeishuFetcher implements DocumentFetcher {
         if (isDocxUrl(location)) {
             String docToken = extractDocToken(location);
             String apiUrl = "https://open.feishu.cn/open-apis/docx/v1/documents/" + docToken + "/raw_content";
-            HttpClientHelper.HttpFetchResponse resp = httpClientHelper.get(apiUrl, headers);
+            // issue #125：URL 承载内容的抓取必有限（docToken 源自用户提交链接）
+            HttpClientHelper.HttpFetchResponse resp = httpClientHelper.getWithLimit(apiUrl, headers, fetchLimits.maxFetchBytes());
             String content = extractDocxContent(resp.body());
             if (!StringUtils.hasText(content)) {
                 content = new String(resp.body(), StandardCharsets.UTF_8);
@@ -82,7 +85,8 @@ public class FeishuFetcher implements DocumentFetcher {
             return new FetchResult(content.getBytes(StandardCharsets.UTF_8), "text/plain", fileName);
         }
 
-        HttpClientHelper.HttpFetchResponse resp = httpClientHelper.get(location, headers);
+        // issue #125：文件下载面同款上限（URL=用户提交 source.getLocation()）
+        HttpClientHelper.HttpFetchResponse resp = httpClientHelper.getWithLimit(location, headers, fetchLimits.maxFetchBytes());
         String fileName = StringUtils.hasText(source.getFileName()) ? source.getFileName() : resp.fileName();
         String contentType = resp.contentType();
         if (!StringUtils.hasText(contentType)) {

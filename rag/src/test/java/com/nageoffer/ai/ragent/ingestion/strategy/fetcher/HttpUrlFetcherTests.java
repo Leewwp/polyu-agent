@@ -48,15 +48,20 @@ class HttpUrlFetcherTests {
     private MockWebServer server;
     private HttpUrlFetcher fetcher;
 
+    private static com.nageoffer.ai.ragent.rag.config.FetchLimits limits(String raw) {
+        com.nageoffer.ai.ragent.rag.config.FetchLimits limits = new com.nageoffer.ai.ragent.rag.config.FetchLimits();
+        ReflectionTestUtils.setField(limits, "maxFileSize", raw);
+        return limits;
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         server = new MockWebServer();
         server.start();
         // 回环 MockWebServer：宽松档守卫（与 News/RedirectGuard 测试同口径）
         fetcher = new HttpUrlFetcher(new HttpClientHelper(
-                new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)),
-                new IngestionUrlGuard(true)));
-        ReflectionTestUtils.setField(fetcher, "maxFileSize", DataSize.ofBytes(16));
+                new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true))),
+                limits("16B"));
     }
 
     @AfterEach

@@ -30,11 +30,10 @@ import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.rag.dto.StoredFileDTO;
 import com.nageoffer.ai.ragent.rag.service.FileStorageService;
 import lombok.RequiredArgsConstructor;
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.util.unit.DataSize;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -66,14 +65,16 @@ public class RemoteFileFetcher {
     private final FileStorageService fileStorageService;
     private final HtmlDocumentParser htmlDocumentParser;
 
-    @Value("${spring.servlet.multipart.max-file-size:50MB}")
-    private DataSize maxFileSize;
+    /**
+     * 抓取字节上限：上传=抓取同口径经 FetchLimits 单点（issue #125）
+     */
+    private final FetchLimits fetchLimits;
 
     /**
      * 流式拉取远程文件并上传到存储（用于文档上传场景）
      */
     public StoredFileDTO fetchAndStore(String bucketName, String url) {
-        long maxBytes = maxFileSize.toBytes();
+        long maxBytes = fetchLimits.maxFetchBytes();
         url = url.trim();
         HttpClientHelper.HttpHeadResponse headResponse = tryHead(url);
         Long headContentLength = headResponse == null ? null : headResponse.contentLength();
@@ -94,7 +95,7 @@ public class RemoteFileFetcher {
      */
     public RemoteFetchResult fetchIfChanged(String url, String lastEtag, String lastModified,
                                             String lastContentHash, String fallbackFileName) {
-        long maxBytes = maxFileSize.toBytes();
+        long maxBytes = fetchLimits.maxFetchBytes();
         url = url.trim();
         HttpClientHelper.HttpHeadResponse headResponse = tryHead(url);
 
