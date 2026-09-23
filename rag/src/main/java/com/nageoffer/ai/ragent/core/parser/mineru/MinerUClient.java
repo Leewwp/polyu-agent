@@ -22,6 +22,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
+import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -55,13 +58,28 @@ public class MinerUClient {
     private static final MediaType JSON_MEDIA = MediaType.parse("application/json; charset=utf-8");
 
     private final OkHttpClient httpClient;
+    private final OkHttpClient guardedHttpClient;
+    private final IngestionUrlGuard urlGuard;
+    private final FetchLimits fetchLimits;
     private final ObjectMapper objectMapper;
     private final MinerUProperties properties;
 
+    /**
+     * API 基址调用（requestUpload/queryResult）维持受信 syncHttpClient（配置 URL）；
+     * 预签名传输（上传 PUT/zip 下载 GET）走 guardedHttpClient——响应回填的 URL 按
+     * 不可信内容对待（issue #125）：validateOutboundTarget 预检 + 连接级 GuardedDns
+     * + zip 下载字节上限
+     */
     public MinerUClient(@Qualifier("syncHttpClient") OkHttpClient httpClient,
+                        @Qualifier("guardedHttpClient") OkHttpClient guardedHttpClient,
+                        IngestionUrlGuard urlGuard,
+                        FetchLimits fetchLimits,
                         ObjectMapper objectMapper,
                         MinerUProperties properties) {
         this.httpClient = httpClient;
+        this.guardedHttpClient = guardedHttpClient;
+        this.urlGuard = urlGuard;
+        this.fetchLimits = fetchLimits;
         this.objectMapper = objectMapper;
         this.properties = properties;
     }
@@ -136,12 +154,14 @@ public class MinerUClient {
         if (content == null || content.length == 0) {
             throw new ServiceException("上传字节不能为空");
         }
+        // 预签名 URL 来自 SaaS 响应回填，按不可信内容对待：出站目标先过守卫预检（issue #125）
+        urlGuard.validateOutboundTarget(uploadUrl);
         // 预签名 PUT:body 无 Content-Type(传 null),不加 Authorization
         Request httpRequest = new Request.Builder()
                 .url(uploadUrl)
                 .put(RequestBody.create(content, null))
                 .build();
-        try (Response response = httpClient.newCall(httpRequest).execute()) {
+        try (Response response = guardedHttpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
                 String body = readBodySafe(response);
                 throw new ServiceException("MinerU uploadFile 失败 code=" + response.code() + " body=" + body);
@@ -188,14 +208,17 @@ public class MinerUClient {
     /**
      * 下载结果 zip 字节流
      * <p>
-     * 注意:此 URL 通常是一次性预签名 URL,有时效;拿到 MinerUStatus.zipUrl 后立即下载
+     * 注意:此 URL 通常是一次性预签名 URL,有时效;拿到 MinerUStatus.zipUrl 后立即下载。
+     * zipUrl 来自 SaaS 响应回填，按不可信内容对待（issue #125）：守卫预检 + 守卫客户端
+     * + 字节上限（此前裸 body.bytes() 无上限）
      */
     public byte[] downloadZip(String zipUrl) {
         if (zipUrl == null || zipUrl.isBlank()) {
             throw new ServiceException("zipUrl 不能为空");
         }
+        urlGuard.validateOutboundTarget(zipUrl);
         Request httpRequest = new Request.Builder().url(zipUrl).get().build();
-        try (Response response = httpClient.newCall(httpRequest).execute()) {
+        try (Response response = guardedHttpClient.newCall(httpRequest).execute()) {
             if (!response.isSuccessful()) {
                 String body = readBodySafe(response);
                 throw new ServiceException("MinerU downloadZip 失败 code=" + response.code() + " body=" + body);
@@ -204,7 +227,8 @@ public class MinerUClient {
             if (body == null) {
                 throw new ServiceException("MinerU downloadZip 响应体为空");
             }
-            return body.bytes();
+            return HttpClientHelper.readWithLimit(
+                    body.byteStream(), fetchLimits.maxFetchBytes());
         } catch (IOException e) {
             throw new ServiceException("MinerU downloadZip 网络异常: " + e.getMessage());
         }

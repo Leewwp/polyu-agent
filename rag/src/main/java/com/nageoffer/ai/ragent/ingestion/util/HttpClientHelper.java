@@ -18,8 +18,6 @@
 package com.nageoffer.ai.ragent.ingestion.util;
 
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
-import com.nageoffer.ai.ragent.rag.security.GuardedDns;
-import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -38,7 +36,8 @@ import java.util.Map;
 /**
  * HTTP 请求工具类，用于获取网络资源。
  * 全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转目标（O2/M4）；
- * 连接层经 {@link GuardedDns} 对建连解析结果复校内网/元数据地址（#101 DNS 重绑定收口）。
+ * 连接层经守卫式客户端（guardedHttpClient bean，GuardedDns 对建连解析结果复校，
+ * #101 DNS 重绑定收口）——本类不自持派生配方，守卫归集在 HttpClientConfig（issue #125）。
  */
 @Component
 public class HttpClientHelper {
@@ -47,14 +46,9 @@ public class HttpClientHelper {
 
     private final RedirectGuard redirectGuard;
 
-    /**
-     * 派生守护副本：syncHttpClient 共享 bean 不动（MinerU/LightRAG/WebSearchChannel
-     * 可信内部端点同 bean）；newBuilder 共享连接池与线程池，只换 Dns。
-     */
-    public HttpClientHelper(@Qualifier("syncHttpClient") OkHttpClient syncClient,
-                            RedirectGuard redirectGuard,
-                            IngestionUrlGuard urlGuard) {
-        this.client = syncClient.newBuilder().dns(new GuardedDns(urlGuard)).build();
+    public HttpClientHelper(@Qualifier("guardedHttpClient") OkHttpClient guardedClient,
+                            RedirectGuard redirectGuard) {
+        this.client = guardedClient;
         this.redirectGuard = redirectGuard;
     }
 
@@ -199,7 +193,11 @@ public class HttpClientHelper {
         }
     }
 
-    private byte[] readWithLimit(InputStream inputStream, long maxBytes) throws IOException {
+    /**
+     * 限读原语（issue #125 起公共静态）：资讯正文/MinerU zip 等守卫面抓取复用同一
+     * 上限语义——读到超限即抛，不把超大响应整读进堆
+     */
+    public static byte[] readWithLimit(InputStream inputStream, long maxBytes) throws IOException {
         try (InputStream in = inputStream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];
             long total = 0;
@@ -215,7 +213,10 @@ public class HttpClientHelper {
         }
     }
 
-    private InputStream wrapWithLimit(InputStream inputStream, long maxBytes) {
+    /**
+     * 流式限读原语：包装 InputStream，读到超限即抛（openStream 消费方按块读时生效）
+     */
+    public static InputStream wrapWithLimit(InputStream inputStream, long maxBytes) {
         if (maxBytes <= 0) {
             return inputStream;
         }
