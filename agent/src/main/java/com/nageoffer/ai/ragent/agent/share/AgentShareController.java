@@ -38,13 +38,13 @@ import java.util.List;
 /**
  * Agent 会话只读分享控制器（登录面：创建/撤销/我的分享，issue #82）
  *
- * <p>feature flag：agent.share.enabled=false（默认关）时整个 Bean 不装配，端点 404。
+ * <p>feature flag：share.enabled=false 时整个 Bean 不装配（两粒度共用一开关，issue #124），端点 404。
  * 启用与过期终值由部署方把关。
  */
 @RestController
 @RequestMapping("/agent/share")
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "agent.share.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "share.enabled", havingValue = "true")
 public class AgentShareController {
 
     private final AgentConversationShareService shareService;

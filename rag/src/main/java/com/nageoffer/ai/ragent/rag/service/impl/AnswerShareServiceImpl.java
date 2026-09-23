@@ -18,58 +18,47 @@
 package com.nageoffer.ai.ragent.rag.service.impl;
 
 import cn.hutool.core.lang.Assert;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.rag.controller.vo.PublicShareVO;
 import com.nageoffer.ai.ragent.rag.controller.vo.ShareCreatedVO;
 import com.nageoffer.ai.ragent.rag.controller.vo.ShareMineItemVO;
-import com.nageoffer.ai.ragent.rag.dao.entity.AnswerShareDO;
 import com.nageoffer.ai.ragent.rag.dao.entity.ConversationMessageDO;
-import com.nageoffer.ai.ragent.rag.dao.mapper.AnswerShareMapper;
 import com.nageoffer.ai.ragent.rag.dao.mapper.ConversationMessageMapper;
 import com.nageoffer.ai.ragent.rag.service.AnswerShareService;
+import com.nageoffer.ai.ragent.share.RevocationActor;
+import com.nageoffer.ai.ragent.share.ShareKind;
+import com.nageoffer.ai.ragent.share.ShareOwnedView;
+import com.nageoffer.ai.ragent.share.SharePublicView;
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
+import com.nageoffer.ai.ragent.share.ShareTicket;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.security.SecureRandom;
-import java.util.Base64;
-import java.util.Date;
 import java.util.List;
 
 /**
- * 公开答案分享服务实现
+ * 公开答案分享服务实现——统一机制 adapter（issue #124）
  *
- * <p>快照不可变：question/answer/citations 在创建时值复制进 t_answer_share，
- * 公开读只读本表。公开载荷为字段白名单（PublicShareVO），不含用户身份、
- * 消息/会话 ID、思考内容与内部检索轨迹（隐私负面清单）。
+ * <p>只负责本粒度的三件事：从消息库装配快照载荷（含归属校验）、载荷序列化/反序列化、
+ * module 视图到对外 VO 的字段白名单投影。token 熵/状态机/撤销幂等/过期数学/防枚举
+ * 语义全在 system 的 ShareSnapshotService。公开载荷为字段白名单（PublicShareVO），
+ * 不含用户身份、消息/会话 ID、思考内容与内部检索轨迹（隐私负面清单）。
  */
 @Service
 @RequiredArgsConstructor
 public class AnswerShareServiceImpl implements AnswerShareService {
 
-    private static final String STATUS_ACTIVE = "ACTIVE";
-    private static final String STATUS_REVOKED = "REVOKED";
     private static final String ROLE_ASSISTANT = "assistant";
     private static final String ROLE_USER = "user";
     private static final String LANG_ZH = "zh";
-    private static final String LANG_EN = "en";
-    private static final int TOKEN_BYTES = 32;
     private static final int QUESTION_PREVIEW_LENGTH = 50;
 
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
-    private final AnswerShareMapper answerShareMapper;
+    private final ShareSnapshotService shareSnapshotService;
     private final ConversationMessageMapper conversationMessageMapper;
 
     /**
-     * 过期默认天数；0 或负数 = 不过期。终值由部署方确定（建议 90 天或不过期）
-     */
-    @Value("${rag.share.default-expire-days:90}")
-    private int defaultExpireDays;
-
-    /**
-     * 内容/知识版本标记（随分享快照落库）
+     * 内容/知识版本标记（随分享快照落 payload；粒度侧自持键）
      */
     @Value("${rag.share.content-version:v1}")
     private String contentVersion;
@@ -89,80 +78,56 @@ public class AnswerShareServiceImpl implements AnswerShareService {
         }
 
         String question = loadQuestionSnapshot(message);
-        Date now = new Date();
-        Date expireTime = defaultExpireDays > 0 ? new Date(now.getTime() + defaultExpireDays * 86_400_000L) : null;
-
-        AnswerShareDO share = AnswerShareDO.builder()
-                .token(generateToken())
-                .ownerUserId(userId)
+        // 值复制语义：装配时即把 question/answer/citations 固化进载荷，读路径不回链 t_message
+        String payloadJson = AnswerSharePayload.toJson(AnswerSharePayload.builder()
                 .messageId(message.getId())
-                .conversationId(message.getConversationId())
                 .question(question)
                 .answerMd(message.getContent())
-                // 值复制语义：SourceRefListTypeHandler 落库时序列化快照，读路径不再回链 t_message
                 .citations(message.getSources())
-                .lang(detectLang(question))
                 .contentVersion(contentVersion)
-                .status(STATUS_ACTIVE)
-                .expireTime(expireTime)
-                .build();
-        answerShareMapper.insert(share);
-        return ShareCreatedVO.builder().token(share.getToken()).expireTime(expireTime).build();
+                .build());
+        ShareTicket ticket = shareSnapshotService.create(
+                ShareKind.ANSWER, userId, message.getConversationId(), detectLang(question), payloadJson);
+        return ShareCreatedVO.builder().token(ticket.getToken()).expireTime(ticket.getExpireAt()).build();
     }
 
     @Override
     public PublicShareVO getPublicShare(String token) {
-        AnswerShareDO share = selectByToken(token);
-        // 不存在/已撤销/已过期统一同一语义，防 token 探测侧信道
-        if (share == null || STATUS_REVOKED.equals(share.getStatus()) || isExpired(share)) {
-            throw new ClientException("分享链接无效或已撤销");
-        }
+        SharePublicView view = shareSnapshotService.readByToken(token);
+        AnswerSharePayload payload = AnswerSharePayload.parse(view.getPayload());
         return PublicShareVO.builder()
-                .question(share.getQuestion())
-                .answerMd(share.getAnswerMd())
-                .citations(share.getCitations())
-                .lang(share.getLang())
-                .contentVersion(share.getContentVersion())
-                .createTime(share.getCreateTime())
-                .expireTime(share.getExpireTime())
+                .question(payload.getQuestion())
+                .answerMd(payload.getAnswerMd())
+                .citations(payload.getCitations())
+                .lang(view.getLang())
+                .contentVersion(payload.getContentVersion())
+                .createTime(view.getCreateTime())
+                .expireTime(view.getExpireTime())
                 .build();
     }
 
     @Override
     public void revokeShare(String token, String userId, boolean adminOverride) {
-        if (!adminOverride) {
-            Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
-        }
-        AnswerShareDO share = selectByToken(token);
-        Assert.notNull(share, () -> new ClientException("分享不存在"));
-        if (!adminOverride && !userId.equals(share.getOwnerUserId())) {
-            throw new ClientException("无权撤销该分享");
-        }
-        if (STATUS_REVOKED.equals(share.getStatus())) {
-            return;
-        }
-        AnswerShareDO update = new AnswerShareDO();
-        update.setId(share.getId());
-        update.setStatus(STATUS_REVOKED);
-        update.setRevokedTime(new Date());
-        answerShareMapper.updateById(update);
+        shareSnapshotService.revoke(token, adminOverride ? RevocationActor.admin() : RevocationActor.owner(userId));
     }
 
     @Override
     public List<ShareMineItemVO> listMine(String userId) {
         Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
-        LambdaQueryWrapper<AnswerShareDO> wrapper = new LambdaQueryWrapper<AnswerShareDO>()
-                .eq(AnswerShareDO::getOwnerUserId, userId)
-                .orderByDesc(AnswerShareDO::getCreateTime);
-        return answerShareMapper.selectList(wrapper).stream()
-                .map(share -> ShareMineItemVO.builder()
-                        .token(share.getToken())
-                        .questionPreview(preview(share.getQuestion()))
-                        .status(share.getStatus())
-                        .expireTime(share.getExpireTime())
-                        .createTime(share.getCreateTime())
-                        .build())
+        return shareSnapshotService.listByOwner(userId, ShareKind.ANSWER).stream()
+                .map(this::toItemVO)
                 .toList();
+    }
+
+    private ShareMineItemVO toItemVO(ShareOwnedView share) {
+        AnswerSharePayload payload = AnswerSharePayload.parse(share.getPayload());
+        return ShareMineItemVO.builder()
+                .token(share.getToken())
+                .questionPreview(preview(payload.getQuestion()))
+                .status(share.getStatus())
+                .expireTime(share.getExpireTime())
+                .createTime(share.getCreateTime())
+                .build();
     }
 
     /**
@@ -181,33 +146,12 @@ public class AnswerShareServiceImpl implements AnswerShareService {
         throw new ClientException("未找到该回答对应的提问");
     }
 
-    private AnswerShareDO selectByToken(String token) {
-        if (token == null || token.isBlank()) {
-            return null;
-        }
-        return answerShareMapper.selectOne(new LambdaQueryWrapper<AnswerShareDO>()
-                .eq(AnswerShareDO::getToken, token));
-    }
-
-    private boolean isExpired(AnswerShareDO share) {
-        return share.getExpireTime() != null && share.getExpireTime().before(new Date());
-    }
-
-    /**
-     * 256-bit 加密随机 token（Base64URL 无填充，43 字符），不可枚举
-     */
-    private String generateToken() {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        SECURE_RANDOM.nextBytes(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
     /**
      * 轻量语言启发：含 CJK 统一表意文字即 zh，否则 en；仅决定分享页默认展示语言
      */
     private String detectLang(String text) {
         return text != null && text.chars().anyMatch(cp -> (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF))
-                ? LANG_ZH : LANG_EN;
+                ? LANG_ZH : "en";
     }
 
     private String preview(String text) {

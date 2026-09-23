@@ -36,7 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/admin/share")
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "rag.share.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "share.enabled", havingValue = "true")
 public class AdminShareController {
 
     private final AnswerShareService answerShareService;

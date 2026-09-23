@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.rag.dao.entity;
+package com.nageoffer.ai.ragent.share.dao.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -23,29 +23,25 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.nageoffer.ai.ragent.framework.convention.SourceRef;
-import com.nageoffer.ai.ragent.knowledge.dao.handler.SourceRefListTypeHandler;
+import com.nageoffer.ai.ragent.share.dao.handler.JsonbStringTypeHandler;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
-import java.util.List;
 
 /**
- * 公开答案分享快照实体
- *
- * <p>不可变 Q&A 快照：创建时对 question/answer/citations 做值复制，
- * 公开读只读本表、绝不回链 t_message（原消息删除/编辑不影响快照）。
- * 不保存用户名、邮箱、头像、思考内容、工具轨迹、原始 IP（隐私负面清单）。
+ * 统一分享快照实体（issue #124）：两种粒度合表（kind 判别），payload 为不透明
+ * JSONB（module 零解析，类型与序列化归粒度 adapter）。不可变快照语义：创建时值复制，
+ * 公开读只读本表；不含用户名/邮箱/思考内容/工具轨迹/IP（隐私负面清单）。
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@TableName(value = "t_answer_share", autoResultMap = true)
-public class AnswerShareDO {
+@TableName(value = "t_share_snapshot", autoResultMap = true)
+public class ShareSnapshotDO {
 
     /**
      * 主键 ID，雪花算法
@@ -59,45 +55,24 @@ public class AnswerShareDO {
     private String token;
 
     /**
-     * 创建者用户 ID；仅用于归属校验与撤销，公开载荷绝不返回
+     * 创建者用户 ID；仅用于归属校验与撤销/治理，公开载荷绝不返回
      */
     private String ownerUserId;
 
     /**
-     * 快照来源 assistant 消息 ID（内部溯源字段，公开不返回）
+     * 快照粒度判别：answer / conversation
      */
-    private String messageId;
+    private String kind;
 
     /**
-     * 快照来源会话 ID（内部溯源字段，公开不返回）
+     * 来源会话 ID（内部溯源字段，公开不返回）
      */
     private String conversationId;
 
     /**
-     * 问题快照（值复制自 reply_to_message_id 前驱 user 消息）
-     */
-    private String question;
-
-    /**
-     * 回答 Markdown 快照（值复制自 assistant 消息 content）
-     */
-    private String answerMd;
-
-    /**
-     * 结构化官方引用快照
-     */
-    @TableField(typeHandler = SourceRefListTypeHandler.class)
-    private List<SourceRef> citations;
-
-    /**
-     * 问题语言快照（zh/en），决定分享页默认展示语言
+     * 语言启发标记（zh/en），决定分享页默认展示语言
      */
     private String lang;
-
-    /**
-     * 内容/知识版本标记（rag.share.content-version）
-     */
-    private String contentVersion;
 
     /**
      * 状态：ACTIVE / REVOKED
@@ -105,7 +80,7 @@ public class AnswerShareDO {
     private String status;
 
     /**
-     * 过期时刻；NULL 即不过期（终值由部署方确定）
+     * 过期时刻；NULL 即不过期
      */
     private Date expireTime;
 
@@ -131,4 +106,11 @@ public class AnswerShareDO {
      */
     @TableLogic
     private Integer deleted;
+
+    /**
+     * 不透明载荷 JSON（answer=messageId/question/answerMd/citations/contentVersion；
+     * conversation=title/messages/contentVersion；module 零解析）
+     */
+    @TableField(typeHandler = JsonbStringTypeHandler.class)
+    private String payload;
 }
