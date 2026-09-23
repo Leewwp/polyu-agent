@@ -93,6 +93,22 @@ class NewsHttpFetchClientTests {
     }
 
     @Test
+    void oversizedContentBodyIsRejectedAsPermanentError() {
+        // issue #125：资讯正文读入带上限（默认 50MB），超大响应按永久错误拒绝、不整读进堆
+        server.enqueue(body(""));              // robots（允许）
+        server.enqueue(body("x".repeat(64))); // 内容体超限
+
+        NewsHttpFetchClient limited = new NewsHttpFetchClient(new OkHttpClient(),
+                new RedirectGuard(new IngestionUrlGuard(true)), 16L,
+                "polyuguide-feed/1.0 (+https://polyuguide.com)", sleeper, clock);
+
+        NewsFetchException ex = assertThrows(NewsFetchException.class,
+                () -> limited.get(url("/media/oversized/")));
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("文件大小超过限制"), "超限语义应透传限读原语文案，实际：" + ex.getMessage());
+    }
+
+    @Test
     void robotsDisallowBlocksFetchWithoutContentRequest() throws Exception {
         server.enqueue(body("""
                 User-agent: *

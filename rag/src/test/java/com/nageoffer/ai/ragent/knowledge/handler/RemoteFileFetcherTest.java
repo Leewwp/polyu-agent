@@ -30,10 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.unit.DataSize;
 
 import java.io.ByteArrayInputStream;
-import java.lang.reflect.Field;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Map;
@@ -64,12 +64,15 @@ class RemoteFileFetcherTest {
 
     private RemoteFileFetcher fetcher;
 
+    private static com.nageoffer.ai.ragent.rag.config.FetchLimits limits() {
+        com.nageoffer.ai.ragent.rag.config.FetchLimits limits = new com.nageoffer.ai.ragent.rag.config.FetchLimits();
+        ReflectionTestUtils.setField(limits, "maxFileSize", "1MB");
+        return limits;
+    }
+
     @BeforeEach
     void setUp() throws Exception {
-        fetcher = new RemoteFileFetcher(httpClientHelper, fileStorageService, new HtmlDocumentParser());
-        Field maxFileSize = RemoteFileFetcher.class.getDeclaredField("maxFileSize");
-        maxFileSize.setAccessible(true);
-        maxFileSize.set(fetcher, DataSize.ofMegabytes(1));
+        fetcher = new RemoteFileFetcher(httpClientHelper, fileStorageService, new HtmlDocumentParser(), limits());
 
         lenient().when(httpClientHelper.openStream(eq(URL), eq(Map.of()), anyLong()))
                 .thenAnswer(invocation -> stream("etag-v2", LAST_MODIFIED, NEW_CONTENT));

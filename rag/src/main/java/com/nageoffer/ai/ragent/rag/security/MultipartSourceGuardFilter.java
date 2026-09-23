@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.rag.security;
 
+import com.nageoffer.ai.ragent.rag.config.FetchLimits;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.knowledge.enums.SourceType;
 import com.nageoffer.ai.ragent.rag.controller.request.DocumentSourceRequest;
@@ -61,8 +62,10 @@ public class MultipartSourceGuardFilter extends OncePerRequestFilter {
 
     private final IngestionUrlGuard ingestionUrlGuard;
 
-    @Value("${spring.servlet.multipart.max-file-size:50MB}")
-    private String maxFileSize;
+    /**
+     * 上传=抓取同口径单点（issue #125）：超限消息文案取自 FetchLimits
+     */
+    private final FetchLimits fetchLimits;
 
     @Value("${spring.servlet.multipart.max-request-size:100MB}")
     private String maxRequestSize;
@@ -95,7 +98,7 @@ public class MultipartSourceGuardFilter extends OncePerRequestFilter {
                     request.getMethod(), request.getRequestURI(), parseFailure.getMessage());
             Throwable cause = parseFailure.getCause();
             String message = cause instanceof FileSizeLimitExceededException
-                    ? "上传文件大小超过限制，单个文件最大允许 " + maxFileSize
+                    ? "上传文件大小超过限制，单个文件最大允许 " + fetchLimits.maxFileSizeDisplay()
                     : "上传请求大小超过限制，单次请求最大允许 " + maxRequestSize;
             writeRejection(response, message);
             return;
