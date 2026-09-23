@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.user.retention;
 
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import com.nageoffer.ai.ragent.user.service.impl.AccountDeletionCascade;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,19 +57,21 @@ public class DataRetentionJob {
 
     private final JdbcTemplate jdbcTemplate;
     private final AccountDeletionCascade deletionCascade;
+    private final ShareSnapshotService shareSnapshotService;
     private final DataRetentionProperties properties;
     private final Clock clock;
 
     @Autowired
     public DataRetentionJob(JdbcTemplate jdbcTemplate, AccountDeletionCascade deletionCascade,
-            DataRetentionProperties properties) {
-        this(jdbcTemplate, deletionCascade, properties, Clock.systemDefaultZone());
+            ShareSnapshotService shareSnapshotService, DataRetentionProperties properties) {
+        this(jdbcTemplate, deletionCascade, shareSnapshotService, properties, Clock.systemDefaultZone());
     }
 
     DataRetentionJob(JdbcTemplate jdbcTemplate, AccountDeletionCascade deletionCascade,
-            DataRetentionProperties properties, Clock clock) {
+            ShareSnapshotService shareSnapshotService, DataRetentionProperties properties, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
         this.deletionCascade = deletionCascade;
+        this.shareSnapshotService = shareSnapshotService;
         this.properties = properties;
         this.clock = clock;
     }
@@ -126,13 +129,10 @@ public class DataRetentionJob {
 
     /**
      * 分享快照 90 天主动清理：expire_time 到期即删行（含 REVOKED 行，撤销只管公开面失效、行保留随快照期）。
-     * #104 补洞：agent 会话分享过期行同款清理（此前只清答案分享，agent 行过期后永久残留）
+     * issue #124 起两粒度统一走 ShareSnapshotService.purgeExpired（合表 t_share_snapshot）
      */
     private void deleteExpiredShares() {
-        int rows = jdbcTemplate.update(
-                "DELETE FROM t_answer_share WHERE expire_time IS NOT NULL AND expire_time < ?", now());
-        rows += jdbcTemplate.update(
-                "DELETE FROM t_agent_conversation_share WHERE expire_time IS NOT NULL AND expire_time < ?", now());
+        int rows = shareSnapshotService.purgeExpired(now());
         logDeletedRows("分享快照", rows);
     }
 

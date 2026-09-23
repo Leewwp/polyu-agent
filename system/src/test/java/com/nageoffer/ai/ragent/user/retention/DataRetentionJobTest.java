@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.user.retention;
 
+import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import com.nageoffer.ai.ragent.user.service.impl.AccountDeletionCascade;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,17 +55,19 @@ class DataRetentionJobTest {
 
     private JdbcTemplate jdbcTemplate;
     private AccountDeletionCascade deletionCascade;
+    private ShareSnapshotService shareSnapshotService;
     private DataRetentionProperties properties;
 
     @BeforeEach
     void setUp() {
         jdbcTemplate = mock(JdbcTemplate.class);
         deletionCascade = mock(AccountDeletionCascade.class);
+        shareSnapshotService = mock(ShareSnapshotService.class);
         properties = new DataRetentionProperties();
     }
 
     private DataRetentionJob jobWithClock(Instant instant) {
-        return new DataRetentionJob(jdbcTemplate, deletionCascade, properties,
+        return new DataRetentionJob(jdbcTemplate, deletionCascade, shareSnapshotService, properties,
                 Clock.fixed(instant, ZoneId.systemDefault()));
     }
 
@@ -74,7 +77,7 @@ class DataRetentionJobTest {
 
         jobWithClock(NOW).sweep();
 
-        verifyNoInteractions(jdbcTemplate, deletionCascade);
+        verifyNoInteractions(jdbcTemplate, deletionCascade, shareSnapshotService);
     }
 
     @Test
@@ -110,17 +113,11 @@ class DataRetentionJobTest {
 
     @Test
     void deletesExpiredSharesByExpireTime() {
+        // issue #124 起两粒度过期行统一走 ShareSnapshotService.purgeExpired（合表 t_share_snapshot，
+        // 含 REVOKED 行；此前两段表名 DELETE 曾漏清 agent 侧——#104 补洞的教训）
         jobWithClock(NOW).sweep();
 
-        verify(jdbcTemplate).update(contains("DELETE FROM t_answer_share"), eq(Timestamp.from(NOW)));
-    }
-
-    @Test
-    void deletesExpiredAgentConversationSharesToo() {
-        // #104 补洞：agent 会话分享过期行与答案分享同款清理（此前只清 t_answer_share）
-        jobWithClock(NOW).sweep();
-
-        verify(jdbcTemplate).update(contains("DELETE FROM t_agent_conversation_share"), eq(Timestamp.from(NOW)));
+        verify(shareSnapshotService).purgeExpired(Timestamp.from(NOW));
     }
 
     @Test
@@ -150,7 +147,7 @@ class DataRetentionJobTest {
 
         jobWithClock(NOW).sweep();
 
-        verify(jdbcTemplate).update(contains("DELETE FROM t_answer_share"), any(Timestamp.class));
+        verify(shareSnapshotService).purgeExpired(any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
     }
@@ -172,6 +169,6 @@ class DataRetentionJobTest {
                 "拨钟后 guest cutoff 应为拨后 now-45d，实际：" + queryAnchorCaptor.getAllValues());
         verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"),
                 eq(Timestamp.from(travelled.minusSeconds(400 * DAY_SECONDS))));
-        verify(jdbcTemplate).update(contains("DELETE FROM t_answer_share"), eq(Timestamp.from(travelled)));
+        verify(shareSnapshotService).purgeExpired(Timestamp.from(travelled));
     }
 }

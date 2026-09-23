@@ -39,7 +39,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/admin/agent-share")
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "agent.share.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "share.enabled", havingValue = "true")
 public class AdminAgentShareController {
 
     private final AgentConversationShareService shareService;

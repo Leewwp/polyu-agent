@@ -90,15 +90,19 @@ ragent:
     scan-delay-ms: 3600000    # 清理巡检间隔（毫秒）；分享快照 90 天/邮箱墓碑 180 天按各自 expire_time 判定，不占独立配置
     initial-delay-ms: 120000  # 启动首扫延迟（毫秒，避开启动高峰）
 
+# 统一分享机制（issue #124）：答案分享与会话分享是同一机制的两种粒度，共用一开关一表
+# （t_share_snapshot，kind 判别）；关闭时两粒度端点均不装配、公开路径由兜底统一「链接无效」
+share:
+  enabled: ${SHARE_ENABLED:true}          # 两粒度共用 feature flag；默认开（对齐现产生效值）
+  default-expire-days: ${SHARE_EXPIREDAYS:90}  # 分享默认过期天数，0/负=不过期；默认 90 天
+
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
   chat:
     provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
     model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
   share:
-    enabled: ${AGENT_SHARE_ENABLED:false}   # 会话只读分享 feature flag（issue #82）：默认关；关闭时相关端点不装配、公开路径由兜底统一「链接无效」
-    default-expire-days: ${AGENT_SHARE_EXPIREDAYS:90}  # 分享默认过期天数，0/负=不过期；默认 90 天
-    content-version: v2     # 随分享快照落库的内容/知识版本标记（v2=assistant 条目携带 sources 投影，issue #91）
+    content-version: v2     # 会话分享载荷的内容/知识版本标记（v2=assistant 条目携带 sources 投影，issue #91）；粒度侧自持键（issue #124）
   max-iters: 10         # ReAct 循环上限，超出后熔断收尾
   max-retries: 1        # 最大尝试次数含首次，1 即不重试
   sse-timeout-ms: 900000
@@ -171,9 +175,7 @@ rag:
     enabled: true  # 回答行内引用角标 [N](#cite-N)：开启会动态追加引用规则并为资料注入编号，增加首字延迟；关闭不影响文档级来源面板
 
   share:
-    enabled: false            # 公开答案分享 feature flag：默认关（启用由部署方决定；关闭时相关端点不装配）
-    default-expire-days: 90   # 分享默认过期天数，0/负=不过期；默认 90 天或不过期，可按需调整（首发 noindex）
-    content-version: v1       # 随分享快照落库的内容/知识版本标记
+    content-version: v1       # 答案分享载荷的内容/知识版本标记；粒度侧自持键（issue #124）
 
   news:
     enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # 资讯流 feature flag：默认关；关闭时 /public/news/** 由兜底控制器统一 404。

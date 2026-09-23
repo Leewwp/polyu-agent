@@ -37,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/public/share/agent")
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "agent.share.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "share.enabled", havingValue = "true")
 public class PublicAgentShareController {
 
     private final AgentConversationShareService shareService;
