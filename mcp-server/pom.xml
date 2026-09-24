@@ -23,6 +23,7 @@
         </dependency>
 
         <dependency>
+            <!-- 仅测试用：新 HTTP 协议测试经 AgentScope 内核触发 MCP 调用链（随上游 c2dcc12c 迁移带入），不进运行时 classpath -->
             <groupId>io.agentscope</groupId>
             <artifactId>agentscope-core</artifactId>
             <scope>test</scope>

@@ -166,14 +166,15 @@ public class BitOrderCreateMcpExecutor {
     }
 
     /**
-     * M14：下单失败的分类文案——DB 异常细节（SQL/约束/驱动原文）只进日志
+     * M14：下单失败的分类文案——异常原文（SQL/约束/配置与校验的实现细节）只进日志。
+     * <p>
+     * 业务回绝不走异常（placeOrder 各步返回 {@code rejected(...)} 结果），
+     * 能落到这里的异常只剩基础设施层；受控文案的唯一通道是 {@link McpToolException}，
+     * 在 catch 处分流，与 {@link McpToolResults#failure} 的口径一致
      */
     String friendlyOrderFailure(Exception e) {
         if (e instanceof DuplicateKeyException) {
             return "下单失败：并发冲突，请稍后重试";
-        }
-        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
-            return "下单失败：" + e.getMessage();
         }
         return "下单失败：系统繁忙，请稍后重试";
     }
