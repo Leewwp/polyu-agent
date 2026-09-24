@@ -34,9 +34,13 @@ public interface AgentConversationShareService {
 
     /**
      * 创建会话分享快照（校验会话存在、属于本人、含至少一组有效问答）；
-     * role 供游客硬阻断判定（issue #91 增补：guest 拒绝）
+     * role 供游客硬阻断判定（issue #91 增补：guest 拒绝，任意 scope 均拒）。
+     *
+     * <p>scope/anchor 见 {@link AgentShareScope}（issue #138）：scope missing/null/blank=full
+     * 旧客户端零变化；turn/through 必带 anchor（String 全链），Turn 解析以
+     * replyToMessageId 为权威（联合过滤+物理 Turn 窗口两层防御，legacy 空白才允许顺序 fallback）。
      */
-    AgentShareCreatedVO createShare(String conversationId, String userId, String role);
+    AgentShareCreatedVO createShare(String conversationId, String userId, String role, String scope, String anchorAssistantMessageId);
 
     /**
      * 匿名读公开载荷（不存在/已撤销/已过期统一抛「分享链接无效或已撤销」）
