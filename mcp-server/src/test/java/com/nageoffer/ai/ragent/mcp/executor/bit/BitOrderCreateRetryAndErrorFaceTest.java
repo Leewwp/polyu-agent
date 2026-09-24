@@ -94,13 +94,15 @@ class BitOrderCreateRetryAndErrorFaceTest {
     }
 
     @Test
-    @DisplayName("M14：非并发类失败收敛为通用文案，业务断言（IllegalArgument）原文保留")
+    @DisplayName("M14：非并发类失败一律收敛通用文案（IAE/ISE 原文也只进日志，业务回绝走 rejected 返回值不走异常）")
     void categorizesOtherFailures() {
         BitOrderCreateMcpExecutor service = executor(mock(TransactionTemplate.class));
         assertEquals("下单失败：系统繁忙，请稍后重试",
                 service.friendlyOrderFailure(new RuntimeException("SQL syntax error near 'FROM t_order'")));
-        assertEquals("下单失败：库存不足",
-                service.friendlyOrderFailure(new IllegalArgumentException("库存不足")));
+        assertEquals("下单失败：系统繁忙，请稍后重试",
+                service.friendlyOrderFailure(new IllegalArgumentException("Index: 1, Size: 0")));
+        assertEquals("下单失败：系统繁忙，请稍后重试",
+                service.friendlyOrderFailure(new IllegalStateException("Connection refused: jdbc:postgresql://10.0.0.8:5432/bit")));
     }
 
     @Test
