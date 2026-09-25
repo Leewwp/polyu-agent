@@ -173,6 +173,19 @@ class AgentConversationShareServiceImplTest {
     }
 
     @Test
+    void createShareDetectsChineseContentAsZh() {
+        // 中文正文 detectLang→zh（full 缺省路径的语言判定分支，与 en 例成对）
+        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
+        when(messageMapper.selectList(any())).thenReturn(List.of(
+                message("m1", "user", "如何申请宿舍？"),
+                message("m2", "assistant", "在线申请即可。")));
+
+        shareService.createShare("c1", "u1", "user", null, null);
+
+        verify(shareSnapshotService).create(any(), anyString(), anyString(), eq("zh"), anyString());
+    }
+
+    @Test
     void createShareProjectsSearchKnowledgeSourcesWithDedup() {
         // 非 search_knowledge 的工具块即使带 sources 也不投影（白名单只认检索工具）
         AgentBlock foreignToolBlock = AgentBlock.builder()
@@ -437,7 +450,7 @@ class AgentConversationShareServiceImplTest {
     @Test
     void createShareExplicitFullKeepsLegacySemanticsUnchanged() {
         // scope=full 显式值=现行整段快照零变更；anchor 提供也被忽略；
-        // 未完成轮非空内容（INTERRUPTED）仍按现行行为包含（#138 final 修订⑤：过滤未完成轮属未来另开决策）
+        // 未完成轮非空内容（INTERRUPTED）仍按现行行为包含——#138 验收口径：full=现行整段快照语义零变更，过滤未完成轮属未来另开的决策
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(List.of(
                 scopedMessage("m1", "user", "Q1", null, "NORMAL"),
