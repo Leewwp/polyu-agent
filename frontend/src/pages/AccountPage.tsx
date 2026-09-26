@@ -336,7 +336,8 @@ function SharesCard() {
     <section aria-label="我的分享" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
       <h2 className="text-base font-semibold">我的分享 · My shares</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        你分享出去的只读快照；撤销后链接立即失效。快照保留 90 天后由系统清理。
+        {/* #139：不写死保留天数——有效期是配置值（默认 90 天，可调），以每条记录显示的到期时间为准 */}
+        你分享出去的只读快照；分享链接的到期时间以每条记录显示为准；撤销后链接立即失效。
       </p>
       <div className="mt-4 flex gap-2" role="tablist">
         {tabs.includes("agent") ? (

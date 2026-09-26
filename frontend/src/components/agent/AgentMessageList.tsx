@@ -11,6 +11,8 @@ interface AgentMessageListProps {
   isLoading: boolean;
   isStreaming: boolean;
   sessionKey?: string | null;
+  /** #139 capability 门：仅真实聊天（AgentChatPage）传 true；只读投影恒 false */
+  showAnswerActions?: boolean;
 }
 
 // 用户消息开启新一轮 其后的助手消息全部配对入同一张 Turn 卡
@@ -37,7 +39,8 @@ export function AgentMessageList({
   messages,
   isLoading,
   isStreaming,
-  sessionKey
+  sessionKey,
+  showAnswerActions = false
 }: AgentMessageListProps) {
   const virtuosoRef = React.useRef<VirtuosoHandle | null>(null);
   const scrollerRef = React.useRef<HTMLElement | null>(null);
@@ -256,7 +259,7 @@ export function AgentMessageList({
           className="pb-4"
           onMouseDown={handleTripleClickDown}
         >
-          <AgentTurnItem turn={turn} />
+          <AgentTurnItem turn={turn} showAnswerActions={showAnswerActions} />
         </div>
       )}
     />

@@ -9,7 +9,10 @@ export interface AgentConversationVO {
 }
 
 export interface AgentMessageVO {
-  id: number | string;
+  // #139 Should 收紧：后端 t_agent_message.id=VARCHAR(20) String 雪花，JSON 恒为
+  // string——旧 number 联合不再需要（store 的 String() 即时归一同步移除；
+  // anchor/share 全链维持 String，禁 Number/parseInt）
+  id: string;
   role: string;
   content: string;
   thinkingContent?: string | null;

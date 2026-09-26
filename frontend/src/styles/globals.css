@@ -5803,6 +5803,140 @@ textarea {
   }
 }
 
+/* ── #139 Answer 操作栏（Turn 级 footer）+ Scoped Share 弹窗内部件 ── */
+/* 每轮最多一条：合法完成轮（有 Shareable Anchor）才渲染；只读投影恒不出现 */
+.agent-app .agent-answer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--agent-s2);
+  padding: var(--agent-s2) var(--agent-s1) 0;
+  border-top: var(--agent-hair);
+}
+
+/* 桌面低调（36）：描边次级钮；mobile 40 触控目标（≤860 档） */
+.agent-app .agent-answer-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 36px;
+  padding: 0 12px;
+  border: var(--agent-hair-strong);
+  border-radius: 999px;
+  background: var(--agent-surface);
+  color: var(--agent-muted);
+  font-size: var(--agent-t-xs);
+  font-weight: 600;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.agent-app .agent-answer-action-btn:hover {
+  border-color: var(--agent-muted);
+  color: var(--agent-ink);
+}
+
+@media (max-width: 860px) {
+  .agent-app .agent-answer-action-btn {
+    height: 40px;
+    padding: 0 14px;
+  }
+}
+
+/* 分享弹窗（Radix Portal 挂 body，不能落 .agent-app 域内）——桌面居中/≤860
+   底部 sheet 的容器形态由 Dialog className 的 Tailwind 变体承担；此处只管内部件 */
+.agent-share-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.agent-share-scope {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--feed-line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.agent-share-scope[data-active="true"] {
+  border-color: var(--polyu-red);
+  background: var(--polyu-red-50);
+}
+
+.agent-share-scope input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-share-pick-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--feed-line);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.agent-share-pick-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.agent-share-pick-item:hover {
+  background: var(--feed-bg);
+}
+
+.agent-share-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-share-preview-list {
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px dashed var(--feed-line);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.agent-share-preview-item {
+  padding: 7px 9px;
+}
+
+.agent-share-preview-item + .agent-share-preview-item {
+  border-top: 1px solid var(--feed-line-soft);
+}
+
+.agent-share-privacy {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--feed-text-tertiary);
+}
+
+.agent-share-url {
+  overflow-x: auto;
+  white-space: nowrap;
+  border: 1px solid var(--feed-line);
+  border-radius: 10px;
+  background: var(--feed-bg);
+  padding: 9px 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--feed-text-primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-app .agent-turn,
   .agent-app .agent-row,
