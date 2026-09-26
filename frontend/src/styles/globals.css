@@ -5750,8 +5750,16 @@ textarea {
 }
 
 /* FeedShell fluid 聊天档外壳（#136）：100dvh 跟随移动浏览器动态视口
-   （地址栏收展/软键盘起落），不识 dvh 的旧引擎自动回落前一行 100vh。 */
+   （地址栏收展/软键盘起落），不识 dvh 的旧引擎回落 100vh。
+   dvh 走 @supports 而非同规则双声明：构建压缩器会把
+   `height:100vh;height:100dvh` 折叠成只剩后者（生产 CSS 实测 index-*.css），
+   旧引擎就此失去回落；@supports 两条规则分属不同上下文，压缩后回落仍在。 */
 .feed-fluid-shell {
   height: 100vh;
-  height: 100dvh;
+}
+
+@supports (height: 100dvh) {
+  .feed-fluid-shell {
+    height: 100dvh;
+  }
 }
