@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { AgentTurnItem } from "@/components/agent/AgentTurn";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { listSampleQuestions } from "@/services/sampleQuestionService";
 import { useAgentChatStore } from "@/stores/agentChatStore";
 import { useAuthStore } from "@/stores/authStore";
@@ -291,15 +292,35 @@ function AgentSampleQuestions({ lang }: { lang: "zh" | "en" }) {
   );
 }
 
+/** 移动待机首屏（#137）：一句话能力说明 + 示例问题——不挂载 Demo DOM（JS 分流非 CSS 隐藏） */
+const WELCOME_LEAD = {
+  zh: "我可以帮你查询 PolyU 的课程、缴费、图书馆、校园服务等信息。",
+  en: "I can help with PolyU courses, fees, the Library, campus services and more."
+} as const;
+
 /**
  * 待机空态：一张卡讲清"你的话会怎样被打出来" 再给一行能点的问句
  * 演示 + 图注带 + 问句行收进同一张卡整块居中 留白封顶不摊成两块死区 排布见 globals.css
  * 双语（T20 A 步）：演示卡/图注/chips/空态随全局语言（feedLang），zh 回切无损
+ * #137 移动分流（复用 #136 统一 media hook）：≤860 只渲染能力说明+示例问题，
+ * 完整 Demo 不进移动 DOM；桌面形态原样零变化。示例点击预填两条路径共用。
  */
 export function AgentWelcomeScreen() {
   const { lang: feedLang } = useOptionalFeedLang();
   const lang = feedLang === "en" ? "en" : "zh";
   const steps = STEPS[lang];
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return (
+      <div className="agent-stream-empty">
+        <div className="agent-empty-wrap agent-empty-wrap-compact">
+          <p className="agent-welcome-lead">{WELCOME_LEAD[lang]}</p>
+          <AgentSampleQuestions lang={lang} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="agent-stream-empty">
