@@ -3,6 +3,7 @@ import * as React from "react";
 import { ArrowUp, Loader2, Square } from "lucide-react";
 
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { awaitingConfirm, useAgentChatStore } from "@/stores/agentChatStore";
 
 // 无深度思考开关：Agent 自主规划是否思考
@@ -12,6 +13,9 @@ export function AgentChatInput() {
   const [value, setValue] = React.useState("");
   const isComposingRef = React.useRef(false);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  // #136：增高封顶双档——mobile 约 120 / desktop 160；断点切换时 isMobile 翻转
+  // 重建 adjustHeight 并经下方效应重跑，已展开的框立即按新档收放
+  const isMobile = useIsMobile();
   const {
     sendMessage,
     isStreaming,
@@ -32,8 +36,8 @@ export function AgentChatInput() {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, []);
+    el.style.height = `${Math.min(el.scrollHeight, isMobile ? 120 : 160)}px`;
+  }, [isMobile]);
 
   React.useEffect(() => {
     adjustHeight();
