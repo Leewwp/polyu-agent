@@ -40,6 +40,10 @@ interface AgentChatState {
   sessions: AgentSession[];
   currentSessionId: string | null;
   messages: AgentMessage[];
+  // #140 旧内容清零（N6）：messages 归属的会话——与 messages 同一 set 原子同置；
+  // 页面只在 messagesSessionId===URL sessionId 时渲染消息列，深链归属确认前
+  // 与切换加载期间都不再闪现上一会话正文
+  messagesSessionId: string | null;
   // 消息加载态（loadMessages 专用；L33 与会话列表加载拆分）
   isLoading: boolean;
   sessionsLoaded: boolean;
@@ -539,6 +543,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     cancelRequested: false,
     frames: [],
     quotaError: null,
+    messagesSessionId: null,
     dismissQuotaError: () => set({ quotaError: null }),
     shareDialog: null,
     openShareDialog: (init) => set({ shareDialog: init }),
@@ -631,7 +636,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
             messageStatus: item.messageStatus ?? "NORMAL"
           };
         });
-        set({ messages: mapped });
+        // #140：与会话原子同置（加载成功那一刻才换归属——加载期间旧会话消息被门住不渲染）
+        set({ messages: mapped, messagesSessionId: sessionId });
       } catch (error) {
         // 回查失败要让调用方接住：那边正等着服务端表态，吞掉就只能一直「提交中」
         if (force) {
@@ -723,6 +729,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       set({
         currentSessionId: null,
         messages: [],
+        messagesSessionId: null,
         isStreaming: false,
         isLoading: false,
         isCreatingNew: true,

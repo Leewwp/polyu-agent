@@ -6,6 +6,27 @@ import { AgentWelcomeScreen } from "@/components/agent/AgentWelcomeScreen";
 import { cn } from "@/lib/utils";
 import type { AgentMessage, AgentTurn } from "@/types/agent";
 
+/**
+ * #140 贴底决策（纯判定，单测只测这里——不用 jsdom 布局数值冒充滚动验证）：
+ * - 初始落底窗口（pendingInitialScroll，含切会话/首次装载）恒贴底；
+ * - 流式中仅当用户在底部（atBottom）：上滚离底即释放不强拉，回到底部恢复跟随；
+ * - 非流式非初始窗口不贴（用户翻历史不被打扰）。
+ * atBottom 由 react-virtuoso 官方 atBottomStateChange 维护（默认阈值，不预设像素阈值）。
+ */
+export function shouldStickToBottom(state: {
+  isStreaming: boolean;
+  pendingInitialScroll: boolean;
+  atBottom: boolean;
+}): boolean {
+  if (state.pendingInitialScroll) {
+    return true;
+  }
+  if (state.isStreaming) {
+    return state.atBottom;
+  }
+  return false;
+}
+
 interface AgentMessageListProps {
   messages: AgentMessage[];
   isLoading: boolean;
@@ -49,6 +70,8 @@ export function AgentMessageList({
   const settleTimerRef = React.useRef<number | null>(null);
   const heightScrollRafRef = React.useRef<number | null>(null);
   const prevStreamingRef = React.useRef(false);
+  // #140 官方 at-bottom 状态（初始视为在底：initialTopMostItemIndex=LAST）
+  const atBottomRef = React.useRef(true);
   const initialTopMostItemIndex = React.useMemo(
     () => ({ index: "LAST" as const, align: "end" as const }),
     []
@@ -173,7 +196,13 @@ export function AgentMessageList({
     if (isLoading) {
       return;
     }
-    const shouldStick = isStreaming || pendingScrollRef.current;
+    // #140 上滚释放：流式中仅当用户在底部才随增量贴底（用户翻历史不强拉）；
+    // 初始落底窗口维持既有主动落底；Reasoning/Tool 展开收起走同一条决策
+    const shouldStick = shouldStickToBottom({
+      isStreaming,
+      pendingInitialScroll: pendingScrollRef.current,
+      atBottom: atBottomRef.current
+    });
     if (!shouldStick) return;
     if (heightScrollRafRef.current) {
       return;
@@ -187,6 +216,17 @@ export function AgentMessageList({
       }
     });
   }, [isStreaming, isLoading, scrollToBottom, stickToBottom]);
+
+  // #140 官方 at-bottom 状态回调：离底=释放（不强拉），回到底部=流式中恢复跟随
+  const handleAtBottomStateChange = React.useCallback(
+    (atBottom: boolean) => {
+      atBottomRef.current = atBottom;
+      if (atBottom && isStreaming && !isLoading) {
+        stickToBottom();
+      }
+    },
+    [isStreaming, isLoading, stickToBottom]
+  );
 
   // 三连击选段拦截：阻止浏览器把选区扩散到相邻消息 手动只选中被点击的块级元素
   const handleTripleClickDown = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -250,6 +290,7 @@ export function AgentMessageList({
         scrollerRef.current = node as HTMLElement | null;
       }}
       totalListHeightChanged={handleTotalListHeightChanged}
+      atBottomStateChange={handleAtBottomStateChange}
       className="agent-stream h-full"
       components={{ Header, List, Footer }}
       itemContent={(_index, turn) => (
