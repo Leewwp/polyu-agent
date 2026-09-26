@@ -73,8 +73,9 @@ describe("ChatPage (FeedShell 换壳)", () => {
 });
 
 /**
- * L32（#94）：深链「会话列表加载失败」≠「会话不存在」——
- * 列表失败时保深链给重试条，不踢回 /chat 不清深链；重试成功且会话确实不存在才踢。
+ * #140 深链四态状态机（doc44 D-10）+L32 语义保留：
+ * S1 列表未落定不加载目标；S2 失败保 URL+重试条不误判；S3 确认归属才 selectSession；
+ * S4 确认不存在→统一「无法打开此会话」卡，「开始新对话」点击才导航（不再静默踢回）。
  */
 function LocationProbe() {
   const location = useLocation();
@@ -99,6 +100,7 @@ describe("ChatPage 深链 × 会话列表失败（L32）", () => {
       sessions: [],
       currentSessionId: null,
       messages: [],
+      messagesSessionId: null,
       isLoading: false,
       sessionsLoaded: false,
       sessionsLoading: false,
@@ -113,7 +115,33 @@ describe("ChatPage 深链 × 会话列表失败（L32）", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps the deep link and offers retry when the session list fails to load", async () => {
+  it("S1：列表未落定不判不存在，也不启动目标加载（selectSession 不被调）", async () => {
+    let settle: (() => void) | null = null;
+    useChatStore.setState({
+      fetchSessions: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            settle = resolve;
+          })
+      ),
+      selectSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => "")
+    });
+
+    renderWithRoutes("/chat/s-deep");
+
+    // 列表挂起期：URL 保持、不判「不存在」、不加载目标、不新建
+    await waitFor(() => {
+      expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
+    });
+    expect(useChatStore.getState().selectSession).not.toHaveBeenCalled();
+    expect(useChatStore.getState().createSession).not.toHaveBeenCalled();
+    expect(screen.queryByText(/无法打开此会话/)).toBeNull();
+    // 放行列表（仍不含目标）→ 进入 S4（下一例覆盖）
+    (settle as unknown as (() => void) | null)?.();
+  });
+
+  it("S2：列表失败保深链+重试条，不误判不存在不加载目标（L32 语义保留）", async () => {
     useChatStore.setState({
       fetchSessions: vi.fn(async () => {
         useChatStore.setState({ sessionsError: "加载会话失败", sessionsLoaded: true, sessionsLoading: false });
@@ -127,15 +155,16 @@ describe("ChatPage 深链 × 会话列表失败（L32）", () => {
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
     });
-    // 列表失败态：重试条出现、不误踢
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
     });
-    expect(useChatStore.getState().selectSession).toHaveBeenCalledWith("s-deep");
+    // #140：S2 不加载目标（原实现深链即刻 selectSession，现收紧到 S3）
+    expect(useChatStore.getState().selectSession).not.toHaveBeenCalled();
     expect(useChatStore.getState().createSession).not.toHaveBeenCalled();
+    expect(screen.queryByText(/无法打开此会话/)).toBeNull();
   });
 
-  it("kicks back to /chat only after a successful list load confirms the session missing", async () => {
+  it("S4：重试成功确认不存在→统一「无法打开此会话」卡，不自动踢回；点「开始新对话」才导航", async () => {
     let attempts = 0;
     useChatStore.setState({
       fetchSessions: vi.fn(async () => {
@@ -157,12 +186,44 @@ describe("ChatPage 深链 × 会话列表失败（L32）", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
     });
-    expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
-
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    // S4：URL 保持原深链，错误卡在场，不自动新建/导航
+    await waitFor(() => {
+      expect(screen.getByText("无法打开此会话")).toBeTruthy();
+    });
+    expect(screen.getByText(/该会话可能不存在、已删除，或属于其他账号/)).toBeTruthy();
+    expect(screen.getByText(/让对方使用对话页面中的「分享」功能/)).toBeTruthy();
+    expect(screen.getByTestId("location").textContent).toBe("/chat/s-deep");
+    expect(useChatStore.getState().createSession).not.toHaveBeenCalled();
+    expect(useChatStore.getState().selectSession).not.toHaveBeenCalled();
+
+    // 用户点击「开始新对话」才触发新建+导航
+    fireEvent.click(screen.getByRole("button", { name: "开始新对话" }));
     await waitFor(() => {
       expect(screen.getByTestId("location").textContent).toBe("/chat");
     });
     expect(useChatStore.getState().createSession).toHaveBeenCalled();
+  });
+
+  it("S3：列表确认含目标才 selectSession", async () => {
+    useChatStore.setState({
+      fetchSessions: vi.fn(async () => {
+        useChatStore.setState({
+          sessions: [{ id: "s-deep", title: "目标会话" }],
+          sessionsError: null,
+          sessionsLoaded: true,
+          sessionsLoading: false
+        });
+      }),
+      selectSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => "")
+    });
+
+    renderWithRoutes("/chat/s-deep");
+    await waitFor(() => {
+      expect(useChatStore.getState().selectSession).toHaveBeenCalledWith("s-deep");
+    });
+    expect(useChatStore.getState().createSession).not.toHaveBeenCalled();
   });
 });

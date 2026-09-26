@@ -7,6 +7,8 @@ import { GuestStatusBadge } from "@/components/chat/GuestStatusBadge";
 import { MessageList } from "@/components/chat/MessageList";
 import { SourcesPanel } from "@/components/chat/SourcesPanel";
 import { FeedShell } from "@/components/feed/FeedShell";
+import { SessionUnavailableCard } from "@/components/feed/SessionUnavailableCard";
+import { resolveDeepLinkPhase } from "@/lib/deepLinkGuard";
 import { useChatStore } from "@/stores/chatStore";
 
 export function ChatPage() {
@@ -14,6 +16,7 @@ export function ChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const {
     messages,
+    messagesSessionId,
     messagesError,
     isLoading,
     isStreaming,
@@ -27,10 +30,11 @@ export function ChatPage() {
   } = useChatStore();
   const showWelcome = messages.length === 0 && !isLoading;
   const [sessionsReady, setSessionsReady] = React.useState(false);
-  const sessionExists = React.useMemo(() => {
-    if (!sessionId) return false;
-    return sessions.some((session) => session.id === sessionId);
-  }, [sessionId, sessions]);
+
+  // #140 深链四态状态机（doc44 D-10，与 Agent 链同语义同隐私 UX；S4 不再静默踢回）
+  const phase = resolveDeepLinkPhase({ sessionId, sessions, listReady: sessionsReady, listError: sessionsError });
+  // 旧内容清零（N6）：归属未换前不渲染上一会话正文
+  const sessionMatched = !sessionId || messagesSessionId === sessionId;
 
   React.useEffect(() => {
     let active = true;
@@ -46,50 +50,37 @@ export function ChatPage() {
     };
   }, [fetchSessions]);
 
+  // S3：列表确认归属后才加载目标（S1/S2/S4 均不拉不猜）
   React.useEffect(() => {
-    if (sessionId) {
-      // L32：仅列表确实加载成功（sessionsError 为空）才允许判「会话不存在」踢回——
-      // 列表加载失败时 sessions 为空不可信，保深链由重试条兜底，不误踢不清深链
-      if (sessionsReady && !sessionsError && !sessionExists) {
-        createSession().catch(() => null);
-        navigate("/chat", { replace: true });
-        return;
-      }
+    if (phase === "target" && sessionId) {
       selectSession(sessionId).catch(() => null);
+    }
+  }, [phase, sessionId, selectSession]);
+
+  // 无深链的新会话路径（原语义保留）
+  React.useEffect(() => {
+    if (phase !== "no-target") {
       return;
     }
-    if (!sessionsReady) {
-      return;
-    }
-    if (isCreatingNew) {
-      return;
-    }
-    if (currentSessionId) {
+    if (!sessionsReady || isCreatingNew || currentSessionId) {
       return;
     }
     createSession().catch(() => null);
-  }, [
-    sessionId,
-    sessionsReady,
-    sessionsError,
-    sessionExists,
-    isCreatingNew,
-    currentSessionId,
-    selectSession,
-    createSession,
-    navigate
-  ]);
+  }, [phase, sessionsReady, isCreatingNew, currentSessionId, createSession]);
 
   // 与 AgentChatPage 同款修复（2026-09-14）：原实现拿渲染闭包里的
-  // currentSessionId 与 URL 互比，chatStore.loadMessages 开头同步写 store——切会话时
+  // currentSessionId 与 URL 互比，chatStore.selectSession 开头同步写 store——切会话时
   // 本效应持落后一步旧值把 URL replace 回上一会话，两效应无限互搏（请求风暴）。
-  // 改读实时 store 值后一次收敛。
+  // 改读实时 store 值后一次收敛。#140：S4 不回跳（坏深链保持原 URL 由错误卡接手）。
   React.useEffect(() => {
+    if (phase === "not-found") {
+      return;
+    }
     const liveSessionId = useChatStore.getState().currentSessionId;
     if (liveSessionId && liveSessionId !== sessionId) {
       navigate(`/chat/${liveSessionId}`, { replace: true });
     }
-  }, [currentSessionId, sessionId, navigate]);
+  }, [phase, currentSessionId, sessionId, navigate]);
 
   // 换壳：外层 MainLayout → FeedShell（fluid 聊天档）——资讯流侧栏/顶栏统一，
   // 上游 MainLayout/Header/Sidebar/SiteFooter（Ragent 品牌/nageoffer 外链/GitHub 星钮）不再渲染
@@ -118,28 +109,44 @@ export function ChatPage() {
               </div>
             </div>
           ) : null}
-          <div className="flex-1 min-h-0">
-            <MessageList
-              messages={messages}
-              isLoading={isLoading}
-              isStreaming={isStreaming}
-              sessionKey={currentSessionId}
-              loadError={messagesError}
-              onRetry={currentSessionId ? () => selectSession(currentSessionId) : undefined}
+          {phase === "not-found" ? (
+            // S4：三态归一错误卡（不泄露存在性/属主/内容/ID）；用户点击才开始新对话
+            <SessionUnavailableCard
+              onStartNew={() => {
+                createSession().catch(() => null);
+                navigate("/chat", { replace: true });
+              }}
             />
-          </div>
-          {showWelcome ? null : (
-            <div className="relative z-20">
-              <div className="mx-auto max-w-[840px] px-6 pt-1 pb-4">
-                <div className="flex justify-center pb-2">
-                  <GuestStatusBadge />
-                </div>
-                <ChatInput />
-                <p className="pt-2 text-center text-xs leading-relaxed text-[#9AA0A6]">
-                  内容由 AI 生成，仅供参考；本服务非香港理工大学官方服务 · AI-generated for reference; not an official PolyU service
-                </p>
+          ) : (
+            <>
+              <div className="flex-1 min-h-0">
+                {sessionMatched ? (
+                  <MessageList
+                    messages={messages}
+                    isLoading={isLoading}
+                    isStreaming={isStreaming}
+                    sessionKey={currentSessionId}
+                    loadError={messagesError}
+                    onRetry={currentSessionId ? () => selectSession(currentSessionId) : undefined}
+                  />
+                ) : (
+                  <div data-testid="message-list-loading" className="h-full" />
+                )}
               </div>
-            </div>
+              {showWelcome || !sessionMatched ? null : (
+                <div className="relative z-20">
+                  <div className="mx-auto max-w-[840px] px-6 pt-1 pb-4">
+                    <div className="flex justify-center pb-2">
+                      <GuestStatusBadge />
+                    </div>
+                    <ChatInput />
+                    <p className="pt-2 text-center text-xs leading-relaxed text-[#9AA0A6]">
+                      内容由 AI 生成，仅供参考；本服务非香港理工大学官方服务 · AI-generated for reference; not an official PolyU service
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
         <SourcesPanel />
