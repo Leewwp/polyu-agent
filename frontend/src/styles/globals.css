@@ -4464,6 +4464,12 @@ textarea {
   border-radius: 3px;
 }
 
+/* #137 通用工具标签：无中文名的工具行移动档一级兜底（≤860 才显示；桌面 display:none 零变化） */
+.agent-app .agent-tool-generic {
+  display: none;
+  color: var(--agent-muted);
+}
+
 .agent-app .agent-status-ok,
 .agent-app .agent-status-idle,
 .agent-app .agent-status-run,
@@ -4897,6 +4903,18 @@ textarea {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+}
+
+/* #137 移动待机首屏：Demo 不进移动 DOM（组件 JS 分流），只剩能力说明+示例问题 */
+.agent-app .agent-empty-wrap-compact {
+  padding: var(--agent-s4) 14px var(--agent-s6);
+}
+
+.agent-app .agent-welcome-lead {
+  margin: 0 0 var(--agent-s4);
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--agent-ink);
 }
 
 /* 演示 + 图注带 + 问句行是一个物件：边框圆角裁切挂在这层
@@ -5704,6 +5722,84 @@ textarea {
   .agent-app .agent-composer-btn {
     width: 40px;
     height: 40px;
+  }
+}
+
+/* ── #137 Compact Trace+Welcome（≤860；同一 DOM 的 media 降级，桌面零变化）──
+   rail 收窄/工具行信息分级/回答排版/Turn 头换行/Padding 账五件；Welcome 分流在
+   组件层（JS，非 CSS 隐藏）。信息分级原则：一级=通道→中文名→状态→耗时，raw
+   工具名与行级时刻默认隐去、展开态（data-open）恢复——progressive disclosure 不删数据。 */
+@media (max-width: 860px) {
+  /* rail 40→28：轴线与节点同步收缩 节点/竖线/信号色语义保留 */
+  .agent-app .agent-row {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .agent-app .agent-row-rail::before {
+    left: 13px;
+  }
+
+  .agent-app .agent-node {
+    width: 18px;
+    margin-left: 4px;
+    padding-top: 2px;
+    font-size: var(--agent-t-sm);
+  }
+
+  /* 工具行一级：raw 工具名与行级时刻默认隐藏；展开恢复与完整结果同层 */
+  .agent-app .agent-row .agent-tool-chip,
+  .agent-app .agent-row .agent-row-ts {
+    display: none;
+  }
+
+  .agent-app .agent-row[data-open="true"] .agent-tool-chip,
+  .agent-app .agent-row[data-open="true"] .agent-row-ts {
+    display: inline;
+  }
+
+  .agent-app .agent-tool-generic {
+    display: inline;
+  }
+
+  /* 回答正文手机可读档：15.5px/1.7；长 URL 与行内代码不破版（表格/pre 容器内横滚为既有态） */
+  .agent-app .agent-md {
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+
+  .agent-app .agent-md code,
+  .agent-app .agent-md a {
+    overflow-wrap: anywhere;
+  }
+
+  /* Sources 限宽可断行：长文档名/长链接不撑破卡 */
+  .agent-app .agent-sources-name,
+  .agent-app .agent-sources-link {
+    overflow-wrap: anywhere;
+  }
+
+  /* Turn 头换行：编号+旁注一行，时间/总耗时次行右对齐，不截断出屏 */
+  .agent-app .agent-turn-head {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .agent-app .agent-turn-ts {
+    flex-basis: 100%;
+    text-align: right;
+  }
+
+  /* Padding 账：内容列让给正文（320px ≈250px+，卡片保留 ≥12px 侧留白） */
+  .agent-app .agent-stream-rows {
+    padding: 0 14px;
+  }
+
+  .agent-app .agent-turn {
+    padding: var(--agent-s2) 10px var(--agent-s1);
+  }
+
+  .agent-app .agent-row-content {
+    padding: 0 0 var(--agent-s4) var(--agent-s2);
   }
 }
 

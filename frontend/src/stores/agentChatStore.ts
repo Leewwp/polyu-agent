@@ -183,9 +183,10 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
             kind,
             // 占位时刻 服务端封口时校正
             at: nowHms(),
-            text: delta,
-            // 流式思考块自动展开实时滚字
-            open: kind === "reasoning" ? true : undefined
+            text: delta
+            // #137 reasoning open 重定义：block.open 只代表用户显式展开，新建流式
+            // 思考块不再预置 open:true——实际展开是 ReasoningRow 的派生值
+            // （block.open || (streaming && !isMobile)），mobile 流式默认真折叠
           };
           blocks.push(created);
           nextOpenId = created.id;
