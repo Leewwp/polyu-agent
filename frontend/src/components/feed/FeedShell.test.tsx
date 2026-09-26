@@ -11,10 +11,10 @@ import { useEngineStore } from "@/stores/engineStore";
 
 /**
  * MobileTopbar 补 LangPill——移动端顶栏与桌面顶栏同一全局语言值，
- * 任一 pill 切换两处同步（feed/hot/topics/detail 五页共用本壳）；移动顶栏既有
- * 品牌+日期+菜单钮形态不变。
+ * 任一 pill 切换两处同步（feed/hot/topics/detail 五页共用本壳）。
  * 2026-09-13：顶栏日期改实时 HKT 值（feedDateLabels）——断言改为
  * 同源计算（同一 Date 喂给组件与断言，jsdom 下 toLocaleDateString timeZone 可用）。
+ * #136（2026-09-26）：移动顶栏去日期（五元素防挤占），日期断言收归桌面顶栏 long 档。
  * 注：jsdom 30 不暴露 window.localStorage（feedLang.test 同款内存桩经验）。
  */
 
@@ -61,8 +61,9 @@ describe("FeedShell global language pills", () => {
     // 桌面 + 移动两个顶栏各一组 中/EN
     expect(screen.getAllByRole("button", { name: "中" })).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "EN" })).toHaveLength(2);
-    // 顶栏日期=实时 HKT 短日期（移动顶栏，中文态）
-    expect(screen.getByText(feedDateLabels(new Date(), "zh").short)).toBeTruthy();
+    // 顶栏日期只在桌面顶栏（long 档实时 HKT）；移动顶栏去日期（#136），短日期不得再现
+    expect(screen.getByText(feedDateLabels(new Date(), "zh").long)).toBeTruthy();
+    expect(screen.queryByText(feedDateLabels(new Date(), "zh").short)).toBeNull();
 
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: "EN" })[1]);
@@ -71,7 +72,7 @@ describe("FeedShell global language pills", () => {
     for (const pill of screen.getAllByRole("button", { name: "EN" })) {
       expect(pill.getAttribute("aria-pressed")).toBe("true");
     }
-    expect(screen.getByText(feedDateLabels(new Date(), "en").short)).toBeTruthy();
+    expect(screen.getByText(feedDateLabels(new Date(), "en").long)).toBeTruthy();
     expect(mem.get(STORAGE_KEY)).toBe("en");
   });
 
