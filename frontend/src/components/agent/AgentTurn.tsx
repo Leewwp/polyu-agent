@@ -1,9 +1,13 @@
 import * as React from "react";
+import { Copy, Share2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { AgentMarkdownRenderer } from "@/components/agent/AgentMarkdownRenderer";
 import { AgentSourcesBadge } from "@/components/agent/AgentSourcesBadge";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { findShareableAnchor } from "@/lib/agentShareAnchor";
+import { markdownToPlainText } from "@/lib/markdownToText";
 import {
   buildTimelineRows,
   formatDuration,
@@ -11,7 +15,7 @@ import {
   type TraceRow
 } from "@/lib/agentTimeline";
 import { useAgentChatStore } from "@/stores/agentChatStore";
-import type { AgentBlockUI, AgentConfirmCall, AgentTurn } from "@/types/agent";
+import type { AgentBlockUI, AgentConfirmCall, AgentMessage, AgentTurn } from "@/types/agent";
 
 const GLYPH: Record<TraceChannel, string> = {
   user: "▷",
@@ -98,10 +102,62 @@ interface AgentTurnItemProps {
   turn: AgentTurn;
   /** 卡头旁注 目前只有待机空态的预演卡用它标「示例」 */
   note?: string;
+  /**
+   * #139 capability 门：仅真实聊天的消息列表（AgentMessageList）显式传 true；
+   * 公开分享页/Welcome Demo/一切只读投影默认 false——Copy/Share 不依赖
+   * messageId/status 推断，恒不出现。
+   */
+  showAnswerActions?: boolean;
+}
+
+/**
+ * #139 Answer 操作栏——Turn 级 footer（每 Turn 最多一个，不挂 RowBody answer
+ * 分支：一 Turn 多 answer 块会重复出操作栏）。无 Shareable Anchor 的 Turn
+ * （streaming/AWAITING_CONFIRM/INTERRUPTED/取消/空正文）整条不渲染。
+ */
+function AnswerTurnFooter({ anchor }: { anchor: AgentMessage }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
+  const openShareDialog = useAgentChatStore((state) => state.openShareDialog);
+
+  const handleCopy = async () => {
+    // Copy 取 anchor 完整 content（持久化终答正文）转纯文本；与「复制分享链接」
+    // 的语义/按钮/toast 严格分离
+    const text = markdownToPlainText(anchor.content);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(zh ? "回答已复制" : "Answer copied");
+    } catch {
+      toast.error(zh ? "复制失败，请重试" : "Copy failed — please retry");
+    }
+  };
+
+  return (
+    <footer className="agent-answer-actions">
+      <button
+        type="button"
+        className="agent-answer-action-btn"
+        aria-label={zh ? "复制回答" : "Copy answer"}
+        onClick={() => void handleCopy()}
+      >
+        <Copy className="h-3.5 w-3.5" />
+        {zh ? "复制" : "Copy"}
+      </button>
+      <button
+        type="button"
+        className="agent-answer-action-btn"
+        aria-label={zh ? "分享这一轮问答" : "Share this turn"}
+        onClick={() => openShareDialog({ defaultScope: "turn", anchorAssistantMessageId: anchor.id })}
+      >
+        <Share2 className="h-3.5 w-3.5" />
+        {zh ? "分享" : "Share"}
+      </button>
+    </footer>
+  );
 }
 
 /** 一轮用户↔助手收进一张卡：轮次头 + 各通道轨迹行 示波器时间轴在卡内贯穿 */
-export function AgentTurnItem({ turn, note }: AgentTurnItemProps) {
+export function AgentTurnItem({ turn, note, showAnswerActions = false }: AgentTurnItemProps) {
   const rows = buildTimelineRows(turn);
   const isMobile = useIsMobile();
   const streaming = turn.assistants.some((assistant) => assistant.status === "streaming");
@@ -111,6 +167,8 @@ export function AgentTurnItem({ turn, note }: AgentTurnItemProps) {
   const elapsed = streaming ? "" : formatDuration(totalMs || undefined);
   // #137 窄屏时刻降精度：HH:mm:ss → HH:mm（卡头窄到换行前的减负项，桌面保持全刻度）
   const headTs = isMobile ? (rows[0]?.ts || "").slice(0, 5) : rows[0]?.ts || "";
+  // #139：能力门开启才找锚点（倒序首个合法完成 assistant；无锚点=无 footer）
+  const answerAnchor = showAnswerActions ? findShareableAnchor(turn) : null;
 
   return (
     <section className="agent-turn">
@@ -125,6 +183,7 @@ export function AgentTurnItem({ turn, note }: AgentTurnItemProps) {
       {rows.map((row, i) => (
         <TraceRowItem key={row.key} row={row} showTs={i > 0} />
       ))}
+      {showAnswerActions && answerAnchor ? <AnswerTurnFooter anchor={answerAnchor} /> : null}
     </section>
   );
 }

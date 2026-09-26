@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { AgentChatInput } from "@/components/agent/AgentChatInput";
 import { AgentMessageList } from "@/components/agent/AgentMessageList";
+import { AgentShareDialog } from "@/components/agent/AgentShareDialog";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { LoginPromptModal } from "@/components/feed/LoginPromptModal";
 import { useFeedLang } from "@/components/feed/feedLang";
@@ -133,10 +134,13 @@ export function AgentChatPage() {
             isLoading={isLoading}
             isStreaming={isStreaming}
             sessionKey={currentSessionId}
+            showAnswerActions
           />
           <AgentChatInput />
         </div>
       </div>
+      {/* #139 Scoped Share 弹窗（顶栏 full / 答案 turn 两入口共用；挂壳内随 FeedLang） */}
+      <AgentShareDialog />
     </FeedShell>
   );
 }

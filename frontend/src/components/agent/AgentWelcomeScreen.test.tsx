@@ -156,4 +156,15 @@ describe("AgentWelcomeScreen 移动分流（#137）", () => {
     expect(screen.getByText("提问")).toBeTruthy();
     expect(screen.queryByText("我可以帮你查询 PolyU 的课程、缴费、图书馆、校园服务等信息。")).toBeNull();
   });
+
+  it("#139 capability 门：Welcome Demo（预演卡）不出现 Copy/Share 操作栏", () => {
+    stubViewport(false);
+    listSampleQuestions.mockResolvedValue([]);
+
+    render(<AgentWelcomeScreen />);
+
+    expect(document.querySelector(".agent-answer-actions")).toBeNull();
+    expect(screen.queryByRole("button", { name: /复制回答|Copy answer/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /分享这一轮|Share this turn/ })).toBeNull();
+  });
 });
