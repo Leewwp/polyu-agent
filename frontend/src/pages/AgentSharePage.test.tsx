@@ -126,6 +126,18 @@ describe("AgentSharePage（issue #91 壳化视图）", () => {
     expect(screen.queryByText(/生成 \d/)).toBeNull();
   });
 
+  it("#139 capability 门：公开分享页零功能变化——不出现 Copy/Share 操作栏", async () => {
+    getPublicAgentShareMock.mockResolvedValue(SHARE_FIXTURE);
+    setup();
+    await waitFor(() => {
+      expect(screen.getByText("TURN 1")).toBeTruthy();
+    });
+    // 只读投影不启用 Answer 操作栏（showAnswerActions 默认 false）
+    expect(document.querySelector(".agent-answer-actions")).toBeNull();
+    expect(screen.queryByRole("button", { name: /复制回答|Copy answer/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /分享这一轮|Share this turn/ })).toBeNull();
+  });
+
   it("匿名态零网络请求（公开页红线：不 /auth、不拉会话、不探引擎档位）", async () => {
     const { requestedUrls } = instrumentNetwork();
     getPublicAgentShareMock.mockResolvedValue(SHARE_FIXTURE);

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+const toastSuccess = vi.hoisted(() => vi.fn());
+vi.mock("sonner", () => ({ toast: { success: toastSuccess, error: vi.fn() } }));
 
 let mockLang = "zh";
 vi.mock("@/components/feed/feedLang", () => ({
@@ -303,5 +306,74 @@ describe("groupTurns 一问多答（确认续跑同轮）", () => {
     expect(headless).toHaveLength(1);
     expect(headless[0].user).toBeUndefined();
     expect(headless[0].assistants).toHaveLength(1);
+  });
+});
+
+describe("Answer Turn footer（#139 capability 门+Copy/Share）", () => {
+  function doneAssistant(over: Partial<AgentMessage> = {}): AgentMessage {
+    return {
+      id: "2103590757771956001",
+      role: "assistant",
+      content: "**终答**：图书馆 **08:30** 开门",
+      status: "done",
+      messageStatus: "NORMAL",
+      createdAt: "2026-01-01T09:41:10",
+      ...over
+    };
+  }
+
+  it("capability 门：默认 false 无 footer（只读投影路径不出现 Copy/Share）", () => {
+    render(<AgentTurnItem turn={buildTurn([doneAssistant()])} />);
+    expect(document.querySelector(".agent-answer-actions")).toBeNull();
+  });
+
+  it("showAnswerActions 且轮合法：footer 在场且 Copy 取整段 content 转纯文本", async () => {
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: clipboardWrite }, configurable: true });
+    seedStore([doneAssistant()]);
+    render(<AgentTurnItem turn={buildTurn([doneAssistant()])} showAnswerActions />);
+
+    const footer = document.querySelector(".agent-answer-actions");
+    expect(footer).not.toBeNull();
+    const copyBtn = screen.getByRole("button", { name: "复制回答" });
+    await user.click(copyBtn);
+    // markdown→纯文本（去强调记号），非锚点块拼接
+    expect(clipboardWrite).toHaveBeenCalledWith("终答：图书馆 08:30 开门");
+    // 与「复制分享链接」分离：toast 文案是「回答已复制」
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("回答已复制"));
+  });
+
+  it("Share 钮：打开弹窗（默认 turn+anchor 直传，String 链路）", async () => {
+    const user = userEvent.setup();
+    seedStore([doneAssistant()]);
+    render(<AgentTurnItem turn={buildTurn([doneAssistant()])} showAnswerActions />);
+    await user.click(screen.getByRole("button", { name: "分享这一轮问答" }));
+    expect(useAgentChatStore.getState().shareDialog).toEqual({
+      defaultScope: "turn",
+      anchorAssistantMessageId: "2103590757771956001"
+    });
+  });
+
+  it("不稳定/非 NORMAL 轮无 footer：streaming / AWAITING_CONFIRM / INTERRUPTED / 临时 ID", () => {
+    const cases: AgentMessage[] = [
+      doneAssistant({ id: "assistant-1770000000000", status: "streaming", content: "生成中" }),
+      doneAssistant({ messageStatus: "AWAITING_CONFIRM", content: "" }),
+      doneAssistant({ messageStatus: "INTERRUPTED" }),
+      doneAssistant({ id: "assistant-1770000000001" })
+    ];
+    for (const assistant of cases) {
+      const { unmount } = render(<AgentTurnItem turn={buildTurn([assistant])} showAnswerActions />);
+      expect(document.querySelector(".agent-answer-actions")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("一问多答：footer 每 Turn 最多一个（确认续跑两段同轮）", () => {
+    const awaiting = doneAssistant({ id: "a-await", messageStatus: "AWAITING_CONFIRM", content: "" });
+    const resumed = doneAssistant({ id: "2103590757771956002", content: "续跑终答" });
+    render(<AgentTurnItem turn={buildTurn([awaiting, resumed])} showAnswerActions />);
+    const buttons = screen.getAllByRole("button", { name: "复制回答" });
+    expect(buttons).toHaveLength(1);
   });
 });

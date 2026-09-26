@@ -138,6 +138,25 @@ describe("AccountPage", () => {
     expect(screen.queryByRole("tab", { name: "会话分享" })).toBeNull();
   });
 
+  it("#139：我的分享说明不再写死 90 天（以每条记录到期时间为准）", async () => {
+    useAuthStore.setState({
+      user: { userId: "u-1", username: "alice", role: "user", email: null },
+      isAuthenticated: true,
+      isGuest: false
+    });
+    listMyAgentSharesMock.mockResolvedValue([
+      { token: "t-1", titlePreview: "宿舍申请咨询", status: "ACTIVE", expireTime: "2026-12-25T00:00:00" }
+    ]);
+    listMySharesMock.mockResolvedValue([]);
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: "会话分享" })).toBeTruthy();
+    });
+    expect(screen.queryByText(/90 天/)).toBeNull();
+    expect(screen.getByText(/到期时间以每条记录显示为准/)).toBeTruthy();
+  });
+
   it("walks the two-step email change flow and refreshes the store", async () => {
     const fetchCurrentUser = vi.fn(async () => {});
     useAuthStore.setState({

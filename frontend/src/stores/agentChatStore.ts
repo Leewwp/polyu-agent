@@ -24,6 +24,7 @@ import {
   renameAgentSession,
   stopAgentTask
 } from "@/services/agentService";
+import type { AgentShareScope } from "@/services/agentShareService";
 import { classifyChatError } from "@/utils/chatErrors";
 import { errorTextFor, toastErrorUnlessShown } from "@/utils/requestError";
 import { createAgentStreamResponse } from "@/hooks/useAgentStream";
@@ -63,6 +64,12 @@ interface AgentChatState {
   // AgentChatPage 据此弹 LoginPromptModal（与 workflow 链 ChatQuotaModal 同语义）
   quotaError: string | null;
   dismissQuotaError: () => void;
+  // #139 Scoped Share Dialog：null=关。defaultScope 由入口决定（顶栏=full /
+  // 答案 Turn footer=turn）；anchorAssistantMessageId 答案入口自带（String），
+  // 顶栏 turn/through 在 Dialog 内单选补齐。换会话即关（挂旧会话的分享窗不可留）
+  shareDialog: { defaultScope: AgentShareScope; anchorAssistantMessageId?: string } | null;
+  openShareDialog: (init: { defaultScope: AgentShareScope; anchorAssistantMessageId?: string }) => void;
+  closeShareDialog: () => void;
   loadSessions: () => Promise<void>;
   // force 用于回查：绕开「已在本会话且有消息就不拉」的早退，拿服务端的说法覆盖本地
   loadMessages: (sessionId: string, force?: boolean) => Promise<void>;
@@ -533,6 +540,9 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
     frames: [],
     quotaError: null,
     dismissQuotaError: () => set({ quotaError: null }),
+    shareDialog: null,
+    openShareDialog: (init) => set({ shareDialog: init }),
+    closeShareDialog: () => set({ shareDialog: null }),
     loadSessions: async () => {
       // L33：列表加载走独立态，不再碰 isLoading（消息加载专用）
       set({ sessionsLoading: true });
@@ -572,6 +582,8 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
         isLoading: true,
         currentSessionId: sessionId,
         isCreatingNew: false,
+        // #139：换会话关分享窗（挂旧会话的分享上下文不可跨会话存活）
+        shareDialog: null,
         // 回查是接着上一次连接排障，帧留着；换会话才清
         frames: force ? get().frames : [],
         ...STREAM_IDLE
@@ -607,7 +619,7 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
             }
           }
           return {
-            id: String(item.id),
+            id: item.id,
             role: isAssistant ? ("assistant" as const) : ("user" as const),
             content: item.content,
             thinking: item.thinkingContent || undefined,
