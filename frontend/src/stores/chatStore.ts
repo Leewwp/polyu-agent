@@ -28,6 +28,8 @@ interface ChatState {
   sessions: Session[];
   currentSessionId: string | null;
   messages: Message[];
+  // #140 旧内容清零（N6，与 agentChatStore 同构）：messages 归属会话，与 messages 原子同置
+  messagesSessionId: string | null;
   // 会话消息加载失败文案（行内错误态 + 重试入口消费；null=无错误）
   messagesError: string | null;
   // 消息加载态（selectSession 专用；L33 与会话列表加载拆分——
@@ -114,6 +116,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
   messages: [],
+  messagesSessionId: null,
   messagesError: null,
   isLoading: false,
   sessionsLoaded: false,
@@ -177,6 +180,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       currentSessionId: null,
       messages: [],
+      messagesSessionId: null,
       messagesError: null,
       isLoading: false,
       isCreatingNew: true,
@@ -264,6 +268,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentSessionId: sessionId,
       isCreatingNew: false,
       messages: [],
+      messagesSessionId: null,
       messagesError: null,
       openedSourceMessageId: null,
       ...WORKFLOW_STREAM_RESET
@@ -288,7 +293,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         recommendedState: Array.isArray(item.recommendedQuestions) ? "ready" : undefined,
         messageStatus: item.messageStatus ?? "NORMAL"
       }));
-      set({ messages: mapped });
+      // #140：与会话原子同置（加载成功那一刻才换归属）
+      set({ messages: mapped, messagesSessionId: sessionId });
     } catch (error) {
       // 失败置行内错误态（重试入口消费），替代空白回落；toast 走去重入口
       if (get().currentSessionId === sessionId) {
