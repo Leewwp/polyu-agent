@@ -2,6 +2,8 @@ import * as React from "react";
 
 import { AgentMarkdownRenderer } from "@/components/agent/AgentMarkdownRenderer";
 import { AgentSourcesBadge } from "@/components/agent/AgentSourcesBadge";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import {
   buildTimelineRows,
   formatDuration,
@@ -101,12 +103,14 @@ interface AgentTurnItemProps {
 /** 一轮用户↔助手收进一张卡：轮次头 + 各通道轨迹行 示波器时间轴在卡内贯穿 */
 export function AgentTurnItem({ turn, note }: AgentTurnItemProps) {
   const rows = buildTimelineRows(turn);
-  const headTs = rows[0]?.ts || "";
+  const isMobile = useIsMobile();
   const streaming = turn.assistants.some((assistant) => assistant.status === "streaming");
   // 流式中不显示总耗时 收尾实测或回放差值就绪后才亮
   // 一问多答按段累加：确认前那段与续跑那段合起来才是这一轮从提问到收尾的真实耗时
   const totalMs = turn.assistants.reduce((sum, assistant) => sum + (assistant.elapsedMs ?? 0), 0);
   const elapsed = streaming ? "" : formatDuration(totalMs || undefined);
+  // #137 窄屏时刻降精度：HH:mm:ss → HH:mm（卡头窄到换行前的减负项，桌面保持全刻度）
+  const headTs = isMobile ? (rows[0]?.ts || "").slice(0, 5) : rows[0]?.ts || "";
 
   return (
     <section className="agent-turn">
@@ -126,6 +130,8 @@ export function AgentTurnItem({ turn, note }: AgentTurnItemProps) {
 }
 
 function TraceRowItem({ row, showTs }: { row: TraceRow; showTs: boolean }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const toolState =
     row.channel === "tool"
       ? row.batchWaiting
@@ -137,6 +143,9 @@ function TraceRowItem({ row, showTs }: { row: TraceRow; showTs: boolean }) {
   const confirmState = row.channel === "confirm" ? CONFIRM_STATE[row.block?.status ?? ""] : undefined;
   // 文本通道耗时标「生成」 工具通道不标
   const textual = row.channel === "reasoning" || row.channel === "answer" || row.channel === "error";
+  // 有没有独立于 raw 名的中文名（displayName 缺失或与 name 同值都算没有）
+  const hasOwnName =
+    Boolean(row.block?.displayName) && row.block?.displayName !== row.block?.name;
 
   return (
     <div
@@ -144,6 +153,8 @@ function TraceRowItem({ row, showTs }: { row: TraceRow; showTs: boolean }) {
       data-channel={row.channel}
       data-failed={failed}
       data-streaming={Boolean(row.streaming || running)}
+      // #137 工具行信息分级：一级隐藏 raw 名/行级时刻，展开态恢复（≤860 CSS 消费）
+      data-open={row.block?.open === true ? "true" : undefined}
     >
       <div className="agent-row-rail">
         <span className="agent-node">{GLYPH[row.channel]}</span>
@@ -155,10 +166,15 @@ function TraceRowItem({ row, showTs }: { row: TraceRow; showTs: boolean }) {
           {row.channel === "tool" && row.block?.name ? (
             <span className="agent-tool-chip">{row.block.name}</span>
           ) : null}
-          {row.channel === "tool" &&
-          row.block?.displayName &&
-          row.block.displayName !== row.block.name ? (
-            <span className="text-[color:var(--agent-muted)]">{row.block.displayName}</span>
+          {row.channel === "tool" && hasOwnName ? (
+            // nowrap 根治窄屏一字竖排（#137）：中文名是词不是字堆
+            <span className="whitespace-nowrap text-[color:var(--agent-muted)]">
+              {row.block?.displayName}
+            </span>
+          ) : null}
+          {/* #137 移动档一级兜底：无中文名时一级显示通用工具标签（桌面 display:none 零变化） */}
+          {row.channel === "tool" && !hasOwnName ? (
+            <span className="agent-tool-generic">{zh ? "工具" : "Tool"}</span>
           ) : null}
           {row.channel === "batch" ? (
             <span
@@ -362,7 +378,11 @@ function ConfirmBox({
 }
 
 /**
- * 思考轨迹：正在想时强制展开实时滚字 块结束自动收成一行摘要 点开可重看
+ * 思考轨迹（#137 open 语义重定义）：
+ * block.open 只代表用户显式展开；实际展开=派生值
+ * `block.open || (streaming && !isMobile)`——desktop 流式由 streaming 派生自动展开
+ * （行为不变），mobile 流式默认折叠只剩一行实时摘要，点击才展开；
+ * 完成/中断后 seal 收口 open:false，两侧默认折叠（现状）。aria-expanded 取派生值。
  */
 function ReasoningRow({
   block,
@@ -373,8 +393,15 @@ function ReasoningRow({
   messageId?: string;
   streaming?: boolean;
 }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
+  const isMobile = useIsMobile();
   const toggleBlockOpen = useAgentChatStore((state) => state.toggleBlockOpen);
-  const open = Boolean(block.open) || Boolean(streaming);
+  const open = Boolean(block.open) || (Boolean(streaming) && !isMobile);
+  // 空文本折叠摘要的兜底：流式=正在思考，完成态空块=思考占位（#137 双语新文案）
+  const summary =
+    peek(block.text ?? "") ||
+    (streaming ? (zh ? "正在思考…" : "Thinking…") : zh ? "思考中" : "Reasoning");
 
   return (
     <div>
@@ -387,7 +414,7 @@ function ReasoningRow({
         aria-expanded={open}
       >
         <span className="agent-caret">{open ? "▾" : "▸"}</span>
-        <span className="agent-reasoning-peek">{peek(block.text ?? "")}</span>
+        <span className="agent-reasoning-peek">{summary}</span>
       </button>
       {open ? (
         <div className="agent-reasoning-body">
@@ -472,7 +499,7 @@ function flattenMd(text: string): string {
     .trim();
 }
 
-/** 取首个非空行、去掉 markdown 记号 作为思考折叠态的一行摘要 */
+/** 取首个非空行、去掉 markdown 记号 作为思考折叠态的一行摘要；空文本返回 ""（兜底文案由调用方按语言给） */
 function peek(text: string): string {
   const line =
     text
@@ -480,7 +507,7 @@ function peek(text: string): string {
       .map((s) => s.trim())
       .find(Boolean) ?? "";
   const clean = stripMdMarks(line);
-  return clean.length > 84 ? `${clean.slice(0, 84)}…` : clean || "思考中";
+  return clean.length > 84 ? `${clean.slice(0, 84)}…` : clean;
 }
 
 function tryParse(text: string): unknown {
