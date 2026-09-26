@@ -55,7 +55,7 @@ export function FeedShell({ title, children, fluid = false, shareView }: FeedShe
 function LangPill() {
   const { lang, setLang } = useFeedLang();
   return (
-    <div className="flex overflow-hidden rounded-full border border-[var(--feed-line)] bg-white text-[12.5px] font-semibold">
+    <div className="flex flex-none whitespace-nowrap overflow-hidden rounded-full border border-[var(--feed-line)] bg-white text-[12.5px] font-semibold">
       <button
         type="button"
         aria-pressed={lang === "zh"}
@@ -134,16 +134,16 @@ function DesktopTopbar({
 
 /**
  * 移动端顶栏（菜单钮开侧栏抽屉；品牌字统一 PolyUGuide）。
- * 补 LangPill——卡片级语言小钮移除后，移动端语言入口收归本顶栏
- * （与桌面顶栏同一全局值，feed/hot/topics/detail 五页共用）。
- * 补身份入口（登录钮/头像下拉，与桌面同一 UserMenu mobile 档）。
+ * #136 壳地基：去短日期——320px 下五元素（菜单/品牌/分享/语言/登录）全部可读可点，
+ * 身份区各钮 flex-none+whitespace-nowrap（「登录」不被压成竖排、IA 不退化为图标），
+ * 品牌区 min-w-0 承担压缩；400px 以下仅再收紧 gap/padding（spacing 微调档）。
+ * LangPill 与桌面顶栏同一全局值；身份入口=登录钮/头像下拉（UserMenu mobile 档）。
  */
 function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; shareView?: { title: string | null } }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
-  const dateLabels = useMemo(() => feedDateLabels(new Date(), lang), [lang]);
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.94)] px-3.5 py-[11px] backdrop-blur min-[861px]:hidden">
+    <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.94)] px-3 py-[11px] backdrop-blur min-[861px]:hidden max-[400px]:gap-1.5 max-[400px]:px-2.5">
       <button
         type="button"
         aria-label={zh ? "打开菜单" : "Open menu"}
@@ -152,11 +152,10 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
       >
         ☰
       </button>
-      <div className="text-[15px] font-extrabold">
+      <div className="min-w-0 text-[15px] font-extrabold">
         PolyU<i className="not-italic text-[var(--polyu-red)]">Guide</i>
       </div>
-      <div className="ml-auto text-[11.5px] text-[var(--feed-text-tertiary)]">{dateLabels.short}</div>
-      <div className="flex flex-none">
+      <div className="ml-auto flex flex-none items-center gap-2">
         {!shareView && <AgentSessionShareButton />}
         <LangPill />
       </div>
@@ -172,8 +171,10 @@ function FeedShellInner({ title, children, fluid, shareView }: FeedShellProps) {
     // 聊天档：满高外壳，主区无 max-w 限宽，底部 tab 不渲染（页面主体输入条贴底）。
     // 2026-09-12 修复：顶栏从横贯全宽改为嵌右列——与资讯页同构（侧栏顶到页顶，
     // 顶栏只盖主区），此前侧栏被顶栏压在下方与全站形态不一致。
+    // #136：h-screen 换 feed-fluid-shell（globals.css）——100dvh 跟随移动浏览器
+    // 动态视口（地址栏收展/软键盘），旧引擎不识 dvh 行自动回落 100vh。
     return (
-      <div className="flex h-screen bg-[var(--feed-bg)] text-[var(--feed-text-primary)]">
+      <div className="feed-fluid-shell flex bg-[var(--feed-bg)] text-[var(--feed-text-primary)]">
         <FeedSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} fullHeight shareView={shareView} />
         <div className="flex min-w-0 flex-1 flex-col">
           <DesktopTopbar title={title} fluid shareView={shareView} />

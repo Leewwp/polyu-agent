@@ -5680,6 +5680,33 @@ textarea {
   }
 }
 
+/* ── #136 移动壳地基：壳层断点统一 860（≤860 = mobile identity）─────
+   顶栏/视口在 FeedShell（Tailwind 860/861 档）；输入条随同统一到本块——
+   761–860 不再是「移动壳+桌面输入条」的混合态（Trace 层 Compact 属 #137）。
+   既有 760 块原样保留（服务死代码与欢迎图注），重叠属性由本块后置覆盖。 */
+@media (max-width: 860px) {
+  /* 底部兼容 Home Indicator/浏览器底栏（MobileTabbar 同口径），无遮挡环境回落 s4 常规留白 */
+  .agent-app .agent-composer {
+    padding: var(--agent-s2) var(--agent-s4) max(var(--agent-s4), env(safe-area-inset-bottom));
+  }
+
+  .agent-app .agent-composer-box {
+    padding: 10px;
+  }
+
+  /* 拇指档：初始约两行高（44–48 取 46）、长文封顶约 120（AgentChatInput JS clamp 同步双档）；
+     发送/停止钮 ≥40px 触控目标 */
+  .agent-app .agent-composer-input {
+    min-height: 46px;
+    max-height: 120px;
+  }
+
+  .agent-app .agent-composer-btn {
+    width: 40px;
+    height: 40px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-app .agent-turn,
   .agent-app .agent-row,
@@ -5720,4 +5747,11 @@ textarea {
   outline-offset: 3px;
   border-radius: 16px;
   transition: outline-color 0.4s;
+}
+
+/* FeedShell fluid 聊天档外壳（#136）：100dvh 跟随移动浏览器动态视口
+   （地址栏收展/软键盘起落），不识 dvh 的旧引擎自动回落前一行 100vh。 */
+.feed-fluid-shell {
+  height: 100vh;
+  height: 100dvh;
 }
