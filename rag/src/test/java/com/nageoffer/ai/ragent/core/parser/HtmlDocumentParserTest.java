@@ -28,6 +28,7 @@ import com.nageoffer.ai.ragent.core.parser.registry.ParserRegistry;
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -659,6 +660,89 @@ class HtmlDocumentParserTest {
         Map<ParseProfile, java.util.Set<String>> claims = parser.supportedMimeTypes();
         assertThat(claims).containsOnlyKeys(ParseProfile.FAST);
         assertThat(claims.get(ParseProfile.FAST)).containsExactlyInAnyOrder("text/html", "application/xhtml+xml");
+    }
+
+    // ==================== 场景 13：表格展开确定性 OOM 防护（审计 F-1） ====================
+    // 超限输入的合同：在任何 list/pending 扩容之前抛 ServiceException；@Timeout 佐证
+    // 「先展开后统计」的实现（2^31 次填充）不可能在时限内完成，更先 OOM
+
+    @Test
+    @Timeout(10)
+    @DisplayName("巨值 colspan：扩容前确定性拒绝，文案不回显输入，进程存活")
+    void rejectsOversizedColspanBeforeExpansion() {
+        String html = "<html><body><main><table><tr><td colspan=\"2147483647\">x</td></tr></table></main></body></html>";
+        assertThatThrownBy(() -> parse(html))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("合并属性超出支持上限")
+                .hasMessageNotContaining("2147483647");
+        // 进程与解析器状态无感：同一实例继续正常解析普通表格
+        assertThat(tables(parse("<html><body><main><table><tbody>"
+                + "<tr><th>A</th><th>B</th></tr><tr><td>a</td><td>b</td></tr>"
+                + "</tbody></table></main></body></html>")).get(0).rows()).hasSize(1);
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("巨值 rowspan 同口径拒绝；超出 int 域的声明按无 span 处理不回归")
+    void rejectsOversizedRowspanAndTreatsBeyondIntAsPlain() {
+        assertThatThrownBy(() -> parse("<html><body><main><table><tr>"
+                + "<td rowspan=\"1000000\">x</td><td>y</td></tr></table></main></body></html>"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("合并属性超出支持上限");
+        // parseInt 抛 NumberFormatException 的超 int 域值维持既有语义：按无 span 的普通单元格
+        List<TableBlock> ts = tables(parse("<html><body><main><table><tbody><tr>"
+                + "<td rowspan=\"99999999999999\">x</td><td>y</td></tr></tbody></table></main></body></html>"));
+        assertThat(ts.get(0).rows().get(0)).containsExactly("x", "y");
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("总格数预算：单 span 全部合法但累计覆盖超预算，在扩容前拒绝")
+    void rejectsTotalGridBudgetOverflow() {
+        // 101 个 colspan=1000 的单元格：单值均 ≤ 上限，覆盖面积累计 101_000 > 100_000
+        String cells = "<td colspan=\"1000\">x</td>".repeat(101);
+        assertThatThrownBy(() -> parse("<html><body><main><table><tr>" + cells + "</tr></table></main></body></html>"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("展开规模超出支持上限");
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("文档级预算跨表格累计：单表卡线的多表摊薄同样被拒")
+    void budgetAccumulatesAcrossTablesInOneDocument() {
+        // 每表 20 格 × colspan=500 = 10_000 覆盖：前十表共 100_000 卡线，第十一表首格越线
+        String half = "<td colspan=\"500\">x</td>".repeat(20);
+        StringBuilder tables = new StringBuilder();
+        for (int i = 0; i < 11; i++) {
+            tables.append("<table><tr>").append(half).append("</tr></table>");
+        }
+        assertThatThrownBy(() -> parse("<html><body><main>" + tables + "</main></body></html>"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("展开规模超出支持上限");
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("巨值 rowspan×colspan 组合（乘积溢出诱因）：确定性拒绝而非整型溢出误放行")
+    void rejectsOverflowInducingSpanCombination() {
+        assertThatThrownBy(() -> parse("<html><body><main><table><tr>"
+                + "<td rowspan=\"2147483647\" colspan=\"2147483647\">x</td></tr></table></main></body></html>"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("超出支持上限");
+    }
+
+    @Test
+    @Timeout(10)
+    @DisplayName("合法大表（语料实测上限两个数量级以内）零回归")
+    void acceptsCorpusScaleTables() {
+        // 166 行 × 3 列 ≈ 真实语料最大表（SAO 学期表）规模，远在预算内正常产出
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < 166; i++) {
+            rows.append("<tr><td rowspan=\"").append(i == 0 ? 9 : 1).append("\">v</td><td>a</td><td>b</td></tr>");
+        }
+        List<TableBlock> ts = tables(parse("<html><body><main><table><tbody>"
+                + rows + "</tbody></table></main></body></html>"));
+        assertThat(ts.get(0).rows()).hasSize(166);
     }
 
     // ==================== 回归：行内标签不切碎段落 / 截图空段落不打散列表 ====================
