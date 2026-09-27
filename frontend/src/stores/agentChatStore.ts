@@ -176,7 +176,7 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, ""
 
 export const useAgentChatStore = create<AgentChatState>((set, get) => {
   // 文本增量按块规则落位：敞开块同类则追加 否则封口旧块并新开
-  const appendText = (kind: "reasoning" | "answer" | "error", delta: string) => {
+  const appendText = (kind: AgentMessageDelta["type"], delta: string) => {
     if (!delta) return;
     set((state) => {
       let nextOpenId = state.streamOpenBlockId;
@@ -304,15 +304,15 @@ export const useAgentChatStore = create<AgentChatState>((set, get) => {
       onMessage: (payload: AgentMessageDelta) => {
         if (!payload || typeof payload !== "object") return;
         // 中断提示单开 error 块，跟模型说的话不是一个身份，样式与刷新后回放都按块走
-        if (payload.type !== "response" && payload.type !== "error") return;
+        if (payload.type !== "answer" && payload.type !== "error") return;
         if (get().streamingMessageId !== assistantId) return;
-        appendText(payload.type === "error" ? "error" : "answer", payload.delta);
+        appendText(payload.type, payload.delta);
       },
       onThinking: (payload: AgentMessageDelta) => {
         if (!payload || typeof payload !== "object") return;
-        if (payload.type !== "think") return;
+        if (payload.type !== "reasoning") return;
         if (get().streamingMessageId !== assistantId) return;
-        appendText("reasoning", payload.delta);
+        appendText(payload.type, payload.delta);
       },
       // 文本封口帧 服务端下发起止
       onBlock: (payload: AgentTextBlockSeal) => {

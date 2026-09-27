@@ -31,7 +31,7 @@ public enum AgentSSEEventType {
     META("meta"),
 
     /**
-     * 增量消息（response / think）
+     * 增量消息（answer / reasoning / error）
      */
     MESSAGE("message"),
 

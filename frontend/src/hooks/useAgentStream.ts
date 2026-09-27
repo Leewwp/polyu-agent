@@ -72,7 +72,7 @@ async function readSseStream(
       case "message":
         {
           const messagePayload = payload as AgentMessageDelta;
-          if (messagePayload?.type === "think") {
+          if (messagePayload?.type === "reasoning") {
             handlers.onThinking?.(messagePayload);
           }
           handlers.onMessage?.(messagePayload);

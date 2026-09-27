@@ -7,8 +7,11 @@ export type AgentMessageUiStatus = "streaming" | "done" | "cancelled" | "error";
 // AWAITING_CONFIRM 是唯一的非终态 表示这条回答停在写操作确认卡片上
 export type AgentPersistedMessageStatus = "NORMAL" | "INTERRUPTED" | "AWAITING_CONFIRM";
 
+// 文本增量与文本块共用内容类型
+export type AgentTextKind = "answer" | "reasoning" | "error";
+
 // hint 为流式过程中的运行提示 只存在于前端时间线 后端不落库
-export type AgentBlockKind = "reasoning" | "answer" | "tool" | "hint" | "confirm" | "error";
+export type AgentBlockKind = AgentTextKind | "tool" | "hint" | "confirm";
 
 /**
  * 工具块状态 与后端同名同值 前端照抄不推断
@@ -135,7 +138,7 @@ export interface AgentMetaPayload {
 }
 
 export interface AgentMessageDelta {
-  type: string;
+  type: AgentTextKind;
   delta: string;
 }
 

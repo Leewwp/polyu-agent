@@ -182,6 +182,12 @@ class AgentStreamEventBridgeTest {
         // 与落库同源
         assertThat(seals.getAllValues())
                 .containsExactly(AgentTextBlockSeal.of(blocks.get(0)), AgentTextBlockSeal.of(blocks.get(1)));
+        // 实时增量和历史块使用同一种内容类型，前端无需转换名称
+        ArgumentCaptor<AgentMessageDelta> deltas = ArgumentCaptor.forClass(AgentMessageDelta.class);
+        verify(sender, times(2)).sendEvent(eq("message"), deltas.capture());
+        assertThat(deltas.getAllValues()).containsExactly(
+                new AgentMessageDelta("reasoning", "先想一下"),
+                new AgentMessageDelta("answer", "答案是"));
     }
 
     /**
@@ -204,6 +210,7 @@ class AgentStreamEventBridgeTest {
         });
         // 无起止则不发封口帧
         verify(sender, never()).sendEvent(eq("block"), any());
+        verify(sender).sendEvent("message", new AgentMessageDelta("answer", "一次性给出的终答"));
     }
 
     @Test
