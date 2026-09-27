@@ -11,7 +11,7 @@
 | `backend.Dockerfile` | 后端镜像：Maven 3.9.11 构建 → JRE 17，入口=bootstrap fat jar，非 root 运行 |
 | `frontend-nginx.Dockerfile` | 前端+网关镜像：Vite build → nginx 直出 SPA + 反代 |
 | `nginx/polyu-http.conf` | HTTP 网关（随镜像烧入）：ACME webroot + 301；http 顶层共用声明（map/resolver/limit_req zone） |
-| `nginx/polyu-tls.conf` | TLS server 块（443）：/api/ /minio/ SPA；chat 端点 limit_req |
+| `nginx/polyu-tls.conf` | TLS server 块（443）：/api/ /minio/ SPA；chat/stop 端点 limit_req（独立桶） |
 | `polyu-prod.compose.yaml` | 生产八件套：app / PG / Redis / MinIO / RocketMQ / ES+IK / nginx / certbot(tls profile) |
 | `.env.example` | 密钥 env 模板（占位值）；复制为 `polyu-prod.env` 填真实值，不入仓 |
 | `pg-backup.sh` | PG 每日备份（crontab 调用；容器内 socket 信任连接，脚本零明文凭据） |
@@ -194,3 +194,9 @@ crontab -e
 - SSE 不受影响：一次提问=一个被放行的长请求，准入时计一次，流式响应期不再计数；
   burst=20 吸收前端自动重试+连发多轮。登录端点不必另压（应用已有失败锁定）。
 - 速率 10r/m=起步值，按实测调整。
+
+stop 端点独立桶（issue #150）：`polyu-http.conf` 另有
+`limit_req_zone $stop_limit_key zone=api_stop:10m rate=30r/m`，`polyu-tls.conf`
+同 location 内 `limit_req zone=api_stop burst=30 nodelay;`。与 chat 桶各自键控、
+互不计数——chat 桶打满时停止在途流仍可用（停止永远应比发起新流更容易）；30r/m
+宽松于 chat 但有限，真实用户单次流至多一两次停止，只有换 taskId 连喷才触顶。
