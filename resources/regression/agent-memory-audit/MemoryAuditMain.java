@@ -115,14 +115,14 @@ public final class MemoryAuditMain {
     }
 
     static String newUsername(Set<String> occupiedNames) {
-        for (String surname : List.of("林", "陈", "周", "许", "沈", "张", "李", "王", "刘", "赵")) {
-            for (String givenName : List.of("知远", "嘉宁", "予安", "清和", "亦舟", "文博", "思源", "明轩", "雅宁", "晓彤",
-                    "子涵", "雨桐", "佳琪", "欣怡", "浩然", "晨阳", "宇航", "书涵", "文静", "晓宁")) {
-                String username = surname + givenName;
+        for (String surname : List.of("smith", "johnson", "brown", "wilson", "taylor", "anderson", "thomas", "moore", "martin", "clark")) {
+            for (String givenName : List.of("james", "emma", "oliver", "emily", "henry", "alice", "jack", "grace", "daniel", "lucy",
+                    "michael", "sarah", "david", "anna", "william", "sophie", "thomas", "chloe", "george", "charlotte")) {
+                String username = givenName + surname;
                 if (!occupiedNames.contains(username)) return username;
             }
         }
-        throw new IllegalStateException("普通姓名已全部占用，请补充姓名候选后重试");
+        throw new IllegalStateException("英文姓名已全部占用，请补充姓名候选后重试");
     }
 
     static void requireUnusedIdentity(Path out, String identity) {

@@ -145,7 +145,7 @@ public final class MemoryAuditSelfTest {
 
     private static void accountLifecycle(Path root) throws Exception {
         String username = MemoryAuditMain.newUsername(Set.of());
-        expect(username.matches("[\\p{IsHan}]{3}"), "ordinary personal name");
+        expect(username.matches("[a-z]+"), "lowercase English username");
         expect(!username.equals(MemoryAuditMain.newUsername(Set.of(username))), "occupied usernames are skipped");
         Path out = root.resolve("account-lifecycle");
         Files.createDirectories(out);
