@@ -25,6 +25,7 @@ import com.nageoffer.ai.ragent.agent.service.AgentChatService;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.framework.idempotent.IdempotentSubmit;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.rag.enums.SSEEventType;
@@ -89,6 +90,11 @@ public class AgentChatController {
         return emitter;
     }
 
+    /**
+     * 幂等注解=一致性卫生项（与 RAGChatController.stop 同款）：只防请求执行期内的并发
+     * 重复提交，防洪泛由 taskId 形状校验与网关 stop 独立限流桶承担（#150）
+     */
+    @IdempotentSubmit
     @PostMapping("/agent/v1/stop")
     public Result<Void> stop(@RequestParam String taskId) {
         agentChatService.stopTask(taskId);

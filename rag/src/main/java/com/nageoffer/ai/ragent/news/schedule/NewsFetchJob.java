@@ -28,6 +28,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.heat.NewsHeatService;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchDeferredException;
 import com.nageoffer.ai.ragent.news.service.impl.NewsEnrichService;
 import com.nageoffer.ai.ragent.news.service.impl.NewsFetchService;
 import lombok.extern.slf4j.Slf4j;
@@ -131,6 +132,11 @@ public class NewsFetchJob {
         for (NewsSourceDO source : sources) {
             try {
                 fetchService.fetchAndPersist(source);
+            } catch (NewsFetchDeferredException deferred) {
+                // defer 不是失败（#152）：源健康，本轮按源站 Crawl-delay 豁免——不计滞回
+                // 不计失败数，调度器已立即继续其它源；豁免到期后的轮次自然恢复抓取
+                log.info("[news] 源 {} 本轮 defer（源站 Crawl-delay 超单次等待上限，豁免期后再抓）：{}",
+                        source.getSourceKey(), deferred.getMessage());
             } catch (Exception e) {
                 failures++;
                 log.error("[news] 源 {} 本轮失败（滞回已计）：{}", source.getSourceKey(), e.getMessage(), e);

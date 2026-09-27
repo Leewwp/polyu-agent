@@ -44,6 +44,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.multipart.MultipartFile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -72,6 +73,8 @@ class KnowledgeDocumentSourceLocationTest {
     private BizChangeLogContext bizChangeLogContext;
     @Mock
     private KnowledgeDocumentScheduleService scheduleService;
+    @Mock
+    private com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard ingestionUrlGuard;
 
     @InjectMocks
     private KnowledgeDocumentServiceImpl documentService;
@@ -132,6 +135,8 @@ class KnowledgeDocumentSourceLocationTest {
         assertTrue(captor.getValue().getSqlSet().contains("source_location"),
                 "FILE 类 update 应写入 source_location（回跳补救通道）");
         verify(scheduleService, never()).upsertSchedule(any());
+        // FILE 类 sourceLocation 是回跳元数据：不经出站守卫
+        verify(ingestionUrlGuard, never()).validateOutboundTarget(any());
     }
 
     @Test
@@ -154,5 +159,49 @@ class KnowledgeDocumentSourceLocationTest {
         verify(documentMapper).update(captor.capture());
         assertTrue(captor.getValue().getSqlSet().contains("source_location"));
         verify(scheduleService).upsertSchedule(any());
+        verify(ingestionUrlGuard).validateOutboundTarget("https://www.polyu.edu.hk/ar/example/");
+    }
+
+    @Test
+    void uploadUrlDocRunsGuardAfterAuth() {
+        // #153/NV-1：multipart 入口的守卫从 pre-auth Filter 后移到 upload 服务面——
+        // URL 类源址在鉴权之后、存文件之前过出站守卫
+        KnowledgeBaseDO kb = KnowledgeBaseDO.builder().id("kb1").collectionName("col").build();
+        when(knowledgeBaseMapper.selectById("kb1")).thenReturn(kb);
+        KnowledgeDocumentUploadRequest request = new KnowledgeDocumentUploadRequest();
+        request.setSourceType("url");
+        request.setSourceLocation("http://192.168.1.5/wiki");
+        org.mockito.Mockito.doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException(
+                "文档源地址解析到内网或保留地址，已拒绝"))
+                .when(ingestionUrlGuard).validateOutboundTarget("http://192.168.1.5/wiki");
+
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> documentService.upload("kb1", request, file));
+        // 第一个副作用（存文件）之前拒绝：不落对象存储
+        verify(fileStorageService, never()).upload(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void updateUrlDocRejectsGuardDeniedSourceLocationBeforeWrite() {
+        // #153/审计 F-2b：update 写入的新抓取源址过出站守卫（防定时重取链路成为守卫旁路），
+        // 守卫拒绝即整体拒绝——不落 source_location、不动调度
+        KnowledgeDocumentDO doc = KnowledgeDocumentDO.builder()
+                .id("d3").docName("n").status(DocumentStatus.PENDING.getCode())
+                .sourceType("url").scheduleEnabled(0)
+                .build();
+        when(documentMapper.selectById("d3")).thenReturn(doc);
+        org.mockito.Mockito.doThrow(new com.nageoffer.ai.ragent.framework.exception.ClientException(
+                "文档源地址解析到内网或保留地址，已拒绝"))
+                .when(ingestionUrlGuard).validateOutboundTarget("http://192.168.1.5/wiki");
+
+        KnowledgeDocumentUpdateRequest request = new KnowledgeDocumentUpdateRequest();
+        request.setDocName("n2");
+        request.setSourceLocation("http://192.168.1.5/wiki");
+
+        assertThrows(com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> documentService.update("d3", request));
+        verify(documentMapper, never()).update(any(Wrapper.class));
+        verify(scheduleService, never()).upsertSchedule(any());
     }
 }

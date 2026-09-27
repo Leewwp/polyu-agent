@@ -17,11 +17,14 @@
 
 package com.nageoffer.ai.ragent.user.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.user.controller.request.ChangePasswordRequest;
 import com.nageoffer.ai.ragent.user.controller.request.EmailChangeConfirmRequest;
 import com.nageoffer.ai.ragent.user.controller.request.EmailChangeRequest;
+import com.nageoffer.ai.ragent.user.controller.request.UserUpdateRequest;
 import com.nageoffer.ai.ragent.user.controller.vo.CurrentUserVO;
 import com.nageoffer.ai.ragent.user.dao.entity.UserDO;
 import com.nageoffer.ai.ragent.user.dao.mapper.UserMapper;
@@ -34,6 +37,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.util.Date;
 
@@ -42,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -61,9 +66,11 @@ class UserServiceImplTest {
     private MailVerificationService mailVerificationService;
     private MailSender mailSender;
     private UserServiceImpl userService;
+    private MockedStatic<StpUtil> stpUtil;
 
     @BeforeEach
     void setUp() {
+        stpUtil = mockStatic(StpUtil.class);
         userMapper = mock(UserMapper.class);
         passwordCodec = new PasswordCodec();
         mailVerificationService = mock(MailVerificationService.class);
@@ -76,6 +83,62 @@ class UserServiceImplTest {
     @AfterEach
     void tearDown() {
         UserContext.clear();
+        stpUtil.close();
+    }
+
+    // ==================== #151：改密踢全端（审计 F-3） ====================
+
+    @Test
+    void 自助改密成功踢该用户全部会话() {
+        UserDO user = userWithEmail(OLD_EMAIL);
+        user.setPassword(passwordCodec.encode(PASSWORD));
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(userMapper.selectById("100")).thenReturn(user);
+
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword(PASSWORD);
+        request.setNewPassword("new-strong-pass-456");
+        userService.changePassword(request);
+
+        verify(userMapper).updateById(any(UserDO.class));
+        // 密码轮换=止损动作：账号级踢出（第二处登录的旧 token 一并失效），对齐 resetPassword 惯例
+        stpUtil.verify(() -> StpUtil.logout("100"));
+    }
+
+    @Test
+    void 自助改密踢出失败整体失败() {
+        UserDO user = userWithEmail(OLD_EMAIL);
+        user.setPassword(passwordCodec.encode(PASSWORD));
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(userMapper.selectById("100")).thenReturn(user);
+        // 踢出抛错须向上传播（@Transactional 随之回滚密码变更），不允许「已改密→踢失败→仍报成功」
+        stpUtil.when(() -> StpUtil.logout("100")).thenThrow(new IllegalStateException("session store down"));
+
+        ChangePasswordRequest request = new ChangePasswordRequest();
+        request.setCurrentPassword(PASSWORD);
+        request.setNewPassword("new-strong-pass-456");
+
+        assertThrows(IllegalStateException.class, () -> userService.changePassword(request));
+    }
+
+    @Test
+    void 管理员改密同口径踢全端_非密码更新不踢() {
+        UserDO target = userWithEmail(OLD_EMAIL);
+        target.setId("200");
+        // update() 经 loadById→selectOne(wrapper) 取行；落库后 selectById 取日志快照
+        when(userMapper.selectOne(any())).thenReturn(target);
+        when(userMapper.selectById("200")).thenReturn(target);
+
+        UserUpdateRequest withPassword = new UserUpdateRequest();
+        withPassword.setPassword("admin-set-pass-789");
+        userService.update("200", withPassword);
+        stpUtil.verify(() -> StpUtil.logout("200"));
+
+        stpUtil.clearInvocations();
+        UserUpdateRequest onlyAvatar = new UserUpdateRequest();
+        onlyAvatar.setAvatar("https://cdn.example.com/a.png");
+        userService.update("200", onlyAvatar);
+        stpUtil.verifyNoInteractions();
     }
 
     private UserDO userWithEmail(String email) {

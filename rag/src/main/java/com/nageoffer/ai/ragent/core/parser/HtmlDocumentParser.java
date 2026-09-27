@@ -25,6 +25,7 @@ import com.nageoffer.ai.ragent.core.parser.model.ParsedDocument;
 import com.nageoffer.ai.ragent.core.parser.model.Provenance;
 import com.nageoffer.ai.ragent.core.parser.model.TableBlock;
 import com.nageoffer.ai.ragent.core.parser.registry.ParseProfile;
+import com.nageoffer.ai.ragent.framework.exception.ServiceException;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -119,6 +120,20 @@ public class HtmlDocumentParser implements DocumentParser {
      * 问句段落升格为 HeadingBlock 的长度上限：问题应该是短段落，长句以问号收尾多半是反问/引用而非 FAQ 问题
      */
     private static final int QUESTION_MAX_CHARS = 200;
+
+    /**
+     * 单个 colspan/rowspan 支持上限：超出即拒绝解析整篇文档（确定性业务异常，非静默 clamp——
+     * clamp 会把异常文档改写成语义漂移且依然巨大的表格）。标定依据：现有知识库 412 份 HTML 文档、
+     * 560 张表格中单 span 声明最大值 9，1000 留足两个数量级余量
+     */
+    static final int MAX_SPAN = 1000;
+
+    /**
+     * 表格展开总格数预算：按单元格覆盖面积（colspan×rowspan，重叠保守上界）累计，跨一张文档的
+     * 全部表格共用，超限即拒绝解析。判定先于任何 list/pending 扩容，累计用 long 杜绝中间乘积
+     * 整型溢出。标定依据：同一语料最大单表展开格数 498，100_000 留足两个数量级余量
+     */
+    static final long MAX_GRID_CELLS = 100_000L;
 
     @Override
     public String getParserType() {
@@ -239,6 +254,12 @@ public class HtmlDocumentParser implements DocumentParser {
          * 最近一个真实标题的级别，FAQ 问句段落的升格级别以它为基准，问题之间保持同级
          */
         private int lastHeadingLevel = 0;
+
+        /**
+         * 本文档已用的表格展开预算（覆盖面积累计）：一张文档的所有表格共用一份，
+         * 防止「每张表都卡线」的多表摊薄攻击
+         */
+        private long gridCellsUsed = 0;
 
         private RegionWalker(Provenance prov) {
             this.prov = prov;
@@ -573,7 +594,10 @@ public class HtmlDocumentParser implements DocumentParser {
 
         /**
          * 二维网格展开：colspan 首列落值、次列留空；rowspan 的值沿列向下延续到后续行，
-         * 让跨行组名（如用户组、服务大类）出现在它覆盖的每一行里
+         * 让跨行组名（如用户组、服务大类）出现在它覆盖的每一行。
+         * 每个单元格在参与任何实际扩容（setCell 填充 / pending 登记）之前先把
+         * colspan×rowspan 覆盖面积计入文档级预算，超限抛业务异常终止解析——
+         * 后续任何 materialization 的覆盖格都已计入预算，故判定先于分配恒成立
          */
         private List<List<String>> expandGrid(List<Element> rows) {
             List<List<String>> grid = new ArrayList<>();
@@ -590,6 +614,10 @@ public class HtmlDocumentParser implements DocumentParser {
                     String text = normalizeWhitespace(cell.text());
                     int colspan = parseSpan(cell, "colspan");
                     int rowspan = parseSpan(cell, "rowspan");
+                    gridCellsUsed += (long) colspan * rowspan;
+                    if (gridCellsUsed > MAX_GRID_CELLS) {
+                        throw new ServiceException("HTML 表格展开规模超出支持上限，已拒绝解析该文档");
+                    }
                     for (int i = 0; i < colspan; i++) {
                         setCell(row, col + i, i == 0 ? text : "");
                     }
@@ -749,12 +777,21 @@ public class HtmlDocumentParser implements DocumentParser {
             return col < row.size() && row.get(col) != null ? row.get(col) : "";
         }
 
+        /**
+         * 合并属性解析：非法数值按无 span 处理（既有语义）；数值超支持上限则拒绝解析——
+         * 文案不回显属性原值，避免把攻击者输入带进日志
+         */
         private int parseSpan(Element cell, String attr) {
+            int value;
             try {
-                return Math.max(1, Integer.parseInt(cell.attr(attr).trim()));
+                value = Integer.parseInt(cell.attr(attr).trim());
             } catch (NumberFormatException e) {
                 return 1;
             }
+            if (value > MAX_SPAN) {
+                throw new ServiceException("HTML 表格单元格合并属性超出支持上限，已拒绝解析该文档");
+            }
+            return Math.max(1, value);
         }
     }
 

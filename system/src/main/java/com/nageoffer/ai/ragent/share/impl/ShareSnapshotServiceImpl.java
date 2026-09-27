@@ -20,6 +20,8 @@ package com.nageoffer.ai.ragent.share.impl;
 import cn.hutool.core.lang.Assert;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.nageoffer.ai.ragent.framework.context.LoginUser;
+import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.share.RevocationActor;
 import com.nageoffer.ai.ragent.share.ShareAdminView;
@@ -55,6 +57,11 @@ public class ShareSnapshotServiceImpl implements ShareSnapshotService {
     private static final String KIND_CONVERSATION = "conversation";
     private static final int TOKEN_BYTES = 32;
 
+    /**
+     * 游客角色值：与 t_user.role/前端 authStore 同源字面量
+     */
+    private static final String ROLE_GUEST = "guest";
+
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final ShareSnapshotMapper shareSnapshotMapper;
@@ -62,6 +69,14 @@ public class ShareSnapshotServiceImpl implements ShareSnapshotService {
 
     @Override
     public ShareTicket create(ShareKind kind, String ownerUserId, String conversationId, String lang, String payloadJson) {
+        // 游客硬阻断单点（#151/审计 F-8，对齐 #91 维护者裁定）：两粒度（answer/agent 会话）
+        // 共用本门。游客是临时身份，cookie 丢失后其分享成为无人可撤销的公开孤儿链接——
+        // 拒绝发生在任何 insert/token 生成之前，零副作用（无 snapshot 行、无 token）。
+        // 调用方各自的门（agent 粒度既有、前端登录引导）保留为双保险
+        LoginUser acting = UserContext.get();
+        if (acting != null && ROLE_GUEST.equals(acting.getRole())) {
+            throw new ClientException("游客身份不支持创建分享，请登录后使用");
+        }
         Date now = new Date();
         int defaultExpireDays = shareProperties.getDefaultExpireDays();
         Date expireTime = defaultExpireDays > 0 ? new Date(now.getTime() + defaultExpireDays * 86_400_000L) : null;

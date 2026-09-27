@@ -31,7 +31,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
- * 数据保留期清理任务（覆盖八类数据）。
+ * 数据保留期清理任务（覆盖八类数据+#154 trace 观测数据一类）。
  *
  * <p>八类落位：①原始访问事件 30 天、②按日聚合 13 个月——两表属 analytics 票未建，建表后在此接线；
  * ③登录用户对话=账号存续期（注销随删已由账号硬删级联承担），本任务补 30 天冷静期到期硬删；
@@ -91,6 +91,7 @@ public class DataRetentionJob {
         runSafely("分享快照到期删除", this::deleteExpiredShares);
         runSafely("反馈到期删除", this::deleteExpiredFeedback);
         runSafely("邮箱墓碑到期删除", this::deleteExpiredTombstones);
+        runSafely("trace 到期删除", this::deleteExpiredTraces);
     }
 
     /**
@@ -151,6 +152,20 @@ public class DataRetentionJob {
     private void deleteExpiredTombstones() {
         int rows = jdbcTemplate.update("DELETE FROM t_user_email_tombstone WHERE expire_time < ?", now());
         logDeletedRows("邮箱墓碑", rows);
+    }
+
+    /**
+     * trace 观测数据到期清理（#154）：node 先于 run 删（node 无 user_id，按自身 create_time
+     * 整行删除，同时覆盖 run 行已先失的孤儿 node）；run 携带用户提问原文（extra_data），
+     * 到期整行删除。账号硬删路径的 trace 由 AccountDeletionCascade 级联即删，不经此轮
+     */
+    private void deleteExpiredTraces() {
+        Timestamp cutoff = cutoff(properties.getTraceRetentionDays());
+        int nodes = jdbcTemplate.update("DELETE FROM t_rag_trace_node WHERE create_time < ?", cutoff);
+        int runs = jdbcTemplate.update("DELETE FROM t_rag_trace_run WHERE create_time < ?", cutoff);
+        if (nodes + runs > 0) {
+            log.info("[retention] trace 观测数据到期清理完成：run {} 行、node {} 行（cutoff={}）", runs, nodes, cutoff);
+        }
     }
 
     private void runSafely(String category, Runnable cleanup) {

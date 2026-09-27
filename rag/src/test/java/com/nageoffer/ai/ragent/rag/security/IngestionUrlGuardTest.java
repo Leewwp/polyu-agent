@@ -106,8 +106,9 @@ class IngestionUrlGuardTest {
                 .isInstanceOf(ClientException.class).hasMessageContaining("不能为空");
         assertThatThrownBy(() -> strict.validate(url("http://exa mple.com/x")))
                 .isInstanceOf(ClientException.class).hasMessageContaining("不是合法");
+        // #153 起 host 判定与实际 client 同源（HttpUrl）：空主机形态走「无法解析」fail closed
         assertThatThrownBy(() -> strict.validate(url("http:///no-host")))
-                .isInstanceOf(ClientException.class).hasMessageContaining("缺少主机名");
+                .isInstanceOf(ClientException.class).hasMessageContaining("无法解析");
     }
 
     // ------------------------------------------------------------ 内网与保留地址
@@ -156,6 +157,49 @@ class IngestionUrlGuardTest {
     void rejectsCloudMetadataHostNames() {
         assertThatThrownBy(() -> strict.validate(url("http://metadata.google.internal/computeMetadata/v1/")))
                 .isInstanceOf(ClientException.class).hasMessageContaining("内部主机");
+    }
+
+    // ------------------------------------------------------------ #153：IP 字面量与变体语义类别矩阵
+    // 连接层 Dns SPI 对字面量是盲区（okhttp RouteSelector 快路径），这些类别必须在
+    // 建请求前被拦；host 判定与实际 client 同源（HttpUrl canonicalization + Java 地址归一）
+
+    @Test
+    void rejectsHostnameResolvingToLoopback() {
+        // localhost 解析到 127.0.0.1：主机名形态的内网目标（DNS 解析到私址同样拒绝）
+        assertThatThrownBy(() -> strict.validate(url("http://localhost:9200/_cat/indices")))
+                .isInstanceOf(ClientException.class)
+                .hasMessageContaining("内网或保留地址");
+    }
+
+    @Test
+    void rejectsNonStandardIpv4LiteralVariants() {
+        // 探针实证（okhttp 5.3.2 HttpUrl + Java 地址解析）：十进制 2130706433 与缺段简写
+        // 127.1 均归一到 127.0.0.1，按内网分类拒绝；裸十六进制 0x7f000001 Java 字面量解析
+        // 不接受——落入「无法解析」fail closed，同样是拒绝。合同=变体必拒（分类或
+        // fail closed），绝无放行。注：0177.0.0.1 在 Java 语义下是十进制 177.0.0.1（公网），
+        // 守卫与实际 client 对它的连接目标判定一致，不构成内网绕过，不在拒绝面内
+        for (String location : new String[]{
+                "http://2130706433/x",
+                "http://127.1/x"}) {
+            assertThatThrownBy(() -> strict.validate(url(location)))
+                    .as("非标准 IPv4 变体应按内网拒绝: %s", location)
+                    .isInstanceOf(ClientException.class)
+                    .hasMessageContaining("内网或保留地址");
+        }
+        assertThatThrownBy(() -> strict.validate(url("http://0x7f000001/x")))
+                .isInstanceOf(ClientException.class)
+                .hasMessageContaining("无法解析");
+    }
+
+    @Test
+    void rejectsIpv4MappedIpv6Forms() {
+        // IPv4-mapped IPv6（::ffff:127.0.0.1 与十六进制形态）：分类必须穿透映射看到内网 v4
+        assertThatThrownBy(() -> strict.validate(url("http://[::ffff:127.0.0.1]/x")))
+                .isInstanceOf(ClientException.class)
+                .hasMessageContaining("内网或保留地址");
+        assertThatThrownBy(() -> strict.validate(url("http://[::ffff:7f00:1]/x")))
+                .isInstanceOf(ClientException.class)
+                .hasMessageContaining("内网或保留地址");
     }
 
     // ------------------------------------------------------------ 配置开关

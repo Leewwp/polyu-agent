@@ -20,12 +20,11 @@ package com.nageoffer.ai.ragent.rag.security;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.ingestion.domain.enums.SourceType;
 import com.nageoffer.ai.ragent.rag.controller.request.DocumentSourceRequest;
+import okhttp3.HttpUrl;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.InetAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Locale;
 import java.util.Map;
@@ -39,17 +38,20 @@ import java.util.Set;
  * 重定向跳转目标由 {@link RedirectGuard} 在 HTTP 客户端层逐跳复校（O2/M4，
  * 复用本类 {@link #validateOutboundTarget}）。仍需另行处理、不要误认为此处已是完整防护：
  * <ul>
- *   <li>DNS 重绑定：校验与抓取之间存在 TOCTOU，同一主机名可先解析为公网、抓取时解析为内网；</li>
- *   <li>/knowledge-base/{kb-id}/docs/upload 的 multipart 表单入口（sourceType=url）走 @ModelAttribute
- *       绑定，不经 RequestBodyAdvice；该入口在 /knowledge-base/** 的 admin 角色拦截覆盖内，
- *       抓取期由 {@link RedirectGuard} 对重定向目标兜底复校。</li>
+ *   <li>DNS 重绑定：校验与抓取之间存在 TOCTOU，同一主机名可先解析为公网、抓取时解析为内网
+ *       （建连层由 {@link GuardedDns} 对解析结果复校兜底）；</li>
+ *   <li>IP 字面量主机不走 OkHttp Dns SPI（RouteSelector 对字面量直接 InetAddress 快路径，
+ *       okhttp 5.3.2 反汇编确认），连接层复校对字面量是盲区——故初始 URL 与每个重定向
+ *       跳点的校验必须发生在建请求之前（#153），这正是本类的职责边界。</li>
  * </ul>
- * 彻底收敛需要在 HTTP 客户端层按解析结果复校或做出口策略。
+ *
+ * <p><b>allow-private-hosts = 本地/开发档 escape hatch</b>（#153 更名定性）：它关闭的是
+ * <b>整个私址/内网地址段限制</b>（本地开发抓 localhost MockWebServer 源不被拦），不是
+ * host 白名单，开启时所有内网目标整体放行。生产必须关闭（prod profile 显式 false +
+ * ProdConfigTripwireTest 绊网防 env 漂移）。
  */
 @Component
 public class IngestionUrlGuard {
-
-    private static final Set<String> ALLOWED_SCHEMES = Set.of("http", "https");
 
     /**
      * 凭证 map 会被上游抓取器直接写成请求头，这些头必须由 HTTP 客户端自己决定，
@@ -75,7 +77,8 @@ public class IngestionUrlGuard {
     }
 
     /**
-     * 校验文档源。非 URL 类型不在此处拦（file/feishu 有各自的边界）。
+     * 校验文档源。非 URL 类型不在此处拦（file/feishu 的文档面有各自边界；
+     * feishu 非文档分支的任意 URL 由 HttpClientHelper 统一入口校验，#153）。
      */
     public void validate(DocumentSourceRequest source) {
         if (source == null || source.getType() != SourceType.URL) {
@@ -86,25 +89,39 @@ public class IngestionUrlGuard {
     }
 
     /**
-     * 出站目标校验（O2/M4 公开复用面）：对任意运行期 URL 做 scheme/形状 +
-     * 内网/元数据地址校验，口径与入站初始校验完全一致。重定向逐跳复校
-     * （{@link RedirectGuard}）与 multipart 直传入口的抓取期兜底都走这里。
+     * 出站目标校验（O2/M4 公开复用面，#153 起单一权威入口）：对任意运行期 URL 在
+     * <b>建请求之前</b>做 scheme/形状 + 内网/元数据地址校验。host 判定输入是与实际
+     * HTTP client <b>同一解析器</b>（OkHttp {@link HttpUrl}）的 canonicalization 结果——
+     * URI/OkHttp/InetAddress 三者对 hostname 与 IP 字面量变体的规范化不一致正是
+     * 字面量盲区的成因；解析失败一律 fail closed。重定向逐跳复校
+     * （{@link RedirectGuard}）、multipart 直传入口的抓取期兜底、news/抓取 helper 的
+     * 初始 URL 前置校验都走这里。
      */
     public void validateOutboundTarget(String location) {
-        URI uri = parse(location);
-        // scheme 与 userinfo 无论开关如何都拦：allow-private-hosts 只放宽地址段，
-        // 不应把 file:// 之类非 HTTP 协议放进来
-        checkSchemeAndShape(uri);
+        if (location == null || location.isBlank()) {
+            throw new ClientException("文档源地址不能为空");
+        }
+        // HttpUrl 只接受 http/https（其余 scheme 返回 null），且对 IP 字面量做与实际
+        // client 一致的规范化（十进制/十六进制等变体归一为点分十进制，IPv6 归一形态）
+        HttpUrl url = HttpUrl.parse(location.trim());
+        if (url == null) {
+            throw new ClientException("文档源地址不是合法的 http/https URL");
+        }
+        // http://trusted.example@169.254.169.254/ 这类写法会让人把 userinfo 误读成主机
+        if (!url.username().isEmpty() || !url.password().isEmpty()) {
+            throw new ClientException("文档源地址不允许携带 userinfo");
+        }
         if (!allowPrivateHosts) {
-            checkHostIsPublic(uri.getHost());
+            checkHostIsPublic(url.host());
         }
     }
 
     /**
      * 连接级复校（#101 Dns SPI 复用面）：对建连时实际解析出的地址逐个做内网/元数据判定，
      * 命中即抛 ClientException（调用方整单失败）。与 {@link #checkHostIsPublic} 同一
-     * {@link #isInternalAddress} 判定，不复制逻辑；allow-private-hosts 开启时同口径放行
-     * （本地档抓 localhost 源文件不被拦）。
+     * {@link #isInternalAddress} 判定，不复制逻辑；escape hatch 开启时同口径整体放行
+     * （本地档抓 localhost 源文件不被拦）。注意 IP 字面量主机不走 Dns SPI（类注释），
+     * 字面量的防线在 {@link #validateOutboundTarget} 的建请求前校验。
      */
     public void checkResolvedAddresses(String host, java.util.List<InetAddress> addresses) {
         if (allowPrivateHosts) {
@@ -121,32 +138,10 @@ public class IngestionUrlGuard {
         }
     }
 
-    private URI parse(String location) {
-        if (location == null || location.isBlank()) {
-            throw new ClientException("文档源地址不能为空");
-        }
-        try {
-            return new URI(location.trim());
-        } catch (URISyntaxException e) {
-            throw new ClientException("文档源地址不是合法的 URL");
-        }
-    }
-
-    private void checkSchemeAndShape(URI uri) {
-        String scheme = uri.getScheme();
-        if (scheme == null || !ALLOWED_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT))) {
-            throw new ClientException("文档源仅支持 http/https 地址");
-        }
-        // http://trusted.example@169.254.169.254/ 这类写法会让人把 userinfo 误读成主机
-        if (uri.getUserInfo() != null) {
-            throw new ClientException("文档源地址不允许携带 userinfo");
-        }
-        if (uri.getHost() == null || uri.getHost().isBlank()) {
-            throw new ClientException("文档源地址缺少主机名");
-        }
-    }
-
     private void checkHostIsPublic(String host) {
+        // HttpUrl.host() 的 IPv6 形态带方括号，剥掉后送 getAllByName 才能落到地址分类；
+        // 非字面量主机名同路解析（域名解析到私址一样拒绝），非标准 IPv4 变体
+        // （十进制/十六进制/八进制）由 Java 地址解析归一后分类
         String normalized = normalizeHost(host);
         if (BLOCKED_HOST_NAMES.contains(normalized)) {
             throw new ClientException("文档源地址指向内部主机，已拒绝");

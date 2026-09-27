@@ -58,7 +58,9 @@ services:
       RAG_NEWS_ENRICHBATCH: ${RAG_NEWS_ENRICHBATCH:-20}
       RAG_NEWS_FETCHCRON: "${RAG_NEWS_FETCHCRON:-0 0 8,13,19 * * *}"
       RAGENT_ANONYMOUS_ENABLED: ${RAGENT_ANONYMOUS_ENABLED:-false}
-      RAGENT_MAIL_MODE: ${RAGENT_MAIL_MODE:-logger}
+      # 邮件模式无回落（#150，审计 NV-2 收口）：生产必须显式声明（polyu-prod.env /
+      # gen-prod-env.py 均写 smtp），缺键时 compose 直接拒启而非静默回落 logger 把验证码写进日志
+      RAGENT_MAIL_MODE: ${RAGENT_MAIL_MODE:?RAGENT_MAIL_MODE is required - logger fallback removed}
       RAGENT_REGISTRATION_ENABLED: ${RAGENT_REGISTRATION_ENABLED:-false}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}

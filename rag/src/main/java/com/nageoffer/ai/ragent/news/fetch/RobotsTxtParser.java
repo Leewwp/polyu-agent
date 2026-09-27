@@ -69,7 +69,13 @@ public final class RobotsTxtParser {
             String value = rule.substring(colon + 1).strip();
             if ("crawl-delay".equals(name) && !value.isEmpty()) {
                 try {
-                    crawlDelay = Double.parseDouble(value);
+                    double parsed = Double.parseDouble(value);
+                    // 数值合同 finite + positive（#152，审计 F-4）：NaN/Infinity/-Infinity
+                    // 不抛 NumberFormatException 须显式判定；非正值与不可解析值同按
+                    // 「无 Crawl-delay」处理——任何路径不得把无界值送进等待/defer 数学
+                    if (Double.isFinite(parsed) && parsed > 0) {
+                        crawlDelay = parsed;
+                    }
                 } catch (NumberFormatException ignore) {
                     // 非数值 Crawl-delay 视为缺失
                 }

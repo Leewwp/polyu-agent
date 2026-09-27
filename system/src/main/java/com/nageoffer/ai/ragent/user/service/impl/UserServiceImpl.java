@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.StrUtil;
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -119,6 +120,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     @LogRecord(
             success = "更新用户：{{#id}}",
             fail = "更新用户失败：{{#_errorMsg}}",
@@ -133,6 +135,7 @@ public class UserServiceImpl implements UserService {
         UserDO record = loadById(id);
         ensureNotDefaultAdmin(record);
         UserVO before = toVO(record);
+        boolean passwordChanged = false;
 
         if (requestParam.getUsername() != null) {
             String username = StrUtil.trimToNull(requestParam.getUsername());
@@ -158,10 +161,16 @@ public class UserServiceImpl implements UserService {
             String password = StrUtil.trimToNull(requestParam.getPassword());
             Assert.notBlank(password, () -> new ClientException("新密码不能为空"));
             record.setPassword(passwordCodec.encode(password));
+            passwordChanged = true;
         }
 
         userMapper.updateById(record);
         bizChangeLogContext.put(id, before, toVO(userMapper.selectById(id)));
+        if (passwordChanged) {
+            // 管理员改密与自助改密同口径（#151）：踢该用户全部既有会话。踢出失败整体失败
+            // 可重试（事务回滚密码变更），不允许「密码已改→踢出失败→仍返回成功」的部分成功态
+            StpUtil.logout(id);
+        }
     }
 
     @Override
@@ -186,6 +195,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     @LogRecord(
             success = "修改当前用户密码",
             fail = "修改当前用户密码失败：{{#_errorMsg}}",
@@ -218,6 +228,10 @@ public class UserServiceImpl implements UserService {
         record.setPassword(passwordCodec.encode(next));
         userMapper.updateById(record);
         bizChangeLogContext.put(loginUser.getUserId(), before, toVO(userMapper.selectById(loginUser.getUserId())));
+        // 密码轮换=「疑似 token 泄露」的止损动作：改密成功即踢该用户全部既有会话
+        // （对齐 resetPassword/purge 惯例，#151/审计 F-3）——含当前会话，前端按既有
+        // 口径引导重登。踢出失败整体失败可重试（事务回滚密码变更），不返回部分成功
+        StpUtil.logout(loginUser.getUserId());
     }
 
     // ---------- 个人中心（#104） ----------

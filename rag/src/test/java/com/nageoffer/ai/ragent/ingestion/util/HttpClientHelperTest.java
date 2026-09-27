@@ -51,7 +51,8 @@ class HttpClientHelperTest {
     void setUp() throws Exception {
         server = new MockWebServer();
         server.start();
-        helper = new HttpClientHelper(new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)));
+        helper = new HttpClientHelper(new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)),
+                new IngestionUrlGuard(true));
     }
 
     @AfterEach
@@ -61,6 +62,22 @@ class HttpClientHelperTest {
 
     private String url(String path) {
         return server.url(path).toString();
+    }
+
+    @Test
+    void 严格档下内网字面量在建请求前被拒零出站() {
+        // #153：helper 是不可信 URL 抓取统一入口，初始 URL 守卫先于任何请求构建——
+        // 内网字面量目标不得产生任何出站请求（含 robots/重定向试探）
+        com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard strict =
+                new com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard(false);
+        HttpClientHelper strictHelper = new HttpClientHelper(new OkHttpClient(),
+                new RedirectGuard(strict), strict);
+
+        com.nageoffer.ai.ragent.framework.exception.ClientException rejected = assertThrows(
+                com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> strictHelper.get("http://127.0.0.1:9200/_cat/indices", java.util.Map.of()));
+        assertTrue(rejected.getMessage().contains("内网或保留地址"));
+        assertEquals(0, server.getRequestCount(), "拒绝必须发生在任何出站请求之前");
     }
 
     @Test

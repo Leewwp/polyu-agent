@@ -211,8 +211,9 @@ public class AccountLifecycleServiceImpl implements AccountLifecycleService {
         }
         Date now = new Date();
         userMapper.softDeleteById(user.getId(), now);
-        // 下线当前会话；冷静期信息（30 天内可撤销）由前端提示文案承载
-        StpUtil.logout();
+        // 账号级下线（#151/审计 F-7）：注销冷静期须踢该用户全部会话（含其它浏览器/设备），
+        // 只踢当前 token 会留下「恢复后复活删除前旧会话」的口子；恢复账号走新登录
+        StpUtil.logout(user.getId());
         log.info("[account-delete] 自助注销进入冷静期：userId={} 到期=now+{}d", user.getId(), DELETE_GRACE_DAYS);
     }
 

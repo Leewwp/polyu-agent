@@ -11,6 +11,11 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 100MB
+      # multipart 惰性解析（#153/NV-1 运行时实锤）：DispatcherServlet 默认在 interceptor
+      # preHandle（登录校验）之前就把整个请求体解析并落盘 servlet 临时文件——未登录的
+      # 慢速上传也会占住 worker 线程与临时磁盘（实测 6MB/300KB/s 全程 20s 落盘）。
+      # 惰性解析把 multipart 解析推迟到 controller 参数绑定（鉴权之后），401 不再触盘
+      resolve-lazily: true
 
   datasource:
     driver-class-name: org.postgresql.Driver
@@ -468,6 +473,12 @@ sa-token:
   is-share: false
   token-style: simple-uuid
   is-log: false
+  # 禁从请求参数回查 token（#153/NV-1 运行时实锤）：sa-token 默认 is-read-body=true 会
+  # request.getParameter(tokenName)，multipart 请求上该调用触发容器在鉴权前整包解析
+  # 落盘（栈帧取证 StpLogic.getTokenValueNotCut→SaRequestForServlet.getParam）；
+  # 本应用 token 只走 Authorization 头（U3 cookie 化后另有 cookie），参数回查零使用，
+  # 关闭同时消除 token 进 URL/浏览器历史的旁路面
+  is-read-body: false
   is-print: false
   # 会话载体 cookie 化（Sa-Token 原生档位）：登录写 HttpOnly Cookie、请求可从 Cookie 读 token；
   # 登出时以增代删清 Cookie（is-read-cookie 开启即触发）。secure 不在基础档设置（本地 http），
