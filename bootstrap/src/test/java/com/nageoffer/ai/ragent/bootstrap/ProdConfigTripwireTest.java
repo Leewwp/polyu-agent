@@ -48,6 +48,19 @@ class ProdConfigTripwireTest {
         assertThat(properties.getProperty("ragent.eval.enabled"))
                 .as("prod profile 必须显式 ragent.eval.enabled=false（base 开发默认 true 不得漂入生产）")
                 .isEqualTo("false");
+        // SSRF escape hatch 同绊（#153/审计 F-2）：allow-private-hosts 是本地/开发档整体
+        // 旁路私址限制的开关，生产开启=出站守卫对内网目标整体放行
+        assertThat(properties.getProperty("ragent.ingestion.url-guard.allow-private-hosts"))
+                .as("prod profile 必须显式 allow-private-hosts=false（防 env 漂移关闭 SSRF 防线）")
+                .isEqualTo("false");
+    }
+
+    @Test
+    void 生产compose不得启用出站守卫escape_hatch() throws Exception {
+        String compose = Files.readString(repoFile("deploy/polyu-prod.compose.yaml"));
+        assertThat(compose)
+                .as("生产 compose 不得把 allow-private-hosts 逃生口设为 true（审计 F-2 production tripwire）")
+                .doesNotContainPattern("(?i)ALLOW[-_]PRIVATE[-_]HOSTS[^\\n]*:?[^\n]*true");
     }
 
     @Test

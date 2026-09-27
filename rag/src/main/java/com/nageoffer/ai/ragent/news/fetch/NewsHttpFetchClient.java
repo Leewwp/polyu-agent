@@ -18,9 +18,11 @@
 package com.nageoffer.ai.ragent.news.fetch;
 
 import com.nageoffer.ai.ragent.framework.exception.AbstractException;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.rag.config.FetchLimits;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -93,6 +95,7 @@ public class NewsHttpFetchClient {
 
     private final OkHttpClient httpClient;
     private final RedirectGuard redirectGuard;
+    private final IngestionUrlGuard urlGuard;
     private final long maxBodyBytes;
     private final String userAgent;
     private final Sleeper sleeper;
@@ -115,21 +118,24 @@ public class NewsHttpFetchClient {
     @org.springframework.beans.factory.annotation.Autowired
     public NewsHttpFetchClient(@Qualifier("guardedHttpClient") OkHttpClient httpClient,
                                RedirectGuard redirectGuard,
+                               IngestionUrlGuard urlGuard,
                                FetchLimits fetchLimits,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
-        this(httpClient, redirectGuard, fetchLimits.maxFetchBytes(), userAgent,
+        this(httpClient, redirectGuard, urlGuard, fetchLimits.maxFetchBytes(), userAgent,
                 millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**
-     * 既有五参构造器（测试兼容）：正文上限取生产默认 50MB
+     * 既有六参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB。
+     * 新测试用七参构造器显式注入严格档守卫
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
-        this(httpClient, redirectGuard, DEFAULT_MAX_BODY_BYTES, userAgent, sleeper, clock);
+        this(httpClient, redirectGuard, new IngestionUrlGuard(true), DEFAULT_MAX_BODY_BYTES,
+                userAgent, sleeper, clock);
     }
 
     /**
@@ -137,12 +143,14 @@ public class NewsHttpFetchClient {
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
+                        IngestionUrlGuard urlGuard,
                         long maxBodyBytes,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
         this.httpClient = httpClient;
         this.redirectGuard = redirectGuard;
+        this.urlGuard = urlGuard;
         this.maxBodyBytes = maxBodyBytes;
         this.userAgent = userAgent;
         this.sleeper = sleeper;
@@ -150,9 +158,16 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * 纪律化 GET：robots 校验 → 节拍 → 抓取（瞬时重试 1 次）→ 响应体字节
+     * 纪律化 GET：初始 URL 守卫（#153，建请求前）→ robots 校验 → 节拍 → 抓取（瞬时重试
+     * 1 次）→ 响应体字节。条目 URL 由 feed 内容控制（不可信）：内网/元数据/字面量变体
+     * 在任何出站请求（含 robots.txt 拉取）之前拒绝，按永久错误计入条目级失败
      */
     public byte[] get(String url) {
+        try {
+            urlGuard.validateOutboundTarget(url);
+        } catch (ClientException e) {
+            throw new NewsFetchException("出站目标被拒: " + e.getMessage(), false, e);
+        }
         String hostKey = NewsUrlNormalizer.hostKey(url);
         RobotsRules rules = robotsFor(url, hostKey);
         double intervalSeconds = Math.max(

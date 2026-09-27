@@ -62,7 +62,8 @@ class FeishuFetcherTest {
     }
 
     private FeishuFetcher newFetcher(String rawLimit) {
-        HttpClientHelper helper = new HttpClientHelper(new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)));
+        HttpClientHelper helper = new HttpClientHelper(new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)),
+                new IngestionUrlGuard(true));
         return new FeishuFetcher(new OkHttpClient(), helper, limits(rawLimit));
     }
 

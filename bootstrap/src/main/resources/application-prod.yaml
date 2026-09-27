@@ -47,3 +47,9 @@ sa-token:
 ragent:
   eval:
     enabled: false
+  # 出站 URL 守卫 escape hatch 生产显式关闭（#153，审计 F-2）：allow-private-hosts 是
+  # 本地/开发档整体旁路私址限制的开关（非 host 白名单），生产开启=SSRF 防线解除；
+  # 绊网=bootstrap ProdConfigTripwireTest 钉住本键为 false
+  ingestion:
+    url-guard:
+      allow-private-hosts: false

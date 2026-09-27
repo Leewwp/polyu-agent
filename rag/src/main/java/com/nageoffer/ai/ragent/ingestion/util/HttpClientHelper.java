@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.ingestion.util;
 
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -34,10 +35,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
- * HTTP 请求工具类，用于获取网络资源。
- * 全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转目标（O2/M4）；
- * 连接层经守卫式客户端（guardedHttpClient bean，GuardedDns 对建连解析结果复校，
- * #101 DNS 重绑定收口）——本类不自持派生配方，守卫归集在 HttpClientConfig（issue #125）。
+ * HTTP 请求工具类，用于获取网络资源（不可信 URL 抓取的统一入口，#153）。
+ * <p>
+ * 初始 URL 在<b>建请求之前</b>经 {@link IngestionUrlGuard#validateOutboundTarget} 校验
+ * （OkHttp HttpUrl 同源 canonicalization，IP 字面量与变体在建请求前被拦——连接层 Dns
+ * SPI 对字面量是盲区）；全部请求经 {@link RedirectGuard} 手动逐跳跟随重定向并复校跳转
+ * 目标（O2/M4）；连接层经守卫式客户端（guardedHttpClient bean，GuardedDns 对建连解析
+ * 结果复校，#101 DNS 重绑定收口）——本类不自持派生配方，守卫归集在 HttpClientConfig
+ * （issue #125）。受信出站面（模型/引擎回环/解析服务专用 client）不经本类。
  */
 @Component
 public class HttpClientHelper {
@@ -46,10 +51,14 @@ public class HttpClientHelper {
 
     private final RedirectGuard redirectGuard;
 
+    private final IngestionUrlGuard urlGuard;
+
     public HttpClientHelper(@Qualifier("guardedHttpClient") OkHttpClient guardedClient,
-                            RedirectGuard redirectGuard) {
+                            RedirectGuard redirectGuard,
+                            IngestionUrlGuard urlGuard) {
         this.client = guardedClient;
         this.redirectGuard = redirectGuard;
+        this.urlGuard = urlGuard;
     }
 
     public HttpFetchResponse get(String url, Map<String, String> headers) {
@@ -61,6 +70,7 @@ public class HttpClientHelper {
     }
 
     public HttpFetchStream openStream(String url, Map<String, String> headers, long maxBytes) {
+        urlGuard.validateOutboundTarget(url);
         Request.Builder builder = new Request.Builder().url(url);
         if (headers != null) {
             headers.forEach(builder::addHeader);
@@ -93,6 +103,7 @@ public class HttpClientHelper {
     }
 
     private HttpFetchResponse doGet(String url, Map<String, String> headers, long maxBytes) {
+        urlGuard.validateOutboundTarget(url);
         Request.Builder builder = new Request.Builder().url(url);
         if (headers != null) {
             headers.forEach(builder::addHeader);
@@ -127,6 +138,7 @@ public class HttpClientHelper {
     }
 
     public HttpHeadResponse head(String url, Map<String, String> headers) {
+        urlGuard.validateOutboundTarget(url);
         Request.Builder builder = new Request.Builder().url(url);
         if (headers != null) {
             headers.forEach(builder::addHeader);

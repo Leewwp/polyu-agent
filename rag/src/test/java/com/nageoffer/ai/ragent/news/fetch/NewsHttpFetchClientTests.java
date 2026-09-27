@@ -101,7 +101,7 @@ class NewsHttpFetchClientTests {
         server.enqueue(body("x".repeat(64))); // 内容体超限
 
         NewsHttpFetchClient limited = new NewsHttpFetchClient(new OkHttpClient(),
-                new RedirectGuard(new IngestionUrlGuard(true)), 16L,
+                new RedirectGuard(new IngestionUrlGuard(true)), new IngestionUrlGuard(true), 16L,
                 "polyuguide-feed/1.0 (+https://polyuguide.com)", sleeper, clock);
 
         NewsFetchException ex = assertThrows(NewsFetchException.class,
@@ -201,6 +201,23 @@ class NewsHttpFetchClientTests {
 
         assertTrue(sleeper.waits.stream().anyMatch(w -> w >= 19_999L),
                 "Crawl-delay 20s 应抬高间隔，实际：" + sleeper.waits);
+    }
+
+    @Test
+    void 内网字面量条目URL在建请求前被拒为永久错误() {
+        // #153/审计 F-2c：条目 URL 由 feed 内容控制，严格档下内网目标在任何出站请求
+        //（含 robots.txt 拉取）之前拒绝，按永久错误计入条目级失败（不重试不睡）
+        com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard strict =
+                new com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard(false);
+        NewsHttpFetchClient strictClient = new NewsHttpFetchClient(new OkHttpClient(),
+                new RedirectGuard(strict), strict, 1024L,
+                "polyuguide-feed/1.0", sleeper, clock);
+
+        NewsFetchException ex = assertThrows(NewsFetchException.class,
+                () -> strictClient.get("http://127.0.0.1:1/x"));
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("出站目标被拒"), "实际：" + ex.getMessage());
+        assertEquals(0, server.getRequestCount(), "拒绝必须先于 robots/内容任何出站请求");
     }
 
     // ---------- #152：Crawl-delay 有界化——超阈值 defer / 阈值内照常等待（审计 F-4） ----------
