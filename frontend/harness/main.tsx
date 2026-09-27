@@ -491,14 +491,14 @@ const frames: AgentRawFrame[] = [
   {
     id: 3,
     ts: hms(1),
-    name: "tool",
-    data: { name: "search_knowledge", displayName: "知识库检索", status: "start" }
+    name: "block",
+    data: { kind: "tool", name: "search_knowledge", displayName: "知识库检索", status: "pending" }
   },
   {
     id: 4,
     ts: hms(0),
-    name: "tool",
-    data: { name: "search_knowledge", displayName: "知识库检索", status: "end", ok: true, result: "[…]" }
+    name: "block",
+    data: { kind: "tool", name: "search_knowledge", displayName: "知识库检索", status: "done", ok: true, result: "[…]" }
   },
   { id: 5, ts: hms(0), name: "message", data: { type: "answer", delta: "根据知识库…" } }
 ];

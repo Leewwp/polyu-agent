@@ -35,6 +35,7 @@ const T0 = 1767229264000;
 const DECLARED_AT = "2026-01-01T09:41:02";
 const hmsOf = (epochMs) => new Date(epochMs).toTimeString().slice(0, 8);
 const pending = (id, name, index = 0) => ({
+  kind: "tool",
   toolCallId: id,
   name,
   displayName: name,

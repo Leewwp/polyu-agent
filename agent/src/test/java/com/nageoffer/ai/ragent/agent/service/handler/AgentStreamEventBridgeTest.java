@@ -331,6 +331,13 @@ class AgentStreamEventBridgeTest {
         assertThat(blocks.get(2).getText()).isEqualTo("再说一句");
         // content 是正文全文，被工具块切成几段也要按序接回来，末段收尾前还没封口
         assertThat(capturedContent()).isEqualTo("先说一句再说一句");
+        ArgumentCaptor<Object> updates = ArgumentCaptor.forClass(Object.class);
+        verify(sender, times(4)).sendEvent(eq("block"), updates.capture());
+        assertThat(updates.getAllValues()).containsExactly(
+                capturedToolEvents().get(0), AgentTextBlockSeal.of(blocks.get(0)),
+                capturedToolEvents().get(1), AgentTextBlockSeal.of(blocks.get(2)));
+        assertThat(capturedToolEvents()).allSatisfy(update -> assertThat(update.kind()).isEqualTo("tool"));
+        verify(sender, never()).sendEvent(eq("tool"), any());
     }
 
     /**
@@ -494,7 +501,7 @@ class AgentStreamEventBridgeTest {
 
         AgentBlock block = capturedBlocks().get(0);
         AgentToolProgress last = capturedToolEvents().get(capturedToolEvents().size() - 1);
-        assertThat(last).isEqualTo(new AgentToolProgress(block.getToolCallId(), block.getName(),
+        assertThat(last).isEqualTo(new AgentToolProgress("tool", block.getToolCallId(), block.getName(),
                 block.getDisplayName(), block.getStatus(), block.getResult(), true, block.getAt(),
                 block.getBatchId(), block.getCallIndex(), block.getStartedAt(), block.getEndedAt(),
                 block.getDurationMs(), block.getDurationSource(), block.getSources()));
@@ -722,9 +729,12 @@ class AgentStreamEventBridgeTest {
     }
 
     private List<AgentToolProgress> capturedToolEvents() {
-        ArgumentCaptor<AgentToolProgress> captor = ArgumentCaptor.forClass(AgentToolProgress.class);
-        verify(sender, atLeastOnce()).sendEvent(eq("tool"), captor.capture());
-        return captor.getAllValues();
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(sender, atLeastOnce()).sendEvent(eq("block"), captor.capture());
+        return captor.getAllValues().stream()
+                .filter(AgentToolProgress.class::isInstance)
+                .map(AgentToolProgress.class::cast)
+                .toList();
     }
 
     private AgentStreamEventBridge newBridge() {

@@ -22,7 +22,7 @@ import java.util.stream.Stream;
 
 /**
  * Agent 侧 /agent/v1/chat 的 SSE 客户端
- * 与 RAG 的 /rag/v3/chat 协议不同：没有 reject 事件，限流在建流之前就以异常拒掉，多一个 tool 事件
+ * 与 RAG 的 /rag/v3/chat 协议不同：没有 reject 事件，限流在建流之前拒绝；工具更新从 block(kind=tool) 读取
  */
 final class AgentChatClient {
 
@@ -146,14 +146,18 @@ final class AgentChatClient {
                         return;
                     }
                     // 思考内容单独计数：判定关键词只看正式回答，否则模型「想过」也算记得
-                    if ("think".equals(SimpleJson.string(delta, "type"))) {
+                    if ("reasoning".equals(SimpleJson.string(delta, "type"))) {
                         thinkChars += text.length();
                     } else {
                         answer.append(text);
                     }
                 }
-                case "tool" -> {
-                    String toolName = SimpleJson.string(asObject(payload), "name");
+                case "block" -> {
+                    Map<String, Object> block = asObject(payload);
+                    if (!"tool".equals(SimpleJson.string(block, "kind"))) {
+                        return;
+                    }
+                    String toolName = SimpleJson.string(block, "name");
                     if (toolName != null && !toolName.isBlank()) {
                         tools.add(toolName);
                     }

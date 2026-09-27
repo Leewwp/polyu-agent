@@ -143,9 +143,10 @@ export interface AgentMessageDelta {
 }
 
 /**
- * SSE tool 帧 一次调用收到 pending / running / 终态三帧 按 NON_NULL 序列化
+ * SSE block 的工具载荷，通过同一 toolCallId 更新状态、结果与时间
  */
 export interface AgentToolProgress {
+  kind: "tool";
   toolCallId?: string | null;
   name: string;
   displayName: string;
@@ -168,12 +169,15 @@ export interface AgentToolProgress {
  * SSE block 帧 文本封口后服务端下发起止 不带正文
  */
 export interface AgentTextBlockSeal {
-  kind: AgentBlockKind;
+  kind: AgentTextKind;
   at?: string | null;
   startedAt?: number | null;
   endedAt?: number | null;
   durationMs?: number | null;
 }
+
+// 同一 block 事件的两种载荷，由 kind 区分
+export type AgentBlockUpdate = AgentTextBlockSeal | AgentToolProgress;
 
 export interface AgentHintPayload {
   code: string;

@@ -386,7 +386,7 @@ public class AgentStreamEventBridge {
             openToolBlocks.put(callKey(event.getToolCallId()), block);
             progress = AgentToolProgress.of(block);
         }
-        sender.sendEvent(AgentSSEEventType.TOOL.value(), progress);
+        sender.sendEvent(AgentSSEEventType.BLOCK.value(), progress);
     }
 
     /**
@@ -415,7 +415,7 @@ public class AgentStreamEventBridge {
             }
             progress = AgentToolProgress.of(block);
         }
-        sender.sendEvent(AgentSSEEventType.TOOL.value(), progress);
+        sender.sendEvent(AgentSSEEventType.BLOCK.value(), progress);
     }
 
     private void onToolResultDelta(ToolResultTextDeltaEvent event) {
@@ -461,7 +461,7 @@ public class AgentStreamEventBridge {
             applyExecutionTimes(block);
             progress = AgentToolProgress.of(block);
         }
-        sender.sendEvent(AgentSSEEventType.TOOL.value(), progress);
+        sender.sendEvent(AgentSSEEventType.BLOCK.value(), progress);
     }
 
     /**
@@ -481,7 +481,7 @@ public class AgentStreamEventBridge {
                 progresses.add(AgentToolProgress.of(block));
             }
         }
-        progresses.forEach(progress -> sender.sendEvent(AgentSSEEventType.TOOL.value(), progress));
+        progresses.forEach(progress -> sender.sendEvent(AgentSSEEventType.BLOCK.value(), progress));
     }
 
     /**

@@ -115,9 +115,9 @@ function matchToolIndex(blocks: AgentBlockUI[], payload: AgentToolProgress): num
 }
 
 /**
- * SSE tool 帧投影成时间线块
+ * SSE block 工具载荷投影成时间线块
  * 认不到已有块就补一行：确认续跑的工具是上一条消息开的头 这一轮只收得到执行段 不补就看不见它跑过
- * 缺字段一律退回块上的旧值 —— 载荷按 NON_NULL 走 pending 帧本就不带批次与时刻
+ * 缺字段一律退回块上的旧值 —— 载荷按 NON_NULL 走 pending 帧尚无执行批次与起止时间
  */
 export function applyToolFrame(
   blocks: AgentBlockUI[],
@@ -131,7 +131,7 @@ export function applyToolFrame(
     ...prev,
     id: prev?.id ?? ctx.allocId(),
     kind: "tool",
-    // 服务端给了时刻就以它为准：pending 帧不带 至此先用到达时刻占位 后一帧再校正成落库的那个
+    // 服务端给了时刻就以它为准：旧接口缺少时刻时才使用到达时刻占位
     at: toBlockHms(payload.at) || prev?.at || ctx.fallbackAt,
     name: payload.name,
     displayName: payload.displayName || payload.name,
