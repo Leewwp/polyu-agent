@@ -40,3 +40,10 @@ rocketmq:
 sa-token:
   cookie:
     secure: true
+
+# 评测模式生产显式关闭（#150，审计 F-6）：base yaml 开发默认 true 会随 prod profile 存活，
+# 静默旁路幂等切面（IdempotentSubmitAspect）并注册 /rag/eval 管理端点；EvalProperties
+# 文档口径即「生产默认 false」。绊网=bootstrap ProdConfigTripwireTest 钉住本键
+ragent:
+  eval:
+    enabled: false
