@@ -32,6 +32,7 @@ import com.mzt.logapi.starter.annotation.LogRecord;
 import com.nageoffer.ai.ragent.audit.constant.BizChangeBizType;
 import com.nageoffer.ai.ragent.audit.constant.BizChangeOperationType;
 import com.nageoffer.ai.ragent.audit.support.BizChangeLogContext;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.core.chunk.model.EmbeddedChunk;
 import com.nageoffer.ai.ragent.core.ingest.DocumentRef;
 import com.nageoffer.ai.ragent.core.ingest.IngestionKernel;
@@ -124,6 +125,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final TransactionOperations transactionOperations;
     private final MessageQueueProducer messageQueueProducer;
     private final KnowledgeScheduleProperties scheduleProperties;
+    private final com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard ingestionUrlGuard;
     private final RemoteFileFetcher remoteFileFetcher;
     private final VectorTargetResolver vectorTargetResolver;
     private final BizChangeLogContext bizChangeLogContext;
@@ -518,6 +520,12 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         // 对 FILE 类是回跳元数据（upload 早期版本漏写，这里允许补救），不触发调度
         String newSourceLocation = StrUtil.trimToNull(requestParam.getSourceLocation());
         if (newSourceLocation != null) {
+            // URL 类文档的新抓取源址写入前过出站守卫（#153/审计 F-2b）：update 面此前只拦
+            // IngestionTaskCreateRequest，改址后定时重取链路会把守卫旁路的内容当语料抓取；
+            // FILE 类的 sourceLocation 是回跳元数据，不经此校验
+            if (SourceType.URL.getValue().equalsIgnoreCase(documentDO.getSourceType())) {
+                ingestionUrlGuard.validateOutboundTarget(newSourceLocation);
+            }
             updateWrapper.set(KnowledgeDocumentDO::getSourceLocation, newSourceLocation);
             scheduleChanged = SourceType.URL.getValue().equalsIgnoreCase(documentDO.getSourceType());
         }
@@ -787,6 +795,13 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         String sourceLocation = StrUtil.trimToNull(request.getSourceLocation());
         if (SourceType.URL == sourceType && !StringUtils.hasText(sourceLocation)) {
             throw new ClientException("来源地址不能为空");
+        }
+        if (SourceType.URL == sourceType) {
+            // URL 类源址过出站守卫（#153）：multipart 入口的守卫从 pre-auth Filter 后移到
+            // 此处（鉴权之后、第一个副作用之前）——Filter 层读 multipart 参数会在登录
+            // 校验前触发容器整包解析落盘（NV-1 运行时实锤），与 resolve-lazily 联手
+            // 使未登录上传不再触盘
+            ingestionUrlGuard.validateOutboundTarget(sourceLocation);
         }
         if (!isScheduleEnabled(sourceType, request)) {
             return;

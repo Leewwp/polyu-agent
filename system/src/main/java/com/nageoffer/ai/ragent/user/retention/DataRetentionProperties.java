@@ -53,4 +53,11 @@ public class DataRetentionProperties {
      * 反馈记录保留天数：create_time 早于 now-该值 即整行删除（comment 自由文本按 PII 对待；决议 400 天）
      */
     private int feedbackRetentionDays = 400;
+
+    /**
+     * trace 观测数据保留天数（#154，审计 F-9）：run/node 两表按 create_time 整行删除。
+     * run.extra_data 承载用户提问原文（admin 诊断面消费），默认 30 天对齐 guest 数据
+     * 先例——trace 是诊断数据非产品核心数据，需要更长随时调此键；账号硬删另有级联即删
+     */
+    private int traceRetentionDays = 30;
 }

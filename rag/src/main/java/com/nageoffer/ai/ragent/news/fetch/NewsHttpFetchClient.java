@@ -18,9 +18,11 @@
 package com.nageoffer.ai.ragent.news.fetch;
 
 import com.nageoffer.ai.ragent.framework.exception.AbstractException;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.exception.ServiceException;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
 import com.nageoffer.ai.ragent.rag.config.FetchLimits;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import com.nageoffer.ai.ragent.rag.security.RedirectGuard;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -43,7 +45,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ol>
  *   <li>robots.txt：每 host 拉取一次（进程内缓存）并先校验，命中 Disallow 拒绝抓取；
  *       robots 4xx 视为允许（REP），获取失败默认允许但记录（非 strict）；</li>
- *   <li>限速：同 host 相邻请求间隔 ≥ max(robots Crawl-delay, 10s)，跨 host 不互相约束；</li>
+ *   <li>限速：同 host 相邻请求间隔 ≥ max(robots Crawl-delay, 10s)，跨 host 不互相约束；
+ *       有效延迟剩余等待 ≤ {@link #MAX_PACE_WAIT_SECONDS} 照常等待（完全遵守），超阈值本轮
+ *       defer 该 host（不 sleep 不请求，豁免期后到期再抓）——单线程调度器永不长睡（#152）；</li>
  *   <li>重试：瞬时错误（IO/超时/5xx/408/429）等 30s 重试 1 次，再失败抛
  *       {@link NewsFetchException}；永久错误（其余 4xx）不重试直接抛；</li>
  *   <li>UA：全部请求带 rag.news.ua 配置的产品身份 UA。</li>
@@ -58,6 +62,16 @@ public class NewsHttpFetchClient {
      * 同 host 最小间隔（秒）
      */
     static final double MIN_INTERVAL_SECONDS = 10.0;
+
+    /**
+     * 单次等待上限/系统等待阈值（秒，#152）：有效延迟（含下限垫高后）≤ 它照常节拍等待
+     * （完全遵守源站节奏，单次等待 ≤ 阈值）；> 它本轮 defer 该 host（记录
+     * {@code deferredUntilMillis}，不 sleep、不请求，调度线程立即让出继续其它任务），
+     * 到期后的下一次调用恢复正常节拍——真实时间已流逝 ≥ 声明延迟，无需再等待，
+     * 源站节奏既不被睡死也不被压低。定值依据：真实语料源 Crawl-delay 常见区间
+     * 1–30s，60s 全覆盖；与既有瞬时重试等待 30s 同量级，调度器任何路径的单次等待以此封顶
+     */
+    static final double MAX_PACE_WAIT_SECONDS = 60.0;
 
     /**
      * 瞬时错误重试前等待（秒）
@@ -81,6 +95,7 @@ public class NewsHttpFetchClient {
 
     private final OkHttpClient httpClient;
     private final RedirectGuard redirectGuard;
+    private final IngestionUrlGuard urlGuard;
     private final long maxBodyBytes;
     private final String userAgent;
     private final Sleeper sleeper;
@@ -90,6 +105,12 @@ public class NewsHttpFetchClient {
     private final Map<String, Long> lastRequestAtMillis = new ConcurrentHashMap<>();
 
     /**
+     * Crawl-delay 超阈值 host 的本轮豁免期（到期时刻，毫秒）：期间对同 host 的请求一律
+     * 立即 defer（零等待），到期移除并恢复正常节拍
+     */
+    private final Map<String, Long> deferredUntilMillis = new ConcurrentHashMap<>();
+
+    /**
      * Spring 装配构造器。注入守卫式客户端（guardedHttpClient bean，GuardedDns 连接级
      * 复校，#101/#125）：fetchOnce 与 robots.txt 拉取共用同一 client；正文读入带上限
      * （issue #125：资讯条目外部内容按不可信内容对待，超限拒绝不整读进堆）
@@ -97,21 +118,24 @@ public class NewsHttpFetchClient {
     @org.springframework.beans.factory.annotation.Autowired
     public NewsHttpFetchClient(@Qualifier("guardedHttpClient") OkHttpClient httpClient,
                                RedirectGuard redirectGuard,
+                               IngestionUrlGuard urlGuard,
                                FetchLimits fetchLimits,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
-        this(httpClient, redirectGuard, fetchLimits.maxFetchBytes(), userAgent,
+        this(httpClient, redirectGuard, urlGuard, fetchLimits.maxFetchBytes(), userAgent,
                 millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**
-     * 既有五参构造器（测试兼容）：正文上限取生产默认 50MB
+     * 既有五参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB。
+     * 需要严格档守卫的测试用七参构造器显式注入
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
-        this(httpClient, redirectGuard, DEFAULT_MAX_BODY_BYTES, userAgent, sleeper, clock);
+        this(httpClient, redirectGuard, new IngestionUrlGuard(true), DEFAULT_MAX_BODY_BYTES,
+                userAgent, sleeper, clock);
     }
 
     /**
@@ -119,12 +143,14 @@ public class NewsHttpFetchClient {
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
+                        IngestionUrlGuard urlGuard,
                         long maxBodyBytes,
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
         this.httpClient = httpClient;
         this.redirectGuard = redirectGuard;
+        this.urlGuard = urlGuard;
         this.maxBodyBytes = maxBodyBytes;
         this.userAgent = userAgent;
         this.sleeper = sleeper;
@@ -132,9 +158,16 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * 纪律化 GET：robots 校验 → 节拍 → 抓取（瞬时重试 1 次）→ 响应体字节
+     * 纪律化 GET：初始 URL 守卫（#153，建请求前）→ robots 校验 → 节拍 → 抓取（瞬时重试
+     * 1 次）→ 响应体字节。条目 URL 由 feed 内容控制（不可信）：内网/元数据/字面量变体
+     * 在任何出站请求（含 robots.txt 拉取）之前拒绝，按永久错误计入条目级失败
      */
     public byte[] get(String url) {
+        try {
+            urlGuard.validateOutboundTarget(url);
+        } catch (ClientException e) {
+            throw new NewsFetchException("出站目标被拒: " + e.getMessage(), false, e);
+        }
         String hostKey = NewsUrlNormalizer.hostKey(url);
         RobotsRules rules = robotsFor(url, hostKey);
         double intervalSeconds = Math.max(
@@ -146,7 +179,7 @@ public class NewsHttpFetchClient {
             throw new NewsFetchException("robots.txt Disallow: " + pathAndQuery, false);
         }
 
-        pace(hostKey, intervalSeconds);
+        acquirePace(hostKey, intervalSeconds);
         try {
             return fetchOnce(url);
         } catch (NewsFetchException first) {
@@ -162,7 +195,7 @@ public class NewsHttpFetchClient {
                 throw new NewsFetchException("重试等待被中断", false, ie);
             }
             // 重试同样走节拍（对同 host 的第二次请求计入间隔）
-            pace(hostKey, intervalSeconds);
+            acquirePace(hostKey, intervalSeconds);
             try {
                 return fetchOnce(url);
             } catch (NewsFetchException second) {
@@ -261,10 +294,44 @@ public class NewsHttpFetchClient {
     }
 
     /**
+     * 节拍准入（#152）：距下次节拍点的剩余等待 ≤ 系统等待阈值 → 照常 {@link #pace} 等待
+     * （源站节奏不被压低，单次等待 ≤ 阈值）；剩余等待超阈值（或处于既有豁免期）→ 本轮
+     * defer——记录到期时刻、不 sleep、不请求，抛 {@link NewsFetchDeferredException} 交调用方
+     * 按「本轮跳过该 host」处理。豁免到期后的下一次调用剩余等待 ≤ 0，直接放行抓取——
+     * 真实时间已流逝 ≥ 声明延迟，节奏完全遵守。robots.txt 自身的拉取节拍走固定 10s
+     * 下限，不经本门
+     */
+    private void acquirePace(String hostKey, double intervalSeconds) {
+        long intervalMs = intervalMillis(intervalSeconds);
+        long now = clock.nowMillis();
+        Long deferredUntil = deferredUntilMillis.get(hostKey);
+        if (deferredUntil != null) {
+            if (now < deferredUntil) {
+                throw new NewsFetchDeferredException(
+                        "Crawl-delay 豁免期内，本轮跳过该 host（" + hostKey + "）");
+            }
+            deferredUntilMillis.remove(hostKey, deferredUntil);
+        }
+        Long last = lastRequestAtMillis.get(hostKey);
+        long base = last != null ? last : now;
+        long eligibleAt = saturatedAdd(base, intervalMs);
+        long remaining = eligibleAt - now;
+        if (remaining > intervalMillis(MAX_PACE_WAIT_SECONDS)) {
+            deferredUntilMillis.put(hostKey, eligibleAt);
+            log.warn("[news] 源站 Crawl-delay 有效值 {}s 的剩余等待超过单次上限 {}s，本轮 defer 该 host"
+                            + "（不请求不等待，调度器继续其它任务），间隔到期后再抓：{}",
+                    intervalSeconds, MAX_PACE_WAIT_SECONDS, hostKey);
+            throw new NewsFetchDeferredException(
+                    "Crawl-delay " + intervalSeconds + "s 超过单次等待上限，本轮跳过该 host（" + hostKey + "）");
+        }
+        pace(hostKey, intervalSeconds);
+    }
+
+    /**
      * 同 host 节拍：距上次请求不足间隔则等待
      */
     private void pace(String hostKey, double intervalSeconds) {
-        long intervalMillis = (long) Math.ceil(intervalSeconds * 1000);
+        long intervalMillis = intervalMillis(intervalSeconds);
         long now = clock.nowMillis();
         Long last = lastRequestAtMillis.get(hostKey);
         if (last != null) {
@@ -279,6 +346,24 @@ public class NewsHttpFetchClient {
             }
         }
         lastRequestAtMillis.put(hostKey, clock.nowMillis());
+    }
+
+    /**
+     * 间隔秒数转毫秒：巨值科学计数法（如 1e18）经 double 路径饱和到 Long.MAX_VALUE，
+     * 不回绕成负数产生「永久豁免后意外放行」的伪到期
+     */
+    private static long intervalMillis(double seconds) {
+        double millis = seconds * 1000.0;
+        if (millis >= Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+        return (long) Math.ceil(millis);
+    }
+
+    private static long saturatedAdd(long a, long b) {
+        long result = a + b;
+        // 同号溢出（result 变号）钳到 Long.MAX_VALUE：豁免到期时刻只许更远、不许回绕
+        return ((a ^ result) & (b ^ result)) < 0 ? Long.MAX_VALUE : result;
     }
 
     /**

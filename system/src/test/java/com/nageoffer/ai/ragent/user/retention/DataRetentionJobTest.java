@@ -129,6 +129,35 @@ class DataRetentionJobTest {
     }
 
     @Test
+    void deletesTracesOlderThanConfiguredDays() {
+        // #154：trace run/node 两表按 create_time 独立整删（node 删自身 cutoff 同时覆盖孤儿行），
+        // 默认 30 天；run.extra_data 承载提问原文，到期即删
+        properties.setTraceRetentionDays(30);
+        DataRetentionJob job = jobWithClock(Instant.parse("2026-09-28T00:00:00Z"));
+        when(jdbcTemplate.update(contains("DELETE FROM t_rag_trace_node"), any(Timestamp.class))).thenReturn(3);
+        when(jdbcTemplate.update(contains("DELETE FROM t_rag_trace_run"), any(Timestamp.class))).thenReturn(2);
+
+        job.sweep();
+
+        verify(jdbcTemplate).update(contains("DELETE FROM t_rag_trace_node"),
+                eq(Timestamp.from(Instant.parse("2026-08-29T00:00:00Z"))));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_rag_trace_run"),
+                eq(Timestamp.from(Instant.parse("2026-08-29T00:00:00Z"))));
+    }
+
+    @Test
+    void traceDeleteFailureDoesNotStopOtherCategories() {
+        // 单类失败隔离：trace 删除抛错，反馈/墓碑清理继续
+        when(jdbcTemplate.update(contains("DELETE FROM t_rag_trace_node"), any(Timestamp.class)))
+                .thenThrow(new IllegalStateException("db down"));
+
+        jobWithClock(Instant.parse("2026-09-28T00:00:00Z")).sweep();
+
+        verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
+    }
+
+    @Test
     void deletesExpiredTombstonesByExpireTime() {
         jobWithClock(NOW).sweep();
 

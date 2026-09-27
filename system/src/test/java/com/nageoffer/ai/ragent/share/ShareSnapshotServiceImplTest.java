@@ -19,11 +19,15 @@ package com.nageoffer.ai.ragent.share;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.nageoffer.ai.ragent.framework.context.LoginUser;
+import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
+import com.nageoffer.ai.ragent.share.ShareKind;
 import com.nageoffer.ai.ragent.share.dao.entity.ShareSnapshotDO;
 import com.nageoffer.ai.ragent.share.dao.mapper.ShareSnapshotMapper;
 import com.nageoffer.ai.ragent.share.impl.ShareSnapshotServiceImpl;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -65,6 +69,37 @@ class ShareSnapshotServiceImplTest {
         // LambdaUpdateWrapper.set 立即解析列名，纯单测无 MP 启动期缓存须手工初始化（仓内先例：AgentConversationServiceImplTest）
         TableInfoHelper.initTableInfo(
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), ShareSnapshotDO.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        UserContext.clear();
+    }
+
+    // ==================== #151：游客硬阻断单点（审计 F-8） ====================
+
+    @Test
+    void 游客创建分享被拒且零副作用() {
+        UserContext.set(LoginUser.builder().userId("g1").username("guest").role("guest").build());
+
+        ClientException ex = assertThrows(ClientException.class,
+                () -> shareSnapshotService.create(ShareKind.ANSWER, "g1", "c1", "zh", "{}"));
+        assertTrue(ex.getMessage().contains("游客"));
+        // 拒绝发生在任何 insert/token 生成之前：无 snapshot 行、无任何落库副作用
+        verify(shareSnapshotMapper, never()).insert(any(ShareSnapshotDO.class));
+    }
+
+    @Test
+    void 会话粒度游客同门_普通用户不受影响() {
+        UserContext.set(LoginUser.builder().userId("g1").username("guest").role("guest").build());
+        assertThrows(ClientException.class,
+                () -> shareSnapshotService.create(ShareKind.CONVERSATION, "g1", "c1", "zh", "{}"));
+        verify(shareSnapshotMapper, never()).insert(any(ShareSnapshotDO.class));
+
+        // 普通用户（含无登录上下文的机制内部调用）照常创建
+        UserContext.clear();
+        assertNotNull(shareSnapshotService.create(ShareKind.ANSWER, "u1", "c1", "zh", "{}"));
+        verify(shareSnapshotMapper).insert(any(ShareSnapshotDO.class));
     }
 
     private ShareSnapshotDO stored(String status, Date expireTime) {

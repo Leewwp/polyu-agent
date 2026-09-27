@@ -36,6 +36,8 @@ import mockwebserver3.RecordedRequest;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -99,7 +101,7 @@ class NewsHttpFetchClientTests {
         server.enqueue(body("x".repeat(64))); // 内容体超限
 
         NewsHttpFetchClient limited = new NewsHttpFetchClient(new OkHttpClient(),
-                new RedirectGuard(new IngestionUrlGuard(true)), 16L,
+                new RedirectGuard(new IngestionUrlGuard(true)), new IngestionUrlGuard(true), 16L,
                 "polyuguide-feed/1.0 (+https://polyuguide.com)", sleeper, clock);
 
         NewsFetchException ex = assertThrows(NewsFetchException.class,
@@ -199,6 +201,102 @@ class NewsHttpFetchClientTests {
 
         assertTrue(sleeper.waits.stream().anyMatch(w -> w >= 19_999L),
                 "Crawl-delay 20s 应抬高间隔，实际：" + sleeper.waits);
+    }
+
+    @Test
+    void 内网字面量条目URL在建请求前被拒为永久错误() {
+        // #153/审计 F-2c：条目 URL 由 feed 内容控制，严格档下内网目标在任何出站请求
+        //（含 robots.txt 拉取）之前拒绝，按永久错误计入条目级失败（不重试不睡）
+        com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard strict =
+                new com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard(false);
+        NewsHttpFetchClient strictClient = new NewsHttpFetchClient(new OkHttpClient(),
+                new RedirectGuard(strict), strict, 1024L,
+                "polyuguide-feed/1.0", sleeper, clock);
+
+        NewsFetchException ex = assertThrows(NewsFetchException.class,
+                () -> strictClient.get("http://127.0.0.1:1/x"));
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("出站目标被拒"), "实际：" + ex.getMessage());
+        assertEquals(0, server.getRequestCount(), "拒绝必须先于 robots/内容任何出站请求");
+    }
+
+    // ---------- #152：Crawl-delay 有界化——超阈值 defer / 阈值内照常等待（审计 F-4） ----------
+
+    @Test
+    void crawlDelayBeyondThresholdDefersWithoutSleepingOrRequesting() throws Exception {
+        // Crawl-delay 3600s：robots 拉取本身不计内容节拍（无 last），defer 决策发生在任何
+        // 内容等待/请求之前——0 次 sleep、0 次内容请求，单线程调度器立即让出
+        server.enqueue(body("""
+                User-agent: *
+                Crawl-delay: 3600
+                Disallow:
+                """));
+
+        NewsFetchDeferredException deferred = assertThrows(NewsFetchDeferredException.class,
+                () -> client.get(url("/p1/")));
+        assertFalse(deferred.isTransientError());
+
+        assertTrue(sleeper.waits.isEmpty(), "defer 路径必须零等待，实际：" + sleeper.waits);
+        assertNotNull(server.takeRequest(2, TimeUnit.SECONDS));   // robots
+        assertNull(server.takeRequest(2, TimeUnit.SECONDS), "defer 期间不得发生内容请求");
+    }
+
+    @Test
+    void deferredHostSkipsInstantlyDuringWindowAndResumesAfterEligible() throws Exception {
+        server.enqueue(body("""
+                User-agent: *
+                Crawl-delay: 3600
+                Disallow:
+                """));
+        server.enqueue(body("late"));   // 豁免到期后的内容请求
+
+        assertThrows(NewsFetchDeferredException.class, () -> client.get(url("/p1/")));
+        // 豁免期内再次请求：立即 defer（零等待零请求）
+        assertThrows(NewsFetchDeferredException.class, () -> client.get(url("/p2/")));
+        assertTrue(sleeper.waits.isEmpty());
+
+        // 时间推进过豁免点（Crawl-delay 3600s）：恢复正常抓取，真实时间已流逝 ≥ 声明延迟，
+        // 无需任何额外等待——源站节奏被完全遵守
+        clock.advance(3600_000L);
+        byte[] body = client.get(url("/p1/"));
+        assertEquals("late", new String(body));
+    }
+
+    @Test
+    void giantScientificCrawlDelayDefersWithoutOverflow() throws Exception {
+        // 1e18s（≈永恒）：有限正值合法进入 defer 数学，饱和钳制不得回绕成负数伪到期
+        server.enqueue(body("""
+                User-agent: *
+                Crawl-delay: 1e18
+                Disallow:
+                """));
+
+        assertThrows(NewsFetchDeferredException.class, () -> client.get(url("/p1/")));
+        assertTrue(sleeper.waits.isEmpty());
+        // 大幅推进时钟仍在豁免期内（不可能到期）：依旧立即 defer
+        clock.advance(Long.MAX_VALUE / 2);
+        assertThrows(NewsFetchDeferredException.class, () -> client.get(url("/p2/")));
+        assertTrue(sleeper.waits.isEmpty());
+    }
+
+    @Test
+    void crawlDelayWithinThresholdWaitsInLineAndStaysBounded() throws Exception {
+        // Crawl-delay 45s ≤ 阈值 60s：照常节拍等待（源站节奏不被压低），单次等待有界
+        server.enqueue(body("""
+                User-agent: *
+                Crawl-delay: 45
+                Disallow:
+                """));
+        server.enqueue(body("a"));
+        server.enqueue(body("b"));
+
+        client.get(url("/p1/"));
+        client.get(url("/p2/"));
+
+        assertTrue(sleeper.waits.stream().anyMatch(w -> w >= 44_999L),
+                "Crawl-delay 45s 应照常等待，实际：" + sleeper.waits);
+        assertTrue(sleeper.waits.stream().allMatch(w -> w <= 60_000L),
+                "任何单次等待不得超过阈值 60s，实际：" + sleeper.waits);
     }
 
     // ---------- O2/M4：重定向逐跳复校（公网→内网拒 / 环终止于跳数上限 / 正常跳转跟随） ----------

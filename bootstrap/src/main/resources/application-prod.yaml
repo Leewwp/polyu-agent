@@ -40,3 +40,16 @@ rocketmq:
 sa-token:
   cookie:
     secure: true
+
+# 评测模式生产显式关闭（#150，审计 F-6）：base yaml 开发默认 true 会随 prod profile 存活，
+# 静默旁路幂等切面（IdempotentSubmitAspect）并注册 /rag/eval 管理端点；EvalProperties
+# 文档口径即「生产默认 false」。绊网=bootstrap ProdConfigTripwireTest 钉住本键
+ragent:
+  eval:
+    enabled: false
+  # 出站 URL 守卫 escape hatch 生产显式关闭（#153，审计 F-2）：allow-private-hosts 是
+  # 本地/开发档整体旁路私址限制的开关（非 host 白名单），生产开启=SSRF 防线解除；
+  # 绊网=bootstrap ProdConfigTripwireTest 钉住本键为 false
+  ingestion:
+    url-guard:
+      allow-private-hosts: false
