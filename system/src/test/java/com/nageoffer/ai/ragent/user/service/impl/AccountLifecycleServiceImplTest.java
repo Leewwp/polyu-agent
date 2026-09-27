@@ -461,7 +461,8 @@ class AccountLifecycleServiceImplTest {
         service.deleteAccount(deleteReq(PASSWORD));
 
         verify(userMapper).softDeleteById(eq("100"), any(Date.class));
-        stpUtil.verify(StpUtil::logout);
+        // #151：注销=账号级下线（踢全部会话而非仅当前 token），恢复后走新登录
+        stpUtil.verify(() -> StpUtil.logout("100"));
     }
 
     @Test

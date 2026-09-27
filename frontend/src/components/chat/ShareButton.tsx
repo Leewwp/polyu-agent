@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/stores/authStore";
 import { createShare } from "@/services/shareService";
 
 interface ShareButtonProps {
@@ -14,12 +15,19 @@ interface ShareButtonProps {
 /**
  * 助手消息"分享"按钮：创建不可变快照并把公开链接复制到剪贴板。
  * 后端 flag（rag.share.enabled）默认关，未启用时请求 404 → 提示功能未开启。
+ * 游客点击只出登录引导、不调创建端点（#151：与 agent 面分享入口同口径双保险，
+ * 后端快照机制单点另有 guest 硬阻断兜底）。
  */
 export function ShareButton({ messageId, className }: ShareButtonProps) {
   const [creating, setCreating] = React.useState(false);
+  const isGuest = useAuthStore((state) => state.isGuest);
 
   const handleShare = async () => {
     if (creating) return;
+    if (isGuest) {
+      toast("游客身份不支持创建分享，请登录后使用 / Sign in to share answers");
+      return;
+    }
     setCreating(true);
     try {
       const created = await createShare(messageId);
