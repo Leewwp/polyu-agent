@@ -81,6 +81,9 @@ class AccountDeletionCascadeTest {
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_control WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_state WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_conversation_summary WHERE user_id = ?", "100");
+        // #154 级联补洞：trace 两表随账号硬删（node 经 run 关联先删，防孤儿 node）
+        order.verify(jdbcTemplate).update(containsSql("DELETE FROM t_rag_trace_node"), eq("100"));
+        order.verify(jdbcTemplate).update("DELETE FROM t_rag_trace_run WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update(containsSql("UPDATE t_message_feedback"), eq("100"));
         // 分享撤销（issue #124 起两粒度统一走 ShareSnapshotService，软撤销行保留）
         order.verify(shareSnapshotService).revokeOwnedBy("100");

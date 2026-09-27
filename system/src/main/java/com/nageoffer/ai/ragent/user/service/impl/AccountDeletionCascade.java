@@ -82,6 +82,12 @@ public class AccountDeletionCascade {
         jdbcTemplate.update("DELETE FROM t_agent_memory_control WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_state WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_conversation_summary WHERE user_id = ?", userId);
+        // #154 级联补洞：trace 两表随账号硬删（run.extra_data 承载提问原文，删除权覆盖全部
+        // 留存副本）；node 无 user_id，经 run 的 trace_id 关联先删 node 再删 run，不留孤儿
+        jdbcTemplate.update(
+                "DELETE FROM t_rag_trace_node WHERE trace_id IN (SELECT trace_id FROM t_rag_trace_run WHERE user_id = ?)",
+                userId);
+        jdbcTemplate.update("DELETE FROM t_rag_trace_run WHERE user_id = ?", userId);
         // 反馈匿名化断链：行保留（400 天保留期），评价统计不受账号消亡影响
         jdbcTemplate.update(
                 "UPDATE t_message_feedback SET user_id = '" + ANONYMOUS_USER_ID
