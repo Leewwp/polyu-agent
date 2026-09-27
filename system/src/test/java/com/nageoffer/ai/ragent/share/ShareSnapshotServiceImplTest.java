@@ -45,8 +45,6 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -80,7 +78,7 @@ class ShareSnapshotServiceImplTest {
 
     // ==================== #151：游客硬阻断单点（审计 F-8） ====================
 
-    @org.junit.jupiter.api.Test
+    @Test
     void 游客创建分享被拒且零副作用() {
         UserContext.set(LoginUser.builder().userId("g1").username("guest").role("guest").build());
 
@@ -91,7 +89,7 @@ class ShareSnapshotServiceImplTest {
         verify(shareSnapshotMapper, never()).insert(any(ShareSnapshotDO.class));
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void 会话粒度游客同门_普通用户不受影响() {
         UserContext.set(LoginUser.builder().userId("g1").username("guest").role("guest").build());
         assertThrows(ClientException.class,

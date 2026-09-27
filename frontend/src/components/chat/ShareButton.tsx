@@ -2,6 +2,7 @@ import * as React from "react";
 import { Share2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
@@ -21,11 +22,12 @@ interface ShareButtonProps {
 export function ShareButton({ messageId, className }: ShareButtonProps) {
   const [creating, setCreating] = React.useState(false);
   const isGuest = useAuthStore((state) => state.isGuest);
+  const { lang } = useOptionalFeedLang();
 
   const handleShare = async () => {
     if (creating) return;
     if (isGuest) {
-      toast("游客身份不支持创建分享，请登录后使用 / Sign in to share answers");
+      toast(lang === "zh" ? "游客身份不支持创建分享，请登录后使用" : "Sign in to share answers");
       return;
     }
     setCreating(true);

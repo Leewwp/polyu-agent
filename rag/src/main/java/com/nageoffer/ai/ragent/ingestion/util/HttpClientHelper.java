@@ -70,11 +70,7 @@ public class HttpClientHelper {
     }
 
     public HttpFetchStream openStream(String url, Map<String, String> headers, long maxBytes) {
-        urlGuard.validateOutboundTarget(url);
-        Request.Builder builder = new Request.Builder().url(url);
-        if (headers != null) {
-            headers.forEach(builder::addHeader);
-        }
+        Request.Builder builder = newGuardedRequest(url, headers);
         try {
             Response response = redirectGuard.execute(client, builder.get().build());
             if (!response.isSuccessful()) {
@@ -103,11 +99,7 @@ public class HttpClientHelper {
     }
 
     private HttpFetchResponse doGet(String url, Map<String, String> headers, long maxBytes) {
-        urlGuard.validateOutboundTarget(url);
-        Request.Builder builder = new Request.Builder().url(url);
-        if (headers != null) {
-            headers.forEach(builder::addHeader);
-        }
+        Request.Builder builder = newGuardedRequest(url, headers);
         try (Response response = redirectGuard.execute(client, builder.get().build())) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
@@ -138,11 +130,7 @@ public class HttpClientHelper {
     }
 
     public HttpHeadResponse head(String url, Map<String, String> headers) {
-        urlGuard.validateOutboundTarget(url);
-        Request.Builder builder = new Request.Builder().url(url);
-        if (headers != null) {
-            headers.forEach(builder::addHeader);
-        }
+        Request.Builder builder = newGuardedRequest(url, headers);
         try (Response response = redirectGuard.execute(client, builder.head().build())) {
             if (!response.isSuccessful()) {
                 throw new ServiceException("网络请求失败: " + response.code());
@@ -157,6 +145,19 @@ public class HttpClientHelper {
         } catch (IOException e) {
             throw new ServiceException("网络请求失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 统一请求构建入口（#153）：先过出站守卫（建请求之前，OkHttp 同源 canonicalization），
+     * 再构建 GET builder——三个抓取方法的守卫前置在这里单点收口，新增方法不得绕开
+     */
+    private Request.Builder newGuardedRequest(String url, Map<String, String> headers) {
+        urlGuard.validateOutboundTarget(url);
+        Request.Builder builder = new Request.Builder().url(url);
+        if (headers != null) {
+            headers.forEach(builder::addHeader);
+        }
+        return builder;
     }
 
     private String resolveFileName(String disposition, String url) {

@@ -733,6 +733,18 @@ class HtmlDocumentParserTest {
 
     @Test
     @Timeout(10)
+    @DisplayName("单值合法的巨积组合（1000×1000）：long 预算路径在任何扩容前拒绝")
+    void rejectsLegalSpanPairWhoseProductExceedsBudget() {
+        // 单 span 均等于上限（合法值），colspan×rowspan=10^6 覆盖面积远超 10^5 预算：
+        // 走 (long) 乘积累计+预算判定路径（非单值拒绝路径），扩容前拦截
+        assertThatThrownBy(() -> parse("<html><body><main><table><tr>"
+                + "<td rowspan=\"1000\" colspan=\"1000\">x</td></tr></table></main></body></html>"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("展开规模超出支持上限");
+    }
+
+    @Test
+    @Timeout(10)
     @DisplayName("合法大表（语料实测上限两个数量级以内）零回归")
     void acceptsCorpusScaleTables() {
         // 166 行 × 3 列 ≈ 真实语料最大表（SAO 学期表）规模，远在预算内正常产出

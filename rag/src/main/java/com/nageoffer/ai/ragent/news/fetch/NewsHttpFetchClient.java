@@ -126,8 +126,8 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * 既有六参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB。
-     * 新测试用七参构造器显式注入严格档守卫
+     * 既有五参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB。
+     * 需要严格档守卫的测试用七参构造器显式注入
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,

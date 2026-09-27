@@ -61,6 +61,24 @@ class FeishuFetcherTest {
         server.close();
     }
 
+    @org.junit.jupiter.api.Test
+    void 非文档分支内网源址在建请求前被拒零出站() {
+        // #153/审计 F-2a：feishu 非文档分支的任意 URL 由 HttpClientHelper 统一入口守卫——
+        // 严格档下内网字面量在任何出站请求之前拒绝
+        IngestionUrlGuard strict = new IngestionUrlGuard(false);
+        HttpClientHelper strictHelper = new HttpClientHelper(new OkHttpClient(),
+                new RedirectGuard(strict), strict);
+        FeishuFetcher strictFetcher = new FeishuFetcher(new OkHttpClient(), strictHelper, limits("16B"));
+
+        DocumentSource source = source("http://127.0.0.1:9200/_cat/indices");
+
+        com.nageoffer.ai.ragent.framework.exception.ClientException rejected = assertThrows(
+                com.nageoffer.ai.ragent.framework.exception.ClientException.class,
+                () -> strictFetcher.fetch(source));
+        assertTrue(rejected.getMessage().contains("内网或保留地址"));
+        assertEquals(0, server.getRequestCount(), "拒绝必须发生在任何出站请求之前");
+    }
+
     private FeishuFetcher newFetcher(String rawLimit) {
         HttpClientHelper helper = new HttpClientHelper(new OkHttpClient(), new RedirectGuard(new IngestionUrlGuard(true)),
                 new IngestionUrlGuard(true));
