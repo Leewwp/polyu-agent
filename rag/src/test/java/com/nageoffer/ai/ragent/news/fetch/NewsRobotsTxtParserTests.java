@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,6 +71,31 @@ class NewsRobotsTxtParserTests {
                 """;
         RobotsRules rules = RobotsTxtParser.parse(robots, UA);
         assertFalse(rules.disallows("/anything/at/all"));
+    }
+
+    // ==================== #152：Crawl-delay 数值合同 finite + positive（审计 F-4） ====================
+
+    @Test
+    void 非有限与非正CrawlDelay按缺失处理() {
+        // NaN/Infinity/-Infinity 不抛 NumberFormatException，必须显式判定；0/负数同理按缺失
+        for (String value : new String[]{"NaN", "Infinity", "-Infinity", "-5", "0", "1e400"}) {
+            RobotsRules rules = RobotsTxtParser.parse("""
+                    User-agent: *
+                    Crawl-delay: %s
+                    """.formatted(value), UA);
+            assertNull(rules.crawlDelaySeconds(), "Crawl-delay=" + value + " 应按缺失处理");
+        }
+    }
+
+    @Test
+    void 超大科学计数法是有限正值_交给defer数学() {
+        // 1e18 秒 finite 且 >0：解析层保留原值，由客户端的 defer 机制有界化（不在此静默丢弃）
+        RobotsRules rules = RobotsTxtParser.parse("""
+                User-agent: *
+                Crawl-delay: 1e18
+                """, UA);
+        assertNotNull(rules.crawlDelaySeconds());
+        assertTrue(rules.crawlDelaySeconds() > 60);
     }
 
     @Test
