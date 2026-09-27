@@ -1,5 +1,7 @@
 # Agent 记忆测评
 
+[返回回归与测评总览](../README.md)
+
 基于 `resources/initializer/bit-selection` 的知识库提问，测裁剪、摘要、缓存和多轮记忆效果。Java 17 编译后运行。
 
 先确认已经初始化比特严选数据、启用比特严选人设，并启动服务与数据库。程序只提问和读取测评结果，不负责初始化或重启服务。
@@ -72,3 +74,7 @@ java -cp /tmp/ragent-evaluation-classes \
 日常跑用例不需要 Gateway。默认可看主模型 token、缓存和压缩效果；摘要调用的 token 不在会话 state 中，完整费用显示未知。
 
 需要估算主模型费用时加 `--prices 价格文件`，格式见 `prices.example.json`，其中价格只是历史示例。若要把摘要费用也算上，可用 `EvaluationUsageGatewayMain` 采集全部供应商用量，再传 `--usage-log`；运行 `EvaluationUsageGatewayMain --help` 查看用法。没有完整采集时，不把缺失费用当成零。
+
+## 历史工具迁移
+
+旧裁剪缓存 A/B 脚本已由本目录接管。2026-09-26 的结果、脚本和恢复补丁原样归档到本机 `temp/retired-trim-cache-ab-20260927/`，供历史查阅；归档中的版本状态只描述当时的测试结束状态，`temp/` 不纳入版本控制。
