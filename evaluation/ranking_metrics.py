@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""确定性排序指标：两臂 MRR@10 / NDCG@10 / Hit@10 + 各指标差值的簇级 bootstrap CI。
+"""确定性排序指标：两臂 MRR@10 / NDCG@10 / Hit@10 + 各指标差值的簇级 bootstrap CI，
+附零成本的 ON/OFF 池重叠诊断。
 
-matched-TopK 排序对照（见 README 同名节）：
-- ON 臂 funnel = 精排后 top-10；
-- OFF 臂 funnel 无截断、返回序即融合序，取前 k=10 = 无精排排序的 top-10。
-同检索、同候选池、同 k —— 两臂差值即排序规则本身的贡献，不依赖 LLM 裁判。
+证据等级（A/B 对照，非 frozen-candidate 因果估计）：
+- 同题集、同系统配置（rerank 开关除外）、同 k=10，对漏斗输出做确定性的
+  rank-sensitive 指标比较——构成「部署精排阶段改善排序质量」的强证据；
+- 但两臂为顺序独立采集，且上游查询改写为 LLM 调用、非严格确定性采样，
+  逐题 pre-rerank 候选池不保证逐字节相同——不得表述为 identical/frozen
+  candidate pool 下的纯 reranker 因果估计。
 
+指标 provenance：
+- 原始预注册主判据 = RAGAS Context Precision；原始确定性过程指标 = Hit@10；
+- MRR/NDCG 为结果复核阶段新增的 post-hoc rank-sensitive 补充分析，
+  今后正式 rerank 实验建议在跑数前纳入预注册指标。
+
+ON 臂 funnel = 精排后 top-10；OFF 臂 funnel 无最终截断、返回序即融合（RRF）序，
+取前 k=10 = 无精排排序的 top-10。
 分母 = 可答且 gold_chunk_ids 非空的题（与 summarize.hit_metrics 一致）。
 重采样单位 = fact_cluster_id（同簇 EN/ZH 变体共同进样，见 bootstrap.py）。
 
@@ -56,6 +66,37 @@ def collect(rows):
     return out
 
 
+def pool_overlap_diagnostic(rows_on, rows_off, common, k=K):
+    """纯诊断项：ON top-10 与 OFF 融合池的重叠度。
+
+    两臂独立采集且上游查询改写含 LLM 采样——重叠高不等于候选池冻结，
+    仅用于提示池漂移的量级；不构成 frozen-candidate 证明。
+    """
+    avail, jac, sizes = [], [], []
+    for q in common:
+        on_top = list((rows_on.get(q) or {}).get("funnel_chunk_ids") or [])[:k]
+        off_all = list((rows_off.get(q) or {}).get("funnel_chunk_ids") or [])
+        if not on_top or not off_all:
+            continue
+        s_on, s_off_all, s_off_top = set(on_top), set(off_all), set(off_all[:k])
+        avail.append(len(s_on & s_off_all) / len(s_on))
+        union = s_on | s_off_top
+        jac.append(len(s_on & s_off_top) / len(union) if union else 1.0)
+        sizes.append(len(off_all))
+    n = len(avail)
+    return {
+        "note": "纯诊断：ON top-10 在 OFF 融合池中的可得率与两臂 top-10 重叠。"
+                "两臂独立采集+上游 LLM 改写非确定性，重叠高≠候选池冻结。",
+        "n": n,
+        "on_top10_available_in_off_pool_mean": sum(avail) / n if n else None,
+        "on_top10_available_in_off_pool_min": min(avail) if avail else None,
+        "top10_jaccard_mean": sum(jac) / n if n else None,
+        "off_pool_size_min": min(sizes) if sizes else None,
+        "off_pool_size_mean": sum(sizes) / n if n else None,
+        "off_pool_size_max": max(sizes) if sizes else None,
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True, help="raw 目录（含 ragas-input-{on,off}.jsonl）")
@@ -66,17 +107,21 @@ def main() -> int:
     d = pathlib.Path(args.dir)
     evalset = {r["q_id"]: r for r in load_jsonl(args.evalset)}
 
-    vals = {}
+    vals, rows = {}, {}
     for arm in ("on", "off"):
         f = d / f"ragas-input-{arm}.jsonl"
         if f.exists():
-            vals[arm] = collect(load_jsonl(f))
+            rows[arm] = {r["q_id"]: r for r in load_jsonl(f)}
+            vals[arm] = collect(rows[arm].values())
 
-    result = {"k": K, "n": 0, "arms": {}, "paired_ci": {},
+    result = {"k": K, "n": 0, "arms": {}, "paired_ci": {}, "pool_overlap_diagnostic": None,
               "caveats": [
-                  "ON 臂证据闸门偶尔将 top-10 滤至 <10 条；精排候选输入可能受 "
-                  "rerank-candidate-limit 截断——两者均属精排阶段的部署语义",
-                  "OFF 臂取漏斗返回序（融合序）前 k 条，作为「无精排排序」的同池同 k 对照",
+                  "A/B 对照口径：同题集、同系统配置（rerank 开关除外）、同 k——部署级强证据，"
+                  "非 frozen-candidate 纯 reranker 因果估计（两臂独立采集，上游查询改写含 LLM 采样）",
+                  "ON 臂证据闸门偶尔将 top-10 滤至 <10 条；精排候选输入受 fusion 阶段 "
+                  "rerank-candidate-limit 截断（两臂共享该融合管线）——均属精排阶段的部署语义",
+                  "指标 provenance：主判据（预注册）= RAGAS Context Precision；确定性过程指标"
+                  "（预注册）= Hit@10；MRR/NDCG = post-hoc rank-sensitive 补充分析",
               ]}
     if "on" in vals and "off" in vals:
         common = sorted(set(vals["on"]) & set(vals["off"]))
@@ -95,6 +140,7 @@ def main() -> int:
                 "ci_diff_low": r.ci_diff[0], "ci_diff_high": r.ci_diff[1],
                 "n_boot": N_BOOT, "seed": SEED, "level": LEVEL,
             }
+        result["pool_overlap_diagnostic"] = pool_overlap_diagnostic(rows["on"], rows["off"], common)
 
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=1)
@@ -104,6 +150,13 @@ def main() -> int:
         if ci:
             print(f"  {m}: ON {ci['point_on']:.3f} vs OFF {ci['point_off']:.3f} "
                   f"diff {ci['point_diff']:+.3f} CI [{ci['ci_diff_low']:+.3f}, {ci['ci_diff_high']:+.3f}]")
+    diag = result.get("pool_overlap_diagnostic")
+    if diag and diag["n"]:
+        print(f"  [diag] on_top10 in off pool: mean {diag['on_top10_available_in_off_pool_mean']:.3f} "
+              f"min {diag['on_top10_available_in_off_pool_min']:.3f}; "
+              f"top10 jaccard {diag['top10_jaccard_mean']:.3f}; "
+              f"off pool size {diag['off_pool_size_min']}-{diag['off_pool_size_max']} "
+              f"(mean {diag['off_pool_size_mean']:.1f})")
     return 0
 
 
