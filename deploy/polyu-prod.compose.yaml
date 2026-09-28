@@ -1,4 +1,5 @@
-# PolyU-agent 生产栈八件套（2026-09-09；组件口径=部署规格书配置账：JVM/PG16+pgvector/Redis/MinIO/RocketMQ/ES+IK/nginx+前端静态/OS）
+# PolyU-agent 生产栈九服务（2026-09-09 建栈八件套；2026-09-29 #164 增 mcp-server 为第九常驻：
+# 组件口径=部署规格书配置账：JVM/PG16+pgvector/Redis/MinIO/RocketMQ/ES+IK/nginx+前端静态/OS/MCP 工具服务）
 #
 # 与本地栈（resources/docker/polyu-local-*.compose.yaml，本机专用不入库）的差异与理由：
 #   - 宿主端口：生产默认标准端口，仅绑 127.0.0.1（SSH 隧道运维用），公网只开 nginx 的 80/443
@@ -250,6 +251,26 @@ services:
     restart: unless-stopped
     logging: *default-logging
     # 前置：宿主 vm.max_map_count ≥ 262144（deploy/server-init.sh 落 /etc/sysctl.d）
+
+  # MCP 工具服务（#164 第九常驻）：仓库 mcp-server 模块镜像，单工具 search_exam_papers
+  # （图书馆试卷检索深链构造，无状态无 DB）。app 启动期经 @PostConstruct 连它发现工具（无自动重连）。
+  # 注意：polyu-app 有意【不】对本服务声明 depends_on service_healthy——该语义会阻塞 app 容器创建，
+  # 与 fail-soft 验收（本服务缺席时 app 仍正常起、主链路可用）直接冲突；先起本服务再滚动 app
+  # 的顺序由部署脚本保障（deploy.yml Pull images 步骤），编排层不做硬依赖。
+  # 无宿主端口发布：仅 compose 内网可达（polyu-mcp:9099），与 broker 内网直连同口径。
+  polyu-mcp:
+    image: ${IMAGE_MCP:?polyu-prod.env 缺 IMAGE_MCP}
+    mem_limit: 384m
+    healthcheck:
+      # TCP 探活（与 polyu-app 同款）：MCP endpoint 在 HTTP 层按协议握手，TCP 监听足够证明 JVM 起来；
+      # 部署脚本等本探活通过后再滚动 app（无重连的客户端需要服务端先就位）
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9099' 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
 
   polyu-nginx:
     image: ${IMAGE_FRONTEND:?polyu-prod.env 缺 IMAGE_FRONTEND}
