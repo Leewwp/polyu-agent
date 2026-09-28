@@ -70,7 +70,7 @@ Environment and startup follow the upstream documentation and defaults ([nageoff
 The site is live and running (https://polyuguide.com). Main capabilities:
 
 - **Knowledge base**: official-source corpus crawling, parsing, ingestion, and storage/retrieval consistency reconciliation — 280+ official sources in the library (including multilingual versions); chunk sizing frozen by evaluation
-- **Retrieval**: fused pgvector + Elasticsearch (IK) dual channel with the rollback switch retained; the evaluation set (human-reviewed core questions + lexical-retrieval challenge questions) is maintained continuously
+- **Retrieval**: fused pgvector + Elasticsearch (IK) dual channel with the rollback switch retained; the human-reviewed core evaluation set is maintained continuously, and a rerunnable RAGAS-based evaluation harness is published under `evaluation/`
 - **Q&A**: multi-model chat routing (primary + failover + circuit-breaker self-healing), scenario-based bilingual prompts, intent-tree routing, no-answer refusal and stale-citation control
 - **News feed**: multi-type fetchers (sitemap / RSS / JSON API / HTML list) + heat model + topic clustering, scheduled incremental updates (feature-flag controlled)
 - **Accounts**: email registration/verification with a required unique username, dual-channel login (username or email), self-service account center (change email with re-verification, change password, my-shares management), account deletion (with cooling-off recovery), anonymous-trial quota, public answer sharing (immutable snapshots) — feature-flag controlled per deployment (sharing defaults on, issue #124 unified flag)
@@ -88,7 +88,7 @@ The site is live and running (https://polyuguide.com). Main capabilities:
   | --- | --- |
   | Knowledge corpus | 100–300 high-value official sources (high-frequency question domains first); full-site expansion is a later mechanism |
   | Intent tree | from 3 domains / 10–15 intents at the evaluation baseline toward 15–25 intents |
-  | Evaluation set | 30–60 human-reviewed core questions + ~20 lexical-retrieval challenge questions, later expanding to 80–100 |
+  | Evaluation set | 30–60 human-reviewed core questions (expanding to 80–100); ~20 lexical-retrieval challenge questions planned |
 
 - **News feed GA**: scheduled discovery → automatic classification → feed display
 - **i18n**: official traditional-Chinese support
