@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""A5 人工抽检表生成器：语言 × 臂 均衡分层（en/zh × on/off 各 n/4，格内低分位
-多取一条、高分位补足），供人工盲评。
+"""A5 人工抽检生成器：一次生成两个逻辑产物，使盲评成为流程属性。
 
-分层理由：RAGAS 原生裁判 prompt 为英文，中文题面跨语言过裁是已知局限——
-语言维度分层让人工抽检能同时暴露「裁判误差」与「跨语言误差」两类分歧；
-臂维度均衡保证两臂（rerank on/off）的裁判行为都被覆盖。
+- calibration-blind.csv：给人工填写——**不含 RAGAS 分数与分层标记**（防止按分对齐），
+  行序按 q_id 混排两臂；列 = arm/q_id/lang/question/answer/contexts/人工判定/notes。
+- calibration-key.csv：对账表——人工填写完成后才使用；列 = arm/q_id/lang/stratum/
+  RAGAS Faithfulness 分，与盲评表按 (arm, q_id) 连接。
 
-输出 CSV：q_id/arm/question/answer（contexts 另列）/RAGAS 分/分层标记/人工判定列/备注列。
-判定 rubric（表头注明）：逐条判断「答案中的每条主张是否被上下文支撑」，二值 1/0 + 备注。
+抽样：语言 × 臂 均衡（en/zh × on/off 各 n/4，格内低分位多取一条、高分位补足）。
+分层理由：RAGAS 原生裁判 prompt 为英文，中文题面跨语言过裁是已知局限——语言维度
+分层让抽检能同时暴露「裁判误差」与「跨语言误差」；臂维度均衡保证两臂
+（rerank on/off）的裁判行为都被覆盖。
 
 用法：
-  python3 make_calibration_sheet.py --dir <raw目录> --n 20 --out <calibration-sheet.csv>
+  python3 make_calibration_sheet.py --dir <raw目录> --n 20 \
+      --blind <calibration-blind.csv> --key <calibration-key.csv>
 """
 from __future__ import annotations
 
@@ -19,10 +22,16 @@ import csv
 import json
 import pathlib
 
-SHEET_HEADER_COMMENT = (
+BLIND_RUBRIC = (
     "填写说明：rubric=Faithfulness 人工判定——逐条检查答案中的事实性主张是否被"
-    "「检索上下文」支撑，支撑=1、无支撑/编造=0（可部分支撑取多数）；human_faithful 列填 1/0，"
-    "notes 列可选填分歧原因（裁判错/人错/题歧义）。盲评：请先不看 RAGAS 分列。"
+    "「检索上下文」支撑，支撑=1、无支撑/编造=0（可部分支撑取多数）；human_faithful "
+    "列填 1/0，notes 列可选填分歧原因（裁判错/人错/题歧义）。本表不含任何模型评分；"
+    "填写时请独立判断，勿参考其他材料。"
+)
+
+KEY_RUBRIC = (
+    "对账表（人工填写完成后才使用）：按 (arm, q_id) 与盲评表连接，"
+    "比对 human_faithful 与 RAGAS faithfulness 的一致性。"
 )
 
 
@@ -30,7 +39,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True)
     ap.add_argument("--n", type=int, default=20)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--blind", required=True, help="盲评表输出（给人工，不含 RAGAS 分）")
+    ap.add_argument("--key", required=True, help="对账表输出（含分数与分层，填写完成后用）")
     args = ap.parse_args()
 
     d = pathlib.Path(args.dir)
@@ -58,22 +68,32 @@ def main() -> int:
             sub = [p for p in pool if p[2] == lang and p[1][0] == arm]
             half = n_cell // 2
             picked += sub[:n_cell - half] + sub[len(sub) - half:] if half else sub[:n_cell]
-    picked.sort(key=lambda x: (x[1][0], x[1][1]))
+    key_rows = sorted(picked, key=lambda x: (x[1][1], x[1][0]))  # 对账表按 q_id 排序便于查找
+    blind_rows = sorted(picked, key=lambda x: (x[1][1], x[1][0]))  # 盲评表同序（q_id 混排两臂）
 
-    with open(args.out, "w", newline="", encoding="utf-8-sig") as f:
+    with open(args.blind, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow([SHEET_HEADER_COMMENT])
+        w.writerow([BLIND_RUBRIC])
         w.writerow(["arm", "q_id", "lang", "question", "answer",
-                    "contexts(检索上下文)", "faithfulness(RAGAS，填完再看)", "stratum",
-                    "human_faithful(1/0)", "notes(分歧原因:裁判错/人错/题歧义)"])
-        for f_score, (arm, qid), lang in picked:
+                    "contexts(检索上下文)", "human_faithful(1/0)",
+                    "notes(分歧原因:裁判错/人错/题歧义)"])
+        for f_score, (arm, qid), lang in blind_rows:
             r = inputs[(arm, qid)]
-            s = scores[(arm, qid)]
-            stratum = f"{lang}-{'low' if f_score < 0.5 else 'high'}"
             contexts = "\n---\n".join(f"[{i + 1}] {c[:400]}" for i, c in enumerate(r["contexts"][:5]))
             w.writerow([arm, qid, r.get("lang"), r["question"], r["answer"],
-                        contexts or "(无)", round(f_score, 4), stratum, "", ""])
-    print(f"[calib] n={len(picked)} -> {args.out}")
+                        contexts or "(无)", "", ""])
+
+    with open(args.key, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        w.writerow([KEY_RUBRIC])
+        w.writerow(["arm", "q_id", "lang", "stratum", "faithfulness(RAGAS)"])
+        for f_score, (arm, qid), lang in key_rows:
+            r = inputs[(arm, qid)]
+            stratum = f"{lang}-{'low' if f_score < 0.5 else 'high'}"
+            w.writerow([arm, qid, r.get("lang"), stratum, round(f_score, 4)])
+
+    print(f"[calib] blind={len(blind_rows)} -> {args.blind}")
+    print(f"[calib] key={len(key_rows)} -> {args.key}")
     return 0
 
 

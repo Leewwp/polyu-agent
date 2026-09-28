@@ -1,0 +1,12 @@
+# evaluation/ 依赖合同——精确锁定
+# 版本来源：2026-09-27 首跑实录的独立 venv 快照（python 3.11.16，uv 创建）。
+# 升级任何一条前，先用现有 raw 数据复跑基线对照（见 README「环境准备」节）。
+#
+# 直接依赖（evaluation 脚本显式 import）：
+ragas==0.4.3
+langchain-openai==1.6.6
+langchain-core==1.6.5
+openai==3.3.0
+# 非直接 import，但 ragas 0.4.3 的运行时 import 链需要 chat_models.vertexai
+# （langchain-community 0.4+ 已删除该模块），故必须保持 <0.4——此处精确锁定：
+langchain-community==0.3.31

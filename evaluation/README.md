@@ -13,6 +13,8 @@
 - **确定性指标优先**：gold chunk/doc hit@10、MRR@10、NDCG@10 等排序指标不依赖
   LLM 裁判，由 `summarize.py` / `ranking_metrics.py` 直接从 chunk id 对算出；
   RAGAS 四指标作为 LLM-as-judge 层并列披露（含抖动复评与裁判校准）。
+  指标 provenance：Hit@10 为原始预注册过程指标，MRR/NDCG 为结果复核阶段的
+  post-hoc 补充分析（见「A/B 对照的因果口径」节）。
 - **不接 CI**：裁判是付费 LLM 端点且 LLM 评分存在抖动，不适合做阻塞门；
   本层定位为手动触发的复跑工具链。
 
@@ -29,12 +31,12 @@
 ```bash
 # python 独立 venv（RAGAS 需要 3.10+；用 uv 拉独立解释器，不改全局）
 uv venv ~/.venvs/polyu-ragas --python 3.11
-uv pip install --python ~/.venvs/polyu-ragas/bin/python ragas langchain-openai 'langchain-community<0.4'
+uv pip install --python ~/.venvs/polyu-ragas/bin/python -r evaluation/requirements.txt
 ```
 
-版本锁定（2026-09-27 首跑实录，升级前先复跑基线对照）：
-- python 3.11.16 / ragas **0.4.3** / langchain-openai 1.6.6 / langchain-community 0.3.31
-  （0.4.x 移除了 chat_models.vertexai，ragas 0.4.3 的 import 需要它，故锁 <0.4）
+依赖合同：`evaluation/requirements.txt` 精确锁定（2026-09-27 首跑实录的独立 venv 快照，
+覆盖直接依赖 + ragas 运行时 import 链必需项；升级任何一条前先用现有 raw 复跑基线对照）：
+- python 3.11.16 / ragas **0.4.3** / langchain-openai 1.6.6 / langchain-core 1.6.5 / openai 3.3.0 / langchain-community 0.3.31
 - 裁判 LLM = DashScope 兼容端点 `qwen-plus`（temp=0）；embeddings = `text-embedding-v4`（dim 1024）
 - key：`BAILIAN_API_KEY` 环境变量传入，任何输出零明文
 
@@ -71,10 +73,12 @@ BAILIAN_API_KEY=... ~/.venvs/polyu-ragas/bin/python score_ragas.py \
 
 # 5. 汇总（两臂×四指标 + 配对簇级 bootstrap CI + hit@10 + A5 自动对照）
 python3 summarize.py --dir $RAW --evalset <evalset.jsonl> --out $RAW/summary.json
-# 确定性排序指标（matched-TopK 对照：两臂 MRR/NDCG/Hit@10 + hit 差值 CI）
+# 确定性排序指标（两臂 MRR/NDCG/Hit@10 + 差值 CI + 池重叠诊断；因果口径见下文）
 python3 ranking_metrics.py --dir $RAW --out $RAW/ranking.json
-# A5 人工抽检表（语言×Faithfulness 分位分层，等人工填写）
-python3 make_calibration_sheet.py --dir $RAW --n 20 --out $RAW/calibration-sheet.csv
+# A5 人工抽检（双产物：盲评表给人工填写——不含 RAGAS 分；对账表含分数与分层，
+# 填写完成后才用。语言×臂均衡分层 n/4）
+python3 make_calibration_sheet.py --dir $RAW --n 20 \
+    --blind $RAW/calibration-blind.csv --key $RAW/calibration-key.csv
 ```
 
 ## A5 裁判校准：一致率口径与 kappa 扩样边界
@@ -97,8 +101,8 @@ python3 make_calibration_sheet.py --dir $RAW --n 20 --out $RAW/calibration-sheet
 | `build_ragas_input.py` | 三元组 + 埋点时间窗关联 → RAGAS 输入 |
 | `score_ragas.py` | RAGAS 四指标评分（judge/embeddings 计数内嵌） |
 | `summarize.py` | 两臂总表 + 配对簇级 bootstrap CI + hit@10 + A5 自动对照 |
-| `ranking_metrics.py` | 确定性排序指标：两臂 MRR@10/NDCG@10/Hit@10 与 hit@10 差值簇级 bootstrap CI（matched-TopK 排序对照） |
-| `make_calibration_sheet.py` | A5 人工抽检表（语言 × Faithfulness 分位分层） |
+| `ranking_metrics.py` | 确定性排序指标：两臂 MRR@10/NDCG@10/Hit@10 与差值簇级 bootstrap CI + 池重叠诊断（因果口径见下文） |
+| `make_calibration_sheet.py` | A5 人工抽检双产物：盲评表（不含 RAGAS 分与分层）+ 对账表（分数与分层，填写完成后用）；语言×臂均衡分层 |
 | `gen_chains.py` / `run_chains.py` / `judge_b.py` / `summarize_b.py` | agent.memory 评测：链生成/跑链/盲评裁判/体积汇总 |
 
 ## 采集面口径（重要）
@@ -108,14 +112,24 @@ chat 链路（生产 agent）检索面 ≠ /rag/eval 漏斗：前者多 KB-only 
 本层 contexts 主口径 = **旁路 dump 的 chat 链路真实 chunk**（build_ragas_input
 时间窗关联），漏斗 contexts 仅作回退与过程指标。file:line 证据见实验报告（不入库）。
 
-## matched-TopK 排序对照（口径说明）
+## A/B 对照的因果口径（重要）
 
-`rag.rerank.enabled=false` 关闭的是整个精排后处理阶段（排序 + 最终 top-k 截断 +
-依赖精排分的证据闸门），不是单独拿掉一次模型重排。因此：
+本工具链对 rerank 双臂的确定性排序指标比较，证据等级表述为：
 
-- **Context Precision 的臂间差**度量的是「完整精排阶段」的联合效应；
-- **`ranking_metrics.py` 的漏斗口径**构成 matched-TopK 对照：OFF 臂漏斗无截断、
-  返回序即融合序，取前 k=10 即「无精排排序的 top-10」；ON 臂即「精排后 top-10」。
-  同检索、同候选池、同 k，两臂 hit@10/MRR/NDCG 差值即**排序规则本身**的贡献
-  （caveat：ON 臂证据闸门偶尔将 top-10 滤至 <10 条；精排候选输入可能受
-  rerank-candidate-limit 截断——两者均属精排阶段的部署语义）。
+- **同题集、同系统配置（rerank 开关除外）、同 k=10**，对漏斗输出做确定性
+  rank-sensitive 比较（MRR/NDCG/Hit），不依赖 LLM-as-judge——构成
+  「**部署精排阶段改善排序质量**」的强证据；
+- **不得**表述为 identical/frozen candidate pool 下的纯 reranker 因果估计：
+  两臂为顺序独立采集，且上游查询改写（`MultiQuestionRewriteService`）是
+  非严格确定性的 LLM 调用（temperature=0.1），逐题 pre-rerank 候选池
+  不保证逐字节相同；
+- `rag.rerank.enabled=false` 关闭的是整个精排后处理阶段（排序 + 最终 top-k
+  截断 + 依赖精排分的证据闸门），不是单独拿掉一次模型重排——
+  **Context Precision 的臂间差**度量的是「完整精排阶段」的联合效应；
+  漏斗口径的 ON（精排 top-10）vs OFF（融合序前 10）是同管线两配置下的部署级对照；
+- 指标 provenance：原始预注册主判据 = RAGAS **Context Precision**；原始确定性
+  过程指标 = **Hit@10**；**MRR/NDCG 是结果复核阶段新增的 post-hoc
+  rank-sensitive 补充分析**——今后正式 rerank 实验建议在跑数前纳入预注册；
+- `ranking_metrics.py` 附零成本池重叠诊断（ON top-10 在 OFF 融合池中的可得率、
+  两臂 top-10 Jaccard、OFF 池规模分布），仅供提示池漂移量级，
+  **不构成候选池冻结性证明**。
