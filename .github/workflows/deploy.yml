@@ -1,8 +1,8 @@
 # 生产部署链（2026-09-09）
 #
 # 链路：push main（代码/部署物变更）→ CI 前置门（backend/frontend 质量门，2026-09-17 T24 加）
-#       → 构建三镜像（backend / frontend / es-ik）推 GHCR →
-#       scp compose+建表 SQL 到部署机 /opt/polyu → SSH 拉镜像滚动重启。
+#       → 构建四镜像（backend / frontend / es-ik / mcp，#164 增第四镜像）推 GHCR →
+#       scp compose+建表 SQL 到部署机 /opt/polyu → SSH 拉镜像滚动重启（先起 mcp 探活再滚动 app）。
 # 与薄层二开纪律对齐：上游无 deploy 产物，本文件整体为我方方案，上游跟进时可整体让位。
 #
 # 密钥面（一次性配置，仓库 Settings → Secrets and variables → Actions）：
@@ -25,6 +25,7 @@ on:
       - "rag/**"
       - "agent/**"
       - "bootstrap/**"
+      - "mcp-server/**"
       - "frontend/src/**"
       - "frontend/package.json"
       - "frontend/package-lock.json"
@@ -91,6 +92,10 @@ jobs:
           - name: es-ik
             context: resources/docker
             dockerfile: resources/docker/polyu-es-stack-9.4.2.Dockerfile
+            timeout: 30
+          - name: mcp
+            context: .
+            dockerfile: deploy/mcp.Dockerfile
             timeout: 30
     steps:
       # action 全部按 commit-SHA 钉版（appleboy 两 action 持 DEPLOY_KEY
@@ -166,20 +171,38 @@ jobs:
               echo "polyu-prod.env 缺失：按 deploy/.env.example 填值生成 polyu-prod.env 并 scp 到 /opt/polyu/（deploy/README.md 首启章节）"
               exit 1
             fi
+            # IMAGE_MCP 为 #164 新增键：存量 polyu-prod.env 没有它，sed 对不存在的键是静默 no-op，
+            # 故先缺键自动补占位行再 sed 覆写（免人工记得上服务器改 env；补了也过不了校验就 fail 的老路）
+            grep -q '^IMAGE_MCP=' polyu-prod.env || echo 'IMAGE_MCP=ghcr.io/placeholder' >> polyu-prod.env
             sed -i \
               -e "s|^IMAGE_BACKEND=.*|IMAGE_BACKEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-backend:$IMG_TAG|" \
               -e "s|^IMAGE_FRONTEND=.*|IMAGE_FRONTEND=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-frontend:$IMG_TAG|" \
               -e "s|^IMAGE_ES=.*|IMAGE_ES=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-es-ik:$IMG_TAG|" \
+              -e "s|^IMAGE_MCP=.*|IMAGE_MCP=${{ env.REGISTRY }}/$GHCR_USER/polyu-agent-mcp:$IMG_TAG|" \
               polyu-prod.env
             # 校验 sed 真正生效（env 缺键时此处即失败，不把哑配置带进 compose）
-            for k in IMAGE_BACKEND IMAGE_FRONTEND IMAGE_ES; do
+            for k in IMAGE_BACKEND IMAGE_FRONTEND IMAGE_ES IMAGE_MCP; do
               grep -q "^$k=.*$IMG_TAG" polyu-prod.env || { echo "polyu-prod.env 缺 $k 或未更新"; exit 1; }
             done
             printf '%s' "$GHCR_TOKEN" | docker login ${{ env.REGISTRY }} -u "$GHCR_USER" --password-stdin
-            # 只拉本 CI 构建的三个应用镜像：基础设施镜像（pg/redis/minio/rocketmq）常驻服务器
+            # 只拉本 CI 构建的应用镜像：基础设施镜像（pg/redis/minio/rocketmq）常驻服务器
             # 归运维面管理，不随部署强拉——裸 compose pull 曾因 minio/minio 自 Docker Hub 整仓
             # 下架（404）堵死整条部署链（2026-09-16 run 35006241041 实录，D18）
-            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull polyu-app polyu-nginx polyu-es
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml pull polyu-app polyu-nginx polyu-es polyu-mcp
+            # 部署序（#164）：先起 mcp-server 并等 healthcheck 通过，再滚动其余服务——
+            # app 的 MCP 客户端是启动期一次性连接（@PostConstruct 无自动重连），server 未就位时
+            # 滚 app 会留下「服务正常但缺工具」的状态直到下次重启。编排层不用 depends_on
+            # service_healthy（会阻塞 app 容器创建，与 fail-soft 验收冲突），顺序由本脚本保障。
+            # 等不到 healthy 直接失败：静默缺工具比部署红更难排查。
+            docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d polyu-mcp
+            MCP_CID=$(docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml ps -q polyu-mcp)
+            for i in $(seq 1 30); do
+              [ "$(docker inspect --format '{{.State.Health.Status}}' "$MCP_CID")" = "healthy" ] && break
+              sleep 5
+            done
+            docker inspect --format '{{.State.Health.Status}}' "$MCP_CID" | grep -q healthy || {
+              echo "polyu-mcp 未在 150s 内转 healthy，中止滚动（app 免于带缺工具状态重启）"; exit 1;
+            }
             docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d --remove-orphans
             docker image prune -f
             docker logout ${{ env.REGISTRY }}
@@ -220,6 +243,13 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-es-ik:${{ needs.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Scan mcp image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/polyu-agent-mcp:${{ needs.meta.outputs.tag }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '0'

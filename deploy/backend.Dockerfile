@@ -33,7 +33,7 @@ COPY system system
 COPY rag rag
 COPY agent agent
 COPY bootstrap bootstrap
-# 只构建 bootstrap 及其上游依赖（mcp-server 是独立应用，不在生产八件套内）
+# 只构建 bootstrap 及其上游依赖（mcp-server 独立成镜像 deploy/mcp.Dockerfile，#164 起为生产第九常驻服务）
 RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests -pl bootstrap -am package
 
 FROM eclipse-temurin:17-jre-noble AS runtime

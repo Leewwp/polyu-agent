@@ -1,17 +1,9 @@
+# 容器化部署（#164）：绑 0.0.0.0 让 compose 网络内的 polyu-app 可达；
+# 宿主端口发布与否由编排层决定（生产 compose 不发布到宿主，仅内网可达）
 server:
-  address: 127.0.0.1
+  address: 0.0.0.0
   port: 9099
 
 spring:
   application:
     name: ragent-mcp-server
-
-ragent:
-  bit:
-    datasource:
-      url: jdbc:postgresql://127.0.0.1:5432/ragent_bit?client_encoding=UTF8
-      username: postgres
-      password: postgres
-    pending-order:
-      timeout: 5m
-      scan-interval: 1m

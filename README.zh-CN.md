@@ -54,7 +54,7 @@ PolyU 信息分散在数十个部门站点（教务处 AR、学生事务处 SAO�
 - `framework/` / `infra-ai/` — 底座框架层与 AI 基础设施（模型路由、中间件适配、通用支撑）
 - `rag/` — 检索域（知识库与摄取、意图树、查询改写、评测、资讯抓取与热度）
 - `agent/` — Agentic 问答链路（ReAct、确认卡、追踪）
-- `mcp-server/` — MCP 工具服务（示例工具）
+- `mcp-server/` — MCP 工具服务（图书馆往年试卷检索工具，经意图树 MCP 挂载门接入智能体）
 - `system/` — 用户、认证、审计、数据保留等系统面
 - `frontend/` — React 前端（Vite + zustand + Tailwind）
 - `resources/` — 建表 SQL 与增量升级脚本、知识语料、演示初始化器、本地中间件编排

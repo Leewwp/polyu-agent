@@ -54,7 +54,7 @@ The live site [polyuguide.com](https://polyuguide.com) can be tried as a guest w
 - `framework/` / `infra-ai/` — base framework layer and AI infrastructure (model routing, middleware adapters, shared plumbing)
 - `rag/` — retrieval domain (knowledge bases and ingestion, intent tree, query rewriting, evaluation, news fetching and heat ranking)
 - `agent/` — agentic Q&A chain (ReAct, confirmation cards, tracing)
-- `mcp-server/` — MCP tool service (sample tools)
+- `mcp-server/` — MCP tool service (library past-paper search tool, mounted into the agent via the intent-tree MCP gate)
 - `system/` — users, auth, audit, data retention and other system concerns
 - `frontend/` — React frontend (Vite + zustand + Tailwind)
 - `resources/` — schema SQL and incremental upgrades, knowledge corpus, demo initializers, local middleware compose
