@@ -196,12 +196,14 @@ jobs:
             # 等不到 healthy 直接失败：静默缺工具比部署红更难排查。
             docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d polyu-mcp
             MCP_CID=$(docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml ps -q polyu-mcp)
-            for i in $(seq 1 30); do
+            # 45×5s=225s > compose healthcheck 预算（start_period 60s + interval 15s×10）：慢启动也让本脚本
+            # 比 compose 自己先判负，部署侧报错比容器卡 starting 好排查
+            for i in $(seq 1 45); do
               [ "$(docker inspect --format '{{.State.Health.Status}}' "$MCP_CID")" = "healthy" ] && break
               sleep 5
             done
             docker inspect --format '{{.State.Health.Status}}' "$MCP_CID" | grep -q healthy || {
-              echo "polyu-mcp 未在 150s 内转 healthy，中止滚动（app 免于带缺工具状态重启）"; exit 1;
+              echo "polyu-mcp 未在 225s 内转 healthy，中止滚动（app 免于带缺工具状态重启）"; exit 1;
             }
             docker compose --env-file polyu-prod.env -f polyu-prod.compose.yaml up -d --remove-orphans
             docker image prune -f

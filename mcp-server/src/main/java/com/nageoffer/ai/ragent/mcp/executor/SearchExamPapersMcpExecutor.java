@@ -46,12 +46,10 @@ import static com.nageoffer.ai.ragent.mcp.executor.McpToolSchema.string;
 @Component
 public class SearchExamPapersMcpExecutor {
 
-    private static final String TOOL_ID = "search_exam_papers";
-
     /**
      * 工具 ID 三处逐字符一致：本常量、意图树 MCP 节点 mcp_tool_id、技能表 tool_ids
      */
-    public static final String TOOL_NAME = TOOL_ID;
+    public static final String TOOL_NAME = "search_exam_papers";
 
     private static final String SEARCH_PAGE_URL = "https://exam.lib.polyu.edu.hk/simple-search?query=";
 
@@ -70,7 +68,7 @@ public class SearchExamPapersMcpExecutor {
                 .build();
 
         return Tool.builder()
-                .name(TOOL_ID)
+                .name(TOOL_NAME)
                 .description("检索香港理工大学图书馆往年试卷库（exam.lib.polyu.edu.hk），返回按课程代码精确过滤的"
                         + "试卷检索页链接；用户询问某门课程的往年试卷、过往试卷、past paper 时调用")
                 .inputSchema(inputSchema)
@@ -102,11 +100,11 @@ public class SearchExamPapersMcpExecutor {
                     courseCode, link);
 
             log.info("MCP 工具调用完成, toolId={}, courseCode={}, elapsed={}ms",
-                    TOOL_ID, courseCode, System.currentTimeMillis() - startMs);
+                    TOOL_NAME, courseCode, System.currentTimeMillis() - startMs);
             return McpToolResults.success(result);
         } catch (Exception e) {
             log.error("MCP 工具调用失败, toolId={}, elapsed={}ms",
-                    TOOL_ID, System.currentTimeMillis() - startMs, e);
+                    TOOL_NAME, System.currentTimeMillis() - startMs, e);
             return McpToolResults.failure("试卷检索", e);
         }
     }

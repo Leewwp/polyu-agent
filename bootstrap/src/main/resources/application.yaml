@@ -104,7 +104,7 @@ share:
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
   mcp:
-    # #164 首次真实挂载（D14 裁定更新：原零动作改为挂自建端点）：仓库 mcp-server 模块，
+    # #164 首次真实挂载（原「不挂上游 demo 死端点」零动作裁定更新为挂自建端点）：仓库 mcp-server 模块，
     # 单工具 search_exam_papers。URL 自动补 /mcp（AgentMcpClients）；默认值=compose 服务名
     # （容器内 DNS），本地宿主跑应用时用 AGENT_MCP_SERVER_URL 覆盖成 http://127.0.0.1:9099。
     # 工具真正进 Agent 目录还需意图树 MCP 节点（见 upgrades/260929_mcp_exam_paper_tools.sql）。

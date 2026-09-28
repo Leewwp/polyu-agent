@@ -31,7 +31,8 @@ final class InitializationActions {
     private static final String INITIALIZER_LOCK_KEY = "ragent:initializer:lock";
 
     private static final String BIZ_SCHEMA_MISSING =
-            "业务库表结构不存在，请先启动一次 mcp-server（它负责建表），或检查 ragent.bit.datasource.url";
+            "业务库表结构不存在（上游电商 demo 的 ragent_bit 业务库已随 #164 从 mcp-server 移除，"
+                    + "本初始化器的电商支线已失效；如需跑该 demo 请回溯移除前的提交）";
 
     private InitializationActions() {
     }

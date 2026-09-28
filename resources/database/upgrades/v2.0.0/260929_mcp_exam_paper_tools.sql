@@ -1,6 +1,6 @@
 -- v2.0.0 260929 MCP 试卷检索工具挂载（issue #164）：意图树 MCP 节点 + 查试卷技能手册
 --
--- 背景：生产首次真实接入 MCP/Skills（此前 D14 维持零动作）。
+-- 背景：生产首次真实接入 MCP/Skills（此前维持零动作：不挂上游 demo 死端点）。
 --   - mcp-server 模块已裁剪为单工具 search_exam_papers（确定性深链构造，零网络调用）；
 --   - 工具挂载门：发现工具须与已启用意图树 MCP 节点（kind=2 叶子）取交集，仅加 server 配置
 --     不会让 Agent 拿到工具（AgentToolCatalog.resolveMcpTools）；技能 toolIds 校验走同一节点集
