@@ -30,6 +30,7 @@ PolyU information is scattered across dozens of department sites (Academic Regis
 | Scheduled refresh | URL-sourced documents refreshed incrementally on cron (native to the base); news feed: scheduled discovery of official/university channels → bilingual AI summaries and classification → feed / trending / topic browsing; global search with sort direction and category scope (feature-flag gated) |
 | Multilingual | simplified Chinese and English officially supported at launch; trilingual document identity and cross-lingual retrieval retained underneath; traditional Chinese is compatibility-smoke-tested only for now |
 | Feedback & about | anonymous feedback (daily IP limit) with back-office management; about page with markdown editing and a tip jar (feature-flag gated) |
+| MCP tools & skills | The agentic chain mounts an in-repo MCP tool service through the intent-tree gate (first tool: library past-paper search returning deep links by course code; paper content stays behind the PolyU NetID wall); skill manuals follow load_skill progressive disclosure |
 | Real-demand loop | social-media questions feed the golden set and colloquial query forms; failed online questions keep only de-identified scenario + diagnostics and asynchronously produce knowledge-gap reports |
 
 ## Interface preview
@@ -54,7 +55,7 @@ The live site [polyuguide.com](https://polyuguide.com) can be tried as a guest w
 - `framework/` / `infra-ai/` — base framework layer and AI infrastructure (model routing, middleware adapters, shared plumbing)
 - `rag/` — retrieval domain (knowledge bases and ingestion, intent tree, query rewriting, evaluation, news fetching and heat ranking)
 - `agent/` — agentic Q&A chain (ReAct, confirmation cards, tracing)
-- `mcp-server/` — MCP tool service (sample tools)
+- `mcp-server/` — MCP tool service (library past-paper search tool, mounted into the agent via the intent-tree MCP gate)
 - `system/` — users, auth, audit, data retention and other system concerns
 - `frontend/` — React frontend (Vite + zustand + Tailwind)
 - `resources/` — schema SQL and incremental upgrades, knowledge corpus, demo initializers, local middleware compose

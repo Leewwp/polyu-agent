@@ -9,10 +9,11 @@
 | 文件 | 角色 |
 | --- | --- |
 | `backend.Dockerfile` | 后端镜像：Maven 3.9.11 构建 → JRE 17，入口=bootstrap fat jar，非 root 运行 |
+| `mcp.Dockerfile` | MCP 工具服务镜像（#164）：mcp-server 模块 fat jar，堆 256m 对应 384m 限额 |
 | `frontend-nginx.Dockerfile` | 前端+网关镜像：Vite build → nginx 直出 SPA + 反代 |
 | `nginx/polyu-http.conf` | HTTP 网关（随镜像烧入）：ACME webroot + 301；http 顶层共用声明（map/resolver/limit_req zone） |
 | `nginx/polyu-tls.conf` | TLS server 块（443）：/api/ /minio/ SPA；chat/stop 端点 limit_req（独立桶） |
-| `polyu-prod.compose.yaml` | 生产八件套：app / PG / Redis / MinIO / RocketMQ / ES+IK / nginx / certbot(tls profile) |
+| `polyu-prod.compose.yaml` | 生产九服务：app / PG / Redis / MinIO / RocketMQ / ES+IK / MCP 工具服务 / nginx / certbot(tls profile) |
 | `.env.example` | 密钥 env 模板（占位值）；复制为 `polyu-prod.env` 填真实值，不入仓 |
 | `pg-backup.sh` | PG 每日备份（crontab 调用；容器内 socket 信任连接，脚本零明文凭据） |
 | `server-init.sh` | 宿主首启初始化（幂等）：vm.max_map_count、/opt/polyu 目录、broker 存储属主 |
@@ -70,8 +71,9 @@ admin 初始口令：`polyu-prod.env` 的 `RAGENT_BOOTSTRAP_ADMIN_PASSWORD`；�
 
 ## 日常部署
 
-push main（代码/部署物路径变更）→ `deploy.yml` 自动：构建三镜像推 GHCR（tag=commit 短 SHA + latest）
-→ scp compose 与建表 SQL → 服务器 sed 更新镜像 tag → pull + 滚动重启。
+push main（代码/部署物路径变更）→ `deploy.yml` 自动：构建四镜像推 GHCR（backend / frontend / es-ik / mcp；tag=commit 短 SHA + latest）
+→ scp compose 与建表 SQL → 服务器 sed 更新镜像 tag → pull → **先起 polyu-mcp 并等 healthcheck 通过再滚动其余**
+（app 的 MCP 客户端启动期一次性连接、无自动重连，服务端必须先就位；等不到 healthy 部署即失败，不留「app 正常但缺工具」的静默状态）。
 
 ## 数据库升级（新环境首启外）
 
@@ -106,6 +108,7 @@ cat > smoke.env <<'EOF'
 IMAGE_BACKEND=polyu-backend:f2
 IMAGE_FRONTEND=polyu-frontend:f2
 IMAGE_ES=<本机已有 ES+IK 镜像>
+IMAGE_MCP=<本机已有 mcp 镜像，或 ghcr.io 拉取的 polyu-agent-mcp:latest>
 POSTGRES_USER=polyu
 POSTGRES_PASSWORD=smoke-pg-pass
 REDIS_PASSWORD=smoke-redis-pass

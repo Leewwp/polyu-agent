@@ -39,7 +39,7 @@ jobs:
         run: >
           ./mvnw test
           -Dsurefire.failIfNoSpecifiedTests=false
-          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!YouComSearchMcpExecutorLiveTest,!NewsQueryServiceTests'
+          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!NewsQueryServiceTests'
 
       - name: Package (skip tests)
         run: ./mvnw -DskipTests package

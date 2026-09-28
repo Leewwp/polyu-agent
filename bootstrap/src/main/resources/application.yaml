@@ -104,7 +104,14 @@ share:
 # Agent 执行架构（ragent.engine.type=agent 时生效）；单模型无 fallback，供应商可用性由 provider 侧保障
 agent:
   mcp:
-    servers: []  # 上游 MCP 配置自 rag.mcp 迁来（fd58ec76 去 rag-mcp SDK 化）；维持 D14 裁定不挂 localhost:9099 死端点——空表即不注册远程 MCP 工具（非致命），需要时按需追加
+    # #164 首次真实挂载（原「不挂上游 demo 死端点」零动作裁定更新为挂自建端点）：仓库 mcp-server 模块，
+    # 单工具 search_exam_papers。URL 自动补 /mcp（AgentMcpClients）；默认值=compose 服务名
+    # （容器内 DNS），本地宿主跑应用时用 AGENT_MCP_SERVER_URL 覆盖成 http://127.0.0.1:9099。
+    # 工具真正进 Agent 目录还需意图树 MCP 节点（见 upgrades/260929_mcp_exam_paper_tools.sql）。
+    # 启动期一次性连接（@PostConstruct，无自动重连；连不上 fail-soft 只告警不崩）
+    servers:
+      - name: polyu-mcp
+        url: ${AGENT_MCP_SERVER_URL:http://polyu-mcp:9099}
   chat:
     provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
     model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
