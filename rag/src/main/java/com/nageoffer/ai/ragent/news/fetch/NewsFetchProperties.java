@@ -75,6 +75,57 @@ public class NewsFetchProperties {
      */
     private int eventsPastMonths = 0;
 
+    // ================== 准入与状态合同（#185，父票 #180 §2/§3） ==================
+    //
+    // 源分级（tier）语义约定（本票只定语义不落 seed，列与数据归 #188）：
+    //   T1=核心一手源（官方博客/研究机构主站），T2=次级聚合/专题源——tier 是
+    //   「信源质量分级」，独立于 t_news_source.official（后者=polyu.edu.hk 官网
+    //   校园语义，两者正交：AI 源 tier=T1 时 official=false）。
+    //   准入影响：tier 不改变本类的公平轮转（每源每轮一票），仅作为 #188 启源时
+    //   配置 per-source 日准入上限的依据（#180 §1 冻结清单按源给出 10/20）。
+
+    /**
+     * 全站新准入日上限（#185 硬合同）：含既有源在内，每日（HKT）进入管线
+     * （status=pending）的新条目 ≤ 本值。19 新增源的局部上限合计 200 只是局部
+     * 上限，不覆盖本值。默认 60=与富化能力（20 条×3 轮/日）匹配的分批放量；
+     * 调整须同步输入/预算/资源回放并走扩量门
+     */
+    private int admissionDailySiteCap = 60;
+
+    /**
+     * 源日准入默认上限（#185）：#180 §1 冻结清单外的源（现行 11 个既有源）适用，
+     * 沿用既有单源批上限量级（50/日）保持校园源行为不变；清单内源由
+     * {@link #admissionSourceDailyCaps} 按 sourceKey 覆盖（#188 启源时配置 10/20）
+     */
+    private int admissionDefaultSourceDailyCap = 50;
+
+    /**
+     * 源日准入上限表（sourceKey → 条/日，HKT）：#180 §1 冻结清单的每源上限
+     * （如 ai-openai-news=10、ai-arxiv-rss=20）——命中者覆盖默认值；
+     * 本表只是局部上限，全站仍受 {@link #admissionDailySiteCap} 约束
+     */
+    private Map<String, Integer> admissionSourceDailyCaps = new LinkedHashMap<>();
+
+    /**
+     * 旧文归档阈值（小时，#185）：发现时原文发布时间早于 now-本值 → archived
+     * 终态（不进「今天」、跳过付费富化、不计日准入）。lastmod=修改时间不得
+     * 冒充首发时间（解析侧空发布时间已过滤，服务侧 null 一律不入库）
+     */
+    private int staleArticleHours = 48;
+
+    /**
+     * 待富化 TTL（小时，#185）：从首次发现（fetch_time）起算，超期未获发布资格
+     * 的 pending 条目转 expired 终态并退出待办；同 URL 重现不重建付费待办。
+     * 不承诺无条件次日清空
+     */
+    private int pendingTtlHours = 48;
+
+    /**
+     * 发布门时长（秒，#185）：从发布资格就绪（eligible_time）起算的公开延迟，
+     * 统一公开资格查询侧判据（见 {@link com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus}）
+     */
+    private int publishGateSeconds = 180;
+
     // ================== LLM 摘要预算护栏（#184，父票 #181 §1 合同） ==================
 
     /**
@@ -121,6 +172,46 @@ public class NewsFetchProperties {
     private int llmMaxRetries = 2;
 
     // ================== 有效值推导（单一事实源：富化截断/预算成本上界共用同一口径） ==================
+
+    /**
+     * 全站新准入日上限有效值（非正配置回退默认 60）
+     */
+    public int effectiveAdmissionDailySiteCap() {
+        return admissionDailySiteCap > 0 ? admissionDailySiteCap : 60;
+    }
+
+    /**
+     * 源日准入上限有效值：sourceKey 命中 {@link #admissionSourceDailyCaps} 取其值
+     * （非正值视为未配置），否则取 {@link #admissionDefaultSourceDailyCap}（非正回退 50）
+     */
+    public int effectiveSourceDailyCap(String sourceKey) {
+        Integer configured = sourceKey == null ? null : admissionSourceDailyCaps.get(sourceKey);
+        if (configured != null && configured > 0) {
+            return configured;
+        }
+        return admissionDefaultSourceDailyCap > 0 ? admissionDefaultSourceDailyCap : 50;
+    }
+
+    /**
+     * 旧文归档阈值有效值（小时，非正回退默认 48）
+     */
+    public int effectiveStaleArticleHours() {
+        return staleArticleHours > 0 ? staleArticleHours : 48;
+    }
+
+    /**
+     * 待富化 TTL 有效值（小时，非正回退默认 48）
+     */
+    public int effectivePendingTtlHours() {
+        return pendingTtlHours > 0 ? pendingTtlHours : 48;
+    }
+
+    /**
+     * 发布门时长有效值（秒，非正回退默认 180）
+     */
+    public int effectivePublishGateSeconds() {
+        return publishGateSeconds > 0 ? publishGateSeconds : 180;
+    }
 
     /**
      * 正文输入 token 上限有效值（非正配置回退默认 4000）

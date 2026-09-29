@@ -104,7 +104,8 @@ public class NewsItemDO {
     private Date fetchTime;
 
     /**
-     * published=展示；hidden=人工抽检应急下架（admin 最小端点）
+     * 处理状态五态（#185，语义见 {@link NewsItemStatus}）：
+     * pending/published/archived/expired/hidden
      */
     private String status;
 
@@ -112,6 +113,25 @@ public class NewsItemDO {
      * 热度分（热度模型：Σ信源权重+覆盖源数，24h 半衰期）
      */
     private Integer heat;
+
+    /**
+     * 发布资格就绪时刻（#185）：合格摘要落库或明示零调用回退的时间；
+     * 发布门 180s 从本字段起算（查询侧统一判据）。NULL=#185 之前的历史行，
+     * 资格视同早已就绪（历史不重算）
+     */
+    private Date eligibleTime;
+
+    /**
+     * 摘要产出方式（#185）：llm=LLM 富化；fallback=明示零调用回退（标题派生）；
+     * NULL=#185 之前的历史行
+     */
+    private String summarySource;
+
+    /**
+     * 产出摘要所用提示词模板版本（#185）：sha256(模板全文) 前 12 位。
+     * 改词即版本变化，只影响新资料，历史行不自动重算；fallback 无提示词为 NULL
+     */
+    private String promptVersion;
 
     /**
      * 创建时间
