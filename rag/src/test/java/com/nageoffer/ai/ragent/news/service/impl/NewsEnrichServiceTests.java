@@ -337,12 +337,19 @@ class NewsEnrichServiceTests {
         verify(itemMapper, never()).update(any(), any());
     }
 
-    // ================== #184 修正点5：maxTokens=1024 输出合同不截断 ==================
+    // ================== #184 修正点5：解析 fixture（只证明解析，不证明 token 长度） ==================
 
+    /**
+     * <b>parse-only fixture</b>（#184 修正点5 重标注，2026-09-29）：只证明解析路径对
+     * 双语长度合同<b>极限形状</b>载荷（中文摘要 400 字 2 段+英文摘要 260 词+双语标题
+     * +分类+4 标签）的鲁棒性。<b>不构成 maxTokens=1024 必然容纳该载荷的证据</b>——
+     * 字符/4 估算是保守口径，未经 qwen 系真实分词或生成 token 证据核验；若真实输出
+     * 被 1024 截断，产生的不完整 JSON 走解析失败受控降级（见
+     * {@link #b06TruncatedResponseNotPublishedAndBatchBounded()}），必要时上调
+     * rag.news.summary-max-tokens 并同步成本模型
+     */
     @Test
-    void maxTokens1024HoldsFullBilingualContractPayload() {
-        // 提示词合同的极限载荷：中文摘要 400 字（250–400 上限，2 段 \n\n 分隔）+
-        // 英文摘要 260 词（180–260 上限）+双语标题+分类+4 标签
+    void maximalContractPayloadIsParseableParseOnlyFixture() {
         String zh = "理".repeat(400);
         String en = String.join(" ",
                 java.util.stream.IntStream.rangeClosed(1, 260).mapToObj(i -> "word" + i).toList());
@@ -354,13 +361,107 @@ class NewsEnrichServiceTests {
         NewsEnrichService.NewsSummaryPayload payload = service.parsePayload(json);
         assertEquals("research", payload.category());
         assertEquals(4, payload.topics().size());
-        long tokens = estimateTokens(json);
-        assertTrue(tokens <= 1024,
-                "合同极限载荷须在 maxTokens=1024 内完整可解析（保守估算 CJK 1 token/字、ASCII 4 字符/token），估算=" + tokens);
+        assertTrue(payload.summary_zh().contains("\n\n"), "段间分隔按约定解析");
+    }
+
+    // ================== B06：1024 截断/无效 JSON 不发布且重试有限（富化侧） ==================
+
+    @Test
+    void b06TruncatedResponseNotPublishedAndBatchBounded() {
+        NewsItemDO first = item(41);
+        NewsItemDO second = item(42);
+        when(itemMapper.selectList(any())).thenReturn(List.of(first, second));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+        // max_tokens 截断形状：JSON 在字符串中途断裂（无闭合括号）——解析必然失败
+        String truncated = "{\"title_zh\":\"标题\",\"title_en\":\"Title\",\"summary_zh\":\"摘要被截断于中";
+        Runnable invalidReporter = mock(Runnable.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(truncated, false, invalidReporter))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, () -> { }));
+
+        int enriched = service.enrichPendingItems();
+
+        assertEquals(1, enriched, "截断响应条目不发布，批内下一条正常处理（单条隔离，不无限重试）");
+        verify(invalidReporter).run();
+        verify(itemMapper, org.mockito.Mockito.times(1)).update(any(), any());
+    }
+
+    // ================== B04：完整渲染请求的输入闭合（富化侧） ==================
+
+    /**
+     * 真实模板（prompt/news-summary.st）+超长标题+动态词表+混合字符正文：
+     * 送出的<b>完整渲染请求</b>（模板指令+词表+标题+正文合计）在输入限额
+     * （max-input-tokens+提示词开销=6000，估算口径）内——静态部分+正文合计超限时
+     * 压缩正文块（保留头部、移除尾部标记）而非裸送
+     */
+    @Test
+    void b04CompleteRenderedPromptStaysWithinInputQuota() {
+        NewsEnrichService realLoaderService = serviceWithRealTemplateLoader();
+        // 静态部分做大（超长标题+100 条词表 ≈3800 token）+正文顶满 4000 token → 完整 prompt ≈7800 >6000 触发收缩
+        String longTitle = "理大研究通报国际合作联合实验室公告 ".repeat(20);
+        NewsItemDO pending = NewsItemDO.builder().id(51L).sourceId(11L)
+                .url("https://www.polyu.edu.hk/en/media/51")
+                .titleEn(longTitle).langRaw("en").status("published").category("other").heat(0).build();
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        // 混合字符正文（ASCII 头部+CJK 主体+ASCII 尾部标记 ≈4000 token）：预截断不触界，完整 prompt 超限后由输入闭合唱收缩
+        String content = "HEADMARK9 ".repeat(200) + "理大研究要闻 ".repeat(480) + "TAILMARK9 ".repeat(200);
+        when(httpFetchClient.get(any())).thenReturn(
+                ("<html><body><main><p>" + content + "</p></main></body></html>").getBytes(StandardCharsets.UTF_8));
+        List<NewsTopicDO> vocab = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            vocab.add(vocabTopic("topic-" + i, "第" + i + "号超长动态主题词表中文名称条目",
+                    "Oversized Dynamic Vocabulary Topic Entry Number " + i));
+        }
+        when(topicMapper.selectList(any())).thenReturn(vocab);
+
+        realLoaderService.enrichPendingItems();
+
+        ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
+        verify(llmBudgetService).call(captor.capture(), org.mockito.ArgumentMatchers.eq(Tier.FAST));
+        String prompt = captor.getValue().getMessages().get(0).getContent();
+        assertTrue(NewsEnrichService.estimatePromptTokens(prompt) <= 6000,
+                "完整渲染请求（模板+词表+标题+正文）≤ 输入限额 6000（估算口径），实际="
+                        + NewsEnrichService.estimatePromptTokens(prompt));
+        assertTrue(prompt.contains("理大研究通报国际合作联合实验室公告"), "超长标题完整入 prompt");
+        assertTrue(prompt.contains("topic-99"), "动态词表渲染入 prompt");
+        assertTrue(prompt.contains("HEADMARK9"), "正文保留头部");
+        assertFalse(prompt.contains("TAILMARK9"), "超限部分经压缩正文移除（完整 prompt 收口，非仅正文截断）");
     }
 
     /**
-     * 测试侧同口径 token 估算（CJK/全角=1，其余 4 字符=1）
+     * 静态部分（模板+词表+标题）自身超输入限额：拒绝付费准入（条目隔离不发出），
+     * 不裸送超限请求
+     */
+    @Test
+    void b04OversizedStaticPromptRefusesAdmissionWithoutSending() {
+        NewsEnrichService realLoaderService = serviceWithRealTemplateLoader();
+        NewsItemDO pending = NewsItemDO.builder().id(52L).sourceId(11L)
+                .url("https://www.polyu.edu.hk/en/media/52")
+                .titleEn("PolyU news").langRaw("en").status("published").category("other").heat(0).build();
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+        List<NewsTopicDO> hugeVocab = new java.util.ArrayList<>();
+        for (int i = 0; i < 500; i++) {
+            hugeVocab.add(vocabTopic("topic-" + i, "超长动态词表主题第" + i + "号中文名称用于撑爆静态预算", "Oversized Vocabulary Entry Number " + i));
+        }
+        when(topicMapper.selectList(any())).thenReturn(hugeVocab);
+
+        int enriched = realLoaderService.enrichPendingItems();
+
+        assertEquals(0, enriched, "静态部分超限=拒绝付费准入，当日该条目仅入库不富化");
+        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class));
+        verify(itemMapper, never()).update(any(), any());
+    }
+
+    private NewsEnrichService serviceWithRealTemplateLoader() {
+        PromptTemplateLoader loader = new PromptTemplateLoader(new org.springframework.core.io.DefaultResourceLoader());
+        return new NewsEnrichService(itemMapper, sourceMapper, topicMapper, itemTopicMapper,
+                httpFetchClient, new HtmlDocumentParser(), llmBudgetService,
+                loader, new com.fasterxml.jackson.databind.ObjectMapper(), fetchProperties);
+    }
+
+    /**
+     * 测试侧同口径 token 估算（CJK/全角=1，其余 4 字符=1）——估算口径，非分词证明
      */
     private static long estimateTokens(String text) {
         long quarter = 0;

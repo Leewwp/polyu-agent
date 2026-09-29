@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -72,7 +73,7 @@ public class NewsAdminServiceImpl implements NewsAdminService {
     @Override
     public NewsLlmBudgetStatusVO llmBudgetStatus() {
         Date now = new Date();
-        String today = NewsLlmBudgetService.todayKey(now);
+        LocalDate today = NewsLlmBudgetService.todayDateKey(now);
         String month = NewsLlmBudgetService.monthKey(now);
         Map<String, Object> daily = aggregate(today, "stat_date");
         Map<String, Object> monthly = aggregate(month, "stat_month");
@@ -95,9 +96,10 @@ public class NewsAdminServiceImpl implements NewsAdminService {
     }
 
     /**
-     * 按日/月键聚合成本与 attempts（数据源 t_news_llm_receipt，重启不清零）
+     * 按日/月键聚合成本与 attempts（数据源 t_news_llm_receipt，重启不清零）。
+     * stat_date 键为 LocalDate（PG DATE 原生映射，#184 修正点6 实证）、stat_month 为字符串
      */
-    private Map<String, Object> aggregate(String key, String column) {
+    private Map<String, Object> aggregate(Object key, String column) {
         List<Map<String, Object>> rows = receiptMapper.selectMaps(new QueryWrapper<NewsLlmReceiptDO>()
                 .select("COALESCE(SUM(cost_estimate), 0) AS cost_sum",
                         "COALESCE(SUM(attempts), 0) AS attempt_sum")

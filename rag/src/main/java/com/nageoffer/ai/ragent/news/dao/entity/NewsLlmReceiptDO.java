@@ -26,6 +26,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Date;
 
 /**
@@ -56,10 +57,15 @@ public class NewsLlmReceiptDO {
     private String requestFingerprint;
 
     /**
-     * 最近发出所处日（yyyy-MM-dd，HKT 日切）——预算按日聚合口径；
-     * 字符串承载避免 TIMESTAMP 时区换算歧义
+     * 本行发出所处日（HKT 日切）——预算按日聚合口径。
+     * <p>类型映射（修正点6，2026-09-29 本地 polyu-pg 实证）：PG DATE 列与 Java String
+     * 经 PgJDBC setString 双向不兼容（INSERT 报 "column is of type date but expression
+     * of type character varying"、等值比较报 "operator does not exist: date = character
+     * varying"，三套环境 URL 均无 stringtype=unspecified 兜底）——改用
+     * {@link LocalDate} 走 mybatis LocalDateTypeHandler 原生 DATE 通道（实证通过）。
+     * 周期键随行落定后不改写（修正点3）
      */
-    private String statDate;
+    private LocalDate statDate;
 
     /**
      * 最近发出所处月（yyyy-MM，HKT）——预算按月聚合口径

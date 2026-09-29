@@ -120,6 +120,31 @@ public class NewsFetchProperties {
      */
     private int llmMaxRetries = 2;
 
+    // ================== 有效值推导（单一事实源：富化截断/预算成本上界共用同一口径） ==================
+
+    /**
+     * 正文输入 token 上限有效值（非正配置回退默认 4000）
+     */
+    public int effectiveMaxInputTokens() {
+        return maxInputTokens > 0 ? maxInputTokens : 4000;
+    }
+
+    /**
+     * 摘要输出 token 上限有效值（非正配置回退默认 1024）——ChatRequest.maxTokens
+     * 与成本上界的输出限额同源（调整配置即同步调整成本模型）
+     */
+    public int effectiveSummaryMaxTokens() {
+        return summaryMaxTokens > 0 ? summaryMaxTokens : 1024;
+    }
+
+    /**
+     * 完整渲染请求输入限额有效值=正文输入上限+提示词开销（非正配置各自回退默认）——
+     * 富化侧完整 prompt 收口与预算侧成本上界推导共用（口径漂移即预算失真）
+     */
+    public int effectiveInputQuotaTokens() {
+        return effectiveMaxInputTokens() + (budgetPromptOverheadTokens > 0 ? budgetPromptOverheadTokens : 2000);
+    }
+
     /**
      * 候选模型单价（元/百万 tokens，非思考档）
      */
