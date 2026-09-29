@@ -203,12 +203,20 @@ rag:
     retention-scan-delay-ms: 3600000   # 保留清理巡检间隔（毫秒）
     retention-initial-delay-ms: 120000 # 启动首扫延迟（毫秒），避开启动高峰
     enrich-batch: 20          # LLM 摘要补全单批上限（防长事务与花费失控，剩余下轮消化）
-    budget-daily-yuan: 1.0        # 资讯 LLM 日额度（元，HKT 日切，#184）：超额当日降级=仅入库不富化，次日按配额补偿
-    budget-monthly-yuan: 15.0     # 资讯 LLM 月额度（元，红线 ¥10 量级+50% 缓冲）
-    budget-cost-per-attempt-yuan: 0.005  # 单次发出估算成本（5k 入+1k 出 flash 原价封顶）；attempts=真实发出次数含 fallback/重试
+    budget-daily-yuan: 1.0        # 资讯 LLM 日额度（元，HKT 日切，#184）：超额当日降级=仅入库不富化，次日按配额补偿。
+                                 # 口径：资讯额度=资讯 LLM 调用专用独立额度；全项目成本口径（资讯+主链 RAG 等）另行统计，不混算
+    budget-monthly-yuan: 10.0     # 资讯 LLM 月额度（元，HKT 月切）：维护者 2026-09-29 指定保守默认（≤¥10/月，非红线+缓冲）
     summary-max-tokens: 1024      # 摘要输出 maxTokens 透传（底层 OpenAI 兼容客户端已支持 max_tokens）
     max-input-tokens: 4000        # 送 LLM 正文输入 token 估算上限（CJK 1 token/字、其余 4 字符/token 保守口径）
-    llm-max-retries: 2            # 同请求网关重试上限（≤2，不含首次；路由 fallback 不算网关重试）
+    budget-prompt-overhead-tokens: 2000  # 提示词开销 token 预算（模板指令+动态词表+标题行保守值），与 max-input-tokens 合成单次输入限额
+    budget-model-prices:          # 候选单价表（元/百万 tokens，百炼北京区列表价非思考档；来源 docs.bailian.console.aliyun.com，2026-09-29 核对）。
+                                 # 单次成本上界=FAST 链（ai.chat.tiers.fast.candidates，现行 [qwen-flash, qwen-plus]）内最贵已配价候选
+                                 # ×完整请求限额：输入 4000+2000=6000、输出 1024 → (6000×0.8+1024×2)/1e6 ≈ ¥0.006848/次（qwen-plus 最贵）。
+                                 # 链内未配价候选按表内最贵单价兜底并 WARN
+      qwen-flash: {input-yuan-per-m: 0.5, output-yuan-per-m: 2.0}
+      qwen-plus: {input-yuan-per-m: 0.8, output-yuan-per-m: 2.0}
+    llm-max-retries: 2            # 同请求网关重试上限（≤2，不含首次；路由 fallback 不算网关重试）——同指纹累计口径：
+                                 # 跨调度/重启后从回执 retries 续算，耗尽即不再重试
     page-size-default: 20     # /public/news/list 默认页大小（首屏 20 条+加载更多）
     hot-limit: 10             # 热点榜默认条数（Top10；/hot 端点 defaultValue）
     story-merge-enabled: true # 故事线合并开关：false=降级不合并，榜单注脚文案须随降级改

@@ -337,6 +337,28 @@ class NewsEnrichServiceTests {
         verify(itemMapper, never()).update(any(), any());
     }
 
+    // ================== #184 修正点5：maxTokens=1024 输出合同不截断 ==================
+
+    @Test
+    void maxTokens1024HoldsFullBilingualContractPayload() {
+        // 提示词合同的极限载荷：中文摘要 400 字（250–400 上限，2 段 \n\n 分隔）+
+        // 英文摘要 260 词（180–260 上限）+双语标题+分类+4 标签
+        String zh = "理".repeat(400);
+        String en = String.join(" ",
+                java.util.stream.IntStream.rangeClosed(1, 260).mapToObj(i -> "word" + i).toList());
+        String json = "{\"title_zh\":\"二〇二六年秋季招生与研究要闻汇总\",\"title_en\":\"Admission and Research Digest Autumn 2026\","
+                + "\"summary_zh\":\"" + zh.substring(0, 200) + "\\n\\n" + zh.substring(200) + "\","
+                + "\"summary_en\":\"" + en + "\","
+                + "\"category\":\"research\",\"topics\":[\"ai\",\"research\",\"campus\",\"admission\"]}";
+
+        NewsEnrichService.NewsSummaryPayload payload = service.parsePayload(json);
+        assertEquals("research", payload.category());
+        assertEquals(4, payload.topics().size());
+        long tokens = estimateTokens(json);
+        assertTrue(tokens <= 1024,
+                "合同极限载荷须在 maxTokens=1024 内完整可解析（保守估算 CJK 1 token/字、ASCII 4 字符/token），估算=" + tokens);
+    }
+
     /**
      * 测试侧同口径 token 估算（CJK/全角=1，其余 4 字符=1）
      */

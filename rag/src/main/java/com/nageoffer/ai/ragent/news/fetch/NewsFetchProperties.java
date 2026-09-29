@@ -21,6 +21,9 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * 资讯抓取与预算参数（抓取序列的窗口/批上限+LLM 摘要预算护栏外置，#184）
  *
@@ -30,11 +33,20 @@ import org.springframework.context.annotation.Configuration;
  * {@code --rag.news.backfill-days=95 --rag.news.max-items-per-source=500
  * --rag.news.fetch-pages-max=15 --rag.news.events-past-months=3}。
  *
- * <p>预算护栏（{@code rag.news.budget-*}，父票 #181 §1 合同默认值）：
- * 日 ¥1.0 / 月 ¥15，单次发出按 5k 入+1k 出 flash 原价 ≈¥0.005 封顶估算，
- * attempts=真实发出次数（含 fallback/重试）、PG 持久化重启不清零；
+ * <p>预算护栏（{@code rag.news.budget-*}）口径与默认值：
+ * <ul>
+ * <li><b>额度归属</b>：本额度为<b>资讯 LLM 调用专用独立额度</b>；全项目成本口径
+ * （资讯+主链 RAG 等）另行统计，<b>不与本额度混算</b>（维护者 2026-09-29 指定）。</li>
+ * <li>日 ¥1.0 / 月 <b>¥10</b>（月度=维护者 2026-09-29 指定保守默认，非红线+缓冲）。</li>
+ * <li>单次发出成本=按 Tier.FAST <b>完整候选链</b>（含 fallback，配置来源
+ * {@code ai.chat.tiers.fast.candidates}，现行 [qwen-flash, qwen-plus]）中<b>最贵候选</b>
+ * ×完整请求限额的保守上界：输入限额=maxInputTokens(4000)+提示词开销(2000)=6000、
+ * 输出限额=summaryMaxTokens(1024)；单价取百炼北京区列表价非思考档
+ * （qwen-plus 0.8/2.0 元每百万 tokens）——上界=6000×0.8+1024×2 per 1M ≈ <b>¥0.006848/次</b>。</li>
+ * <li>attempts=真实发出次数（含 fallback/重试）、PG 持久化重启不清零；
  * 超额当日降级=仅入库不富化，次日按剩余配额自然补偿（待补条目
- * summary_en IS NULL 常驻查询）。
+ * summary_en IS NULL 常驻查询）。</li>
+ * </ul>
  */
 @Data
 @Configuration
@@ -66,19 +78,15 @@ public class NewsFetchProperties {
     // ================== LLM 摘要预算护栏（#184，父票 #181 §1 合同） ==================
 
     /**
-     * 资讯摘要日额度（元，HKT 日切）：超额当日降级=仅入库不富化，次日补偿
+     * 资讯摘要日额度（元，HKT 日切）：超额当日降级=仅入库不富化，次日补偿。
+     * 口径：资讯 LLM 调用专用独立额度，与全项目成本（资讯+主链 RAG 等）分开统计不混算
      */
     private double budgetDailyYuan = 1.0D;
 
     /**
-     * 资讯摘要月额度（元，HKT 月切）：红线 ¥10 量级+50% 缓冲
+     * 资讯摘要月额度（元，HKT 月切）：维护者 2026-09-29 指定保守默认（≤¥10/月）
      */
-    private double budgetMonthlyYuan = 15.0D;
-
-    /**
-     * 单次发出估算成本（元）：按 5k 入+1k 出 flash 原价封顶 ≈¥0.005
-     */
-    private double budgetCostPerAttemptYuan = 0.005D;
+    private double budgetMonthlyYuan = 10.0D;
 
     /**
      * 摘要输出 token 上限：ChatRequest.maxTokens 透传（底层已支持 max_tokens）
@@ -91,7 +99,49 @@ public class NewsFetchProperties {
     private int maxInputTokens = 4000;
 
     /**
-     * 同请求网关层重试上限（≤2，不含首次；路由 fallback 不算网关重试）
+     * 提示词开销 token 预算（模板指令+动态主题词表+标题行，保守 2000）——
+     * 与 {@link #maxInputTokens} 合成单次输入限额参与成本上界推导
+     */
+    private int budgetPromptOverheadTokens = 2000;
+
+    /**
+     * 候选模型单价表（元/百万 tokens，百炼北京区列表价非思考档；来源
+     * docs.bailian.console.aliyun.com 模型价格页，2026-09-29 核对）——
+     * 单次成本上界=FAST 链内<b>最贵已配价候选</b>×完整请求限额；
+     * 链内出现未配价候选时按表内最贵单价兜底并 WARN（不拍脑袋放大）
+     */
+    private Map<String, ModelPrice> budgetModelPrices = new LinkedHashMap<>(Map.of(
+            "qwen-flash", new ModelPrice(0.5D, 2.0D),
+            "qwen-plus", new ModelPrice(0.8D, 2.0D)));
+
+    /**
+     * 同请求网关层重试上限（≤2，不含首次；路由 fallback 不算网关重试）——
+     * 口径为<b>同指纹累计</b>：跨调度/重启后从回执 retries 续算，耗尽即不再重试
      */
     private int llmMaxRetries = 2;
+
+    /**
+     * 候选模型单价（元/百万 tokens，非思考档）
+     */
+    @Data
+    public static class ModelPrice {
+
+        /**
+         * 输入单价（元/百万 tokens）
+         */
+        private double inputYuanPerM;
+
+        /**
+         * 输出单价（元/百万 tokens）
+         */
+        private double outputYuanPerM;
+
+        public ModelPrice() {
+        }
+
+        public ModelPrice(double inputYuanPerM, double outputYuanPerM) {
+            this.inputYuanPerM = inputYuanPerM;
+            this.outputYuanPerM = outputYuanPerM;
+        }
+    }
 }

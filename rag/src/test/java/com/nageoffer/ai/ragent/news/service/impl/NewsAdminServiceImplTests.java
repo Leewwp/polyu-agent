@@ -114,7 +114,8 @@ class NewsAdminServiceImplTests {
         assertEquals(0, status.getDailyRemainingYuan().compareTo(new BigDecimal("0.985")));
         assertEquals(0, status.getMonthlyCostYuan().compareTo(new BigDecimal("2.0")));
         assertEquals(412L, status.getMonthlyAttempts());
-        assertEquals(0, status.getMonthlyRemainingYuan().compareTo(new BigDecimal("13.0")));
+        assertEquals(0, status.getMonthlyRemainingYuan().compareTo(new BigDecimal("8.0")),
+                "月剩余=¥10 保守默认（修正点1）−2.0");
     }
 
     @Test

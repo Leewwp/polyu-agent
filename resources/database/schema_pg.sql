@@ -1201,40 +1201,43 @@ CREATE TABLE t_news_item_topic (
 CREATE INDEX idx_news_item_topic ON t_news_item_topic(topic_id);
 COMMENT ON TABLE t_news_item_topic IS '条目-主题多对多关联（保留期清理随 t_news_item 级联删除）';
 
--- 资讯 LLM 预算护栏+付费回执（2026-09-29，#184——父票 #181 §1 施工合同）
--- 一行=一次逻辑请求（请求指纹全局唯一）：attempts=真实发出次数（含 fallback/重试，
--- write-ahead 发出前记账，未知结果保守预留）；日/月额度按 stat_date/stat_month
--- 聚合本表（重启不清零）；成功响应先落库再用，同指纹复用不重复付费；
--- 超额当日降级=仅入库不富化（DEGRADED 行=降级事件），次日按配额补偿。
+-- 资讯 LLM 预算护栏+付费回执（2026-09-29，#184——父票 #181 §1 合同+维护者六点修正）
+-- 一行=（请求指纹, 发生日）周期账本行：周期键首次计入时落定且永不改写（跨日/跨月重试
+-- 在新周期行续算，历史归属不搬移）；attempts=真实发出次数（含 fallback/重试，write-ahead
+-- 发出前记账，未知结果保守预留）；日/月额度按 stat_date/stat_month 聚合本表（重启不清零）；
+-- 成本上界推导：FAST 链现行 [qwen-flash, qwen-plus] 最贵 qwen-plus ×完整限额
+-- （输入 4000+2000、输出 1024）→ (6000×0.8+1024×2)/1e6 ≈ ¥0.006848/次。
+-- 额度口径：资讯 LLM 专用独立额度（日 ¥1.0/月 ¥10，维护者 2026-09-29 指定保守默认），
+-- 与全项目成本口径分开统计不混算。
 -- 增量环境走 upgrades/v2.0.0/260929_01_news_llm_budget_receipt.sql
 CREATE TABLE t_news_llm_receipt (
   id                  BIGSERIAL PRIMARY KEY,
-  request_fingerprint VARCHAR(64)  NOT NULL,            -- sha256（提示词全文+模型+影响输出参数），唯一
-  stat_date           DATE         NOT NULL,            -- 最近发出所处日（HKT 日切，预算按日聚合键）
-  stat_month          VARCHAR(7)   NOT NULL,            -- yyyy-MM（HKT，预算按月聚合键）
+  request_fingerprint VARCHAR(64)  NOT NULL,            -- sha256（提示词全文+模型+影响输出参数）
+  stat_date           DATE         NOT NULL,            -- 本行发出所处日（HKT 日切，行落定后不改写）
+  stat_month          VARCHAR(7)   NOT NULL,            -- yyyy-MM（HKT，随 stat_date 落定不改写）
   model_id            VARCHAR(64),                      -- 指纹成分模型（Tier.FAST 主选 id）
   served_model_id     VARCHAR(64),                      -- 实际服务模型（最后一次成功目标）
-  attempts            INT          NOT NULL DEFAULT 0,  -- 真实发出次数（含 fallback/重试，write-ahead）
-  retries             INT          NOT NULL DEFAULT 0,  -- 网关层逻辑重试次数（attempts 子集口径）
-  cost_estimate       NUMERIC(12,6) NOT NULL DEFAULT 0, -- 估算成本（元）= attempts × 单次封顶（≈¥0.005）
+  attempts            INT          NOT NULL DEFAULT 0,  -- 本周期行内真实发出次数（含 fallback/重试，write-ahead）
+  retries             INT          NOT NULL DEFAULT 0,  -- 本周期行内网关重试数（同指纹跨行累计判定 ≤上限）
+  cost_estimate       NUMERIC(12,6) NOT NULL DEFAULT 0, -- 本周期行成本（元）= 行内 attempts × 单次上界 ≈0.006848
   response_text       TEXT,                             -- 成功响应原文（先落库再用，复用不重付费）
   status              VARCHAR(16)  NOT NULL DEFAULT 'PENDING',  -- PENDING/SUCCESS/DEGRADED/FAILED/POISONED
   error_brief         VARCHAR(512),                     -- 最近失败摘要（不含提示词与响应内容）
   create_time         TIMESTAMP    NOT NULL DEFAULT now(),
   update_time         TIMESTAMP    NOT NULL DEFAULT now(),
-  CONSTRAINT uq_news_llm_receipt UNIQUE (request_fingerprint)
+  CONSTRAINT uq_news_llm_receipt UNIQUE (request_fingerprint, stat_date)
 );
 CREATE INDEX idx_news_llm_receipt_date ON t_news_llm_receipt(stat_date);
 CREATE INDEX idx_news_llm_receipt_month ON t_news_llm_receipt(stat_month);
-COMMENT ON TABLE t_news_llm_receipt IS '资讯 LLM 付费回执（#184）：请求指纹唯一，attempts 双口径计数+成本估算，预算聚合数据源（重启不清零）';
+COMMENT ON TABLE t_news_llm_receipt IS '资讯 LLM 付费回执（#184）：（指纹,日）周期账本行，attempts 双口径计数+成本上界估算，预算聚合数据源（重启不清零）';
 COMMENT ON COLUMN t_news_llm_receipt.request_fingerprint IS 'sha256(实际渲染提示词全文+模型+temperature/topP/maxTokens)；同指纹重跑复用响应不重复付费';
-COMMENT ON COLUMN t_news_llm_receipt.stat_date IS '最近发出所处日（HKT 日切）——预算按日聚合键；行跨日续发时归属最近发出日';
-COMMENT ON COLUMN t_news_llm_receipt.stat_month IS 'yyyy-MM（HKT）——预算按月聚合键';
+COMMENT ON COLUMN t_news_llm_receipt.stat_date IS '本行发出所处日（HKT 日切）——日预算聚合键；行落定后不改写，跨日重试在新行续算（维护者修正点3）';
+COMMENT ON COLUMN t_news_llm_receipt.stat_month IS 'yyyy-MM（HKT）——月预算聚合键；随 stat_date 落定不改写';
 COMMENT ON COLUMN t_news_llm_receipt.model_id IS '指纹成分中的模型（Tier.FAST 主选 id，配置期口径）';
 COMMENT ON COLUMN t_news_llm_receipt.served_model_id IS '实际服务模型 id（最后一次成功发出的路由目标；未成功为 NULL）';
-COMMENT ON COLUMN t_news_llm_receipt.attempts IS '真实发出次数：含路由 fallback 与网关重试；write-ahead 发出前记账（未知结果保守预留，不承诺绝对不重复计费）';
-COMMENT ON COLUMN t_news_llm_receipt.retries IS '网关层逻辑重试次数（≤rag.news.llm-max-retries，attempts 的子集口径供双口径核对）';
-COMMENT ON COLUMN t_news_llm_receipt.cost_estimate IS '估算成本（元）= attempts × rag.news.budget-cost-per-attempt-yuan（5k 入+1k 出 flash 原价 ≈¥0.005 封顶）';
+COMMENT ON COLUMN t_news_llm_receipt.attempts IS '本周期行内真实发出次数：含路由 fallback 与网关重试；write-ahead 发出前记账（未知结果保守预留，不承诺绝对不重复计费）';
+COMMENT ON COLUMN t_news_llm_receipt.retries IS '本周期行内网关重试数；同指纹全行累计 ≤ rag.news.llm-max-retries（跨调度/重启续算，维护者修正点4）';
+COMMENT ON COLUMN t_news_llm_receipt.cost_estimate IS '本周期行成本（元）= 行内 attempts × 单次上界（FAST 链最贵候选×完整限额，现行 ≈¥0.006848/次，推导见 rag.news.budget-model-prices 注释）';
 COMMENT ON COLUMN t_news_llm_receipt.response_text IS '成功响应原文：先落库再用，同指纹重跑复用不重复付费；复用解析无效时清除并置 POISONED（不无限复读）';
 COMMENT ON COLUMN t_news_llm_receipt.status IS 'PENDING=发出中；SUCCESS=已回执；DEGRADED=预算耗尽降级（次日补偿后翻转）；FAILED=重试耗尽或解析失败；POISONED=复用响应持续无效已隔离';
 COMMENT ON COLUMN t_news_llm_receipt.error_brief IS '最近一次失败原因摘要（诊断用，不含提示词与响应内容）';
