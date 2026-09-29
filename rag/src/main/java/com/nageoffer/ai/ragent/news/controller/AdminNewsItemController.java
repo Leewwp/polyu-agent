@@ -20,13 +20,18 @@ package com.nageoffer.ai.ragent.news.controller;
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO;
 import com.nageoffer.ai.ragent.news.service.NewsAdminService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
 
 /**
  * 资讯管理面控制器（单条快速下架+预算护栏状态查询）
@@ -58,5 +63,16 @@ public class AdminNewsItemController {
     @GetMapping("/llm-budget")
     public Result<NewsLlmBudgetStatusVO> llmBudgetStatus() {
         return Results.success(newsAdminService.llmBudgetStatus());
+    }
+
+    /**
+     * 管线状态与六口径日报（#185 验收）：发现/准入/唯一内容/富化成功/公开展示/
+     * 事件数（占位 0）+归档/回退/积压/剩余准入额度——t_news_item 现推，重启不重置；
+     * date 缺省=今天（HKT）
+     */
+    @GetMapping("/pipeline")
+    public Result<NewsPipelineStatusVO> pipelineStatus(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return Results.success(newsAdminService.pipelineStatus(date));
     }
 }
