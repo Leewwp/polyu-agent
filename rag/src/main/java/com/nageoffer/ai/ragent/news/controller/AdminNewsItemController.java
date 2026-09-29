@@ -19,19 +19,21 @@ package com.nageoffer.ai.ragent.news.controller;
 
 import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
 import com.nageoffer.ai.ragent.news.service.NewsAdminService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 资讯管理面控制器（单条快速下架通道）
+ * 资讯管理面控制器（单条快速下架+预算护栏状态查询）
  *
  * <p>路径 /admin/** 已在 SaTokenConfig ADMIN_PATH_PATTERNS 清单内（admin 角色拦截
  * + 审计自动覆盖），无需新增白名单行；admin UI 归后续扩展，本控制器仅承载
- * 应急止血最小端点。
+ * 应急止血最小端点与 #184 预算验收查询端点。
  */
 @RestController
 @RequestMapping("/admin/news")
@@ -47,5 +49,14 @@ public class AdminNewsItemController {
     public Result<Void> hide(@PathVariable Long id) {
         newsAdminService.hide(id);
         return Results.success(null);
+    }
+
+    /**
+     * 资讯 LLM 预算消耗状态（#184 验收）：attempts 与估算成本双口径+当日降级
+     * 事件数+剩余额度（HKT 日/月窗口，t_news_llm_receipt 聚合，重启不清零）
+     */
+    @GetMapping("/llm-budget")
+    public Result<NewsLlmBudgetStatusVO> llmBudgetStatus() {
+        return Results.success(newsAdminService.llmBudgetStatus());
     }
 }

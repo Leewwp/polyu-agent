@@ -28,6 +28,7 @@ import java.lang.reflect.UndeclaredThrowableException;
 import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -148,6 +149,93 @@ class ModelRoutingExecutorTest {
         assertThat(result).isEqualTo("ok");
         verify(healthStore).markFailure(primary.id());
         verify(healthStore).markSuccess(fallback.id());
+    }
+
+    @Test
+    void shouldNotPolluteModelHealthWhenBudgetExhausted() {
+        ModelHealthStore healthStore = mock(ModelHealthStore.class);
+        ModelRoutingExecutor executor = new ModelRoutingExecutor(healthStore);
+        ModelTarget primary = target("primary", "bailian");
+        ModelTarget fallback = target("fallback", "deepseek");
+        ModelHealthStore.CallPermit permit = new ModelHealthStore.CallPermit(primary.id(), 11L);
+        when(healthStore.allowCall(primary.id())).thenReturn(permit);
+
+        // 预算护栏经 LlmAttemptScope 注册观察者，在下一次发出前否决（#184：真实链路同构）
+        LlmBudgetExhaustedException budget = new LlmBudgetExhaustedException("资讯预算耗尽");
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        AtomicInteger callerInvocations = new AtomicInteger();
+        try {
+            LlmAttemptScope.callWithin(target1 -> {
+                throw budget;
+            }, () -> executor.executeWithFallback(
+                    ModelCapability.CHAT,
+                    List.of(primary, fallback),
+                    ModelTarget::id,
+                    (client, ignored) -> {
+                        callerInvocations.incrementAndGet();
+                        return "never-reached";
+                    }));
+        } catch (Throwable e) {
+            thrown.set(e);
+        }
+
+        assertThat(thrown.get()).isSameAs(budget);
+        assertThat(callerInvocations).hasValue(0);
+        verify(healthStore, never()).markFailure(primary.id());
+        verify(healthStore, never()).markSuccess(primary.id());
+        verify(healthStore, never()).allowCall(fallback.id());
+        verify(healthStore).releaseHalfOpenPermit(permit);
+    }
+
+    @Test
+    void shouldNotifyObserverPerAttemptIncludingFallback() {
+        ModelHealthStore healthStore = mock(ModelHealthStore.class);
+        ModelRoutingExecutor executor = new ModelRoutingExecutor(healthStore);
+        ModelTarget primary = target("primary", "bailian");
+        ModelTarget fallback = target("fallback", "deepseek");
+        when(healthStore.allowCall(primary.id()))
+                .thenReturn(new ModelHealthStore.CallPermit(primary.id(), 0L));
+        when(healthStore.allowCall(fallback.id()))
+                .thenReturn(new ModelHealthStore.CallPermit(fallback.id(), 0L));
+
+        List<String> observedAttempts = new java.util.ArrayList<>();
+        String result = LlmAttemptScope.callWithin(
+                target -> observedAttempts.add(target.id()),
+                () -> executor.executeWithFallback(
+                        ModelCapability.CHAT,
+                        List.of(primary, fallback),
+                        ModelTarget::id,
+                        (client, target) -> {
+                            if (target == primary) {
+                                throw new IllegalStateException("primary down");
+                            }
+                            return "ok";
+                        }));
+
+        assertThat(result).isEqualTo("ok");
+        // fallback 链上每个候选各回调一次（预算计数含 fallback 的机制保证）
+        assertThat(observedAttempts).containsExactly(primary.id(), fallback.id());
+        verify(healthStore).markFailure(primary.id());
+        verify(healthStore).markSuccess(fallback.id());
+    }
+
+    @Test
+    void shouldKeepScopeIsolationAfterCallWithinExits() {
+        ModelHealthStore healthStore = mock(ModelHealthStore.class);
+        ModelRoutingExecutor executor = new ModelRoutingExecutor(healthStore);
+        ModelTarget target = target("solo", "bailian");
+        when(healthStore.allowCall(target.id()))
+                .thenReturn(new ModelHealthStore.CallPermit(target.id(), 0L));
+
+        List<String> observed = new java.util.ArrayList<>();
+        LlmAttemptScope.callWithin(t -> observed.add("scoped"), () ->
+                executor.executeWithFallback(ModelCapability.CHAT, List.of(target),
+                        ModelTarget::id, (client, ignored) -> "ok"));
+        // 域外再调用：无观察者零开销直通（主 RAG 链路形态），不残留上一域的观察者
+        executor.executeWithFallback(ModelCapability.CHAT, List.of(target),
+                ModelTarget::id, (client, ignored) -> "ok");
+
+        assertThat(observed).containsExactly("scoped");
     }
 
     private static ModelTarget target(String id, String provider) {
