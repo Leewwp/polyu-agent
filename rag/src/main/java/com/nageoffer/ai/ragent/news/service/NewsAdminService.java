@@ -17,10 +17,13 @@
 
 package com.nageoffer.ai.ragent.news.service;
 
+import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
+
 /**
  * 资讯管理面服务
  *
- * <p>admin UI 前的最小止血通道：人工抽检发现坏摘要/坏条目时单条下架。
+ * <p>admin UI 前的最小止血通道：人工抽检发现坏摘要/坏条目时单条下架；
+ * 预算护栏消耗状态查询（#184 验收口径：attempts 与成本双口径+降级事件）。
  */
 public interface NewsAdminService {
 
@@ -32,4 +35,12 @@ public interface NewsAdminService {
      * @throws com.nageoffer.ai.ragent.framework.exception.ClientException 条目不存在
      */
     void hide(Long id);
+
+    /**
+     * 资讯 LLM 预算消耗状态（HKT 日/月双窗口）：attempts 与估算成本双口径+
+     * 当日降级事件数+剩余额度——数据源 t_news_llm_receipt 聚合，重启不清零
+     *
+     * @return 当日/当月消耗与额度快照
+     */
+    NewsLlmBudgetStatusVO llmBudgetStatus();
 }
