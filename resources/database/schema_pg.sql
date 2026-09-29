@@ -1150,30 +1150,45 @@ COMMENT ON COLUMN t_news_source.fetch_strategy IS 'SITEMAP / HTML_LIST / RSS / J
 COMMENT ON COLUMN t_news_source.official IS '是否官网（polyu.edu.hk）来源；false 的卡片带平台徽章';
 COMMENT ON COLUMN t_news_source.consecutive_failures IS '连续抓取失败计数，阈值 3 自动置 enabled=false（失败滞回）';
 
+-- 处理状态五态+发布门列（2026-09-29，#185——父票 #180 §2/§3/§5）：
+-- pending=待富化（已准入，付费队列）；published=发布资格就绪（公开可见还须过
+-- 180s 发布门）；archived=终态·旧文归档（发现时原文发布超 48h，不进「今天」、
+-- 跳过付费富化、不计日准入）；expired=终态·待富化超龄（48h 未获资格退出待办）；
+-- hidden=人工下架。统一公开资格=status='published' AND (eligible_time IS NULL
+-- OR eligible_time <= now-180s)；预算延期/无效摘要/待富化不落 published，
+-- 不能靠 180s 超时放行。增量环境走 upgrades/v2.0.0/260929_02_news_item_pipeline_status.sql
 CREATE TABLE t_news_item (
-  id           BIGSERIAL PRIMARY KEY,
-  source_id    BIGINT NOT NULL REFERENCES t_news_source(id),
-  url          VARCHAR(1024) NOT NULL,
-  url_hash     VARCHAR(64)  NOT NULL,            -- sha256，幂等去重唯一键
-  title_zh     VARCHAR(512),
-  title_en     VARCHAR(512),
-  summary_zh   TEXT,
-  summary_en   TEXT,
-  category     VARCHAR(32) NOT NULL DEFAULT 'other',
-  lang_raw     VARCHAR(8)  NOT NULL DEFAULT 'en',
-  publish_time TIMESTAMP,
-  fetch_time   TIMESTAMP NOT NULL DEFAULT now(),
-  status       VARCHAR(16) NOT NULL DEFAULT 'published',  -- published / hidden
-  heat         INT NOT NULL DEFAULT 0,           -- V2 跨源聚类预留
-  create_time  TIMESTAMP NOT NULL DEFAULT now(),
+  id             BIGSERIAL PRIMARY KEY,
+  source_id      BIGINT NOT NULL REFERENCES t_news_source(id),
+  url            VARCHAR(1024) NOT NULL,
+  url_hash       VARCHAR(64)  NOT NULL,            -- sha256，幂等去重唯一键
+  title_zh       VARCHAR(512),
+  title_en       VARCHAR(512),
+  summary_zh     TEXT,
+  summary_en     TEXT,
+  category       VARCHAR(32) NOT NULL DEFAULT 'other',
+  lang_raw       VARCHAR(8)  NOT NULL DEFAULT 'en',
+  publish_time   TIMESTAMP,
+  fetch_time     TIMESTAMP NOT NULL DEFAULT now(),
+  status         VARCHAR(16) NOT NULL DEFAULT 'published',  -- pending/published/archived/expired/hidden
+  heat           INT NOT NULL DEFAULT 0,           -- V2 跨源聚类预留
+  eligible_time  TIMESTAMP,                        -- 发布资格就绪时刻（#185 发布门起算；NULL=历史行）
+  summary_source VARCHAR(8),                       -- llm/fallback/NULL=历史（#185）
+  prompt_version VARCHAR(16),                      -- sha256(模板全文) 前 12 位（#185 可追溯）
+  create_time    TIMESTAMP NOT NULL DEFAULT now(),
   CONSTRAINT uq_news_item_url UNIQUE (url_hash)
 );
 CREATE INDEX idx_news_item_pub ON t_news_item(publish_time DESC) WHERE status = 'published';
+CREATE INDEX idx_news_item_pending_ttl ON t_news_item(fetch_time) WHERE status = 'pending';
+CREATE INDEX idx_news_item_fetch_day ON t_news_item(fetch_time);
 COMMENT ON TABLE t_news_item IS '资讯条目表（AI 双语摘要+永久原文外链；不进 RAG 证据面）';
 COMMENT ON COLUMN t_news_item.url_hash IS 'sha256(url) 十六进制，幂等去重唯一键';
 COMMENT ON COLUMN t_news_item.category IS '固定 8 类：admission/scholarship/research/campus/event/career/exchange/admin（+other 兜底）';
 COMMENT ON COLUMN t_news_item.lang_raw IS '原文语言（en/zh-Hant/zh-Hans）';
-COMMENT ON COLUMN t_news_item.status IS 'published=展示；hidden=人工抽检应急下架（admin 最小端点）';
+COMMENT ON COLUMN t_news_item.status IS '处理状态五态（#185）：pending=待富化（已准入）；published=发布资格就绪（公开可见还须过 180s 发布门，见 eligible_time）；archived=终态·旧文归档（发现时原文发布超 48h，不计日准入）；expired=终态·待富化超龄（48h 未获资格，退出待办）；hidden=人工下架';
+COMMENT ON COLUMN t_news_item.eligible_time IS '发布资格就绪时刻（#185）：合格摘要落库或明示零调用回退时间；发布门 180s 从本列起算——统一公开资格=status=published AND (本列 IS NULL OR 本列 <= now-180s)；NULL=#185 前历史行（视同早已开启，不重算）';
+COMMENT ON COLUMN t_news_item.summary_source IS '摘要产出方式（#185）：llm=LLM 富化；fallback=明示零调用回退（标题派生，守卫/回执终态的可解释回退）；NULL=历史行';
+COMMENT ON COLUMN t_news_item.prompt_version IS '产出摘要所用提示词模板版本（#185）：sha256(模板全文) 前 12 位；改词即版本变化只影响新资料，历史不自动重算；fallback 无提示词为 NULL';
 
 CREATE TABLE t_news_topic (
   id            BIGSERIAL PRIMARY KEY,

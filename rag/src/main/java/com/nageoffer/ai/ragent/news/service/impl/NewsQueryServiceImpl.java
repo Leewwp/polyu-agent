@@ -38,6 +38,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import com.nageoffer.ai.ragent.news.heat.NewsHeatProperties;
 import com.nageoffer.ai.ragent.news.heat.NewsHeatService;
 import com.nageoffer.ai.ragent.news.heat.NewsStoryAssembler;
@@ -69,6 +70,14 @@ import java.util.stream.Collectors;
  * <p>量级前提：~10–40 条/日 × 90 天保留 ≈ 数千行，PG 足够、不建 ES。
  * 信源元数据以批量查回后内存 join（信源注册表 ≤10 行级，无 N+1）。
  *
+ * <p><b>统一公开资格</b>（#185）：列表/详情/主题/检索/热点/徽章全部走同一条
+ * 可见性规则——{@code status='published' AND (eligible_time IS NULL OR
+ * eligible_time <= now - 180s)}（发布门从资格就绪起算，pending/archived/expired/
+ * hidden 与未过门的 published 一律不可见；NULL 为 #185 前历史行）。本类是该
+ * 规则的 wrapper 构建入口，主题面注解 SQL（NewsItemTopicMapper）与热度装配面
+ * （NewsStoryAssembler#loadVisible）同口径——后续 RSS/日报/MCP 出口（#182）
+ * 复用本入口，不得另写可见性判据。
+ *
  * <p>热度接入后：热点榜=故事线粒度（一簇一条，标签与信源名单随簇）；列表卡带
  * 「另有 N 个来源」徽章。热度排序读已持久化 heat（抓取轮末重算，允许 ≤ 一个
  * 抓取轮的陈旧）；簇与标签在查询侧对重算窗口内条目即时计算，窗口=热度窗口
@@ -93,6 +102,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     private final NewsStoryAssembler storyAssembler;
     private final NewsStoryClusterer storyClusterer;
     private final NewsHeatProperties heatProperties;
+    private final NewsFetchProperties fetchProperties;
     private final Supplier<Date> nowSupplier;
 
     @Value("${rag.news.page-size-default:20}")
@@ -105,9 +115,10 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                                 NewsItemTopicMapper newsItemTopicMapper,
                                 NewsStoryAssembler storyAssembler,
                                 NewsStoryClusterer storyClusterer,
-                                NewsHeatProperties heatProperties) {
+                                NewsHeatProperties heatProperties,
+                                NewsFetchProperties fetchProperties) {
         this(newsItemMapper, newsSourceMapper, newsTopicMapper, newsItemTopicMapper,
-                storyAssembler, storyClusterer, heatProperties, Date::new);
+                storyAssembler, storyClusterer, heatProperties, fetchProperties, Date::new);
     }
 
     /**
@@ -120,6 +131,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                          NewsStoryAssembler storyAssembler,
                          NewsStoryClusterer storyClusterer,
                          NewsHeatProperties heatProperties,
+                         NewsFetchProperties fetchProperties,
                          Supplier<Date> nowSupplier) {
         this.newsItemMapper = newsItemMapper;
         this.newsSourceMapper = newsSourceMapper;
@@ -128,15 +140,34 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         this.storyAssembler = storyAssembler;
         this.storyClusterer = storyClusterer;
         this.heatProperties = heatProperties;
+        this.fetchProperties = fetchProperties;
         this.nowSupplier = nowSupplier;
+    }
+
+    /**
+     * 发布门下界：now - publish-gate-seconds（资格就绪 180s 后过门）
+     */
+    private Date gateFloor() {
+        Date now = nowSupplier.get();
+        return new Date(now.getTime() - fetchProperties.effectivePublishGateSeconds() * 1000L);
+    }
+
+    /**
+     * 统一公开资格（wrapper 面）：status=published 且发布门已开启——
+     * 类 javadoc 合同的唯一构建点
+     */
+    private LambdaQueryWrapper<NewsItemDO> visibleItems() {
+        Date gateFloor = gateFloor();
+        return new LambdaQueryWrapper<NewsItemDO>()
+                .eq(NewsItemDO::getStatus, STATUS_PUBLISHED)
+                .and(w -> w.isNull(NewsItemDO::getEligibleTime).or().le(NewsItemDO::getEligibleTime, gateFloor));
     }
 
     @Override
     public NewsPageVO listPublished(String category, int page, int size) {
         Page<NewsItemDO> pager = newsItemMapper.selectPage(
                 new Page<>(normalizePage(page), normalizeSize(size)),
-                new LambdaQueryWrapper<NewsItemDO>()
-                        .eq(NewsItemDO::getStatus, STATUS_PUBLISHED)
+                visibleItems()
                         .eq(!isBlank(category), NewsItemDO::getCategory, category)
                         .orderByDesc(NewsItemDO::getPublishTime)
                         .orderByDesc(NewsItemDO::getId));
@@ -150,7 +181,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         int bounded = Math.min(Math.max(limit, 1), MAX_HOT_LIMIT);
         Date now = nowSupplier.get();
         Date windowFloor = new Date(now.getTime() - NewsHeatService.HEAT_WINDOW_DAYS * 24L * 3600L * 1000L);
-        NewsStoryAssembler.NewsStoryWindow window = storyAssembler.loadPublished(windowFloor);
+        NewsStoryAssembler.NewsStoryWindow window = storyAssembler.loadVisible(windowFloor, gateFloor());
         List<NewsStoryItem> storyItems = window.items();
         Map<Long, NewsSourceDO> sourcesById = window.sourcesById();
         if (storyItems.isEmpty()) {
@@ -200,7 +231,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         if (topics.isEmpty()) {
             return Collections.emptyList();
         }
-        Map<Long, Long> counts = publishedCountByTopic();
+        Map<Long, Long> counts = visibleCountByTopic();
         return topics.stream()
                 .map(topic -> toTopicVO(topic, counts.getOrDefault(topic.getId(), 0L)))
                 .toList();
@@ -216,12 +247,12 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                         .eq(NewsTopicDO::getCurated, true)
                         .last("LIMIT 1"));
         Assert.notNull(topic, () -> new ClientException("主题不存在"));
-        Map<Long, Long> counts = publishedCountByTopic();
-        IPage<NewsItemDO> items = newsItemTopicMapper.selectPublishedPageByTopic(
-                new Page<>(normalizePage(page), normalizeSize(size)), topic.getId());
+        Map<Long, Long> counts = visibleCountByTopic();
+        IPage<NewsItemDO> items = newsItemTopicMapper.selectVisiblePageByTopic(
+                new Page<>(normalizePage(page), normalizeSize(size)), topic.getId(), gateFloor());
         return NewsTopicDetailVO.builder()
                 .topic(toTopicVO(topic, counts.getOrDefault(topic.getId(), 0L)))
-                .lastPublishTime(newsItemTopicMapper.selectLastPublishTime(topic.getId()))
+                .lastPublishTime(newsItemTopicMapper.selectLastVisiblePublishTime(topic.getId(), gateFloor()))
                 .items(toPageVO(items, items.getRecords()))
                 .build();
     }
@@ -230,11 +261,10 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     public NewsItemVO getPublishedDetail(long id) {
         Assert.isTrue(id > 0, () -> new ClientException("资讯不存在"));
         NewsItemDO item = newsItemMapper.selectOne(
-                new LambdaQueryWrapper<NewsItemDO>()
+                visibleItems()
                         .eq(NewsItemDO::getId, id)
-                        .eq(NewsItemDO::getStatus, STATUS_PUBLISHED)
                         .last("LIMIT 1"));
-        // 下架/不存在同形文案：不向匿名访问者泄漏条目存在性（与「功能未部署」404 同口径）
+        // 下架/不存在/未过门同形文案：不向匿名访问者泄漏条目存在性（与「功能未部署」404 同口径）
         Assert.notNull(item, () -> new ClientException("资讯不存在"));
         return toItemVOs(List.of(item)).get(0);
     }
@@ -246,8 +276,10 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         }
         String needle = q.trim();
         String pattern = "%" + escapeLike(needle) + "%";
+        // 检索面同走统一公开资格（QueryWrapper 形态：与 visibleItems 同一判据的 SQL 面）
         QueryWrapper<NewsItemDO> match = new QueryWrapper<NewsItemDO>()
                 .eq("status", STATUS_PUBLISHED)
+                .apply("(eligible_time IS NULL OR eligible_time <= {0})", gateFloor())
                 .apply("(title_zh ILIKE {0} OR title_en ILIKE {0} OR summary_zh ILIKE {0} OR summary_en ILIKE {0})",
                         pattern);
         // T21：关键词×分类互通——检索可限定分类范围（eq 谓词同 list 分支）
@@ -286,7 +318,8 @@ public class NewsQueryServiceImpl implements NewsQueryService {
 
     /**
      * 列表卡聚簇徽章：「另有 N 个来源」=簇覆盖信源数-1（≥2 源才显）。
-     * 簇按热度窗口即时计算；窗口外/降级态/单源条目不设徽章（VO 字段保持 null）。
+     * 簇按热度窗口即时计算（#185：公开面装配走 loadVisible，未过门条目不进徽章视野）；
+     * 窗口外/降级态/单源条目不设徽章（VO 字段保持 null）。
      */
     private void fillClusterBadges(List<NewsItemDO> records, List<NewsItemVO> vos) {
         if (records.isEmpty()) {
@@ -294,7 +327,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         }
         Date now = nowSupplier.get();
         Date windowFloor = new Date(now.getTime() - NewsHeatService.HEAT_WINDOW_DAYS * 24L * 3600L * 1000L);
-        NewsStoryAssembler.NewsStoryWindow window = storyAssembler.loadPublished(windowFloor);
+        NewsStoryAssembler.NewsStoryWindow window = storyAssembler.loadVisible(windowFloor, gateFloor());
         if (window.items().isEmpty()) {
             return;
         }
@@ -320,11 +353,11 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     }
 
     /**
-     * 冷却期兜底：最新 bounded 条已发布条目（窗口外旧条目，无主题关联形态）
+     * 冷却期兜底：最新 bounded 条公开可见条目（窗口外旧条目，无主题关联形态）——
+     * 同走统一公开资格（未过门条目不冒头）
      */
     private List<NewsStoryItem> latestPublishedAsStoryItems(int bounded) {
-        return newsItemMapper.selectList(new LambdaQueryWrapper<NewsItemDO>()
-                        .eq(NewsItemDO::getStatus, STATUS_PUBLISHED)
+        return newsItemMapper.selectList(visibleItems()
                         .orderByDesc(NewsItemDO::getPublishTime)
                         .orderByDesc(NewsItemDO::getId)
                         .last("LIMIT " + bounded))
@@ -407,8 +440,8 @@ public class NewsQueryServiceImpl implements NewsQueryService {
         return Math.min(size, MAX_PAGE_SIZE);
     }
 
-    private Map<Long, Long> publishedCountByTopic() {
-        return newsItemTopicMapper.countPublishedByTopic().stream()
+    private Map<Long, Long> visibleCountByTopic() {
+        return newsItemTopicMapper.countVisibleByTopic(gateFloor()).stream()
                 .collect(Collectors.toMap(TopicPublishedCountDTO::getTopicId, TopicPublishedCountDTO::getCnt));
     }
 

@@ -128,10 +128,12 @@ public class NewsFetchJob {
             return;
         }
         log.info("[news] 抓取轮启动：{} 个启用信源", sources.size());
+        // 阶段一：逐源取候选（失败隔离+滞回；defer 豁免不计滞回）
+        List<NewsFetchService.SourceCandidates> batches = new ArrayList<>(sources.size());
         int failures = 0;
         for (NewsSourceDO source : sources) {
             try {
-                fetchService.fetchAndPersist(source);
+                batches.add(fetchService.fetchCandidates(source));
             } catch (NewsFetchDeferredException deferred) {
                 // defer 不是失败（#152）：源健康，本轮按源站 Crawl-delay 豁免——不计滞回
                 // 不计失败数，调度器已立即继续其它源；豁免到期后的轮次自然恢复抓取
@@ -142,7 +144,16 @@ public class NewsFetchJob {
                 log.error("[news] 源 {} 本轮失败（滞回已计）：{}", source.getSourceKey(), e.getMessage(), e);
             }
         }
-        log.info("[news] 抓取轮结束：{} 源，失败 {} 源", sources.size(), failures);
+        log.info("[news] 候选收集结束：{} 源成功，失败 {} 源", batches.size(), failures);
+        // 阶段二：整轮全局公平准入（48h 归档/全站日上限/按源轮转，#185）
+        runSafely("公平准入", () -> fetchService.admitAll(batches));
+        // 待富化 TTL 收尾：超龄 pending → expired 终态退出待办（#185）
+        runSafely("待富化 TTL 收尾", () -> {
+            int expired = fetchService.expireOverduePending();
+            if (expired > 0) {
+                log.info("[news] 待富化 TTL 收尾：{} 条转 expired（48h 未获发布资格，退出待办）", expired);
+            }
+        });
         runSafely("LLM 补全批", () ->
                 log.info("[news] 轮内 LLM 补全：{} 条成功", enrichService.enrichPendingItems()));
         runSafely("热度重算", () ->

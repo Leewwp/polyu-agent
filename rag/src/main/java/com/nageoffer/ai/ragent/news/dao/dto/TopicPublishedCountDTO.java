@@ -20,7 +20,7 @@ package com.nageoffer.ai.ragent.news.dao.dto;
 import lombok.Data;
 
 /**
- * 主题已发布条目计数行（NewsItemTopicMapper#countPublishedByTopic 的 @Select 映射载体）
+ * 主题公开可见条目计数行（NewsItemTopicMapper#countVisibleByTopic 的 @Select 映射载体，#185 统一公开资格）
  */
 @Data
 public class TopicPublishedCountDTO {
