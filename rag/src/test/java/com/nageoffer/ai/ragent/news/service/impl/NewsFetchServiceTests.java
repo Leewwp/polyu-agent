@@ -404,6 +404,31 @@ class NewsFetchServiceTests {
         assertEquals(1, records.stream().filter(r -> NewsItemStatus.ARCHIVED.equals(r.getStatus())).count());
     }
 
+    @Test
+    void crossSourceSameUrlInSameRoundAdmittedOrArchivedOnceOnly() {
+        // 审核修正回归（PR#191）：同轮跨源相同 URL——库内批查只反映轮前存量，
+        // 插入后必须回写 existing 集合，否则公平轮转/归档段再次 insert 会撞
+        // uq_news_item_url 唯一键致整轮准入中断（旧实现逐源入库时序天然规避，
+        // 两阶段改造后成为回归点；修复=insert 后回写，后到源视同已存在跳过）
+        NewsFetchService.AdmissionResult result = service.admitAll(List.of(
+                new NewsFetchService.SourceCandidates(source(8, "src-a"), List.of(
+                        item("src-a", "shared-fresh", HOUR),
+                        item("src-a", "shared-stale", 3 * 24 * HOUR))),
+                new NewsFetchService.SourceCandidates(source(9, "src-b"), List.of(
+                        item("src-b", "shared-fresh", 2 * HOUR),
+                        item("src-b", "shared-stale", 3 * 24 * HOUR + HOUR)))));
+
+        List<NewsItemDO> records = insertedRecords();
+        assertEquals(2, records.size(), "同轮跨源同 URL 各只入库一次（fresh+stale 各一）");
+        assertEquals(1, result.admitted());
+        assertEquals(1, result.archivedStale());
+        assertEquals(2, result.skippedExisting(), "后到源的同 URL 视同已存在跳过");
+        assertEquals(8L, records.stream().filter(r -> NewsItemStatus.PENDING.equals(r.getStatus()))
+                .findFirst().orElseThrow().getSourceId(), "sourceKey 升序轮转：src-a 先取得该 URL");
+        assertEquals(8L, records.stream().filter(r -> NewsItemStatus.ARCHIVED.equals(r.getStatus()))
+                .findFirst().orElseThrow().getSourceId(), "归档段同理：先到源入库、后到源跳过");
+    }
+
     // ================== 落库字段 ==================
 
     @Test

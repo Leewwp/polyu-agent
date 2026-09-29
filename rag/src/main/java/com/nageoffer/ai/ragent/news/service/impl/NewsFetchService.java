@@ -40,6 +40,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -247,6 +248,7 @@ public class NewsFetchService {
                     continue;
                 }
                 itemMapper.insert(toRecord(source, candidate, NewsItemStatus.PENDING, now));
+                existing.add(candidate.urlHash());
                 admitted++;
                 siteRemaining--;
                 progressed = true;
@@ -269,6 +271,7 @@ public class NewsFetchService {
                     break;
                 }
                 itemMapper.insert(toRecord(source, stale, NewsItemStatus.ARCHIVED, now));
+                existing.add(stale.urlHash());
                 archivedStale++;
                 inserted++;
             }
@@ -332,16 +335,18 @@ public class NewsFetchService {
     }
 
     /**
-     * 库内已存在 url_hash 批查（幂等重发现跳过；同 URL 重现不重建任何待办）
+     * 库内已存在 url_hash 批查（幂等重发现跳过；同 URL 重现不重建任何待办）。
+     * 返回<b>可变</b>集合：准入/归档段插入后回写本轮已入库哈希——同轮跨源
+     * 重复 URL 视同已存在跳过，防撞 uq_news_item_url 唯一键（审核修正，#191）
      */
     private Set<String> loadExistingHashes(Set<String> candidateHashes) {
         if (candidateHashes.isEmpty()) {
-            return Set.of();
+            return new HashSet<>();
         }
         return itemMapper.selectList(Wrappers.lambdaQuery(NewsItemDO.class)
                         .select(NewsItemDO::getUrlHash)
                         .in(NewsItemDO::getUrlHash, candidateHashes))
-                .stream().map(NewsItemDO::getUrlHash).collect(Collectors.toSet());
+                .stream().map(NewsItemDO::getUrlHash).collect(Collectors.toCollection(HashSet::new));
     }
 
     /**
