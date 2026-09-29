@@ -4,6 +4,8 @@
 
 验证已启动 Ragent 服务的工具结果裁剪、会话摘要和长期记忆。复用 `resources/initializer/common` 的配置、HTTP 与 JDBC 客户端，使用 Java 17 CLI，不启动 Spring。
 
+本套件的编译缓存与运行日志放在 `artifacts/`，由仓库根 `.gitignore` 忽略。CLI 报告输出到控制台，需要留存时重定向到 `artifacts/<本次运行目录>/`。
+
 | 入口 | 用途 | 数据操作 |
 | --- | --- | --- |
 | `AgentMemoryRegressionMain` | 按剧本验证多轮和跨会话记忆 | 通过真实聊天生成会话、消息及可能的长期记忆；直接读库观测 |
@@ -125,14 +127,14 @@
 在项目根目录执行：
 
 ```bash
-rm -rf /tmp/ragent-regression-classes && mkdir -p /tmp/ragent-regression-classes
+mkdir -p resources/regression/agent-memory/artifacts/classes
 
 javac -encoding UTF-8 \
-  -d /tmp/ragent-regression-classes \
+  -d resources/regression/agent-memory/artifacts/classes \
   resources/initializer/common/*.java \
   resources/regression/agent-memory/*.java
 
-java -cp /tmp/ragent-regression-classes \
+java -cp resources/regression/agent-memory/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.AgentMemoryRegressionMain \
   --suite-dir resources/regression/agent-memory
 ```
@@ -333,7 +335,7 @@ tool_result 的总量跟着掉；压缩又在 t04 就落了地、之后一直摁
 不想重跑对话、只想再看一眼某条会话的状态：
 
 ```bash
-java -cp /tmp/ragent-regression-classes \
+java -cp resources/regression/agent-memory/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.AgentMemoryProbeMain \
   --suite-dir resources/regression/agent-memory \
   --session <会话ID>
@@ -366,7 +368,7 @@ java -cp /tmp/ragent-regression-classes \
 水位重不重叠、块顶到上限之后合并压不压得回来。这些只能从库上看，走另一个入口：
 
 ```bash
-java -cp /tmp/ragent-regression-classes \
+java -cp resources/regression/agent-memory/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.AgentMemoryMechanismMain \
   --suite-dir resources/regression/agent-memory \
   --case all
@@ -436,7 +438,7 @@ agent:
 拉起来的，yaml 里还是生产值，就要另给回归台一份覆盖：
 
 ```properties
-# /tmp/regression-9091.properties
+# resources/regression/agent-memory/artifacts/regression-9091.properties
 application.config=<绝对路径>/bootstrap/src/main/resources/application.yaml
 auth.username=admin
 auth.password=admin
@@ -445,10 +447,10 @@ agent.memory.context-window-chars=8000
 ```
 
 ```bash
-java -cp /tmp/ragent-regression-classes \
+java -cp resources/regression/agent-memory/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.AgentMemoryMechanismMain \
   --suite-dir resources/regression/agent-memory \
-  --config /tmp/regression-9091.properties --case R5
+  --config resources/regression/agent-memory/artifacts/regression-9091.properties --case R5
 ```
 
 `--config` 里的键覆盖 yaml 派生出来的同名键。`server.base-url` 一并列出来是因为它默认取 yaml 的

@@ -42,6 +42,7 @@ final class AgentChatClient {
     /**
      * 提问一次并把 SSE 读到服务端关闭
      * conversationId 为空即新开会话，服务端在 meta 事件里回传本轮真正使用的会话 ID
+     * 非空 ID 仅用于续聊；会话不存在或已删除时服务端拒绝请求，不会重建
      */
     AgentTurnResult ask(String question, String conversationId, Duration timeout)
             throws IOException, InterruptedException {

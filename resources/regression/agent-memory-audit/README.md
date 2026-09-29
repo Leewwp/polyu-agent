@@ -26,7 +26,7 @@
 - **防止混入旧结果**：同一目录、同一身份已有凭据或证据文件时，`create` 会拒绝；只删掉 `.credentials` 也不会让新账号接着旧 JSONL 运行。摘要运行入口要求整个输出目录为空。
 - **清理时机**：需要查库复核时保留账号；证据归档、修复验收结束后可按对应 `*-identity.json` 中的 `userId` 清理。当前用户删除接口只软删除用户，不级联清理会话、消息、记忆或抽取记录；删除后也不能复用固定用户名。因此不在回归脚本中自动删除或批量清库。
 
-运行产物统一放在根目录已忽略的 `temp/` 下；本目录不另设 `.gitignore`。
+运行产物统一放在本套件 `artifacts/` 下，由仓库根 `.gitignore` 忽略；每轮验证使用新的子目录。已有 `results/` 是选择性保留的历史证据，不受该规则影响。
 
 2026-09-27 的历史账号改名记录见 [账号改名对照](results/2026-09-27/account-renames.json)。当时采用中文姓名，用户 ID 保持不变，本地登录凭据已同步，新用户名登录验证通过。该记录、历史 `*-identity.json` 和逐轮证据保留测试当时的内容；后续新建账号采用上述英文姓名规则。
 
@@ -37,8 +37,8 @@
 从仓库根目录执行：
 
 ```bash
-mkdir -p /tmp/ragent-live-audit-classes
-javac -encoding UTF-8 -d /tmp/ragent-live-audit-classes \
+mkdir -p resources/regression/agent-memory-audit/artifacts/classes
+javac -encoding UTF-8 -d resources/regression/agent-memory-audit/artifacts/classes \
   resources/initializer/common/*.java \
   resources/regression/agent-memory/*.java \
   resources/regression/agent-memory-audit/*.java
@@ -47,7 +47,7 @@ javac -encoding UTF-8 -d /tmp/ragent-live-audit-classes \
 离线自检（不连接服务、不创建用户）：
 
 ```bash
-java -cp /tmp/ragent-live-audit-classes \
+java -cp resources/regression/agent-memory-audit/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.MemoryAuditSelfTest
 ```
 
@@ -56,10 +56,10 @@ java -cp /tmp/ragent-live-audit-classes \
 ## 调用
 
 ```bash
-audit_out="temp/memory-audit-$(date +%Y%m%d-%H%M%S)"
+audit_out="resources/regression/agent-memory-audit/artifacts/memory-audit-$(date +%Y%m%d-%H%M%S)"
 audit_suite="resources/regression/agent-memory-audit"
 audit() {
-  java -cp /tmp/ragent-live-audit-classes \
+  java -cp resources/regression/agent-memory-audit/artifacts/classes \
     com.nageoffer.ai.ragent.initializer.MemoryAuditMain \
     resources/regression/agent-memory/regression.properties "$audit_out" "$@"
 }
@@ -145,17 +145,17 @@ audit ask management verify-cleared "$audit_suite/management-07-check-cleared.tx
 先查看计划，不调用服务：
 
 ```bash
-java -cp /tmp/ragent-live-audit-classes \
+java -cp resources/regression/agent-memory-audit/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.MemoryAuditSummaryMain \
-  --output-dir temp/summary-audit-preview --dry-run
+  --output-dir resources/regression/agent-memory-audit/artifacts/summary-audit-preview --dry-run
 ```
 
 运行真实流程，输出目录必须为空：
 
 ```bash
-java -cp /tmp/ragent-live-audit-classes \
+java -cp resources/regression/agent-memory-audit/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.MemoryAuditSummaryMain \
-  --output-dir "temp/summary-audit-$(date +%Y%m%d-%H%M%S)"
+  --output-dir "resources/regression/agent-memory-audit/artifacts/summary-audit-$(date +%Y%m%d-%H%M%S)"
 ```
 
 程序创建独立 `summary` 账号，逐轮发送 `summary-turns.json` 的问题；提供任务和草稿后，一旦观察到上下文摘要，就跳到 `s30-probe` 追问并导出证据。最多 29 轮铺垫加 1 轮追问，可用 `--max-turns 11` 限制成本。追问本身也可能触发摘要；没有真实摘要则记 `UNCOVERED`，不能算通过。长回答用于覆盖当前预算，不代表日常平均聊天长度。
@@ -165,10 +165,10 @@ java -cp /tmp/ragent-live-audit-classes \
 最后自动执行 `export-summary summary main`，导出必要上下文文本、摘要和隔离检查，不公开完整思考内容或工具结果正文。需要再次导出时，将下方目录替换为实际运行目录：
 
 ```bash
-java -cp /tmp/ragent-live-audit-classes \
+java -cp resources/regression/agent-memory-audit/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.MemoryAuditMain \
   resources/regression/agent-memory/regression.properties \
-  temp/your-summary-run export-summary summary main
+  resources/regression/agent-memory-audit/artifacts/your-summary-run export-summary summary main
 ```
 
 核对实际摘要、原始任务与草稿是否离开非摘要上下文、长期记忆和工具是否提供替代答案，以及摘要和回答中的预算、配置、二手条件与“起草但未发送”。原文存在性检查不保证语义无损；未命中超长裁节分支仍写 `UNCOVERED`。
@@ -200,7 +200,7 @@ java -cp /tmp/ragent-live-audit-classes \
 
 `results/2026-09-27/` 是修整采集器之前的真实记录。原始 JSONL 保留原样，不事后补写新版状态；本次工具修复不代表重新跑过业务流程。完整摘要状态备份在本地 `temp/`，公开目录改留精简证据。公开证据应选择性导出，不整包复制凭据、重复日志与完整运行状态。
 
-随机测试密码只放在输出目录 `.credentials`，目录权限 700、文件权限 600；输出目录请保持在已忽略的 `temp/` 下。不要提交或分享 `.credentials`，公开报告不含令牌和密码。
+随机测试密码只放在输出目录 `.credentials`，目录权限 700、文件权限 600；输出目录请保持在已忽略的 `artifacts/` 下。不要提交或分享 `.credentials`，公开报告不含令牌和密码。
 
 数据库观测数组的列顺序：
 

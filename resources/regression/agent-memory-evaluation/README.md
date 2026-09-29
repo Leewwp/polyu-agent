@@ -6,22 +6,24 @@
 
 先确认已经初始化比特严选数据、启用比特严选人设，并启动服务与数据库。程序只提问和读取测评结果，不负责初始化或重启服务。
 
+本套件的编译缓存、测评报告与原始采集结果放在 `artifacts/`，由仓库根 `.gitignore` 忽略。每次测评显式指定新的 `--output-dir`，避免混用结果。
+
 ## 1. 编译并跑用例
 
 在仓库根目录执行：
 
 ```bash
-mkdir -p /tmp/ragent-evaluation-classes
-javac -encoding UTF-8 -d /tmp/ragent-evaluation-classes \
+mkdir -p resources/regression/agent-memory-evaluation/artifacts/classes
+javac -encoding UTF-8 -d resources/regression/agent-memory-evaluation/artifacts/classes \
   resources/initializer/common/*.java \
   resources/regression/agent-memory/*.java \
   resources/regression/agent-memory-evaluation/*.java
 
-java -cp /tmp/ragent-evaluation-classes \
+java -cp resources/regression/agent-memory-evaluation/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.AgentMemoryEvaluationMain \
   --limit 1 \
   --variant baseline \
-  --output-dir temp/bit-evaluation/baseline
+  --output-dir resources/regression/agent-memory-evaluation/artifacts/bit-evaluation/baseline
 ```
 
 默认读取展开格式的 `datasets/bit-selection.json`。`--limit 1` 先跑第一个短用例；去掉它跑整份数据。每个用例新建会话，用例内按顺序提问。再次运行时换一个输出目录，程序不会覆盖旧结果。
@@ -60,11 +62,11 @@ java -cp /tmp/ragent-evaluation-classes \
 同一份数据、同一子集分别跑两次，使用不同的 `--variant` 和输出目录。`variant` 只是报告标签，服务的代码或配置需要先实际切换。
 
 ```bash
-java -cp /tmp/ragent-evaluation-classes \
+java -cp resources/regression/agent-memory-evaluation/artifacts/classes \
   com.nageoffer.ai.ragent.initializer.EvaluationReportMain \
-  --baseline temp/bit-evaluation/baseline \
-  --candidate temp/bit-evaluation/candidate \
-  --output-dir temp/bit-evaluation/comparison
+  --baseline resources/regression/agent-memory-evaluation/artifacts/bit-evaluation/baseline \
+  --candidate resources/regression/agent-memory-evaluation/artifacts/bit-evaluation/candidate \
+  --output-dir resources/regression/agent-memory-evaluation/artifacts/bit-evaluation/comparison
 ```
 
 看 `comparison/compare.md`。程序会检查两次的数据、执行顺序和计量条件是否一致。用于项目或简历时，保留数据集、样本数、基线与这份报告；字符压缩比例不能直接当成费用节省比例。
