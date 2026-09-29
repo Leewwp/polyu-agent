@@ -20,8 +20,8 @@ package com.nageoffer.ai.ragent.news.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
-import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.enums.Tier;
+import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
@@ -30,6 +30,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import com.nageoffer.ai.ragent.news.fetch.NewsHttpFetchClient;
 import com.nageoffer.ai.ragent.news.fetch.NewsUrlNormalizer;
 import com.nageoffer.ai.ragent.core.parser.HtmlDocumentParser;
@@ -110,9 +111,10 @@ public class NewsEnrichService {
     private final NewsItemTopicMapper itemTopicMapper;
     private final NewsHttpFetchClient httpFetchClient;
     private final HtmlDocumentParser htmlDocumentParser;
-    private final LLMService llmService;
+    private final NewsLlmBudgetService llmBudgetService;
     private final PromptTemplateLoader promptTemplateLoader;
     private final ObjectMapper objectMapper;
+    private final NewsFetchProperties fetchProperties;
 
     @Value("${rag.news.enrich-batch:20}")
     private int enrichBatch;
@@ -124,10 +126,11 @@ public class NewsEnrichService {
                              NewsItemTopicMapper itemTopicMapper,
                              NewsHttpFetchClient httpFetchClient,
                              HtmlDocumentParser htmlDocumentParser,
-                             LLMService llmService,
-                             PromptTemplateLoader promptTemplateLoader) {
+                             NewsLlmBudgetService llmBudgetService,
+                             PromptTemplateLoader promptTemplateLoader,
+                             NewsFetchProperties fetchProperties) {
         this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, httpFetchClient,
-                htmlDocumentParser, llmService, promptTemplateLoader, new ObjectMapper());
+                htmlDocumentParser, llmBudgetService, promptTemplateLoader, new ObjectMapper(), fetchProperties);
     }
 
     NewsEnrichService(NewsItemMapper itemMapper,
@@ -136,23 +139,27 @@ public class NewsEnrichService {
                       NewsItemTopicMapper itemTopicMapper,
                       NewsHttpFetchClient httpFetchClient,
                       HtmlDocumentParser htmlDocumentParser,
-                      LLMService llmService,
+                      NewsLlmBudgetService llmBudgetService,
                       PromptTemplateLoader promptTemplateLoader,
-                      ObjectMapper objectMapper) {
+                      ObjectMapper objectMapper,
+                      NewsFetchProperties fetchProperties) {
         this.itemMapper = itemMapper;
         this.sourceMapper = sourceMapper;
         this.topicMapper = topicMapper;
         this.itemTopicMapper = itemTopicMapper;
         this.httpFetchClient = httpFetchClient;
         this.htmlDocumentParser = htmlDocumentParser;
-        this.llmService = llmService;
+        this.llmBudgetService = llmBudgetService;
         this.promptTemplateLoader = promptTemplateLoader;
         this.objectMapper = objectMapper;
+        this.fetchProperties = fetchProperties;
     }
 
     /**
      * 补全批：处理 summary_en 为空的已发布条目（抓取入库行天然缺摘要）；
-     * 返回成功补全条数，单条失败隔离留待下轮
+     * 返回成功补全条数，单条失败隔离留待下轮。
+     * 预算耗尽（#184）非故障：当日降级=剩余条目仅入库不富化（保持
+     * summary_en IS NULL），次日按配额自然补偿——待补条目常驻本查询
      */
     public int enrichPendingItems() {
         int batch = enrichBatch > 0 ? enrichBatch : 20;
@@ -164,21 +171,31 @@ public class NewsEnrichService {
             return 0;
         }
         int enriched = 0;
-        for (NewsItemDO item : pending) {
+        int degraded = 0;
+        int isolated = 0;
+        for (int i = 0; i < pending.size(); i++) {
+            NewsItemDO item = pending.get(i);
             try {
                 enrichOne(item);
                 enriched++;
+            } catch (LlmBudgetExhaustedException budget) {
+                // 剩余条目（含当前被否决条）当日不再发出——降级事件已由预算服务记 t_news_llm_receipt
+                degraded = pending.size() - i - isolated;
+                log.warn("[news][budget] 条目 {} 起资讯 LLM 预算耗尽：本批剩余 {} 条当日降级为仅入库不富化"
+                        + "（次日按配额补偿，summary_en IS NULL 常驻待补查询）", item.getId(), degraded);
+                break;
             } catch (Exception e) {
+                isolated++;
                 log.warn("[news] 条目 {} LLM 补全失败（留待下轮）：{}", item.getId(), e.getMessage());
             }
         }
-        log.info("[news] LLM 补全批完成：批 {} 条，成功 {} 条", pending.size(), enriched);
+        log.info("[news] LLM 补全批完成：批 {} 条，成功 {} 条，预算降级 {} 条", pending.size(), enriched, degraded);
         return enriched;
     }
 
     /**
-     * 单条补全：详情正文（YouTube 跳过）→ 渲染外置提示词 → Tier.FAST 单次调用 →
-     * JSON 解析 → 双语字段与分类落库 → 主题回链/提案
+     * 单条补全：详情正文（YouTube 跳过）→ 渲染外置提示词 → Tier.FAST 预算护栏内调用
+     * （maxTokens 透传+请求指纹回执）→ JSON 解析 → 双语字段与分类落库 → 主题回链/提案
      */
     void enrichOne(NewsItemDO item) {
         NewsSourceDO source = item.getSourceId() == null ? null : sourceMapper.selectById(item.getSourceId());
@@ -191,29 +208,70 @@ public class NewsEnrichService {
                 "title_line", titleLine(item),
                 "content_block", content == null ? "（无正文可用，仅标题）" : content,
                 "topic_vocab", renderVocab()));
+        int maxTokens = fetchProperties.getSummaryMaxTokens() > 0 ? fetchProperties.getSummaryMaxTokens() : 1024;
         ChatRequest request = ChatRequest.builder()
                 .messages(List.of(ChatMessage.user(prompt)))
                 .temperature(0.2D)
                 .topP(0.3D)
                 .thinking(false)
+                .maxTokens(maxTokens)
                 .build();
-        String raw = llmService.chat(request, Tier.FAST);
-        NewsSummaryPayload payload = parsePayload(raw);
+        NewsLlmBudgetService.LlmCall call = llmBudgetService.call(request, Tier.FAST);
+        NewsSummaryPayload payload;
+        try {
+            payload = parsePayload(call.content());
+        } catch (RuntimeException e) {
+            // 无效响应回报：新鲜响应保留一次下轮复用（已付费），复用响应清除并隔离不无限复读
+            call.reportInvalid();
+            throw e;
+        }
         // T22 分段兜底：提示词已要求分段，模型偶发输出整段单块（样本实测 1/6）时按同规则补齐
         payload = applyParagraphFallback(payload);
         applyPayload(item, payload);
-        log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}",
-                item.getId(), payload.category(), payload.topics());
+        log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}，reused={}",
+                item.getId(), payload.category(), payload.topics(), call.reused());
     }
 
     /**
      * 详情正文抽取（HtmlDocumentParser 复用位——注意 Block 不保留 href，
-     * 列表发现用 jsoup 直选，正文抽取走本解析器结构化输出）
+     * 列表发现用 jsoup 直选，正文抽取走本解析器结构化输出）；
+     * 双重截断（#184）：字符上限沿用 6000，再按 token 估算 ≤ rag.news.max-input-tokens
      */
     String fetchDetailText(String url) {
         byte[] body = httpFetchClient.get(url);
         ParsedDocument document = htmlDocumentParser.parseStructured(body, "text/html", Map.of());
-        return renderPlainText(document, MAX_CONTENT_CHARS);
+        int maxTokens = fetchProperties.getMaxInputTokens() > 0 ? fetchProperties.getMaxInputTokens() : 4000;
+        return truncateByTokenEstimate(renderPlainText(document, MAX_CONTENT_CHARS), maxTokens);
+    }
+
+    /**
+     * 输入 token 估算截断（#184 输入上限合同）：CJK/全角字符按 1 token、
+     * 其余按 4 字符 1 token 估算，超预算即截断——无分词器依赖的保守口径
+     */
+    static String truncateByTokenEstimate(String text, int maxTokens) {
+        if (text == null || maxTokens <= 0) {
+            return text;
+        }
+        long quarterBudget = (long) maxTokens * 4L;
+        long quarterUsed = 0L;
+        int cut = text.length();
+        for (int i = 0; i < text.length(); i++) {
+            quarterUsed += isFullWidth(text.charAt(i)) ? 4L : 1L;
+            if (quarterUsed > quarterBudget) {
+                cut = i;
+                break;
+            }
+        }
+        return cut < text.length() ? text.substring(0, cut) : text;
+    }
+
+    /**
+     * 是否按 1 token 计的字符：CJK 统一表意/扩展 A/兼容表意/全角形式与 CJK 标点
+     */
+    static boolean isFullWidth(char c) {
+        return (c >= 0x2E80 && c <= 0x9FFF)      // CJK 部首~统一表意（含假名与 CJK 标点）
+                || (c >= 0xF900 && c <= 0xFAFF)  // CJK 兼容表意
+                || (c >= 0xFF00 && c <= 0xFFEF); // 全角形式
     }
 
     /**
