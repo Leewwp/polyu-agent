@@ -85,7 +85,7 @@ class NewsQueryServiceImplHeatTests {
         properties.setSourceWeights(weights);
         service = new NewsQueryServiceImpl(itemMapper, sourceMapper, mock(NewsTopicMapper.class),
                 mock(NewsItemTopicMapper.class), assembler, new com.nageoffer.ai.ragent.news.heat.NewsStoryClusterer(),
-                properties, () -> NOW);
+                properties, new com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties(), () -> NOW);
         when(itemMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -110,7 +110,7 @@ class NewsQueryServiceImplHeatTests {
                 11L, source(11L, "official-media-release", "官网 · 媒体发布"),
                 22L, source(22L, "prn", "PR Newswire"),
                 33L, source(33L, "events", "官网 · 活动日历"));
-        when(assembler.loadPublished(any()))
+        when(assembler.loadVisible(any(), any()))
                 .thenReturn(new NewsStoryAssembler.NewsStoryWindow(List.of(rep, twin, solo), sources));
 
         List<NewsHotRankEntryVO> hot = service.listHot(10);
@@ -129,7 +129,7 @@ class NewsQueryServiceImplHeatTests {
 
     @Test
     void hotFallsBackToLatestWhenWindowCold() {
-        when(assembler.loadPublished(any()))
+        when(assembler.loadVisible(any(), any()))
                 .thenReturn(new NewsStoryAssembler.NewsStoryWindow(List.of(), Map.of()));
         NewsItemDO stale = NewsItemDO.builder().id(9L).titleZh("旧闻一条").titleEn("Old story")
                 .sourceId(11L).publishTime(new Date(NOW.getTime() - 10L * 24 * HOUR))
@@ -151,7 +151,7 @@ class NewsQueryServiceImplHeatTests {
         properties.setStoryMergeEnabled(false);
         NewsStoryItem rep = item(1, 11L, 1, 4);
         NewsStoryItem twin = item(2, 22L, 2, 3);
-        when(assembler.loadPublished(any())).thenReturn(new NewsStoryAssembler.NewsStoryWindow(
+        when(assembler.loadVisible(any(), any())).thenReturn(new NewsStoryAssembler.NewsStoryWindow(
                 List.of(rep, twin),
                 Map.of(11L, source(11L, "official-media-release", "官网 · 媒体发布"),
                         22L, source(22L, "prn", "PR Newswire"))));
@@ -177,7 +177,7 @@ class NewsQueryServiceImplHeatTests {
         when(itemMapper.selectPage(any(), any())).thenReturn(pager);
         NewsStoryItem twinA = item(1, 11L, 1, 7);
         NewsStoryItem twinB = item(2, 22L, 2, 7);
-        when(assembler.loadPublished(any())).thenReturn(new NewsStoryAssembler.NewsStoryWindow(
+        when(assembler.loadVisible(any(), any())).thenReturn(new NewsStoryAssembler.NewsStoryWindow(
                 List.of(twinA, twinB,
                         new NewsStoryItem(3L, "solo title", null, "career", 33L,
                                 new Date(NOW.getTime() - 2 * HOUR), Set.of(), 5)),

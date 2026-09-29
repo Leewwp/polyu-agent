@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.news.heat;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
@@ -39,6 +40,12 @@ import java.util.Set;
  * 热度/聚类视野装配器：把窗口内的已发布条目连同主题关联与信源
  * 注册表组装成聚类输入——持久化重算（NewsHeatService）与查询侧
  * （/hot、列表徽章）共用同一次装配形状，保证两侧簇语义一致。
+ *
+ * <p>两个装载口径（#185）：{@link #loadPublished} 供热度持久化重算（内部面，
+ * status=published 全量，含发布门未开启条目——门的意义正是让聚类先于公开看到
+ * 新条目）；{@link #loadVisible} 供公开查询面（/hot、徽章），叠加发布门
+ * （eligible_time ≤ gateFloor 或历史行 NULL，统一公开资格，见
+ * {@link NewsItemStatus} 类 javadoc）。
  */
 @Component
 @RequiredArgsConstructor
@@ -55,12 +62,29 @@ public class NewsStoryAssembler {
     }
 
     /**
-     * 装载窗口内已发布条目（publishTime ≥ 下界；下界 null=不限）
+     * 装载窗口内已发布条目（publishTime ≥ 下界；下界 null=不限）——
+     * 内部面（热度重算）口径：不施加发布门
      */
     public NewsStoryWindow loadPublished(Date windowFloor) {
+        return load(windowFloor, null);
+    }
+
+    /**
+     * 装载窗口内公开可见条目（#185 统一公开资格）：status=published 且发布门
+     * 已开启（eligible_time ≤ gateFloor；NULL 历史 行视同早已开启）——
+     * 公开查询面（/hot、列表徽章）口径
+     */
+    public NewsStoryWindow loadVisible(Date windowFloor, Date gateFloor) {
+        return load(windowFloor, gateFloor);
+    }
+
+    private NewsStoryWindow load(Date windowFloor, Date gateFloor) {
         LambdaQueryWrapper<NewsItemDO> query = Wrappers.lambdaQuery(NewsItemDO.class)
-                .eq(NewsItemDO::getStatus, "published")
+                .eq(NewsItemDO::getStatus, NewsItemStatus.PUBLISHED)
                 .ge(windowFloor != null, NewsItemDO::getPublishTime, windowFloor);
+        if (gateFloor != null) {
+            query.and(w -> w.isNull(NewsItemDO::getEligibleTime).or().le(NewsItemDO::getEligibleTime, gateFloor));
+        }
         List<NewsItemDO> items = itemMapper.selectList(query);
         if (items.isEmpty()) {
             return new NewsStoryWindow(List.of(), Map.of());

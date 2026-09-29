@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.infra.enums.Tier;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
@@ -50,16 +51,31 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
- * 资讯 LLM 补全服务：对缺摘要的已发布条目做
- * 详情抓取 → 单次 LLM 调用 → 双语标题/摘要 + 固定 8 类 + 主题标签落库。
+ * 资讯 LLM 补全服务（#185：待富化选题 → 守卫 → 发布资格落库）：对 pending
+ * 条目做详情抓取 → 单次 LLM 调用（预算护栏内）→ 双语标题/摘要 + 固定 8 类 +
+ * 主题标签 → <b>写作守卫</b>（{@link NewsWritingGuard}，零调用）→ 过守卫即
+ * 落 status=published + eligible_time（发布门 180s 从此起算，查询侧统一判据）。
+ *
+ * <p><b>选题口径</b>（#185）：status=pending AND summary_en IS NULL，按 id 升序
+ * FIFO（最老先富化——TTL 公平+确定性，重启不重排）；超龄（fetch_time 早于
+ * now-pending-ttl-hours）条目不选题（终态转移归采集侧 expireOverduePending）。
+ * 批上限 rag.news.enrich-batch（默认 20）×3 轮/日与全站日准入 60 匹配。
+ *
+ * <p><b>守卫拒绝与零调用回退</b>（#185）：守卫拒绝的新鲜响应回报无效（回执
+ * 保留一次免费复用）后本轮隔离留 pending；复用响应再拒或回执终态
+ * （POISONED 隔离/重试预算耗尽）→ <b>明示零调用回退</b>（标题派生双语摘要，
+ * summary_source=fallback）——可解释、可审计、不触发无限付费重试（衔接 #184
+ * 预算护栏 DEGRADED 路径：预算延期不回退，留 pending 等 TTL 或次日配额）。
  *
  * <p>双语策略：官网 sitemap 条目入库已就地双语，LLM 只做压缩与繁转简；
  * 单语条目（media-releases/RSS/events）由 LLM 补译另一语。YouTube 观看页
@@ -73,6 +89,9 @@ import java.util.Set;
  *
  * <p>逐条隔离：单条 LLM/抓取失败只记日志留待下轮（行保持 summary_en IS NULL），
  * 不阻断批内其余条目；批上限防长事务与 LLM 花费失控。
+ *
+ * <p><b>提示词版本可追溯</b>（#185）：prompt_version=sha256(模板全文) 前 12 位，
+ * 随每次富化/回退落行——改词即版本变化，只影响新资料，历史行不自动重算。
  *
  * <p><b>输出上限口径限制</b>（#184 修正点5，2026-09-29）：maxTokens=
  * rag.news.summary-max-tokens（默认 1024）为<b>可调配置</b>。字符/4 估算口径
@@ -123,6 +142,12 @@ public class NewsEnrichService {
     private final PromptTemplateLoader promptTemplateLoader;
     private final ObjectMapper objectMapper;
     private final NewsFetchProperties fetchProperties;
+    private final Supplier<Date> nowSupplier;
+
+    /**
+     * 提示词模板版本缓存（进程内；模板随部署变更，加载器自身亦有缓存）
+     */
+    private volatile String cachedPromptVersion;
 
     @Value("${rag.news.enrich-batch:20}")
     private int enrichBatch;
@@ -151,6 +176,24 @@ public class NewsEnrichService {
                       PromptTemplateLoader promptTemplateLoader,
                       ObjectMapper objectMapper,
                       NewsFetchProperties fetchProperties) {
+        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, httpFetchClient,
+                htmlDocumentParser, llmBudgetService, promptTemplateLoader, objectMapper, fetchProperties, Date::new);
+    }
+
+    /**
+     * 全参构造器（测试注入时钟——发布门 eligible_time 与 TTL 选题的时间旅行）
+     */
+    NewsEnrichService(NewsItemMapper itemMapper,
+                      NewsSourceMapper sourceMapper,
+                      NewsTopicMapper topicMapper,
+                      NewsItemTopicMapper itemTopicMapper,
+                      NewsHttpFetchClient httpFetchClient,
+                      HtmlDocumentParser htmlDocumentParser,
+                      NewsLlmBudgetService llmBudgetService,
+                      PromptTemplateLoader promptTemplateLoader,
+                      ObjectMapper objectMapper,
+                      NewsFetchProperties fetchProperties,
+                      Supplier<Date> nowSupplier) {
         this.itemMapper = itemMapper;
         this.sourceMapper = sourceMapper;
         this.topicMapper = topicMapper;
@@ -161,25 +204,33 @@ public class NewsEnrichService {
         this.promptTemplateLoader = promptTemplateLoader;
         this.objectMapper = objectMapper;
         this.fetchProperties = fetchProperties;
+        this.nowSupplier = nowSupplier;
     }
 
     /**
-     * 补全批：处理 summary_en 为空的已发布条目（抓取入库行天然缺摘要）；
-     * 返回成功补全条数，单条失败隔离留待下轮。
+     * 补全批（#185 选题口径）：status=pending 且缺摘要、未超龄（TTL 内）的条目，
+     * id 升序 FIFO 取批（默认 20）；返回 LLM 成功条数（零调用回退另计日志），
+     * 单条失败隔离留待下轮。
      * 预算耗尽（#184）非故障：当日降级=剩余条目仅入库不富化（保持
-     * summary_en IS NULL），次日按配额自然补偿——待补条目常驻本查询
+     * pending+summary_en IS NULL），次日按配额自然补偿或届龄转 expired——
+     * 预算延期不得绕发布门，也不走零调用回退
      */
     public int enrichPendingItems() {
         int batch = enrichBatch > 0 ? enrichBatch : 20;
+        Date now = nowSupplier.get();
+        Date ttlFloor = new Date(now.getTime() - fetchProperties.effectivePendingTtlHours() * 3600L * 1000L);
         List<NewsItemDO> pending = itemMapper.selectList(Wrappers.lambdaQuery(NewsItemDO.class)
-                .eq(NewsItemDO::getStatus, "published")
+                .eq(NewsItemDO::getStatus, NewsItemStatus.PENDING)
                 .isNull(NewsItemDO::getSummaryEn)
+                .ge(NewsItemDO::getFetchTime, ttlFloor)
+                .orderByAsc(NewsItemDO::getId)
                 .last("LIMIT " + batch));
         if (pending.isEmpty()) {
             return 0;
         }
         int enriched = 0;
         int degraded = 0;
+        int fallback = 0;
         int isolated = 0;
         for (int i = 0; i < pending.size(); i++) {
             NewsItemDO item = pending.get(i);
@@ -188,16 +239,20 @@ public class NewsEnrichService {
                 enriched++;
             } catch (LlmBudgetExhaustedException budget) {
                 // 剩余条目（含当前被否决条）当日不再发出——降级事件已由预算服务记 t_news_llm_receipt
-                degraded = pending.size() - i - isolated;
+                degraded = pending.size() - i - isolated - fallback;
                 log.warn("[news][budget] 条目 {} 起资讯 LLM 预算耗尽：本批剩余 {} 条当日降级为仅入库不富化"
                         + "（次日按配额补偿，summary_en IS NULL 常驻待补查询）", item.getId(), degraded);
                 break;
+            } catch (FallbackAppliedException fallbackApplied) {
+                // enrichOne 内部已落明示零调用回退（守卫/回执终态），算处理完成非失败
+                fallback++;
             } catch (Exception e) {
                 isolated++;
                 log.warn("[news] 条目 {} LLM 补全失败（留待下轮）：{}", item.getId(), e.getMessage());
             }
         }
-        log.info("[news] LLM 补全批完成：批 {} 条，成功 {} 条，预算降级 {} 条", pending.size(), enriched, degraded);
+        log.info("[news] LLM 补全批完成：批 {} 条，LLM 成功 {} 条，零调用回退 {} 条，预算降级 {} 条",
+                pending.size(), enriched, fallback, degraded);
         return enriched;
     }
 
@@ -205,17 +260,21 @@ public class NewsEnrichService {
      * 单条补全：详情正文（YouTube 跳过）→ 渲染外置提示词（<b>完整渲染请求输入闭合</b>，
      * #184 修正点4：整段 prompt 含模板+动态词表+标题+正文，超出输入限额先压缩正文再送出）
      * → Tier.FAST 预算护栏内调用（maxTokens 透传+请求指纹回执）→ JSON 解析 →
-     * 双语字段与分类落库 → 主题回链/提案
+     * 写作守卫（零调用）→ 双语字段与分类落库（published+eligible_time）→ 主题回链/提案
+     *
+     * <p>守卫/回执终态处理见类 javadoc「守卫拒绝与零调用回退」——回退在本方法内
+     * 落库后抛 {@link FallbackAppliedException} 通知批循环（非失败、非 LLM 成功）
      */
     void enrichOne(NewsItemDO item) {
         NewsSourceDO source = item.getSourceId() == null ? null : sourceMapper.selectById(item.getSourceId());
         String platform = source != null && source.getPlatform() != null ? source.getPlatform() : "unknown";
         boolean skipContent = "youtube".equals(platform);
         String content = skipContent ? null : fetchDetailText(item.getUrl());
+        String titleLine = titleLine(item);
         String prompt = renderPromptWithinInputQuota(Map.of(
                 "source_name", platform,
                 "lang_raw", item.getLangRaw() == null ? "en" : item.getLangRaw(),
-                "title_line", titleLine(item),
+                "title_line", titleLine,
                 "content_block", content == null ? "（无正文可用，仅标题）" : content,
                 "topic_vocab", renderVocab()));
         int maxTokens = fetchProperties.effectiveSummaryMaxTokens();
@@ -226,7 +285,15 @@ public class NewsEnrichService {
                 .thinking(false)
                 .maxTokens(maxTokens)
                 .build();
-        NewsLlmBudgetService.LlmCall call = llmBudgetService.call(request, Tier.FAST);
+        NewsLlmBudgetService.LlmCall call;
+        try {
+            call = llmBudgetService.call(request, Tier.FAST);
+        } catch (IllegalStateException terminal) {
+            // 回执终态（POISONED 隔离/同指纹重试预算耗尽）：同指纹零新增请求——
+            // 明示零调用回退收尾，不无限等内容变化也不无限付费重试
+            applyFallback(item, "回执终态：" + terminal.getMessage());
+            throw new FallbackAppliedException();
+        }
         NewsSummaryPayload payload;
         try {
             payload = parsePayload(call.content());
@@ -237,9 +304,40 @@ public class NewsEnrichService {
         }
         // T22 分段兜底：提示词已要求分段，模型偶发输出整段单块（样本实测 1/6）时按同规则补齐
         payload = applyParagraphFallback(payload);
+        try {
+            NewsWritingGuard.enforce(payload, titleLine, content);
+        } catch (NewsWritingGuard.RejectionException rejection) {
+            // 守卫拒绝同样走回执无效回报（新鲜响应保留一次免费复用；复用响应隔离）
+            call.reportInvalid();
+            if (call.reused()) {
+                // 复用响应仍不过守卫=同指纹无望，明示零调用回退（不无限复读不无限重试）
+                applyFallback(item, "守卫拒绝（复用响应）：" + rejection.getMessage());
+                throw new FallbackAppliedException();
+            }
+            throw rejection;
+        }
         applyPayload(item, payload);
-        log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}，reused={}",
-                item.getId(), payload.category(), payload.topics(), call.reused());
+        log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}，reused={}，prompt_version={}",
+                item.getId(), payload.category(), payload.topics(), call.reused(), currentPromptVersion());
+    }
+
+    /**
+     * 明示零调用回退（#185）：守卫拒绝（复用响应）或回执终态时，以标题派生双语
+     * 摘要落发布资格——summary_source=fallback 标记可解释可审计，eligible_time
+     * 置 now 走正常发布门；无提示词参与（prompt_version 保持 NULL）
+     */
+    void applyFallback(NewsItemDO item, String reason) {
+        String headlineZh = firstNonBlank(item.getTitleZh(), item.getTitleEn(), item.getUrl());
+        String headlineEn = firstNonBlank(item.getTitleEn(), item.getTitleZh(), item.getUrl());
+        itemMapper.update(null, Wrappers.lambdaUpdate(NewsItemDO.class)
+                .eq(NewsItemDO::getId, item.getId())
+                .eq(NewsItemDO::getStatus, NewsItemStatus.PENDING)
+                .set(NewsItemDO::getStatus, NewsItemStatus.PUBLISHED)
+                .set(NewsItemDO::getEligibleTime, nowSupplier.get())
+                .set(NewsItemDO::getSummarySource, NewsItemStatus.SUMMARY_SOURCE_FALLBACK)
+                .set(NewsItemDO::getSummaryZh, "原文标题（AI 摘要暂缺）：" + headlineZh)
+                .set(NewsItemDO::getSummaryEn, "Source headline (AI summary unavailable): " + headlineEn));
+        log.warn("[news] 条目 {} 转明示零调用回退（summary_source=fallback）：{}", item.getId(), reason);
     }
 
     /**
@@ -413,9 +511,12 @@ public class NewsEnrichService {
     }
 
     /**
-     * 双语字段/分类/主题落库：category 越界落 other；标题 fallback 保持已有值。
-     * 顺序=先主题后条目更新：主题/提案失败时条目行保持 summary_en IS NULL，
-     * 下一轮整体干净重试（避免"摘要已落、链接丢失"的半程态）
+     * 双语字段/分类/主题落库（#185：过守卫即落发布资格——status=published +
+     * eligible_time=now + summary_source=llm + prompt_version 随行）：category
+     * 越界落 other；标题 fallback 保持已有值。
+     * 顺序=先主题后条目更新：主题/提案失败时条目行保持 pending+summary_en IS NULL，
+     * 下一轮整体干净重试（避免"摘要已落、链接丢失"的半程态）；条目更新限定
+     * status=pending（已回退/已下架的行不被覆写）
      */
     void applyPayload(NewsItemDO item, NewsSummaryPayload payload) {
         linkTopics(item.getId(), payload.topics());
@@ -426,11 +527,29 @@ public class NewsEnrichService {
         String titleEn = firstNonBlank(payload.title_en(), item.getTitleEn());
         itemMapper.update(null, Wrappers.lambdaUpdate(NewsItemDO.class)
                 .eq(NewsItemDO::getId, item.getId())
+                .eq(NewsItemDO::getStatus, NewsItemStatus.PENDING)
                 .set(NewsItemDO::getTitleZh, titleZh)
                 .set(NewsItemDO::getTitleEn, titleEn)
                 .set(NewsItemDO::getSummaryZh, blankToNull(payload.summary_zh()))
                 .set(NewsItemDO::getSummaryEn, blankToNull(payload.summary_en()))
-                .set(NewsItemDO::getCategory, category));
+                .set(NewsItemDO::getCategory, category)
+                .set(NewsItemDO::getStatus, NewsItemStatus.PUBLISHED)
+                .set(NewsItemDO::getEligibleTime, nowSupplier.get())
+                .set(NewsItemDO::getSummarySource, NewsItemStatus.SUMMARY_SOURCE_LLM)
+                .set(NewsItemDO::getPromptVersion, currentPromptVersion()));
+    }
+
+    /**
+     * 提示词模板版本（#185 可追溯）：sha256(模板全文) 前 12 位，进程内缓存——
+     * 改词即版本变化，只影响新资料；历史行不因版本变化自动重算
+     */
+    String currentPromptVersion() {
+        String version = cachedPromptVersion;
+        if (version == null) {
+            version = NewsUrlNormalizer.sha256Hex(promptTemplateLoader.load(PROMPT_PATH)).substring(0, 12);
+            cachedPromptVersion = version;
+        }
+        return version;
     }
 
     /**
@@ -542,10 +661,17 @@ public class NewsEnrichService {
     }
 
     private static String firstNonBlank(String candidate, String fallback) {
+        return firstNonBlank(candidate, fallback, null);
+    }
+
+    private static String firstNonBlank(String candidate, String fallback, String secondFallback) {
         if (candidate != null && !candidate.isBlank()) {
             return candidate.strip();
         }
-        return fallback;
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.strip();
+        }
+        return secondFallback;
     }
 
     private static String blankToNull(String value) {
@@ -579,5 +705,15 @@ public class NewsEnrichService {
                               String summary_en,
                               String category,
                               List<String> topics) {
+    }
+
+    /**
+     * 批内控制流信号：enrichOne 已内部落明示零调用回退（非 LLM 成功、非失败）——
+     * 批循环据此单独计数（不进 enriched 也不进 isolated）
+     */
+    static final class FallbackAppliedException extends RuntimeException {
+        FallbackAppliedException() {
+            super("fallback-applied", null, false, false);
+        }
     }
 }

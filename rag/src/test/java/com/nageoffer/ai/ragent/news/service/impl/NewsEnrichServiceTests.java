@@ -48,6 +48,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -78,6 +79,7 @@ class NewsEnrichServiceTests {
     private NewsLlmBudgetService llmBudgetService;
     private NewsFetchProperties fetchProperties;
     private NewsEnrichService service;
+    private PromptTemplateLoader promptTemplateLoader;
 
     @BeforeEach
     void setUp() {
@@ -92,9 +94,12 @@ class NewsEnrichServiceTests {
         httpFetchClient = mock(NewsHttpFetchClient.class);
         llmBudgetService = mock(NewsLlmBudgetService.class);
         fetchProperties = new NewsFetchProperties();
+        promptTemplateLoader = mock(PromptTemplateLoader.class);
+        // prompt_version 取模板哈希：mock 加载器给固定模板文本（真模板路径由 serviceWithRealTemplateLoader 覆盖）
+        when(promptTemplateLoader.load(anyString())).thenReturn("# 角色\n模板\n");
         service = new NewsEnrichService(itemMapper, sourceMapper, topicMapper, itemTopicMapper,
                 httpFetchClient, new HtmlDocumentParser(), llmBudgetService,
-                mock(PromptTemplateLoader.class), new com.fasterxml.jackson.databind.ObjectMapper(),
+                promptTemplateLoader, new com.fasterxml.jackson.databind.ObjectMapper(),
                 fetchProperties);
         // 默认桩：预算网关直通返回有效载荷
         when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
@@ -451,6 +456,147 @@ class NewsEnrichServiceTests {
         assertEquals(0, enriched, "静态部分超限=拒绝付费准入，当日该条目仅入库不富化");
         verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class));
         verify(itemMapper, never()).update(any(), any());
+    }
+
+    // ================== #185：选题口径/发布资格落库/零调用回退/提示词版本 ==================
+
+    private NewsItemDO pendingItem(long id) {
+        return NewsItemDO.builder().id(id).sourceId(11L).url("https://www.polyu.edu.hk/en/media/" + id)
+                .titleEn("PolyU team wins award").titleZh("理大团队获奖").langRaw("en")
+                .status("pending").category("other").heat(0)
+                .fetchTime(new java.util.Date(System.currentTimeMillis() - 3600_000L)).build();
+    }
+
+    @Test
+    void selectionTargetsPendingFifoWithinTtl() {
+        when(itemMapper.selectList(any())).thenReturn(List.of(pendingItem(61)));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+
+        service.enrichPendingItems();
+
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<NewsItemDO>> captor =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(itemMapper).selectList(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("status ="), "选题限定 pending（富化前不可公开），实际=" + sql);
+        assertTrue(sql.contains("summary_en IS NULL"), "缺摘要条目，实际=" + sql);
+        assertTrue(sql.contains("fetch_time >="), "超龄（TTL 48h 外）条目不选题，实际=" + sql);
+        assertTrue(sql.contains("ORDER BY id ASC"), "FIFO 确定性选题（重启不重排），实际=" + sql);
+    }
+
+    @Test
+    void enrichSuccessRecordsPublishEligibilityAndPromptVersion() {
+        java.util.Date fixedNow = new java.util.Date(1757548800000L);
+        NewsEnrichService clockService = new NewsEnrichService(itemMapper, sourceMapper, topicMapper,
+                itemTopicMapper, httpFetchClient, new HtmlDocumentParser(), llmBudgetService,
+                promptTemplateLoader, new com.fasterxml.jackson.databind.ObjectMapper(),
+                fetchProperties, () -> fixedNow);
+        NewsItemDO pending = pendingItem(62);
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+
+        clockService.enrichPendingItems();
+
+        ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(itemMapper).update(any(), captor.capture());
+        Map<String, Object> params = ((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<NewsItemDO>)
+                captor.getValue()).getParamNameValuePairs();
+        assertEquals("published", statusValue(params), "富化成功落发布资格（处理状态/可见性分离），实际=" + params);
+        assertEquals("llm", params.values().stream()
+                .filter("llm"::equals).findFirst().orElse(null), "summary_source=llm");
+        assertEquals(fixedNow, params.values().stream()
+                .filter(java.util.Date.class::isInstance).findFirst().orElse(null),
+                "eligible_time=资格就绪时刻（发布门 180s 从此起算）");
+        Object version = params.values().stream()
+                .filter(v -> v instanceof String vStr && vStr.matches("[0-9a-f]{12}")).findFirst().orElse(null);
+        assertNotNull(version, "prompt_version=模板哈希 12 位随行落库（可追溯）");
+    }
+
+    @Test
+    void guardRejectionOnFreshResponseStaysPendingForOneFreeReuse() {
+        NewsItemDO pending = pendingItem(63);
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+        // 守卫拒绝形状：英文摘要缺失（双语完整性）
+        String halfBilingual = "{\"title_zh\":\"标题\",\"title_en\":\"Title\","
+                + "\"summary_zh\":\"摘要\",\"summary_en\":\"\",\"category\":\"research\",\"topics\":[]}";
+        Runnable invalidReporter = mock(Runnable.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(halfBilingual, false, invalidReporter));
+
+        int enriched = service.enrichPendingItems();
+
+        assertEquals(0, enriched, "守卫拒绝的新鲜响应：本轮不发布");
+        verify(invalidReporter).run();
+        verify(itemMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void guardRejectionOnReusedResponseAppliesZeroCallFallback() {
+        NewsItemDO pending = pendingItem(64);
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+        String halfBilingual = "{\"title_zh\":\"标题\",\"title_en\":\"Title\","
+                + "\"summary_zh\":\"摘要\",\"summary_en\":\"\",\"category\":\"research\",\"topics\":[]}";
+        Runnable invalidReporter = mock(Runnable.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(halfBilingual, true, invalidReporter));
+
+        int enriched = service.enrichPendingItems();
+
+        assertEquals(0, enriched, "零调用回退不算 LLM 成功");
+        ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(itemMapper).update(any(), captor.capture());
+        Map<String, Object> params = ((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<NewsItemDO>)
+                captor.getValue()).getParamNameValuePairs();
+        assertEquals("fallback", params.values().stream()
+                .filter("fallback"::equals).findFirst().orElse(null), "summary_source=fallback（明示零调用回退）");
+        assertTrue(params.containsValue("原文标题（AI 摘要暂缺）：理大团队获奖"), "回退摘要=标题派生（zh 槽）");
+        assertTrue(params.containsValue("Source headline (AI summary unavailable): PolyU team wins award"),
+                "回退摘要=标题派生（en 槽，双语回退）");
+        assertFalse(params.values().stream()
+                .anyMatch(v -> v instanceof String vStr && vStr.matches("[0-9a-f]{12}")),
+                "回退无提示词参与，不落 prompt_version");
+    }
+
+    @Test
+    void terminalReceiptStateAppliesFallbackWithoutNewCalls() {
+        NewsItemDO pending = pendingItem(65);
+        when(itemMapper.selectList(any())).thenReturn(List.of(pending));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+        // 回执终态（POISONED 隔离/重试预算耗尽）：预算服务抛 IllegalStateException，零新增请求
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+                .thenThrow(new IllegalStateException("资讯 LLM 回执已隔离（模型输出持续无效）"));
+
+        int enriched = service.enrichPendingItems();
+
+        assertEquals(0, enriched, "回退不算 LLM 成功但条目处理完成（不留在待办无限重试）");
+        ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(itemMapper).update(any(), captor.capture());
+        Map<String, Object> params = ((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<NewsItemDO>)
+                captor.getValue()).getParamNameValuePairs();
+        assertEquals("fallback", params.values().stream().filter("fallback"::equals).findFirst().orElse(null));
+    }
+
+    @Test
+    void promptVersionIsTemplateHashAndStablePerProcess() throws Exception {
+        NewsEnrichService realLoaderService = serviceWithRealTemplateLoader();
+        String version = realLoaderService.currentPromptVersion();
+        assertTrue(version.matches("[0-9a-f]{12}"), "版本=sha256(模板全文) 前 12 位，实际=" + version);
+        byte[] template = new org.springframework.core.io.DefaultResourceLoader()
+                .getResource("classpath:prompt/news-summary.st").getInputStream().readAllBytes();
+        assertEquals(com.nageoffer.ai.ragent.news.fetch.NewsUrlNormalizer
+                        .sha256Hex(new String(template, StandardCharsets.UTF_8)).substring(0, 12),
+                version, "版本与模板全文哈希一致——改词即版本变化");
+        assertEquals(version, realLoaderService.currentPromptVersion(), "进程内缓存稳定");
+    }
+
+    /** 更新参数里的 status 目标值（published/…） */
+    private static String statusValue(Map<String, Object> params) {
+        return params.values().stream()
+                .filter(v -> v instanceof String s
+                        && java.util.Set.of("pending", "published", "archived", "expired", "hidden").contains(s))
+                .map(Object::toString).findFirst().orElse(null);
     }
 
     private NewsEnrichService serviceWithRealTemplateLoader() {

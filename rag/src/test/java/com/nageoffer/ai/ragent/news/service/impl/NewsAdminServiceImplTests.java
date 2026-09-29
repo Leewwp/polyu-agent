@@ -98,6 +98,62 @@ class NewsAdminServiceImplTests {
 
     // ================== #184：预算状态双口径查询 ==================
 
+    // ================== #185：管线状态与六口径日报 ==================
+
+    @Test
+    void pipelineStatusAggregatesSixMetricsFromItemTable() {
+        // 发现日窗聚合行：发现 8、准入 6、唯一内容 5、归档 2
+        Map<String, Object> fetchDay = new java.util.HashMap<>();
+        fetchDay.put("discovered", 8L);
+        fetchDay.put("admitted", 6L);
+        fetchDay.put("unique_content", 5L);
+        fetchDay.put("archived_today", 2L);
+        when(itemMapper.selectMaps(any())).thenReturn(List.of(fetchDay));
+        // 资格日窗行：llm×3 + fallback×1 + 过门 published×3（其中 1 条 fallback 未过门）
+        java.util.Date now = new java.util.Date();
+        long gateMs = 180_000L;
+        List<NewsItemDO> eligibleRows = List.of(
+                NewsItemDO.builder().status("published").summarySource("llm")
+                        .eligibleTime(new java.util.Date(now.getTime() - 10 * gateMs)).build(),
+                NewsItemDO.builder().status("published").summarySource("llm")
+                        .eligibleTime(new java.util.Date(now.getTime() - 10 * gateMs)).build(),
+                NewsItemDO.builder().status("published").summarySource("llm")
+                        .eligibleTime(new java.util.Date(now.getTime() - 10 * gateMs)).build(),
+                NewsItemDO.builder().status("published").summarySource("fallback")
+                        .eligibleTime(new java.util.Date(now.getTime())).build());
+        when(itemMapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(eligibleRows);
+
+        com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO status =
+                service.pipelineStatus(java.time.LocalDate.now());
+
+        assertEquals(8L, status.getDiscovered(), "六口径·发现");
+        assertEquals(6L, status.getAdmitted(), "六口径·准入（归档不计）");
+        assertEquals(5L, status.getUniqueContent(), "六口径·唯一内容（标题面代理）");
+        assertEquals(3L, status.getEnrichedLlm(), "六口径·富化成功（summary_source=llm）");
+        assertEquals(3L, status.getPublicVisible(), "六口径·公开展示（过门可见：3 LLM；未过门 fallback 不计）");
+        assertEquals(0L, status.getEventCount(), "六口径·事件数=0 占位（#187）");
+        assertEquals(2L, status.getArchivedToday(), "旧文归档单列");
+        assertEquals(1L, status.getFallbackToday(), "零调用回退单列");
+        assertEquals(54L, status.getSiteRemainingToday(), "剩余额度=上限 60-准入 6");
+        assertEquals(180, status.getGateSeconds());
+    }
+
+    @Test
+    void pipelineStatusHandlesEmptyDayWithoutNpe() {
+        when(itemMapper.selectMaps(any())).thenReturn(null);
+        when(itemMapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of());
+
+        com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO status =
+                service.pipelineStatus(java.time.LocalDate.now());
+
+        assertEquals(0L, status.getDiscovered());
+        assertEquals(0L, status.getAdmitted());
+        assertEquals(0L, status.getUniqueContent());
+        assertEquals(0L, status.getEnrichedLlm());
+        assertEquals(0L, status.getPublicVisible());
+        assertEquals(60L, status.getSiteRemainingToday(), "空日全额剩余");
+    }
+
     @Test
     void llmBudgetStatusAggregatesAttemptsCostAndDegradedEvents() {
         // 日聚合（第一次 selectMaps）与月聚合（第二次）
