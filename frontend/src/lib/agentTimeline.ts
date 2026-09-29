@@ -1,6 +1,7 @@
 import type {
   AgentBlock,
   AgentBlockUI,
+  AgentConfirmStatus,
   AgentTextBlockSeal,
   AgentToolProgress,
   AgentTurn
@@ -192,6 +193,33 @@ export function settleToolBlocks(
   return blocks.map((block) => (isOpenTool(block) ? { ...block, status } : block));
 }
 
+/** 确认决定落到原消息：只有拒绝才同步卡片明确关联的 awaiting 工具，不推断执行结果。 */
+export function applyConfirmStatus(
+  blocks: AgentBlockUI[],
+  blockId: number,
+  status: AgentConfirmStatus
+): AgentBlockUI[] {
+  const card = blocks.find((block) => block.id === blockId && block.kind === "confirm");
+  if (!card || (card.status !== "pending" && card.status !== "submitting")) return blocks;
+  const deniedCallIds = new Set(
+    status === "denied"
+      ? (card.calls ?? []).map((call) => call.toolCallId).filter((id) => id?.trim())
+      : []
+  );
+  return blocks.map((block) => {
+    if (block === card) return { ...block, status };
+    if (
+      block.kind === "tool" &&
+      block.status === "awaiting" &&
+      block.toolCallId &&
+      deniedCallIds.has(block.toolCallId)
+    ) {
+      return { ...block, status: "denied" };
+    }
+    return block;
+  });
+}
+
 /**
  * 落库块投影成时间线块：与 SSE 帧写的是同一组字段 刷新前后才是同一条记录
  * 老数据这些字段是空的 空就是不显示耗时 不拿到达时间补猜
@@ -324,11 +352,16 @@ export function buildTimelineRows(turn: AgentTurn): TraceRow[] {
   const rows: TraceRow[] = [];
   const claimed = claimByConfirm(turn);
   const superseded = supersededBlockIds(turn);
-  // 确认前那些「未执行」已并进卡里 再单独成行就是同一件事说两遍
+  // 关联的未执行记录由确认卡展示，用户拒绝后已结算为 denied 的原工具块也不再单独成行。
+  // 带有结果或执行时间的块不在这里隐藏。
   const hidden = (block: AgentBlockUI) =>
     superseded.has(block.id) ||
     (block.kind === "tool" &&
-      block.status === "awaiting" &&
+      (block.status === "awaiting" || block.status === "denied") &&
+      !block.result &&
+      block.startedAt == null &&
+      block.endedAt == null &&
+      block.durationMs == null &&
       Boolean(block.toolCallId) &&
       claimed.has(block.toolCallId as string));
   // 同批只要有一条要授权 整批就一起停下 卡里没有这条 它就只是随批等着 说它「待确认」是让用户去授权一件没人问他的事

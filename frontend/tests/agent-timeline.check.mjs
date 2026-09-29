@@ -17,6 +17,7 @@ rmSync(outDir, { recursive: true, force: true });
 execFileSync("npx", ["tsc", "-p", "tests/tsconfig.timeline.json"], { cwd: root, stdio: "inherit" });
 
 const {
+  applyConfirmStatus,
   applyTextBlockSeal,
   applyToolFrame,
   buildTimelineRows,
@@ -283,7 +284,8 @@ test("随批等待：确认卡没点名的那条不报待确认", () => {
   assert.equal(tools[0].batchWaiting, true, "它在等别人被授权 不是在等自己被授权");
 });
 
-test("拒绝：终态照抄 不累计执行耗时 卡内结局同步", () => {
+test("兼容同一次调用存在多个拒绝记录：由确认卡展示最新状态", () => {
+  // 构造重复记录验证兼容性；当前框架的用户拒绝路径不会发布工具结果事件。
   const confirm = {
     id: 200,
     kind: "confirm",
@@ -291,19 +293,124 @@ test("拒绝：终态照抄 不累计执行耗时 卡内结局同步", () => {
     status: "denied",
     calls: [{ toolCallId: "c8", name: "submit_leave", displayName: "提交请假单" }]
   };
-  const awaiting = settleToolBlocks(feed([pending("c8", "submit_leave")], []), "awaiting");
+  const original = feed([{ ...pending("c8", "submit_leave"), status: "denied" }]);
   const denied = applyToolFrame(
     [],
     { toolCallId: "c8", name: "submit_leave", displayName: "提交请假单", status: "denied" },
     ctx
   );
 
-  const rows = buildTimelineRows(turnOf([confirm, ...awaiting], denied));
-  const tools = toolRows(rows);
-  assert.equal(tools.length, 1);
-  assert.equal(tools[0].block.status, "denied");
-  assert.equal(tools[0].durationMs, undefined, "没执行过就没有执行耗时");
-  assert.equal(rows.find((row) => row.channel === "confirm").outcomes[0].status, "denied");
+  const rows = buildTimelineRows(turnOf([...original, confirm], denied));
+  assert.equal(toolRows(rows).length, 0);
+  assert.equal(rows.find((row) => row.channel === "confirm").outcomes[0], denied[0]);
+});
+
+test("用户拒绝：原工具块与确认卡均为 denied，无需新增工具事件", () => {
+  const tool = replayBlock({ ...pending("declined", "submit_leave"), status: "denied" }, ++seq);
+  const card = replayBlock({ kind: "confirm", status: "denied", at: DECLARED_AT,
+    calls: [{ toolCallId: "declined", name: "submit_leave" }] }, ++seq);
+  const rows = buildTimelineRows(turnOf([tool, card]));
+  assert.equal(toolRows(rows).length, 0);
+  assert.equal(rows.find(row => row.channel === "confirm").outcomes[0], tool);
+});
+
+test("本地拒绝只修改卡片点名的 awaiting 调用，不按同名或同批推断", () => {
+  const tools = feed([
+    ...["a", "b", "unclaimed"].map(id => ({ ...pending(id, "same_tool"), status: "awaiting" })),
+    { ...pending("done", "same_tool"), status: "done", result: "原始成功结果" },
+    { ...pending("failed", "same_tool"), status: "failed", result: "原始错误" },
+    { ...pending("running", "same_tool"), status: "running" },
+    { ...pending("pending", "same_tool") }
+  ]);
+  const card = replayBlock({ kind: "confirm", at: DECLARED_AT, status: "pending",
+    calls: ["a", "b", "done", "failed", "running", "pending"].map(toolCallId => ({ toolCallId, name: "same_tool" })) }, ++seq);
+  const original = [...tools, card];
+  const updated = applyConfirmStatus(original, card.id, "denied");
+  assert.deepEqual(updated.map(block => block.status),
+    ["denied", "denied", "awaiting", "done", "failed", "running", "pending", "denied"]);
+  assert.equal(original[0].status, "awaiting", "纯更新不修改旧状态对象");
+  assert.equal(updated[3], original[3]);
+  assert.equal(updated[4], original[4]);
+  assert.equal(applyConfirmStatus(updated, card.id, "denied"), updated);
+  assert.equal(applyConfirmStatus(updated, card.id, "approved"), updated, "已结算决定不能改写");
+});
+
+test("本地提交、同意、失效都不推断工具结局，未知卡片不更新", () => {
+  const tools = settleToolBlocks(feed([pending("waiting", "submit_leave")]), "awaiting");
+  const card = replayBlock({ kind: "confirm", at: DECLARED_AT, status: "pending",
+    calls: [{ toolCallId: "waiting", name: "submit_leave" }] }, ++seq);
+  const original = [...tools, card];
+  for (const status of ["submitting", "approved", "expired"]) {
+    const updated = applyConfirmStatus(original, card.id, status);
+    assert.equal(updated[0], tools[0]);
+    assert.equal(updated[1].status, status);
+    assert.equal(toolRows(buildTimelineRows(turnOf(updated))).length, 0);
+  }
+  assert.equal(applyConfirmStatus(original, -1, "denied"), original);
+  assert.equal(applyConfirmStatus(original, tools[0].id, "denied"), original);
+});
+
+test("本地拒绝兼容旧卡：缺 calls 或有效 ID 时不按工具名补配", () => {
+  for (const calls of [undefined, [], [{ name: "same_tool" }],
+    [{ toolCallId: "", name: "same_tool" }, { toolCallId: " ", name: "same_tool" }]]) {
+    const tools = [undefined, "", " ", "known"].map(toolCallId =>
+      replayBlock({ kind: "tool", at: DECLARED_AT, name: "same_tool", toolCallId, status: "awaiting" }, ++seq));
+    const card = replayBlock({ kind: "confirm", at: DECLARED_AT, status: "pending", calls }, ++seq);
+    const updated = applyConfirmStatus([...tools, card], card.id, "denied");
+    assert.deepEqual(updated.slice(0, -1), tools);
+    assert.equal(updated.at(-1).status, "denied");
+  }
+});
+
+test("确认关联不吞结果：成功、失败、中断、拒绝原因和执行时间均保留", () => {
+  for (const extra of [
+    { status: "done", result: "真实成功结果" },
+    { status: "failed", result: "真实错误详情" },
+    { status: "interrupted", result: "部分执行结果" },
+    { status: "denied", result: "权限规则的拒绝原因" },
+    { status: "denied", startedAt: T0 },
+    { status: "denied", endedAt: T0 },
+    { status: "denied", durationMs: 0 }
+  ]) {
+    const old = feed([{ ...pending("real", "submit_leave"), status: "denied" }]);
+    const card = replayBlock({ kind: "confirm", status: "denied", at: DECLARED_AT,
+      calls: [{ toolCallId: "real", name: "submit_leave" }] }, ++seq);
+    const resumed = feed([{ ...pending("real", "submit_leave"), ...extra }]);
+    const rows = buildTimelineRows(turnOf([...old, card], resumed));
+    assert.equal(toolRows(rows).length, 1, JSON.stringify(extra));
+    assert.equal(toolRows(rows)[0].block, resumed[0]);
+    assert.equal(rows.find(row => row.channel === "confirm").outcomes[0], resumed[0]);
+  }
+});
+
+test("同意后的真实失败可见：卡片维持 approved 结果行保留错误详情", () => {
+  const old = settleToolBlocks(feed([pending("failed", "submit_leave")]), "awaiting");
+  const card = replayBlock({ kind: "confirm", status: "approved", at: DECLARED_AT,
+    calls: [{ toolCallId: "failed", name: "submit_leave" }] }, ++seq);
+  const resumed = feed([running("failed", "submit_leave", "resume-1", 0),
+    settled("failed", "submit_leave", "resume-1", 0, T0, 30,
+      { status: "failed", result: "服务不可用", ok: false })]);
+  const rows = buildTimelineRows(turnOf([...old, card], resumed));
+  assert.equal(toolRows(rows).length, 1);
+  assert.equal(toolRows(rows)[0].block.result, "服务不可用");
+  const confirmRow = rows.find(row => row.channel === "confirm");
+  assert.equal(confirmRow.block.status, "approved");
+  assert.equal(confirmRow.outcomes[0].status, "failed");
+});
+
+test("失效卡不会投影成拒绝；没有确认关联的同名拒绝工具正常显示", () => {
+  const tools = feed([
+    { ...pending("expired", "submit_leave"), status: "awaiting" },
+    { ...pending("unclaimed", "submit_leave"), status: "denied" },
+    { name: "submit_leave", status: "denied" }
+  ]);
+  const card = replayBlock({ kind: "confirm", status: "expired", at: DECLARED_AT,
+    calls: [{ toolCallId: "expired", name: "submit_leave" }] }, ++seq);
+  const rows = buildTimelineRows(turnOf([...tools, card]));
+  assert.deepEqual(toolRows(rows).map(row => row.block.toolCallId), ["unclaimed", undefined]);
+  const confirmRow = rows.find(row => row.channel === "confirm");
+  assert.equal(confirmRow.block.status, "expired");
+  assert.equal(confirmRow.outcomes[0].status, "awaiting");
 });
 
 test("中断：收尾还没等到终态帧的工具一律落中断 不冒充完成", () => {

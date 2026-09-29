@@ -485,8 +485,8 @@ CREATE TABLE t_agent_conversation (
     update_time     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted         SMALLINT    DEFAULT 0
 );
--- 部分唯一索引：逻辑删的旧行不再占用唯一键，否则删除后同 ID 重开会话必撞约束
-CREATE UNIQUE INDEX uk_agent_conversation_user ON t_agent_conversation (conversation_id, user_id) WHERE deleted = 0;
+-- 会话身份不可复用：逻辑删除后仍保留唯一键，新会话必须使用服务端生成的新 ID
+CREATE UNIQUE INDEX uk_agent_conversation_user ON t_agent_conversation (conversation_id, user_id);
 CREATE INDEX idx_agent_conv_user_time ON t_agent_conversation (user_id, last_time);
 COMMENT ON TABLE t_agent_conversation IS 'Agent 会话列表';
 

@@ -25,7 +25,7 @@ export type AgentToolStatus =
   | "denied"
   | "interrupted";
 
-// 确认卡状态 submitting / expired 只存在于前端
+// 确认卡记录决定及失效状态；只有 submitting 是前端提交中的临时状态
 export type AgentConfirmStatus = "pending" | "submitting" | "approved" | "denied" | "expired";
 
 export type AgentBlockStatus = AgentToolStatus | AgentConfirmStatus;
