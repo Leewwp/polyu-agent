@@ -37,13 +37,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 热度/聚类视野装配器：把窗口内的已发布条目连同主题关联与信源
- * 注册表组装成聚类输入——持久化重算（NewsHeatService）与查询侧
+ * 热度/聚类视野装配器：把窗口内的已发布条目（#187 起含中文摘要词面与
+ * summary_source——事件合并的 E1 有效摘要门输入）连同主题关联与信源
+ * 注册表组装成聚类输入——持久化重算（NewsEventService）与查询侧
  * （/hot、列表徽章）共用同一次装配形状，保证两侧簇语义一致。
  *
- * <p>两个装载口径（#185）：{@link #loadPublished} 供热度持久化重算（内部面，
- * status=published 全量，含发布门未开启条目——门的意义正是让聚类先于公开看到
- * 新条目）；{@link #loadVisible} 供公开查询面（/hot、徽章），叠加发布门
+ * <p>两个装载口径（#185）：{@link #loadPublished} 供事件重归组/热度持久化重算
+ * （内部面，status=published 全量，含发布门未开启条目——门的意义正是让聚类先于
+ * 公开看到新条目）；{@link #loadVisible} 供公开查询面（/hot、徽章），叠加发布门
  * （eligible_time ≤ gateFloor 或历史行 NULL，统一公开资格，见
  * {@link NewsItemStatus} 类 javadoc）。
  */
@@ -110,7 +111,8 @@ public class NewsStoryAssembler {
         List<NewsStoryItem> storyItems = items.stream()
                 .map(item -> new NewsStoryItem(item.getId(), item.getTitleZh(), item.getTitleEn(),
                         item.getCategory(), item.getSourceId(), item.getPublishTime(),
-                        topicsByItem.getOrDefault(item.getId(), Set.of()), item.getHeat()))
+                        topicsByItem.getOrDefault(item.getId(), Set.of()), item.getHeat(),
+                        item.getSummaryZh(), item.getSummarySource()))
                 .toList();
         return new NewsStoryWindow(storyItems, sourcesById);
     }

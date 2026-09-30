@@ -158,6 +158,14 @@ public class NewsSourceDO {
     private Date lastOutcomeTime;
 
     /**
+     * 独立来源组（#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票
+     * （官网各栏目+官方 YouTube=polyu-official；PRN 双语 wire=prn-wire；
+     * GNews 检索面=gnews）；NULL=按 sourceKey 自成一组（AI 扩源默认独立）。
+     * 事件参与者证据行入组时对本列做快照，映射变更不回溯历史证据。
+     */
+    private String independenceGroup;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)

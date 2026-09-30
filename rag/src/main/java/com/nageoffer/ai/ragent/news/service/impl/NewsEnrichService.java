@@ -61,10 +61,14 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * 资讯 LLM 补全服务（#185：待富化选题 → 守卫 → 发布资格落库）：对 pending
- * 条目做详情抓取 → 单次 LLM 调用（预算护栏内）→ 双语标题/摘要 + 固定 8 类 +
- * 主题标签 → <b>写作守卫</b>（{@link NewsWritingGuard}，零调用）→ 过守卫即
- * 落 status=published + eligible_time（发布门 180s 从此起算，查询侧统一判据）。
+ * 资讯 LLM 补全服务（#185：待富化选题 → 守卫 → 发布资格落库；#187：内容哈希
+ * 零调用复用）：对 pending 条目做详情抓取 → <b>内容哈希复用查证</b>（#187 判重
+ * 三合同之二：sha256(规范化标题+正文摘录) 相同且供体 summary_source=llm → 零调用
+ * 复用双语摘要/分类/主题，两行独立保留=逐源证据；与 #184 回执边界=复用先于预算
+ * 服务，跨源同内容也复用，#184 指纹只管同渲染请求）→ 单次 LLM 调用（预算护栏内）
+ * → 双语标题/摘要 + 固定 8 类 + 主题标签 → <b>写作守卫</b>
+ * （{@link NewsWritingGuard}，零调用）→ 过守卫即落 status=published +
+ * eligible_time（发布门 180s 从此起算，查询侧统一判据）。
  *
  * <p><b>选题口径</b>（#185）：status=pending AND summary_en IS NULL，按 id 升序
  * FIFO（最老先富化——TTL 公平+确定性，重启不重排）；超龄（fetch_time 早于
@@ -257,10 +261,12 @@ public class NewsEnrichService {
     }
 
     /**
-     * 单条补全：详情正文（YouTube 跳过）→ 渲染外置提示词（<b>完整渲染请求输入闭合</b>，
-     * #184 修正点4：整段 prompt 含模板+动态词表+标题+正文，超出输入限额先压缩正文再送出）
-     * → Tier.FAST 预算护栏内调用（maxTokens 透传+请求指纹回执）→ JSON 解析 →
-     * 写作守卫（零调用）→ 双语字段与分类落库（published+eligible_time）→ 主题回链/提案
+     * 单条补全：详情正文（YouTube 跳过）→ <b>内容哈希复用查证</b>（#187 判重三合同
+     * 之二：同规范化内容已有 LLM 摘要 → 零调用复用，保留本条独立行=逐源证据）→
+     * 渲染外置提示词（<b>完整渲染请求输入闭合</b>，#184 修正点4：整段 prompt 含
+     * 模板+动态词表+标题+正文，超出输入限额先压缩正文再送出）→ Tier.FAST 预算
+     * 护栏内调用（maxTokens 透传+请求指纹回执）→ JSON 解析 → 写作守卫（零调用）→
+     * 双语字段与分类落库（published+eligible_time）→ 主题回链/提案
      *
      * <p>守卫/回执终态处理见类 javadoc「守卫拒绝与零调用回退」——回退在本方法内
      * 落库后抛 {@link FallbackAppliedException} 通知批循环（非失败、非 LLM 成功）
@@ -270,6 +276,16 @@ public class NewsEnrichService {
         String platform = source != null && source.getPlatform() != null ? source.getPlatform() : "unknown";
         boolean skipContent = "youtube".equals(platform);
         String content = skipContent ? null : fetchDetailText(item.getUrl());
+        String contentHash = contentHash(item, content);
+        if (contentHash != null) {
+            NewsItemDO donor = findReusableEnrichment(contentHash, item.getId());
+            if (donor != null) {
+                applyReusedPayload(item, donor, contentHash);
+                log.info("[news] 条目 {} 命中内容哈希复用（#187 零调用）：donor=条目 {}，hash={}",
+                        item.getId(), donor.getId(), contentHash);
+                return;
+            }
+        }
         String titleLine = titleLine(item);
         String prompt = renderPromptWithinInputQuota(Map.of(
                 "source_name", platform,
@@ -316,9 +332,80 @@ public class NewsEnrichService {
             }
             throw rejection;
         }
-        applyPayload(item, payload);
+        applyPayload(item, payload, contentHash);
         log.info("[news] 条目 {} LLM 补全成功：category={}，topics={}，reused={}，prompt_version={}",
                 item.getId(), payload.category(), payload.topics(), call.reused(), currentPromptVersion());
+    }
+
+    // ==================== 内容哈希复用（#187 判重三合同之二） ====================
+
+    /**
+     * 内容哈希=sha256(规范化双语标题 + 分隔 + 规范化正文摘录)——规范化=去全部空白
+     * +拉丁小写化（标点保留参与判重：只对<b>确切重复</b>承诺复用，不承诺相似复用，
+     * 不承诺节省比例）。无正文（YouTube 跳过正文/抓取失败）或标题全空返回 null——
+     * 标题单独不构成确切重复证据（CLU-026：标题全同受众不同的极端负例）
+     */
+    static String contentHash(NewsItemDO item, String content) {
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        String title = ((item.getTitleZh() == null ? "" : item.getTitleZh())
+                + "||" + (item.getTitleEn() == null ? "" : item.getTitleEn())).strip();
+        if (title.isBlank() || title.equals("||")) {
+            return null;
+        }
+        return NewsUrlNormalizer.sha256Hex(normalize(title) + "\n||\n" + normalize(content));
+    }
+
+    private static String normalize(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
+    }
+
+    /**
+     * 复用供体查找：同 content_hash 且 summary_source='llm'（fallback=标题派生回退
+     * 不作供体——复用它等于变相标题猜测）的最早一行；供体与本条各自保留独立行
+     * （逐源证据：URL/信源/时间均不合并），只复用富化产物
+     */
+    private NewsItemDO findReusableEnrichment(String contentHash, Long selfId) {
+        List<NewsItemDO> candidates = itemMapper.selectList(Wrappers.lambdaQuery(NewsItemDO.class)
+                .eq(NewsItemDO::getContentHash, contentHash)
+                .eq(NewsItemDO::getSummarySource, NewsItemStatus.SUMMARY_SOURCE_LLM)
+                .orderByAsc(NewsItemDO::getId));
+        for (NewsItemDO candidate : candidates) {
+            if (!candidate.getId().equals(selfId)
+                    && NewsItemStatus.SUMMARY_SOURCE_LLM.equals(candidate.getSummarySource())
+                    && candidate.getSummaryZh() != null && !candidate.getSummaryZh().isBlank()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 零调用复用落库（#187）：供体的双语标题/摘要/分类/prompt_version 原样复用，
+     * 主题关联随供体复制（保留本条独立行=逐源证据）；summary_source=llm（产物
+     * 确为 LLM 输出）+ eligible_time=now 走正常发布门。与 #184 边界：本路径在
+     * 预算服务之前返回，不产生请求指纹与回执（跨源同内容复用 #184 指纹做不到
+     * ——指纹含 source_name/动态词表，同渲染请求才复用）
+     */
+    private void applyReusedPayload(NewsItemDO item, NewsItemDO donor, String contentHash) {
+        for (NewsItemTopicDO link : itemTopicMapper.selectList(Wrappers.lambdaQuery(NewsItemTopicDO.class)
+                .eq(NewsItemTopicDO::getItemId, donor.getId()))) {
+            linkIfAbsent(item.getId(), link.getTopicId());
+        }
+        itemMapper.update(null, Wrappers.lambdaUpdate(NewsItemDO.class)
+                .eq(NewsItemDO::getId, item.getId())
+                .eq(NewsItemDO::getStatus, NewsItemStatus.PENDING)
+                .set(NewsItemDO::getTitleZh, firstNonBlank(donor.getTitleZh(), item.getTitleZh()))
+                .set(NewsItemDO::getTitleEn, firstNonBlank(donor.getTitleEn(), item.getTitleEn()))
+                .set(NewsItemDO::getSummaryZh, donor.getSummaryZh())
+                .set(NewsItemDO::getSummaryEn, donor.getSummaryEn())
+                .set(NewsItemDO::getCategory, donor.getCategory() == null ? "other" : donor.getCategory())
+                .set(NewsItemDO::getStatus, NewsItemStatus.PUBLISHED)
+                .set(NewsItemDO::getEligibleTime, nowSupplier.get())
+                .set(NewsItemDO::getSummarySource, NewsItemStatus.SUMMARY_SOURCE_LLM)
+                .set(NewsItemDO::getPromptVersion, donor.getPromptVersion())
+                .set(NewsItemDO::getContentHash, contentHash));
     }
 
     /**
@@ -512,13 +599,14 @@ public class NewsEnrichService {
 
     /**
      * 双语字段/分类/主题落库（#185：过守卫即落发布资格——status=published +
-     * eligible_time=now + summary_source=llm + prompt_version 随行）：category
-     * 越界落 other；标题 fallback 保持已有值。
+     * eligible_time=now + summary_source=llm + prompt_version 随行；#187 加随行
+     * content_hash 供后续确切重复零调用复用）：category 越界落 other；标题 fallback
+     * 保持已有值。
      * 顺序=先主题后条目更新：主题/提案失败时条目行保持 pending+summary_en IS NULL，
      * 下一轮整体干净重试（避免"摘要已落、链接丢失"的半程态）；条目更新限定
      * status=pending（已回退/已下架的行不被覆写）
      */
-    void applyPayload(NewsItemDO item, NewsSummaryPayload payload) {
+    void applyPayload(NewsItemDO item, NewsSummaryPayload payload, String contentHash) {
         linkTopics(item.getId(), payload.topics());
         String category = payload.category() == null || !ALLOWED_CATEGORIES.contains(payload.category().strip())
                 ? "other"
@@ -536,7 +624,8 @@ public class NewsEnrichService {
                 .set(NewsItemDO::getStatus, NewsItemStatus.PUBLISHED)
                 .set(NewsItemDO::getEligibleTime, nowSupplier.get())
                 .set(NewsItemDO::getSummarySource, NewsItemStatus.SUMMARY_SOURCE_LLM)
-                .set(NewsItemDO::getPromptVersion, currentPromptVersion()));
+                .set(NewsItemDO::getPromptVersion, currentPromptVersion())
+                .set(NewsItemDO::getContentHash, contentHash));
     }
 
     /**
