@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.news.dao.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicAliasDO;
 import org.apache.ibatis.annotations.Mapper;
 
@@ -29,4 +30,14 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface NewsTopicAliasMapper extends BaseMapper<NewsTopicAliasDO> {
+
+    /**
+     * 按 alias_key 精确取一行：治理侧入账判存（同键覆盖）与富化消费侧拦截查询
+     * （#202 防再提）共用同一查询形态，收口于此防两侧口径漂移（#206）
+     */
+    default NewsTopicAliasDO selectByAliasKey(String aliasKey) {
+        return selectOne(Wrappers.lambdaQuery(NewsTopicAliasDO.class)
+                .eq(NewsTopicAliasDO::getAliasKey, aliasKey)
+                .last("LIMIT 1"));
+    }
 }

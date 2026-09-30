@@ -93,7 +93,7 @@ class NewsEnrichAliasInterceptTests {
     @Test
     void mergedAliasLinksTargetWithoutNewProposal() {
         when(topicMapper.selectList(any())).thenReturn(List.of()); // 词表空（提案已退场）
-        when(aliasMapper.selectOne(any())).thenReturn(NewsTopicAliasDO.builder()
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(NewsTopicAliasDO.builder()
                 .id(1L).aliasKey("culture").action("merged")
                 .sourceTopicId(28L).targetTopicId(15L).build());
         when(topicMapper.selectById(15L)).thenReturn(activeCurated(15L, "campus"));
@@ -108,7 +108,7 @@ class NewsEnrichAliasInterceptTests {
                         && Long.valueOf(100L).equals(linkCaptor.getValue().getItemId()),
                 "merged 别名回链目标 curated 主题（item=100→topic=15），实际=" + linkCaptor.getValue());
         // 别名键查询用规范化形态（「Culture」→ culture）
-        verify(aliasMapper).selectOne(any());
+        verify(aliasMapper).selectByAliasKey("culture");
     }
 
     /**
@@ -117,7 +117,7 @@ class NewsEnrichAliasInterceptTests {
     @Test
     void rejectedAliasSkipsBothProposalAndLink() {
         when(topicMapper.selectList(any())).thenReturn(List.of());
-        when(aliasMapper.selectOne(any())).thenReturn(NewsTopicAliasDO.builder()
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(NewsTopicAliasDO.builder()
                 .id(2L).aliasKey("polyu").action("rejected")
                 .sourceTopicId(34L).targetTopicId(null).build());
 
@@ -133,7 +133,7 @@ class NewsEnrichAliasInterceptTests {
     @Test
     void unknownTokenStillCreatesProposalAsBefore() {
         when(topicMapper.selectList(any())).thenReturn(List.of());
-        when(aliasMapper.selectOne(any())).thenReturn(null);
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(null);
         when(topicMapper.selectOne(any())).thenReturn(null);
         when(topicMapper.insert(any(NewsTopicDO.class))).thenAnswer(invocation -> {
             invocation.getArgument(0, NewsTopicDO.class).setId(777L);
