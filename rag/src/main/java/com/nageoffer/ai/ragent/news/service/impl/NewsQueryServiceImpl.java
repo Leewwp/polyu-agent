@@ -363,7 +363,8 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                         .last("LIMIT " + bounded))
                 .stream()
                 .map(item -> new NewsStoryItem(item.getId(), item.getTitleZh(), item.getTitleEn(),
-                        item.getCategory(), item.getSourceId(), item.getPublishTime(), Set.of(), item.getHeat()))
+                        item.getCategory(), item.getSourceId(), item.getPublishTime(), Set.of(), item.getHeat(),
+                        item.getSummaryZh(), item.getSummarySource()))
                 .toList();
     }
 

@@ -134,6 +134,15 @@ public class NewsItemDO {
     private String promptVersion;
 
     /**
+     * 富化判重内容哈希（#187 判重三合同之二）：sha256(规范化标题+正文摘录)——
+     * 同哈希且供体 summary_source=llm 时富化阶段零调用复用摘要（两行独立保留=
+     * 逐源证据）；NULL=未富化或无正文（YouTube 跳过正文抽取，不参与复用）。
+     * 与 #184 请求指纹的边界：指纹含 source_name/动态词表（同渲染请求才复用），
+     * 内容哈希跨源同内容也复用；只承诺确切重复复用，不承诺节省比例。
+     */
+    private String contentHash;
+
+    /**
      * 创建时间
      */
     @TableField(fill = FieldFill.INSERT)

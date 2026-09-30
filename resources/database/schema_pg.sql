@@ -1151,6 +1151,7 @@ CREATE TABLE t_news_source (
   probe_time     TIMESTAMP,                      -- 最近探活时刻（HKT 日级节拍，#186）
   last_outcome   VARCHAR(32),                    -- 最近一轮六类结果代码（#186）
   last_outcome_time TIMESTAMP,                   -- 最近一轮结果落账时刻（#186）
+  independence_group VARCHAR(64),                -- 独立来源组（#187 投票去重键）；NULL=按 source_key 自成一组
   create_time    TIMESTAMP    NOT NULL DEFAULT now(),
   update_time    TIMESTAMP    NOT NULL DEFAULT now()
 );
@@ -1171,6 +1172,7 @@ COMMENT ON COLUMN t_news_source.probe_successes IS '探活连续有效完整成�
 COMMENT ON COLUMN t_news_source.probe_time IS '最近一次探活时刻（#186）：HKT 日级节拍每源每日至多探一次；defer 不推进';
 COMMENT ON COLUMN t_news_source.last_outcome IS '最近一轮单源抓取结果六类代码（#186）：valid_with_content / valid_empty / structure_mismatch / network_failure / policy_forbidden / defer';
 COMMENT ON COLUMN t_news_source.last_outcome_time IS '最近一轮结果落账时刻（#186）';
+COMMENT ON COLUMN t_news_source.independence_group IS '独立来源组（#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票（官网各栏目+官方 YouTube=polyu-official；PRN 双语 wire=prn-wire；GNews 检索面=gnews）；NULL=按 source_key 自成一组（种子映射见 init_data_pg.sql）';
 
 -- 信源健康事件流水（2026-09-30，#186：停止/复归/探活记录可查，append-only 审计）
 CREATE TABLE t_news_source_health_event (
@@ -1216,12 +1218,14 @@ CREATE TABLE t_news_item (
   eligible_time  TIMESTAMP,                        -- 发布资格就绪时刻（#185 发布门起算；NULL=历史行）
   summary_source VARCHAR(8),                       -- llm/fallback/NULL=历史（#185）
   prompt_version VARCHAR(16),                      -- sha256(模板全文) 前 12 位（#185 可追溯）
+  content_hash   VARCHAR(64),                      -- 富化判重内容哈希（#187）：同哈希零调用复用摘要
   create_time    TIMESTAMP NOT NULL DEFAULT now(),
   CONSTRAINT uq_news_item_url UNIQUE (url_hash)
 );
 CREATE INDEX idx_news_item_pub ON t_news_item(publish_time DESC) WHERE status = 'published';
 CREATE INDEX idx_news_item_pending_ttl ON t_news_item(fetch_time) WHERE status = 'pending';
 CREATE INDEX idx_news_item_fetch_day ON t_news_item(fetch_time);
+CREATE INDEX idx_news_item_content_hash ON t_news_item(content_hash) WHERE content_hash IS NOT NULL;
 COMMENT ON TABLE t_news_item IS '资讯条目表（AI 双语摘要+永久原文外链；不进 RAG 证据面）';
 COMMENT ON COLUMN t_news_item.url_hash IS 'sha256(url) 十六进制，幂等去重唯一键';
 COMMENT ON COLUMN t_news_item.category IS '固定 8 类：admission/scholarship/research/campus/event/career/exchange/admin（+other 兜底）';
@@ -1230,6 +1234,7 @@ COMMENT ON COLUMN t_news_item.status IS '处理状态五态（#185）：pending=
 COMMENT ON COLUMN t_news_item.eligible_time IS '发布资格就绪时刻（#185）：合格摘要落库或明示零调用回退时间；发布门 180s 从本列起算——统一公开资格=status=published AND (本列 IS NULL OR 本列 <= now-180s)；NULL=#185 前历史行（视同早已开启，不重算）';
 COMMENT ON COLUMN t_news_item.summary_source IS '摘要产出方式（#185）：llm=LLM 富化；fallback=明示零调用回退（标题派生，守卫/回执终态的可解释回退）；NULL=历史行';
 COMMENT ON COLUMN t_news_item.prompt_version IS '产出摘要所用提示词模板版本（#185）：sha256(模板全文) 前 12 位；改词即版本变化只影响新资料，历史不自动重算；fallback 无提示词为 NULL';
+COMMENT ON COLUMN t_news_item.content_hash IS '富化判重内容哈希（#187）：sha256(规范化标题+正文摘录)；同哈希且供体 summary_source=llm 时零调用复用摘要（保留逐源证据行）；NULL=未富化/无正文（YouTube 跳过正文，不复用）';
 
 CREATE TABLE t_news_topic (
   id            BIGSERIAL PRIMARY KEY,
@@ -1256,6 +1261,66 @@ CREATE TABLE t_news_item_topic (
 );
 CREATE INDEX idx_news_item_topic ON t_news_item_topic(topic_id);
 COMMENT ON TABLE t_news_item_topic IS '条目-主题多对多关联（保留期清理随 t_news_item 级联删除）';
+
+-- 事件最小模型（2026-09-30，#187——父票 #180 §3/§5/§8：判重三合同的事件面+持久身份
+-- +48h 参与者证据+独立来源映射+24h 半衰；明确不做：综述/事件页/向量/评分。
+-- 身份规则：未合并/分裂的同事件 ID 稳定；合并选存续 ID（最早首报，平手取小 id）并记
+-- 旧→存续；分裂原 ID 留给含最早成员的确定原组，其余新 ID+迁移记录。
+-- 增量环境走 upgrades/v2.0.0/260930_02_news_event_identity.sql
+CREATE TABLE t_news_event (
+  id                  BIGSERIAL PRIMARY KEY,
+  status              VARCHAR(16) NOT NULL DEFAULT 'active',   -- active/superseded（合并非存续方）
+  heat                INT         NOT NULL DEFAULT 0,          -- 事件热度（独立票×24h 半衰）
+  first_report_time   TIMESTAMP,                               -- 最早成员 publish_time（衰减锚）
+  last_activity_time  TIMESTAMP,                               -- 最晚成员 publish_time
+  create_time         TIMESTAMP   NOT NULL DEFAULT now(),
+  update_time         TIMESTAMP   NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_news_event_status ON t_news_event(status) WHERE status = 'active';
+COMMENT ON TABLE t_news_event IS '资讯事件持久身份（#187 最小模型：只做身份/证据/热度，无综述/事件页/向量/评分）；未发生合并/分裂的同事件 ID 稳定；合并选存续 ID（最早首报，平手取小 id）并记旧→存续迁移';
+COMMENT ON COLUMN t_news_event.status IS 'active=现行事件；superseded=已并入存续事件（身份迁移见 t_news_event_migration，行保留审计不再持有成员）';
+COMMENT ON COLUMN t_news_event.heat IS '事件热度=（48h 证据窗内独立来源组数+Σ组内最大源权重）×24h 半衰（锚=first_report_time，未来封顶 1）；同步写成员条目 heat';
+COMMENT ON COLUMN t_news_event.first_report_time IS '事件首报=成员最早 publish_time；24h 半衰与 48h 投票证据窗的共同锚点';
+
+CREATE TABLE t_news_event_item (
+  id                  BIGSERIAL PRIMARY KEY,
+  event_id            BIGINT NOT NULL REFERENCES t_news_event(id),
+  item_id             BIGINT NOT NULL REFERENCES t_news_item(id) ON DELETE CASCADE,
+  source_id           BIGINT,
+  independence_group  VARCHAR(64) NOT NULL,                    -- 入组时源独立组快照
+  publish_time        TIMESTAMP,                               -- 证据时刻（48h 窗判定输入）
+  joined_time         TIMESTAMP NOT NULL DEFAULT now(),        -- 首次入组时刻
+  CONSTRAINT uq_news_event_item UNIQUE (item_id)
+);
+CREATE INDEX idx_news_event_item_event ON t_news_event_item(event_id);
+COMMENT ON TABLE t_news_event_item IS '事件参与者证据（#187）：一条目至多属一事件（item_id 唯一）；重归组改写 event_id 并落 t_news_event_migration(regroup)；下架/过期摘除本行并落 detach 迁移';
+COMMENT ON COLUMN t_news_event_item.independence_group IS '入组时 t_news_source.independence_group 快照（源映射变更不回溯历史证据）';
+COMMENT ON COLUMN t_news_event_item.publish_time IS '成员条目 publish_time=参与者证据时刻；热度票资格=∈[事件 first_report_time, +48h]';
+
+CREATE TABLE t_news_event_source_vote (
+  id                  BIGSERIAL PRIMARY KEY,
+  event_id            BIGINT NOT NULL REFERENCES t_news_event(id),
+  independence_group  VARCHAR(64) NOT NULL,
+  vote_count          INT NOT NULL DEFAULT 0,                  -- 组内参与条目数（仅计数，票=1）
+  first_vote_time     TIMESTAMP,
+  last_vote_time      TIMESTAMP,
+  update_time         TIMESTAMP NOT NULL DEFAULT now(),
+  CONSTRAINT uq_news_event_vote UNIQUE (event_id, independence_group)
+);
+COMMENT ON TABLE t_news_event_source_vote IS '事件独立来源投票账（#187）：(event_id, independence_group) 一行一票——同机构多 feed/聚合口不重复加票；vote_count 只记录组内条目数不放大票权；每轮重归组后按成员全量重建';
+
+CREATE TABLE t_news_event_migration (
+  id                  BIGSERIAL PRIMARY KEY,
+  old_event_id        BIGINT NOT NULL,
+  new_event_id        BIGINT,                                  -- detach 无新事件为 NULL
+  kind                VARCHAR(16) NOT NULL,                    -- merge/split/regroup/detach
+  item_id             BIGINT,                                  -- split/regroup/detach 携带
+  reason              VARCHAR(512),
+  create_time         TIMESTAMP NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_news_event_migration_old ON t_news_event_migration(old_event_id);
+COMMENT ON TABLE t_news_event_migration IS '事件身份迁移账本（#187，append-only）：merge=旧事件并入存续（旧 superseded）；split=分裂迁出（原 ID 留给含最早成员的确定原组，迁出条目落新事件）；regroup=条目改组（双存活）；detach=条目下架/过期摘除证据';
+COMMENT ON COLUMN t_news_event_migration.kind IS 'merge=事件级合并（item_id 空）/ split=分裂迁出（新事件为被迁入方）/ regroup=条目在存活事件间移动 / detach=终态摘除（new_event_id 空）';
 
 -- 资讯 LLM 预算护栏+付费回执（2026-09-29，#184——父票 #181 §1 合同+维护者六点修正）
 -- 一行=（请求指纹, 发生日）周期账本行：周期键首次计入时落定且永不改写（跨日/跨月重试

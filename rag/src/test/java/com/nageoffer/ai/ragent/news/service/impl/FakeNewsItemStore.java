@@ -274,6 +274,8 @@ final class FakeNewsItemStore {
             case "eligible_time" -> row.setEligibleTime((Date) value);
             case "summary_source" -> row.setSummarySource((String) value);
             case "prompt_version" -> row.setPromptVersion((String) value);
+            case "content_hash" -> row.setContentHash((String) value);
+            case "heat" -> row.setHeat(((Number) value).intValue());
             default -> throw new IllegalArgumentException("fake 未覆盖 SET 列：" + column);
         }
     }
@@ -285,6 +287,8 @@ final class FakeNewsItemStore {
             case "url_hash" -> row.getUrlHash();
             case "status" -> row.getStatus();
             case "summary_en" -> row.getSummaryEn();
+            case "summary_source" -> row.getSummarySource();
+            case "content_hash" -> row.getContentHash();
             case "fetch_time" -> row.getFetchTime();
             case "publish_time" -> row.getPublishTime();
             default -> throw new IllegalArgumentException("fake 未覆盖 WHERE 列：" + column);
@@ -300,7 +304,7 @@ final class FakeNewsItemStore {
                 .publishTime(row.getPublishTime()).fetchTime(row.getFetchTime())
                 .status(row.getStatus()).heat(row.getHeat())
                 .eligibleTime(row.getEligibleTime()).summarySource(row.getSummarySource())
-                .promptVersion(row.getPromptVersion()).createTime(row.getCreateTime())
-                .build();
+                .promptVersion(row.getPromptVersion()).contentHash(row.getContentHash())
+                .createTime(row.getCreateTime()).build();
     }
 }

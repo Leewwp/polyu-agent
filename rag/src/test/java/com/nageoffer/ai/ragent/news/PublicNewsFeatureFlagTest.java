@@ -57,6 +57,9 @@ class PublicNewsFeatureFlagTest {
             .withBean(com.nageoffer.ai.ragent.news.service.impl.NewsSourceHealthService.class,
                     () -> mock(com.nageoffer.ai.ragent.news.service.impl.NewsSourceHealthService.class))
             .withBean(NewsEnrichService.class, () -> mock(NewsEnrichService.class))
+            // #187：NewsFetchJob 轮末事件重归组（持久身份/独立源投票/热度一体编排）
+            .withBean(com.nageoffer.ai.ragent.news.heat.NewsEventService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.heat.NewsEventService.class))
             .withBean(NewsHeatService.class, () -> mock(NewsHeatService.class))
             .withBean(org.springframework.jdbc.core.JdbcTemplate.class,
                     () -> mock(org.springframework.jdbc.core.JdbcTemplate.class))

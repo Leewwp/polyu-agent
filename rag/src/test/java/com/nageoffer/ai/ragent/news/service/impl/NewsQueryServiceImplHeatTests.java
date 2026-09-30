@@ -90,9 +90,11 @@ class NewsQueryServiceImplHeatTests {
     }
 
     private NewsStoryItem item(long id, long sourceId, long ageHours, int heat) {
+        // #187 词面合同形状：有效摘要+同锚定日（10月10日）——同簇双源可合并
         return new NewsStoryItem(id, "理大团队破解钙钛矿太阳能电池稳定性难题",
                 "PolyU team cracks perovskite solar cell stability problem", "research", sourceId,
-                new Date(NOW.getTime() - ageHours * HOUR), Set.of(9L), heat);
+                new Date(NOW.getTime() - ageHours * HOUR), Set.of(9L), heat,
+                "理大团队于10月10日公布钙钛矿太阳能电池稳定性突破成果。", null);
     }
 
     private NewsSourceDO source(long id, String key, String nameZh) {
@@ -105,7 +107,8 @@ class NewsQueryServiceImplHeatTests {
         NewsStoryItem rep = item(1, 11L, 1, 7);
         NewsStoryItem twin = item(2, 22L, 2, 7);
         NewsStoryItem solo = new NewsStoryItem(3L, "理大秋季招聘会开放报名", "Autumn career fair opens",
-                "career", 33L, new Date(NOW.getTime() - 2 * HOUR), Set.of(12L), 5);
+                "career", 33L, new Date(NOW.getTime() - 2 * HOUR), Set.of(12L), 5,
+                "秋季招聘会将于11月20日开放报名，欢迎应届毕业生参与。", null);
         Map<Long, NewsSourceDO> sources = Map.of(
                 11L, source(11L, "official-media-release", "官网 · 媒体发布"),
                 22L, source(22L, "prn", "PR Newswire"),
@@ -180,7 +183,8 @@ class NewsQueryServiceImplHeatTests {
         when(assembler.loadVisible(any(), any())).thenReturn(new NewsStoryAssembler.NewsStoryWindow(
                 List.of(twinA, twinB,
                         new NewsStoryItem(3L, "solo title", null, "career", 33L,
-                                new Date(NOW.getTime() - 2 * HOUR), Set.of(), 5)),
+                                new Date(NOW.getTime() - 2 * HOUR), Set.of(), 5,
+                                "秋季招聘会将于11月20日开放报名。", null)),
                 Map.of()));
 
         NewsPageVO page = service.listPublished(null, 1, 20);
