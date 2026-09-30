@@ -78,6 +78,18 @@ class NewsEventsJsonParserTests {
         assertThrows(NewsFetchException.class, () -> NewsEventsJsonParser.parse("{\"foo\":1}".getBytes()));
     }
 
+    // ---------- #186：允许空变体——缺 events 数组/坏 JSON 不因宽和豁免 ----------
+
+    @Test
+    void missingEventsArrayFailsEvenWhenNotFailClosed() {
+        assertThrows(NewsFetchStructureException.class,
+                () -> NewsEventsJsonParser.parse("{\"foo\":1}".getBytes(), false),
+                "缺 events 数组=结构失配，allow-empty 源也不冒充有效空");
+        assertThrows(NewsFetchStructureException.class,
+                () -> NewsEventsJsonParser.parse("{broken".getBytes(), false),
+                "坏 JSON 同理");
+    }
+
     static final class DateFrom {
 
         static java.util.Date instant(String iso) {

@@ -45,7 +45,7 @@ public final class NewsEventsJsonParser {
     /**
      * 解析 events API 响应（fail-closed 口径）
      *
-     * @throws NewsFetchException JSON 不合法或 events 零条目（防结构改版静默空结果）
+     * @throws NewsFetchStructureException JSON 不合法或 events 零条目（防结构改版静默空结果；#186）
      */
     public static List<EventEntry> parse(byte[] json) {
         return parse(json, true);
@@ -53,18 +53,22 @@ public final class NewsEventsJsonParser {
 
     /**
      * 宽和变体：历史回溯月份零活动属正常（当月无活动日历数据），由调用方以
-     * {@code failClosed=false} 静默收空列表；当前/下月仍应走 fail-closed 重载
+     * {@code failClosed=false} 静默收空列表；当前/下月仍应走 fail-closed 重载。
+     * #186：源级 allow-empty 配置经调用方传 {@code failClosed=false} 覆盖当前/下月
+     * （允许空源的「有效空」是健康结果）；JSON 不合法不因宽和豁免
+     *
+     * @throws NewsFetchStructureException JSON 不合法或缺 events 数组；或零条目且 failClosed
      */
     public static List<EventEntry> parse(byte[] json, boolean failClosed) {
         JsonNode root;
         try {
             root = OBJECT_MAPPER.readTree(new String(json, java.nio.charset.StandardCharsets.UTF_8));
         } catch (Exception e) {
-            throw new NewsFetchException("events JSON 解析失败: " + e.getMessage(), false, e);
+            throw new NewsFetchStructureException("events JSON 解析失败: " + e.getMessage(), e);
         }
         JsonNode events = root.path("events");
         if (!events.isArray()) {
-            throw new NewsFetchException("events JSON 缺少 events 数组（结构改版嫌疑，fail-closed）", false);
+            throw new NewsFetchStructureException("events JSON 缺少 events 数组（结构改版嫌疑，fail-closed）");
         }
         List<EventEntry> parsed = new ArrayList<>();
         for (JsonNode event : events) {
@@ -81,7 +85,7 @@ public final class NewsEventsJsonParser {
                     event.path("type").asText(null)));
         }
         if (failClosed && parsed.isEmpty()) {
-            throw new NewsFetchException("events 解析零条目（无链接条目全跳过或结构改版，fail-closed）", false);
+            throw new NewsFetchStructureException("events 解析零条目（无链接条目全跳过或结构改版，fail-closed）");
         }
         return parsed;
     }

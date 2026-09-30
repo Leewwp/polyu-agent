@@ -91,6 +91,21 @@ class NewsSitemapParserTests {
         assertThrows(NewsFetchException.class, () -> NewsSitemapParser.parse(empty.getBytes()));
     }
 
+    // ---------- #186：允许空变体（allow-empty 源的「有效空」是健康结果） ----------
+
+    @Test
+    void emptyUrlsetReturnsEmptyListWhenAllowEmptyWhileGarbageStillFails() {
+        String empty = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>
+                """;
+        assertTrue(NewsSitemapParser.parse(empty.getBytes(), false).isEmpty(),
+                "allow-empty 源零条目=空列表（调用方归 VALID_EMPTY，源健康）");
+        assertThrows(NewsFetchStructureException.class,
+                () -> NewsSitemapParser.parse("not xml".getBytes(), false),
+                "XML 不合法不因 allow-empty 冒充有效空");
+    }
+
     /**
      * 毫秒精度 Date 断言辅助
      */

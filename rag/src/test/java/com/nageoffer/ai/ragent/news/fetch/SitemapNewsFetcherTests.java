@@ -45,7 +45,7 @@ class SitemapNewsFetcherTests {
     @BeforeEach
     void setUp() throws Exception {
         fetchClient = mock(NewsHttpFetchClient.class);
-        fetcher = new SitemapNewsFetcher(fetchClient);
+        fetcher = new SitemapNewsFetcher(fetchClient, new NewsFetchProperties());
         source = NewsSourceDO.builder()
                 .id(1L).sourceKey("news-sitemap").platform("official")
                 .fetchEndpoint("https://www.polyu.edu.hk/news-sitemap.xml")

@@ -18,15 +18,17 @@
 package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
-import com.nageoffer.ai.ragent.news.fetch.NewsFetchException;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchDeferredException;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchOutcome;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchPolicyException;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchStructureException;
 import com.nageoffer.ai.ragent.news.fetch.NewsSourceFetcher;
 import com.nageoffer.ai.ragent.news.fetch.RawNewsItem;
 import lombok.extern.slf4j.Slf4j;
@@ -49,11 +51,12 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * 抓取编排服务（#185 改两阶段：逐源取候选 → 全局公平准入）
+ * 抓取编排服务（#185 改两阶段：逐源取候选 → 全局公平准入；#186 源治理改造）
  *
- * <p>阶段一 {@link #fetchCandidates(NewsSourceDO)}：策略分派 → 抓取解析 →
- * 内存 url_hash 去重。失败滞回沿用既有范式：成功（哪怕 0 条）清零
- * consecutive_failures；失败 +1，≥3 自动置 enabled=false（人工复归）。
+ * <p>阶段一 {@link #fetch(NewsSourceDO)}：策略分派 → 抓取解析 → 内存 url_hash 去重 →
+ * <b>六类结果分类学</b>（{@link NewsFetchOutcome}：有效有内容/有效空或无新增/结构失配/
+ * 网络失败/策略禁止/defer）。本方法<b>不写库不抛抓取异常</b>——失败滞回、停用原因三分、
+ * 探活记账归 {@link NewsSourceHealthService}（defer 零计数豁免在那里落地）。
  *
  * <p>阶段二 {@link #admitAll(List)}：对整轮所有源的候选做一次全局准入——
  * <ul>
@@ -71,21 +74,19 @@ import java.util.stream.Collectors;
  * 全站余量耗尽或所有源取空——大源（如 arXiv 20 条/日）不能饿死校园源；
  * 未准入候选不落库，下轮重发现（更旧后自然转归档路径）。</li>
  * </ul>
+ * <b>复归入统一门（#186）</b>：探活复归只置 enabled=true——探活轮抓到的候选即弃、
+ * 不入库；复归源的新内容只经下一常规轮的 admitAll（#185 全站/单源日准入）与
+ * 富化预算（#184）进入管线，无任何绕门路径。
  *
  * <p>{@link #expireOverduePending()}：待富化 TTL（默认 48h，从 fetch_time 首次
  * 发现起算）届满的 pending 条目转 expired 终态，退出付费待办；同 URL 重现因
  * url_hash 唯一键天然不重建待办。
  *
- * <p>LLM 摘要/分类/topics 与热度模型归补全与热度模块，本类不碰；源健康面板归 #186。
+ * <p>LLM 摘要/分类/topics 与热度模型归补全与热度模块，本类不碰。
  */
 @Slf4j
 @Service
 public class NewsFetchService {
-
-    /**
-     * 滞回阈值：连续失败 ≥3 自动禁源
-     */
-    static final int FAILURE_THRESHOLD = 3;
 
     /**
      * 资讯管线统一时区（HKT +08:00，「今天」切日=HKT 00:00，沿 NewsFetchJob/NewsLlmBudgetService 先例）
@@ -128,6 +129,25 @@ public class NewsFetchService {
     }
 
     /**
+     * 阶段一结果：六类分类学 + 去重后候选（仅有效结果两类携带非空 items）
+     *
+     * @param source 源行
+     * @param items  去重后候选（VALID_WITH_CONTENT 非空；其余为空列表）
+     * @param outcome 六类结果（{@link NewsFetchOutcome}）
+     * @param detail 判定依据摘要（日志/事件表留痕）
+     */
+    public record SourceFetchResult(NewsSourceDO source, List<RawNewsItem> items,
+                                    NewsFetchOutcome outcome, String detail) {
+
+        /**
+         * 是否有效完整成功（第 1/2 类）——候选可进入阶段二准入
+         */
+        public boolean isValid() {
+            return outcome.isValidSuccess();
+        }
+    }
+
+    /**
      * 整轮准入结果（日志与验收口径计数）
      *
      * @param admitted        新准入 pending 条数（计入全站/单源日上限）
@@ -141,14 +161,27 @@ public class NewsFetchService {
     }
 
     /**
-     * 阶段一：抓取单源并返回候选（不入库）。失败抛出并计入滞回（调用方 runSafely 隔离）。
+     * 阶段一：抓取单源并按六类分类学归类（#186）。不写库、不抛抓取异常（探活与常规轮
+     * 共用同一条纪律路径：robots 校验/共享 host 节拍/瞬时重试都在 NewsHttpFetchClient 单点）。
+     *
+     * <p>分类规则（单点，详见 {@link NewsFetchOutcome}）：
+     * <ul>
+     * <li>解析产出 ≥1 条（去重后）→ VALID_WITH_CONTENT；</li>
+     * <li>零条目且源在 allow-empty 配置 → VALID_EMPTY；零条目未配置 → STRUCTURE_MISMATCH
+     *     （解析器层对 RSS/SITEMAP/EVENTS/HTML_LIST 已有 fail-closed 抛出，这里是
+     *     「策略器过滤后归零」（如 GNews 条目全无原文链接）的兜底分类）；</li>
+     * <li>NewsFetchDeferredException → DEFER（礼貌等待——零计数豁免在健康服务落地）；</li>
+     * <li>NewsFetchPolicyException → POLICY_FORBIDDEN（robots/出站守卫拒绝）；</li>
+     * <li>NewsFetchStructureException → STRUCTURE_MISMATCH；</li>
+     * <li>其余异常（HTTP/IO/未知运行时故障）→ NETWORK_FAILURE。</li>
+     * </ul>
      */
-    public SourceCandidates fetchCandidates(NewsSourceDO source) {
+    public SourceFetchResult fetch(NewsSourceDO source) {
         try {
             NewsSourceFetcher fetcher = fetchersByStrategy.get(source.getFetchStrategy());
             if (fetcher == null) {
-                // 配置错误也计滞回：3 轮后自动禁源，防止坏配置每轮空转
-                throw new NewsFetchException("未知 fetch_strategy: " + source.getFetchStrategy(), false);
+                // 配置错误也计滞回（结构失配类）：3 轮后自动禁源，防止坏配置每轮空转
+                throw new NewsFetchStructureException("未知 fetch_strategy: " + source.getFetchStrategy());
             }
             List<RawNewsItem> items = fetcher.fetch(source);
             // 同源同轮内 url_hash 去重（首条优先）；跨源/库内判定归 admitAll
@@ -156,14 +189,31 @@ public class NewsFetchService {
             for (RawNewsItem item : items) {
                 deduped.putIfAbsent(item.urlHash(), item);
             }
-            resetFailures(source);
-            log.info("[news] 源 {} 抓取成功：解析 {} 条，去重后候选 {} 条",
-                    source.getSourceKey(), items.size(), deduped.size());
-            return new SourceCandidates(source, new ArrayList<>(deduped.values()));
+            List<RawNewsItem> candidates = new ArrayList<>(deduped.values());
+            if (!candidates.isEmpty()) {
+                log.info("[news] 源 {} 抓取成功：解析 {} 条，去重后候选 {} 条",
+                        source.getSourceKey(), items.size(), candidates.size());
+                return new SourceFetchResult(source, candidates, NewsFetchOutcome.VALID_WITH_CONTENT,
+                        "解析 " + items.size() + " 条，去重后 " + candidates.size() + " 条");
+            }
+            if (properties.isAllowEmptySource(source.getSourceKey())) {
+                log.info("[news] 源 {} 抓取成功（有效空）：解析零条目，allow-empty 源按健康处理",
+                        source.getSourceKey());
+                return new SourceFetchResult(source, List.of(), NewsFetchOutcome.VALID_EMPTY,
+                        "解析有效但零条目（allow-empty 源）");
+            }
+            log.warn("[news] 源 {} 解析零条目（fail-closed：未配置 allow-empty，模板改版嫌疑）",
+                    source.getSourceKey());
+            return new SourceFetchResult(source, List.of(), NewsFetchOutcome.STRUCTURE_MISMATCH,
+                    "解析零条目（未配置 allow-empty，fail-closed）");
+        } catch (NewsFetchDeferredException e) {
+            return new SourceFetchResult(source, List.of(), NewsFetchOutcome.DEFER, e.getMessage());
+        } catch (NewsFetchPolicyException e) {
+            return new SourceFetchResult(source, List.of(), NewsFetchOutcome.POLICY_FORBIDDEN, e.getMessage());
+        } catch (NewsFetchStructureException e) {
+            return new SourceFetchResult(source, List.of(), NewsFetchOutcome.STRUCTURE_MISMATCH, e.getMessage());
         } catch (Exception e) {
-            recordFailure(source, e);
-            throw e instanceof NewsFetchException newsFetchException ? newsFetchException
-                    : new NewsFetchException("抓取编排失败: " + e.getMessage(), false, e);
+            return new SourceFetchResult(source, List.of(), NewsFetchOutcome.NETWORK_FAILURE, e.getMessage());
         }
     }
 
@@ -372,42 +422,5 @@ public class NewsFetchService {
             }
         }
         return counts;
-    }
-
-    /**
-     * 成功清零滞回计数（仅非零时写库，减少无效更新）
-     */
-    private void resetFailures(NewsSourceDO source) {
-        if (source.getConsecutiveFailures() != null && source.getConsecutiveFailures() == 0) {
-            return;
-        }
-        sourceMapper.update(null, Wrappers.lambdaUpdate(NewsSourceDO.class)
-                .eq(NewsSourceDO::getId, source.getId())
-                .set(NewsSourceDO::getConsecutiveFailures, 0)
-                .set(NewsSourceDO::getUpdateTime, nowSupplier.get()));
-    }
-
-    /**
-     * 失败滞回 +1；连续 ≥3 自动禁源（禁用是防持续打爆坏端点，复归=人工）
-     */
-    void recordFailure(NewsSourceDO source, Exception cause) {
-        int failures = (source.getConsecutiveFailures() == null ? 0 : source.getConsecutiveFailures()) + 1;
-        boolean disable = failures >= FAILURE_THRESHOLD;
-        LambdaUpdateWrapper<NewsSourceDO> update = Wrappers.lambdaUpdate(NewsSourceDO.class)
-                .eq(NewsSourceDO::getId, source.getId())
-                .set(NewsSourceDO::getConsecutiveFailures, failures)
-                .set(NewsSourceDO::getUpdateTime, nowSupplier.get());
-        if (disable) {
-            update.set(NewsSourceDO::getEnabled, false);
-        }
-        sourceMapper.update(null, update);
-        source.setConsecutiveFailures(failures);
-        if (disable) {
-            source.setEnabled(false);
-            log.error("[news] 源 {} 连续 {} 次失败，自动禁用（复归=人工置 enabled=true）：{}",
-                    source.getSourceKey(), failures, cause.getMessage());
-        } else {
-            log.warn("[news] 源 {} 抓取失败（连续 {} 次）：{}", source.getSourceKey(), failures, cause.getMessage());
-        }
     }
 }

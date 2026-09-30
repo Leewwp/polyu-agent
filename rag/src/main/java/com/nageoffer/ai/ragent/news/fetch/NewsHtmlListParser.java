@@ -84,7 +84,7 @@ public final class NewsHtmlListParser {
     /**
      * 解析列表页 HTML，产出条目（link 已绝对化）；零条目即抛（首页 fail-closed 口径）
      *
-     * @throws NewsFetchException 零条目（模板改版嫌疑，fail-closed）
+     * @throws NewsFetchStructureException 零条目（模板改版嫌疑，fail-closed；#186）
      */
     public static List<ListEntry> parse(byte[] html, String baseUri) {
         return parse(html, baseUri, true);
@@ -107,7 +107,7 @@ public final class NewsHtmlListParser {
         }
         entries.addAll(parseRecentFocusFamily(document));
         if (failClosed && entries.isEmpty()) {
-            throw new NewsFetchException("HTML 列表页解析零条目（模板改版嫌疑，fail-closed）", false);
+            throw new NewsFetchStructureException("HTML 列表页解析零条目（模板改版嫌疑，fail-closed）");
         }
         return entries;
     }

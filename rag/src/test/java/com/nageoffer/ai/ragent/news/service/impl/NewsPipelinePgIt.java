@@ -26,9 +26,11 @@ import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceHealthEventDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceHealthEventMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
@@ -99,6 +101,18 @@ class NewsPipelinePgIt {
             statement.execute(
                     "CREATE INDEX IF NOT EXISTS idx_news_item_pending_ttl ON t_news_item(fetch_time) WHERE status = 'pending'");
             statement.execute("CREATE INDEX IF NOT EXISTS idx_news_item_fetch_day ON t_news_item(fetch_time)");
+            // 与 260930_news_source_governance.sql 同构（幂等自愈；#186 源治理列+事件表）
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS disabled_reason VARCHAR(16)");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS isolated_time TIMESTAMP");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS recovered_time TIMESTAMP");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS probe_successes INT");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS probe_time TIMESTAMP");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS last_outcome VARCHAR(32)");
+            statement.execute("ALTER TABLE t_news_source ADD COLUMN IF NOT EXISTS last_outcome_time TIMESTAMP");
+            statement.execute("CREATE TABLE IF NOT EXISTS t_news_source_health_event ("
+                    + "id BIGSERIAL PRIMARY KEY, source_id BIGINT NOT NULL REFERENCES t_news_source(id), "
+                    + "event_type VARCHAR(32) NOT NULL, outcome VARCHAR(32), detail VARCHAR(512), "
+                    + "event_time TIMESTAMP NOT NULL, create_time TIMESTAMP NOT NULL DEFAULT now())");
         }
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setEnvironment(new Environment("pipeline-it", new JdbcTransactionFactory(), dataSource));
@@ -112,10 +126,12 @@ class NewsPipelinePgIt {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(configuration, "");
         TableInfoHelper.initTableInfo(assistant, NewsItemDO.class);
         TableInfoHelper.initTableInfo(assistant, NewsItemTopicDO.class);
+        TableInfoHelper.initTableInfo(assistant, NewsSourceHealthEventDO.class);
         configuration.addMapper(NewsItemMapper.class);
         configuration.addMapper(NewsItemTopicMapper.class);
         configuration.addMapper(com.nageoffer.ai.ragent.news.dao.mapper.NewsLlmReceiptMapper.class);
         configuration.addMapper(NewsSourceMapper.class);
+        configuration.addMapper(NewsSourceHealthEventMapper.class);
         configuration.addMapper(NewsTopicMapper.class);
         sqlSessionFactory = new MybatisSqlSessionFactoryBuilder().build(configuration);
     }
@@ -264,6 +280,8 @@ class NewsPipelinePgIt {
             // ── admin 六口径聚合（PG FILTER/DISTINCT 语法真库实证）──
             NewsAdminServiceImpl admin = new NewsAdminServiceImpl(itemMapper,
                     session.getMapper(com.nageoffer.ai.ragent.news.dao.mapper.NewsLlmReceiptMapper.class),
+                    sourceMapper,
+                    session.getMapper(com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceHealthEventMapper.class),
                     properties);
             com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO status =
                     admin.pipelineStatus(LocalDate.now());

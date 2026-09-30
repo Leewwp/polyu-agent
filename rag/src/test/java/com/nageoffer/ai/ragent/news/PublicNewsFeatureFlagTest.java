@@ -53,6 +53,9 @@ class PublicNewsFeatureFlagTest {
             .withBean(com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper.class,
                     () -> mock(com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper.class))
             .withBean(NewsFetchService.class, () -> mock(NewsFetchService.class))
+            // #186：NewsFetchJob 增补源健康服务依赖（defer 豁免/滞回/探活记账归其单点）
+            .withBean(com.nageoffer.ai.ragent.news.service.impl.NewsSourceHealthService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.service.impl.NewsSourceHealthService.class))
             .withBean(NewsEnrichService.class, () -> mock(NewsEnrichService.class))
             .withBean(NewsHeatService.class, () -> mock(NewsHeatService.class))
             .withBean(org.springframework.jdbc.core.JdbcTemplate.class,

@@ -89,6 +89,11 @@ public class NewsHttpFetchClient {
     private static final RobotsRules ROBOTS_UNRESOLVED = RobotsRules.allowAll();
 
     /**
+     * robots 缓存兜底 TTL（24h，#186）：测试旧构造器未显式注入时使用
+     */
+    private static final long DEFAULT_ROBOTS_TTL_MILLIS = 86400_000L;
+
+    /**
      * 正文缺省上限（生产 FetchLimits 同键 50MB；测试五参构造器沿用）
      */
     private static final long DEFAULT_MAX_BODY_BYTES = 50L * 1024 * 1024;
@@ -100,8 +105,16 @@ public class NewsHttpFetchClient {
     private final String userAgent;
     private final Sleeper sleeper;
     private final MonotonicClock clock;
+    private final long robotsTtlMillis;
 
-    private final Map<String, RobotsRules> robotsCache = new ConcurrentHashMap<>();
+    /**
+     * robots 规则缓存条目（#186 加 TTL：进程内缓存此前永不过期，robots 规则变更
+     * ——含 Disallow 解除——进程生命周期内不可见；到期后下一次请求重拉）
+     */
+    private record CachedRobots(RobotsRules rules, long fetchedAtMillis) {
+    }
+
+    private final Map<String, CachedRobots> robotsCache = new ConcurrentHashMap<>();
     private final Map<String, Long> lastRequestAtMillis = new ConcurrentHashMap<>();
 
     /**
@@ -113,21 +126,24 @@ public class NewsHttpFetchClient {
     /**
      * Spring 装配构造器。注入守卫式客户端（guardedHttpClient bean，GuardedDns 连接级
      * 复校，#101/#125）：fetchOnce 与 robots.txt 拉取共用同一 client；正文读入带上限
-     * （issue #125：资讯条目外部内容按不可信内容对待，超限拒绝不整读进堆）
+     * （issue #125：资讯条目外部内容按不可信内容对待，超限拒绝不整读进堆）。
+     * robots 缓存 TTL 取 {@link NewsFetchProperties#effectiveRobotsCacheTtlMillis()}
      */
     @org.springframework.beans.factory.annotation.Autowired
     public NewsHttpFetchClient(@Qualifier("guardedHttpClient") OkHttpClient httpClient,
                                RedirectGuard redirectGuard,
                                IngestionUrlGuard urlGuard,
                                FetchLimits fetchLimits,
+                               NewsFetchProperties newsFetchProperties,
                                @Value("${rag.news.ua:polyuguide-feed/1.0}") String userAgent) {
         this(httpClient, redirectGuard, urlGuard, fetchLimits.maxFetchBytes(), userAgent,
+                newsFetchProperties.effectiveRobotsCacheTtlMillis(),
                 millis -> Thread.sleep(millis), () -> System.nanoTime() / 1_000_000L);
     }
 
     /**
-     * 既有五参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB。
-     * 需要严格档守卫的测试用七参构造器显式注入
+     * 既有五参构造器（测试兼容，守卫=本地/开发档 escape hatch 全开）：正文上限取生产默认 50MB、
+     * robots TTL 取默认 24h。需要严格档守卫的测试用七参构造器显式注入
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
@@ -135,11 +151,11 @@ public class NewsHttpFetchClient {
                         Sleeper sleeper,
                         MonotonicClock clock) {
         this(httpClient, redirectGuard, new IngestionUrlGuard(true), DEFAULT_MAX_BODY_BYTES,
-                userAgent, sleeper, clock);
+                userAgent, DEFAULT_ROBOTS_TTL_MILLIS, sleeper, clock);
     }
 
     /**
-     * 全参构造器（测试注入守卫、上限与假 sleeper/时钟）
+     * 七参构造器（既有测试兼容）：robots TTL 取默认 24h
      */
     NewsHttpFetchClient(OkHttpClient httpClient,
                         RedirectGuard redirectGuard,
@@ -148,11 +164,27 @@ public class NewsHttpFetchClient {
                         String userAgent,
                         Sleeper sleeper,
                         MonotonicClock clock) {
+        this(httpClient, redirectGuard, urlGuard, maxBodyBytes, userAgent,
+                DEFAULT_ROBOTS_TTL_MILLIS, sleeper, clock);
+    }
+
+    /**
+     * 全参构造器（测试注入守卫、上限、robots TTL 与假 sleeper/时钟）
+     */
+    NewsHttpFetchClient(OkHttpClient httpClient,
+                        RedirectGuard redirectGuard,
+                        IngestionUrlGuard urlGuard,
+                        long maxBodyBytes,
+                        String userAgent,
+                        long robotsTtlMillis,
+                        Sleeper sleeper,
+                        MonotonicClock clock) {
         this.httpClient = httpClient;
         this.redirectGuard = redirectGuard;
         this.urlGuard = urlGuard;
         this.maxBodyBytes = maxBodyBytes;
         this.userAgent = userAgent;
+        this.robotsTtlMillis = robotsTtlMillis;
         this.sleeper = sleeper;
         this.clock = clock;
     }
@@ -160,13 +192,14 @@ public class NewsHttpFetchClient {
     /**
      * 纪律化 GET：初始 URL 守卫（#153，建请求前）→ robots 校验 → 节拍 → 抓取（瞬时重试
      * 1 次）→ 响应体字节。条目 URL 由 feed 内容控制（不可信）：内网/元数据/字面量变体
-     * 在任何出站请求（含 robots.txt 拉取）之前拒绝，按永久错误计入条目级失败
+     * 在任何出站请求（含 robots.txt 拉取）之前拒绝——守卫拒绝按<b>策略禁止</b>
+     * （{@link NewsFetchPolicyException}）计入条目级失败，robots Disallow 同理（#186）
      */
     public byte[] get(String url) {
         try {
             urlGuard.validateOutboundTarget(url);
         } catch (ClientException e) {
-            throw new NewsFetchException("出站目标被拒: " + e.getMessage(), false, e);
+            throw new NewsFetchPolicyException("出站目标被拒: " + e.getMessage(), e);
         }
         String hostKey = NewsUrlNormalizer.hostKey(url);
         RobotsRules rules = robotsFor(url, hostKey);
@@ -176,7 +209,7 @@ public class NewsHttpFetchClient {
 
         String pathAndQuery = NewsUrlNormalizer.pathAndQuery(url);
         if (rules.disallows(pathAndQuery)) {
-            throw new NewsFetchException("robots.txt Disallow: " + pathAndQuery, false);
+            throw new NewsFetchPolicyException("robots.txt Disallow: " + pathAndQuery);
         }
 
         acquirePace(hostKey, intervalSeconds);
@@ -242,16 +275,17 @@ public class NewsHttpFetchClient {
     }
 
     /**
-     * robots 规则（缓存；robots 请求本身也计入该 host 节拍）
+     * robots 规则（缓存，#186 加 TTL；robots 请求本身也计入该 host 节拍）：缓存命中且
+     * 未过期直接复用；到期/未缓存则拉取并重写缓存（含失败占位也重记时——TTL 后再试）
      */
     private RobotsRules robotsFor(String url, String hostKey) {
-        RobotsRules cached = robotsCache.get(hostKey);
-        if (cached != null) {
-            return cached;
+        CachedRobots cached = robotsCache.get(hostKey);
+        if (cached != null && clock.nowMillis() - cached.fetchedAtMillis() < robotsTtlMillis) {
+            return cached.rules();
         }
         pace(hostKey, MIN_INTERVAL_SECONDS);
         RobotsRules resolved = fetchRobots(NewsUrlNormalizer.robotsUrl(url));
-        robotsCache.put(hostKey, resolved);
+        robotsCache.put(hostKey, new CachedRobots(resolved, clock.nowMillis()));
         return resolved;
     }
 

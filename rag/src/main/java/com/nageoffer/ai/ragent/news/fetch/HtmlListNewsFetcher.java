@@ -37,7 +37,7 @@ import java.util.Map;
  * <p>翻页：默认仅拉 fetch_endpoint 一页（首页，现行口径）；页深 &gt;1 时按
  * {@code page=N} 逐页翻取（端点无页参时追加），用于历史回灌。停止条件：页解析
  * 零条目（末页/官网错误页）或该页零有效条目；首页零条目仍 fail-closed（模板
- * 改版嫌疑）。跨页按 url_hash 去重。
+ * 改版嫌疑；allow-empty 源除外，#186）。跨页按 url_hash 去重。
  */
 @Component
 @RequiredArgsConstructor
@@ -61,7 +61,8 @@ public class HtmlListNewsFetcher implements NewsSourceFetcher {
             String pageEndpoint = pageUrl(endpoint, page);
             List<NewsHtmlListParser.ListEntry> entries;
             try {
-                entries = NewsHtmlListParser.parse(fetchClient.get(pageEndpoint), pageEndpoint, page > 1);
+                entries = NewsHtmlListParser.parse(fetchClient.get(pageEndpoint), pageEndpoint,
+                        page == 1 && !properties.isAllowEmptySource(source.getSourceKey()));
             } catch (NewsFetchException e) {
                 if (page == 1) {
                     throw e;
@@ -91,10 +92,11 @@ public class HtmlListNewsFetcher implements NewsSourceFetcher {
                 break;
             }
         }
-        if (firstPageAccepted == 0) {
-            throw new NewsFetchException("HTML_LIST 条目全部缺日期（模板改版嫌疑，fail-closed）: "
-                    + source.getSourceKey(), false);
+        if (firstPageAccepted == 0 && !properties.isAllowEmptySource(source.getSourceKey())) {
+            throw new NewsFetchStructureException("HTML_LIST 条目全部缺日期（模板改版嫌疑，fail-closed）: "
+                    + source.getSourceKey());
         }
+        // allow-empty 源（#186）：首页零条目=有效空（VALID_EMPTY，健康）——返回已收集条目（可能为空）
         return new ArrayList<>(byHash.values());
     }
 

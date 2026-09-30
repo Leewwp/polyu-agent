@@ -126,6 +126,62 @@ public class NewsFetchProperties {
      */
     private int publishGateSeconds = 180;
 
+    // ================== 源治理：成功分类学/允许空/停用原因/探活（#186，父票 #181 §2） ==================
+
+    /**
+     * 允许零条目为健康结果的源（sourceKey 集，#186）：解析结构有效但零条目 →
+     * VALID_EMPTY（有效空或无新增，源健康、探活可复归）；未列入的源零条目仍
+     * fail-closed → STRUCTURE_MISMATCH。逐源外置=同一策略下不同源的空态语义
+     * 由运营口径决定（如新频道空 feed 属正常，官网列表空页=模板改版嫌疑）
+     */
+    private java.util.Set<String> allowEmptySources = new java.util.LinkedHashSet<>();
+
+    /**
+     * 自动隔离源探活：复归所需连续有效完整成功次数（#186 票面=两次；非正回退 2）
+     */
+    private int probeRequiredSuccesses = 2;
+
+    /**
+     * 探活成功连续窗口（小时，#186 票面 ≤48h）：相邻两次有效完整成功间隔超过
+     * 本值视为不连续（streak 重起）；非正回退 48
+     */
+    private int probeSuccessWindowHours = 48;
+
+    /**
+     * robots.txt 进程内缓存 TTL（秒，#186 修「缓存永不过期」）：过期后对同 host 的
+     * 下一次请求重拉 robots（自身仍走 host 节拍）——robots 规则变更（含 Disallow
+     * 解除）可在 TTL 内被观测到；非正回退 86400（24h）
+     */
+    private long robotsCacheTtlSeconds = 86400L;
+
+    /**
+     * 源是否允许零条目为健康结果（allow-empty 判定）
+     */
+    public boolean isAllowEmptySource(String sourceKey) {
+        return sourceKey != null && allowEmptySources.contains(sourceKey);
+    }
+
+    /**
+     * 探活复归所需连续成功次数有效值（非正回退 2）
+     */
+    public int effectiveProbeRequiredSuccesses() {
+        return probeRequiredSuccesses > 0 ? probeRequiredSuccesses : 2;
+    }
+
+    /**
+     * 探活成功连续窗口有效值（小时，非正回退 48）
+     */
+    public int effectiveProbeSuccessWindowHours() {
+        return probeSuccessWindowHours > 0 ? probeSuccessWindowHours : 48;
+    }
+
+    /**
+     * robots 缓存 TTL 有效值（毫秒，非正回退 24h）
+     */
+    public long effectiveRobotsCacheTtlMillis() {
+        return robotsCacheTtlSeconds > 0 ? robotsCacheTtlSeconds * 1000L : 86400_000L;
+    }
+
     // ================== LLM 摘要预算护栏（#184，父票 #181 §1 合同） ==================
 
     /**

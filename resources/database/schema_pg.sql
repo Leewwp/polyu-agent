@@ -1127,6 +1127,11 @@ COMMENT ON COLUMN t_share_snapshot.payload IS '粒度侧不透明载荷 JSON（m
 -- 90 天保留清理由 NewsRetentionJob 负责（不进通用 DataRetentionProperties）；
 -- 种子数据（信源 7 行+主题 20 行）见 init_data_pg.sql
 -- ============================================================
+-- 源治理列（2026-09-30，#186——父票 #181 §2）：停用原因三分 disabled_reason
+-- （manual 人工停用/auto 自动隔离/policy 策略禁止，NULL=启用中）+ 探活记账
+-- （probe_successes/probe_time，日级节拍）+ 最近六类结果（last_outcome）+
+-- 停止/复归时刻；事件流水见下方 t_news_source_health_event。增量环境走
+-- upgrades/v2.0.0/260930_news_source_governance.sql（含存量禁用行判据迁移）
 CREATE TABLE t_news_source (
   id             BIGSERIAL PRIMARY KEY,
   source_key     VARCHAR(64)  NOT NULL UNIQUE,
@@ -1139,16 +1144,52 @@ CREATE TABLE t_news_source (
   official       BOOLEAN      NOT NULL DEFAULT TRUE,
   enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
   consecutive_failures INT    NOT NULL DEFAULT 0,
+  disabled_reason VARCHAR(16),                   -- manual/auto/policy；NULL=启用中（#186 三分）
+  isolated_time  TIMESTAMP,                      -- 最近停用时刻（自动隔离/策略转停，#186）
+  recovered_time TIMESTAMP,                      -- 最近探活复归时刻（#186）
+  probe_successes INT,                           -- 探活连续有效完整成功次数（复归阈值 2，#186）
+  probe_time     TIMESTAMP,                      -- 最近探活时刻（HKT 日级节拍，#186）
+  last_outcome   VARCHAR(32),                    -- 最近一轮六类结果代码（#186）
+  last_outcome_time TIMESTAMP,                   -- 最近一轮结果落账时刻（#186）
   create_time    TIMESTAMP    NOT NULL DEFAULT now(),
   update_time    TIMESTAMP    NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_news_source_probe_candidates
+    ON t_news_source(disabled_reason) WHERE enabled = false;
 COMMENT ON TABLE t_news_source IS '资讯信源注册表（V1 只上校级账号；扩源=加行无代码改动）';
 COMMENT ON COLUMN t_news_source.source_key IS '信源稳定标识：news-sitemap / media-releases / youtube-main 等';
 COMMENT ON COLUMN t_news_source.platform IS 'official=官网；youtube/prn=第三方平台（卡片带平台徽章）';
 COMMENT ON COLUMN t_news_source.fetch_endpoint IS '抓取入口；events 型含 date=YYYY/MM 占位，由抓取器按当前月+下月替换';
 COMMENT ON COLUMN t_news_source.fetch_strategy IS 'SITEMAP / HTML_LIST / RSS / JSON_API 四型';
 COMMENT ON COLUMN t_news_source.official IS '是否官网（polyu.edu.hk）来源；false 的卡片带平台徽章';
-COMMENT ON COLUMN t_news_source.consecutive_failures IS '连续抓取失败计数，阈值 3 自动置 enabled=false（失败滞回）';
+COMMENT ON COLUMN t_news_source.enabled IS '源级开关（#186 起与 disabled_reason 联读）：true=启用；false 须看 disabled_reason 三分（manual/auto/policy）';
+COMMENT ON COLUMN t_news_source.consecutive_failures IS '连续抓取失败计数（结构失配/网络失败两类，#186 六类分类学）：阈值 3 自动隔离（enabled=false + disabled_reason=auto）；defer 零计数豁免';
+COMMENT ON COLUMN t_news_source.disabled_reason IS '停用原因三分（#186）：manual=人工停用（不探活不自动解禁）/ auto=自动隔离（连续 3 败滞回，日级探活两次有效完整成功自动复归）/ policy=策略禁止（robots/出站守卫拒绝，不因可达自动解禁）；NULL=启用中';
+COMMENT ON COLUMN t_news_source.isolated_time IS '最近一次停用时刻（#186）：自动隔离或策略转停发生时间；迁移不回填';
+COMMENT ON COLUMN t_news_source.recovered_time IS '最近一次探活自动复归时刻（#186）：连续两次有效完整成功达成';
+COMMENT ON COLUMN t_news_source.probe_successes IS '探活连续有效完整成功次数（#186）：复归阈值默认 2；任一探活失败清零；defer 不变';
+COMMENT ON COLUMN t_news_source.probe_time IS '最近一次探活时刻（#186）：HKT 日级节拍每源每日至多探一次；defer 不推进';
+COMMENT ON COLUMN t_news_source.last_outcome IS '最近一轮单源抓取结果六类代码（#186）：valid_with_content / valid_empty / structure_mismatch / network_failure / policy_forbidden / defer';
+COMMENT ON COLUMN t_news_source.last_outcome_time IS '最近一轮结果落账时刻（#186）';
+
+-- 信源健康事件流水（2026-09-30，#186：停止/复归/探活记录可查，append-only 审计）
+CREATE TABLE t_news_source_health_event (
+  id          BIGSERIAL PRIMARY KEY,
+  source_id   BIGINT      NOT NULL REFERENCES t_news_source(id),
+  event_type  VARCHAR(32) NOT NULL,             -- isolated/policy_disabled/probe_pass/probe_fail/recovered
+  outcome     VARCHAR(32),                      -- 触发事件的单轮六类结果代码（判定依据）
+  detail      VARCHAR(512),                     -- 判定依据摘要（截断 500 字符）
+  event_time  TIMESTAMP   NOT NULL,
+  create_time TIMESTAMP   NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_news_source_health_event_source
+    ON t_news_source_health_event(source_id);
+COMMENT ON TABLE t_news_source_health_event IS '信源健康事件流水（#186，append-only 审计）：isolated=自动隔离 / policy_disabled=策略转停 / probe_pass=探活通过 / probe_fail=探活失败 / recovered=探活复归；人工停用/启用走维护者 SQL 不落本表（以源行 disabled_reason=manual 为准）';
+COMMENT ON COLUMN t_news_source_health_event.source_id IS '关联信源 t_news_source.id（源删除后保留事件行，admin 回退显示 deleted#id）';
+COMMENT ON COLUMN t_news_source_health_event.event_type IS '事件类型：isolated / policy_disabled / probe_pass / probe_fail / recovered';
+COMMENT ON COLUMN t_news_source_health_event.outcome IS '触发事件的单轮六类结果代码（与 t_news_source.last_outcome 同一枚举）';
+COMMENT ON COLUMN t_news_source_health_event.detail IS '判定依据摘要（失败原因文本/成功计数）';
+COMMENT ON COLUMN t_news_source_health_event.event_time IS '事件时刻（业务时钟）';
 
 -- 处理状态五态+发布门列（2026-09-29，#185——父票 #180 §2/§3/§5）：
 -- pending=待富化（已准入，付费队列）；published=发布资格就绪（公开可见还须过

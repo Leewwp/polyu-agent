@@ -48,6 +48,7 @@ import java.util.Map;
 public class SitemapNewsFetcher implements NewsSourceFetcher {
 
     private final NewsHttpFetchClient fetchClient;
+    private final NewsFetchProperties properties;
 
     @Override
     public String supportedStrategy() {
@@ -57,7 +58,9 @@ public class SitemapNewsFetcher implements NewsSourceFetcher {
     @Override
     public List<RawNewsItem> fetch(NewsSourceDO source) {
         byte[] xml = fetchClient.get(source.getFetchEndpoint());
-        List<NewsSitemapParser.SitemapEntry> entries = NewsSitemapParser.parse(xml);
+        // allow-empty 源（#186）：零条目=有效空（VALID_EMPTY，健康）；未配置则 fail-closed
+        List<NewsSitemapParser.SitemapEntry> entries = NewsSitemapParser.parse(xml,
+                !properties.isAllowEmptySource(source.getSourceKey()));
 
         // 语言无关 key → 语言 → 条目（保持 sitemap 出现顺序）
         Map<String, Map<String, NewsSitemapParser.SitemapEntry>> stories = new LinkedHashMap<>();

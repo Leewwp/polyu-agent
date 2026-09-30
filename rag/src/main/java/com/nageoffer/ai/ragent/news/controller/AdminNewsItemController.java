@@ -21,6 +21,8 @@ import com.nageoffer.ai.ragent.framework.convention.Result;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthEventVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthVO;
 import com.nageoffer.ai.ragent.news.service.NewsAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -32,13 +34,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
- * 资讯管理面控制器（单条快速下架+预算护栏状态查询）
+ * 资讯管理面控制器（单条快速下架+预算/管线/源健康验收查询）
  *
  * <p>路径 /admin/** 已在 SaTokenConfig ADMIN_PATH_PATTERNS 清单内（admin 角色拦截
  * + 审计自动覆盖），无需新增白名单行；admin UI 归后续扩展，本控制器仅承载
- * 应急止血最小端点与 #184 预算验收查询端点。
+ * 应急止血最小端点与 #184 预算/#185 管线/#186 源健康验收查询端点。
  */
 @RestController
 @RequestMapping("/admin/news")
@@ -74,5 +77,25 @@ public class AdminNewsItemController {
     public Result<NewsPipelineStatusVO> pipelineStatus(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return Results.success(newsAdminService.pipelineStatus(date));
+    }
+
+    /**
+     * 源健康面板（#186 验收）：停用原因三分（manual=人工停用/auto=自动隔离/
+     * policy=策略禁止）、连续失败、最近六类结果、探活状态（连续成功/最近探活/
+     * 是否探活对象）、停止与复归时刻、allow-empty 命中——t_news_source 现推
+     */
+    @GetMapping("/source-health")
+    public Result<List<NewsSourceHealthVO>> sourceHealth() {
+        return Results.success(newsAdminService.sourceHealth());
+    }
+
+    /**
+     * 信源健康事件流水（#186 验收：停止/复归记录可查）：isolated/policy_disabled/
+     * probe_pass/probe_fail/recovered 倒序；limit 缺省 50（服务端限幅 1..200）
+     */
+    @GetMapping("/source-health/events")
+    public Result<List<NewsSourceHealthEventVO>> sourceHealthEvents(
+            @RequestParam(defaultValue = "50") int limit) {
+        return Results.success(newsAdminService.sourceHealthEvents(limit));
     }
 }
