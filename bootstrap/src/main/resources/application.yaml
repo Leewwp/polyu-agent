@@ -192,9 +192,13 @@ rag:
     content-version: v1       # 答案分享载荷的内容/知识版本标记；粒度侧自持键（issue #124）
 
   calendar:
-    enabled: ${RAG_CALENDAR_ENABLED:false}  # 校历关键日期管线 feature flag（#192）：默认关；关闭时无抓取调度、零库写。
+    enabled: ${RAG_CALENDAR_ENABLED:false}  # 校历关键日期管线 feature flag（#192 摄取+#193 查询/展示同门）：默认关；关闭时无抓取调度、
+                              # 零库写，且 /public/calendar/** 由兜底控制器统一 404（PublicNewsDisabled 孪生范式）。
                               # 生产启停归维护者（先例 RAG_NEWS_ENABLED）；管线零 LLM 零密钥，只读复用 NewsHttpFetchClient 守卫（robots/节拍/URL 守卫）
     sync-cron: "0 30 7 * * *"  # 日级同步（合同§6：每源日级抓取；共享 host 节拍由守卫客户端保证）
+    display:                # 展示面参数（#193 查询侧分类，不写回库；先例 rag.news.* 外置防魔数）
+      archive-after-days: 14  # 过期 N 天自动归档：结束日距今 >N 天进 archived 段（恰 N 天仍 recent，边界含端）
+      archived-cap: 120       # archived 段返回条数上限（跨学年累积防无界载荷；archivedTotal 另给全量计数）
   news:
     enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # 资讯流 feature flag：默认关；关闭时 /public/news/** 由兜底控制器统一 404。
                               # env 覆盖双名兼容：RAG_NEWS_ENABLED（属性逐段映射正名）/ RAGENT_NEWS_ENABLED（生产 gen-prod-env 口径），前者优先
