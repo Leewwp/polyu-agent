@@ -1329,3 +1329,69 @@ COMMENT ON COLUMN t_site_about.content IS '关于页 markdown 内容（作者/�
 COMMENT ON COLUMN t_site_about.content_en IS '关于页英文 markdown（可空）；空时前端英文档回落中文内容';
 COMMENT ON COLUMN t_site_about.qr_image_url IS '赞赏二维码 URL（可空）；与 alt 同时为空时前端赞赏区整区不渲染';
 COMMENT ON COLUMN t_site_about.qr_image_url_alt IS '第二张赞赏二维码 URL（可空）';
+
+-- ===== 校历关键日期（#192，合同 r3；迁移=260930_key_date_ingest.sql）=====
+CREATE TABLE t_key_date (
+    id              BIGSERIAL PRIMARY KEY,
+    uid             VARCHAR(64)  NOT NULL,
+    academic_year   VARCHAR(7)   NOT NULL,
+    term            VARCHAR(2)   NOT NULL,
+    event_code      VARCHAR(48)  NOT NULL,
+    audience_code   VARCHAR(64)  NOT NULL,
+    semantic_slot   VARCHAR(64)  NOT NULL,
+    source_key      VARCHAR(48)  NOT NULL,
+    source_url      VARCHAR(512) NOT NULL,
+    title_en        VARCHAR(256) NOT NULL,
+    title_zh        VARCHAR(256),
+    audience_text   VARCHAR(256),
+    raw_text        TEXT         NOT NULL,
+    provenance      VARCHAR(256) NOT NULL,
+    precision       VARCHAR(16)  NOT NULL,
+    date_start      DATE,
+    date_end        DATE,
+    fuzzy_hint      VARCHAR(64),
+    status          VARCHAR(16)  NOT NULL,
+    revision        INT          NOT NULL DEFAULT 1,
+    change_summary  VARCHAR(512),
+    first_seen_at   TIMESTAMP    NOT NULL,
+    last_seen_at    TIMESTAMP    NOT NULL,
+    withdrawn_at    TIMESTAMP,
+    ics_export_state  VARCHAR(16),
+    ics_last_dates    VARCHAR(64),
+    CONSTRAINT uk_key_date_uid UNIQUE (uid),
+    CONSTRAINT ck_key_date_term CHECK (term IN ('AY', 'S1', 'S2', 'SU')),
+    CONSTRAINT ck_key_date_precision CHECK (precision IN ('exact-day', 'exact-range', 'onwards', 'fuzzy')),
+    CONSTRAINT ck_key_date_status CHECK (status IN ('published', 'withdrawn', 'archived')),
+    CONSTRAINT ck_key_date_fuzzy_no_date CHECK (precision <> 'fuzzy' OR (date_start IS NULL AND date_end IS NULL))
+);
+CREATE INDEX idx_key_date_withdraw_scan ON t_key_date(source_key, academic_year, status);
+CREATE INDEX idx_key_date_display ON t_key_date(date_start) WHERE status = 'published';
+
+CREATE TABLE t_key_date_source (
+    id                    BIGSERIAL PRIMARY KEY,
+    source_key            VARCHAR(48)  NOT NULL,
+    source_url            VARCHAR(512) NOT NULL,
+    role                  VARCHAR(16)  NOT NULL,
+    enabled               CHAR(1)      NOT NULL DEFAULT '1',
+    auto_state            VARCHAR(16)  NOT NULL DEFAULT 'active',
+    degraded_streak       INT          NOT NULL DEFAULT 0,
+    probe_ok_streak       INT          NOT NULL DEFAULT 0,
+    coverage_academic_year VARCHAR(7),
+    last_success_at       TIMESTAMP,
+    last_complete_snapshot TEXT,
+    last_diag             TEXT,
+    updated_at            TIMESTAMP    NOT NULL DEFAULT now(),
+    CONSTRAINT uk_key_date_source UNIQUE (source_key),
+    CONSTRAINT ck_key_date_source_role CHECK (role IN ('writer', 'verifier')),
+    CONSTRAINT ck_key_date_source_auto CHECK (auto_state IN ('active', 'auto_isolated'))
+);
+
+COMMENT ON TABLE t_key_date IS '校历关键日期事件（#192，合同 r3）：稳定身份 UID=六段语义数组 SHA-256（日期/标题不入键）；published/withdrawn/archived 分离；纯校验源（cal-exam-timetable）零事件行';
+COMMENT ON COLUMN t_key_date.uid IS 'SHA-256(["polyu-keydate-v1",学年,学期,事件码,受众码,语义阶段]) 小写 64 hex；改期不换 UID、跨学年新 UID；ICS 前缀由导出层拼接';
+COMMENT ON COLUMN t_key_date.provenance IS '原始行/单元格引用列表（逗号分隔 locator，如 r12,r14）——一对多/多对一出处的证据闭合，不比较行数=事件数';
+COMMENT ON COLUMN t_key_date.precision IS 'exact-day=精确日 / exact-range=精确区间（两端包含、库内含端）/ onwards=开放起点（首批不进 ICS）/ fuzzy=模糊窗（原文桶落 fuzzy_hint，不伪造具体日、不倒计时、不进 ICS）';
+COMMENT ON COLUMN t_key_date.status IS 'published=发布 / withdrawn=限定覆盖域撤回（保留 UID 与历史，不物理删除；仅完整候选可撤回）/ archived=正常过期展示态（≠官方取消，新学年页面不批量取消旧学年）';
+COMMENT ON COLUMN t_key_date.ics_export_state IS 'ICS 导出历史最小承载（#194 消费）：NULL=从未导出精确事件 / exported=当前导出中 / cancelled=已发取消——精确变模糊须据此发取消，不留旧精确提醒';
+COMMENT ON TABLE t_key_date_source IS '校历源状态（合同§6）：人工启停（enabled，不自动复活）与自动隔离（auto_state，3 轮退化隔离、两次完整探测复归）严格区分；verifier 零事件写径';
+COMMENT ON COLUMN t_key_date_source.last_success_at IS '最近完整同步时间（完整候选原子发布后才刷新；≠内容更新时间；退化轮不刷新）';
+COMMENT ON COLUMN t_key_date_source.last_complete_snapshot IS '最后完整候选版本快照（JSON）；退化不覆盖——保留用于比对与恢复判定';

@@ -660,6 +660,22 @@ ON CONFLICT (slug) DO NOTHING;
 
 
 -- ============================================
+-- 校历关键日期：五源种子（2026-09-30，#192；与 upgrades/v2.0.0/260930_key_date_ingest.sql
+--   同源双落——新装走本文件，存量库走 upgrades；URL/role 与合同§2 表一致：
+--   写者四 + 纯校验源一（cal-exam-timetable，零事件写径）。enabled/auto_state 走表默认值
+--   （'1'/'active'）；全局开关 rag.calendar.enabled（默认 false）与本列正交，生产启停归维护者）
+-- ============================================
+
+INSERT INTO t_key_date_source (source_key, source_url, role) VALUES
+  ('cal-academic-calendar',      'https://www.polyu.edu.hk/ar/students-in-taught-programmes/academic-calendar/', 'writer'),
+  ('cal-fee-payment-annual',     'https://www.polyu.edu.hk/ar/students-in-taught-programmes/annual-schedules/fee-payment/', 'writer'),
+  ('cal-timetable-exam-results', 'https://www.polyu.edu.hk/ar/students-in-taught-programmes/annual-schedules/timetable-exam-assessment/', 'writer'),
+  ('cal-exam-timetable',         'https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/examination-timetable-and-arrangements/', 'verifier'),
+  ('cal-assessment-results',     'https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/assessment-results/', 'writer')
+ON CONFLICT (source_key) DO NOTHING;
+
+
+-- ============================================
 -- PolyU 意图树（16 KB 节点 + 4 SYSTEM 交互节点）与示例问题种子
 --（2026-09-13；与 upgrades/260913_polyu_tree_system_nodes.sql 同源双落——
 --  新装走本文件，存量库走 upgrades；id 逐行一致，两文件可互换重放；该迁移 §3 的人设四槽

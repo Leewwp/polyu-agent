@@ -1,0 +1,114 @@
+source_key,locator,disposition,reason,event_code,ay,term,audience_code,slot,precision,date_start,date_end,fuzzy_bucket,audience_text,ay_evidence,domain_extension
+cal-academic-calendar,r2,WRITE,写域：教学起讫（S1 开始）,semester-teaching,2026/27,S1,all,start,exact-day,2026-08-31,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r3,WRITE,写域：Add-Drop 起（止点具 deadline 语义）,adddrop,2026/27,S1,all,start,exact-day,2026-08-31,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r5,WRITE,写域：Add-Drop 止（deadline 语义 VALARM 候选）,adddrop,2026/27,S1,all,end,exact-day,2026-09-12,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r6,WRITE,写域扩展（待批）：教学暂停日（晚间停课非假期）,teaching-suspension,2026/27,AY,all,mid-autumn,exact-day,2026-09-25,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r7,WRITE,写域：已识别假期（稳定语义码）,general-holiday,2026/27,AY,all,mid-autumn-following,exact-day,2026-09-26,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r9,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,national-day,exact-day,2026-10-01,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r10,WRITE,写域扩展（待批）：教学暂停日（全日+晚间停课）,teaching-suspension,2026/27,AY,all,ug-info-day,exact-day,2026-10-10,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r11,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,chung-yeung-following,exact-day,2026-10-19,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r12,WRITE,写域：同届毕业典礼总体区间（跨月合并的起始半行）,congregation,2026/27,AY,all,overall-window,exact-day,2026-10-31,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r14,WRITE,写域：同届毕业典礼总体区间（跨月合并的区间半行）,congregation,2026/27,AY,all,overall-window,exact-range,2026-11-01,2026-11-21,,,表内AY行+互异年段头,false
+cal-academic-calendar,r15,WRITE,写域：教学起讫（S1 结束）,semester-teaching,2026/27,S1,all,end,exact-day,2026-11-28,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r16,WRITE,写域扩展（待批）：复习日窗口（合并的起始半行）,revision-days,2026/27,S1,all,window,exact-day,2026-11-30,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r18,WRITE,写域扩展（待批）：复习日窗口（合并的结束半行）,revision-days,2026/27,S1,all,window,exact-day,2026-12-02,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r19,WRITE,写域：考试区间 S1（合并的起始半行）,exam-period,2026/27,S1,all,window,exact-day,2026-12-03,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r20,WRITE,写域：考试区间 S1（合并的结束半行）,exam-period,2026/27,S1,all,window,exact-day,2026-12-18,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r21,WRITE,写域扩展（待批）：教学暂停日,teaching-suspension,2026/27,AY,all,winter-solstice,exact-day,2026-12-22,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r22,WRITE,写域扩展（待批）：教学暂停日,teaching-suspension,2026/27,AY,all,christmas-eve,exact-day,2026-12-24,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r23,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,christmas-day,exact-day,2026-12-25,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r24,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,christmas-following,exact-day,2026-12-26,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r25,WRITE,写域扩展（待批）：教学暂停日,teaching-suspension,2026/27,AY,all,new-year-eve,exact-day,2026-12-31,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r28,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,first-january,exact-day,2027-01-01,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r29,WRITE,写域：成绩定稿 subject（独立于对外发布）,results-finalisation,2026/27,S1,all,subject,exact-day,2027-01-05,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r30,WRITE,写域：教学起讫（S2 开始）,semester-teaching,2026/27,S2,all,start,exact-day,2027-01-11,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r31,WRITE,写域：Add-Drop 起,adddrop,2026/27,S2,all,start,exact-day,2027-01-11,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r32,WRITE,写域：成绩定稿 overall,results-finalisation,2026/27,S1,all,overall,exact-day,2027-01-13,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r33,VERIFY,校验：成绩对外发布权威在 cal-assessment-results（同身份值比对）,results-overall-release,2026/27,S1,all,overall,exact-day,2027-01-14,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r34,WRITE,写域：Add-Drop 止（deadline 语义）,adddrop,2026/27,S2,all,end,exact-day,2027-01-23,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r36,WRITE,写域扩展（待批）：教学暂停日,teaching-suspension,2026/27,AY,all,lny-eve,exact-day,2027-02-05,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r37,WRITE,写域扩展（待批）：教学暂停（春节假期区间）,teaching-suspension,2026/27,AY,all,lny-break,exact-range,2027-02-06,2027-02-14,,,表内AY行+互异年段头,true
+cal-academic-calendar,r38,WRITE,写域：已识别假期（与 lny-break 同日起的不同身份事件）,general-holiday,2026/27,AY,all,lny-day,exact-day,2027-02-06,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r39,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,lny-second,exact-day,2027-02-08,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r40,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,lny-third,exact-day,2027-02-09,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r42,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,good-friday,exact-day,2027-03-26,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r43,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,good-friday-following,exact-day,2027-03-27,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r44,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,easter-monday,exact-day,2027-03-29,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r46,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,ching-ming,exact-day,2027-04-05,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r47,WRITE,写域：教学起讫（S2 结束）,semester-teaching,2026/27,S2,all,end,exact-day,2027-04-17,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r48,WRITE,写域扩展（待批）：复习日窗口 S2（起始半行）,revision-days,2026/27,S2,all,window,exact-day,2027-04-19,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r49,WRITE,写域扩展（待批）：复习日窗口 S2（结束半行）,revision-days,2026/27,S2,all,window,exact-day,2027-04-21,,,,表内AY行+互异年段头,true
+cal-academic-calendar,r50,WRITE,写域：考试区间 S2（起始半行）,exam-period,2026/27,S2,all,window,exact-day,2027-04-22,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r52,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,labour-day,exact-day,2027-05-01,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r53,WRITE,写域：考试区间 S2（结束半行）,exam-period,2026/27,S2,all,window,exact-day,2027-05-08,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r54,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,buddha-birthday,exact-day,2027-05-13,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r55,WRITE,写域：成绩定稿 subject,results-finalisation,2026/27,S2,all,subject,exact-day,2027-05-19,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r56,WRITE,写域：教学起讫（SU 开始）,semester-teaching,2026/27,SU,all,start,exact-day,2027-05-24,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r57,WRITE,写域：Add-Drop 起,adddrop,2026/27,SU,all,start,exact-day,2027-05-24,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r58,WRITE,写域：成绩定稿 overall,results-finalisation,2026/27,S2,all,overall,exact-day,2027-05-27,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r59,VERIFY,校验：成绩对外发布权威在 cal-assessment-results,results-overall-release,2026/27,S2,all,overall,exact-day,2027-05-28,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r60,WRITE,写域：Add-Drop 止（deadline 语义）,adddrop,2026/27,SU,all,end,exact-day,2027-05-29,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r62,WRITE,写域：已识别假期（页面裸标签无 General holiday 前缀——词表命中）,general-holiday,2026/27,AY,all,tuen-ng,exact-day,2027-06-09,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r64,WRITE,写域：已识别假期,general-holiday,2026/27,AY,all,hksar-establishment,exact-day,2027-07-01,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r65,WRITE,写域：教学起讫（SU 结束）,semester-teaching,2026/27,SU,all,end,exact-day,2027-07-10,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r66,WRITE,写域：考试区间 SU（起始半行）,exam-period,2026/27,SU,all,window,exact-day,2027-07-12,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r67,WRITE,写域：考试区间 SU（结束半行）,exam-period,2026/27,SU,all,window,exact-day,2027-07-17,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r68,WRITE,写域：成绩定稿 subject,results-finalisation,2026/27,SU,all,subject,exact-day,2027-07-27,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r70,WRITE,写域：成绩定稿 overall,results-finalisation,2026/27,SU,all,overall,exact-day,2027-08-04,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r71,VERIFY,校验：成绩对外发布权威在 cal-assessment-results,results-overall-release,2026/27,SU,all,overall,exact-day,2027-08-05,,,,表内AY行+互异年段头,false
+cal-academic-calendar,r72,WRITE,写域：学年结束（本行同时是页面覆盖学年证据）,academic-year-end,2026/27,AY,all,main,exact-day,2027-08-29,,,,表内AY行+互异年段头,false
+cal-fee-payment-annual,r1:f0,WRITE,写域：缴费通知 initial 轮（括号对前值）,fee-notification,2026/27,S1,current-students,initial,exact-day,2026-08-14,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r1:f1,WRITE,写域：缴费截止 initial 轮（括号对后值；VALARM 候选）,fee-deadline,2026/27,S1,current-students,initial,exact-day,2026-09-01,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r2:f0,WRITE,写域：SID 卡领取（8月到期轮；实际领取日不入键）,sid-card-collection,2026/27,AY,sid-exp-aug,window,onwards,2026-08-25,,,,For students whose student identity cards are due to expire in end of August only,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r3:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,S1,all,start,exact-day,2026-08-31,,,,,行内标注2026/27,false
+cal-fee-payment-annual,r4:f0,WRITE,写域：缴费通知 remaining 轮,fee-notification,2026/27,S1,current-students,remaining,exact-day,2026-09-25,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r4:f1,WRITE,写域：缴费截止 remaining 轮（VALARM 候选）,fee-deadline,2026/27,S1,current-students,remaining,exact-day,2026-10-13,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r5:f0,KNOWN_SKIP,空月份占位符 ---（显式排除规则）,,,,,,,,,,,,false
+cal-fee-payment-annual,r6:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-fee-payment-annual,r7:f0,WRITE,写域：缴费通知 initial 轮（S2）,fee-notification,2026/27,S2,current-students,initial,exact-day,2026-12-28,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r7:f1,WRITE,写域：缴费截止 initial 轮（S2；VALARM 候选）,fee-deadline,2026/27,S2,current-students,initial,exact-day,2027-01-15,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r8:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,S2,all,start,exact-day,2027-01-11,,,,,行内标注2026/27,false
+cal-fee-payment-annual,r9:f0,WRITE,写域：SID 卡领取（1月到期轮）,sid-card-collection,2026/27,AY,sid-exp-jan,window,onwards,2027-01-25,,,,For students whose student identity cards are due to expire in end of January only,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r10:f0,WRITE,写域：缴费通知 remaining 轮（S2）,fee-notification,2026/27,S2,current-students,remaining,exact-day,2027-02-12,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r10:f1,WRITE,写域：缴费截止 remaining 轮（S2；VALARM 候选）,fee-deadline,2026/27,S2,current-students,remaining,exact-day,2027-02-26,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r11:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-fee-payment-annual,r12:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-fee-payment-annual,r13:f0,WRITE,写域：SID 卡领取（暑期复学轮）,sid-card-collection,2026/27,AY,sid-resume-su,window,onwards,2027-05-17,,,,For students who will resume study in Summer Term only,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r14:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,SU,all,start,exact-day,2027-05-24,,,,,行内标注2026/27,false
+cal-fee-payment-annual,r15:f0,WRITE,写域：缴费通知 summer 轮,fee-notification,2026/27,SU,current-students,summer,exact-day,2027-06-14,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r15:f1,WRITE,写域：缴费截止 summer 轮（VALARM 候选）,fee-deadline,2026/27,SU,current-students,summer,exact-day,2027-06-24,,,,Current Students,页面散文ForAY2026/27,false
+cal-fee-payment-annual,r16:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-fee-payment-annual,r17:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-timetable-exam-results,r1:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,S1,all,start,exact-day,2026-08-31,,,,,行内标注2026/27,false
+cal-timetable-exam-results,r2:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-timetable-exam-results,r3:f0,WRITE,写域：考试时间表发布窗 S1（考试周在本页 AY 内）,exam-tt-release,2026/27,S1,all,window,fuzzy,,,late-october-2026,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r4:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-timetable-exam-results,r5:f0,VERIFY,校验：考试区间权威在 cal-academic-calendar,exam-period,2026/27,S1,all,window,exact-range,2026-12-03,2026-12-18,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r5:f1,WRITE,写域：开课时间表发布窗（目标学期=S2；页内有晚于发布窗的 S2 Commencement 2027-01-11 标注 2026/27）,class-tt-release,2026/27,S2,all,window,fuzzy,,,late-december-2026,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r6:f0,VERIFY,校验：科目成绩发布权威在 cal-assessment-results,results-subject-release,2026/27,S1,all,subject,exact-day,2027-01-06,,,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r7:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,S2,all,start,exact-day,2027-01-11,,,,,行内标注2026/27,false
+cal-timetable-exam-results,r8:f0,VERIFY,校验：总评成绩发布权威在 cal-assessment-results,results-overall-release,2026/27,S1,all,overall,exact-day,2027-01-14,,,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r9:f0,KNOWN_SKIP,空月份占位符 ---,,,,,,,,,,,,false
+cal-timetable-exam-results,r10:f0,WRITE,写域：开课时间表发布窗（目标学期=SU；页内 SU Commencement 2027-05-24 晚于发布窗）,class-tt-release,2026/27,SU,all,window,fuzzy,,,early-march-2027,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r11:f0,WRITE,写域：考试时间表发布窗 S2（Mid 与 Middle 为词表别名同桶）,exam-tt-release,2026/27,S2,all,window,fuzzy,,,mid-march-2027,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r12:f0,VERIFY,校验：考试区间权威在 cal-academic-calendar（跨月区间端点解析）,exam-period,2026/27,S2,all,window,exact-range,2027-04-22,2027-05-08,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r13:f0,VERIFY,校验：科目成绩发布权威在 cal-assessment-results,results-subject-release,2026/27,S2,all,subject,exact-day,2027-05-20,,,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r14:f0,VERIFY,校验：开课日权威在 cal-academic-calendar,semester-teaching,2026/27,SU,all,start,exact-day,2027-05-24,,,,,行内标注2026/27,false
+cal-timetable-exam-results,r15:f0,VERIFY,校验：总评成绩发布权威在 cal-assessment-results,results-overall-release,2026/27,S2,all,overall,exact-day,2027-05-28,,,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r16:f0,WRITE,写域：考试时间表发布窗 SU,exam-tt-release,2026/27,SU,all,window,fuzzy,,,late-june-2027,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r17:f0,VERIFY,校验：考试区间权威在 cal-academic-calendar,exam-period,2026/27,SU,all,window,exact-range,2027-07-12,2027-07-17,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r17:f1,WRITE,写域：开课时间表发布窗（目标学期=S1；页内无晚于 2027 年 7 月发布窗的 S1 Commencement——页内 S1 Commencement=2026-08-31 属本页 AY 已开课学期；页面自证模式=发布窗先于学期开始（S2 tt Late Dec→2027-01-11 开学、SU tt Early Mar→2027-05-24 开学）且 S1 于 8 月末开学 → 本发布窗指向 2027 年 8 月末开学的 S1 即 AY2027/28；未使用抓取时钟、未套整页学年）,class-tt-release,2027/28,S1,all,window,fuzzy,,,late-july-2027,,,页面内推导（见 reason）,false
+cal-timetable-exam-results,r17:f2,VERIFY,校验：科目成绩发布权威在 cal-assessment-results,results-subject-release,2026/27,SU,all,subject,exact-day,2027-07-28,,,,,页面散文ForAY2026/27,false
+cal-timetable-exam-results,r18:f0,VERIFY,校验：总评成绩发布权威在 cal-assessment-results,results-overall-release,2026/27,SU,all,overall,exact-day,2027-08-05,,,,,页面散文ForAY2026/27,false
+cal-exam-timetable,r1:c1,VERIFY,校验：考试区间权威在 cal-academic-calendar（纯校验源零写径）,exam-period,2026/27,S1,all,window,exact-range,2026-12-03,2026-12-18,,,表头单元格AY2026/27,false
+cal-exam-timetable,r1:c2,VERIFY,校验：考试时间表发布窗权威在 cal-timetable-exam-results,exam-tt-release,2026/27,S1,all,window,fuzzy,,,late-october-2026,,,表头单元格AY2026/27,false
+cal-exam-timetable,r2:c1,VERIFY,校验：考试区间权威在 cal-academic-calendar,exam-period,2026/27,S2,all,window,exact-range,2027-04-22,2027-05-08,,,表头单元格AY2026/27,false
+cal-exam-timetable,r2:c2,VERIFY,校验：考试时间表发布窗（Middle of=Mid of 词表别名同桶 mid-march-2027）,exam-tt-release,2026/27,S2,all,window,fuzzy,,,mid-march-2027,,,表头单元格AY2026/27,false
+cal-exam-timetable,r3:c1,VERIFY,校验：考试区间权威在 cal-academic-calendar,exam-period,2026/27,SU,all,window,exact-range,2027-07-12,2027-07-17,,,表头单元格AY2026/27,false
+cal-exam-timetable,r3:c2,VERIFY,校验：考试时间表发布窗权威在 cal-timetable-exam-results,exam-tt-release,2026/27,SU,all,window,fuzzy,,,late-june-2027,,,表头单元格AY2026/27,false
+cal-assessment-results,r1:c1,WRITE,写域：科目成绩发布日（权威写者）,results-subject-release,2026/27,S1,all,subject,exact-day,2027-01-06,,,,,表前散文AY2026/27,false
+cal-assessment-results,r1:c2,WRITE,写域：总评成绩发布日,results-overall-release,2026/27,S1,all,overall,exact-day,2027-01-14,,,,,表前散文AY2026/27,false
+cal-assessment-results,r2:c1,WRITE,写域：科目成绩发布日,results-subject-release,2026/27,S2,all,subject,exact-day,2027-05-20,,,,,表前散文AY2026/27,false
+cal-assessment-results,r2:c2,WRITE,写域：总评成绩发布日,results-overall-release,2026/27,S2,all,overall,exact-day,2027-05-28,,,,,表前散文AY2026/27,false
+cal-assessment-results,r3:c1,WRITE,写域：科目成绩发布日,results-subject-release,2026/27,SU,all,subject,exact-day,2027-07-28,,,,,表前散文AY2026/27,false
+cal-assessment-results,r3:c2,WRITE,写域：总评成绩发布日,results-overall-release,2026/27,SU,all,overall,exact-day,2027-08-05,,,,,表前散文AY2026/27,false
