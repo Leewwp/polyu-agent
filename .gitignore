@@ -79,3 +79,7 @@ docs/temp
 
 # TypeScript 增量构建缓存（临时输出不入库）
 *.tsbuildinfo
+
+### Regression artifacts ###
+# Local reports, credentials, logs, snapshots and compiled CLI classes.
+/resources/regression/*/artifacts/
