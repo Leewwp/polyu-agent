@@ -81,6 +81,19 @@ class AdminPathPatternsTest {
     }
 
     @Test
+    void 主题提案治理端点均落在管理面清单内() {
+        // #202 三轨处置 admin 面：pending 列表/批量应用/留痕流水——批量应用为写操作须 admin 角色拦截
+        List<String> topicGovernanceEndpoints = List.of(
+                "/admin/news/topic/proposals",
+                "/admin/news/topic/proposals/apply",
+                "/admin/news/topic/events");
+        for (String endpoint : topicGovernanceEndpoints) {
+            assertTrue(coveredByAdminPatterns(endpoint),
+                    "管理面清单未覆盖端点: " + endpoint);
+        }
+    }
+
+    @Test
     void 用户侧与公开面不应被管理面清单命中() {
         // 判别力断言：清单若被写成过宽（如 /**），这里会失败
         List<String> userFacingEndpoints = List.of(
