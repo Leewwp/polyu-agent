@@ -14,6 +14,7 @@ import { PrivacyPage } from "@/pages/PrivacyPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { DisclaimerPage } from "@/pages/DisclaimerPage";
 import { FeedPage } from "@/pages/FeedPage";
+import { KeyDatesPage } from "@/pages/KeyDatesPage";
 import { HotRankPage } from "@/pages/HotRankPage";
 import { TopicsPage } from "@/pages/TopicsPage";
 import { TopicDetailPage } from "@/pages/TopicDetailPage";
@@ -97,6 +98,13 @@ export const router = createBrowserRouter([
     // （法务页范式）；不触发 engineStore 探测。/chat 与守卫路由原样不动。
     path: "/",
     element: <FeedPage />
+  },
+  {
+    // 公开关键日期页（#193）：临近度序+过期归档分段+源三态口径不冒充最新+
+    // 四类 eStudent/邮件独发节点缺失声明；裸路由无守卫（FeedPage 范式，
+    // 后端 flag 关时页面降级并提示以 eStudent 为准）
+    path: "/key-dates",
+    element: <KeyDatesPage />
   },
   {
     // 公开热点榜：Top10 排行+标签+信源名单气泡+方法论注脚，
