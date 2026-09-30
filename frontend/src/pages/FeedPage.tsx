@@ -5,6 +5,7 @@ import { CategoryChips } from "@/components/feed/CategoryChips";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { HotPanel } from "@/components/feed/HotPanel";
+import { KeyDatesCard } from "@/components/feed/KeyDatesCard";
 import { NewsList } from "@/components/feed/NewsList";
 import { NewsSearchBar } from "@/components/feed/NewsSearchBar";
 import { useFeedLang } from "@/components/feed/feedLang";
@@ -327,6 +328,9 @@ export function FeedPage() {
       </div>
       {!isAllView && !isSearch && <AiDigestStrip />}
       {!isAllView && !isSearch && <HotPanel entries={hot} />}
+      {/* 关键日期卡（#193）：临近度序前 4 条+倒计时徽章；默认精选视图渲染，
+          抓取失败/无近期事件整卡隐藏（全部资讯态/检索态与热点卡同规则不渲染） */}
+      {!isAllView && !isSearch && <KeyDatesCard />}
 
       <CategoryChips value={category} onChange={setCategory} />
 
