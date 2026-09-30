@@ -61,6 +61,12 @@ services:
       RAG_NEWS_EVENTSPASTMONTHS: ${RAG_NEWS_EVENTSPASTMONTHS:-0}
       RAG_NEWS_ENRICHBATCH: ${RAG_NEWS_ENRICHBATCH:-20}
       RAG_NEWS_FETCHCRON: "${RAG_NEWS_FETCHCRON:-0 0 8,13,19 * * *}"
+      # 回灌突发窗三临时键（2026-09-30 批 2 启用+95 天回灌；缺省=#185/#184 合同默认，
+      # 验收后删 env 值即还原）：全站日准入 / 旧文归档门 / 资讯 LLM 日额度——
+      # 不列则只在 env 文件翻转是静默 no-op（#191/#192 先例同因）
+      RAG_NEWS_ADMISSIONDAILYSITECAP: ${RAG_NEWS_ADMISSIONDAILYSITECAP:-60}
+      RAG_NEWS_STALEARTICLEHOURS: ${RAG_NEWS_STALEARTICLEHOURS:-48}
+      RAG_NEWS_BUDGETDAILYYUAN: ${RAG_NEWS_BUDGETDAILYYUAN:-1.0}
       RAGENT_ANONYMOUS_ENABLED: ${RAGENT_ANONYMOUS_ENABLED:-false}
       # 邮件模式无回落（#150，审计 NV-2 收口）：生产必须显式声明（polyu-prod.env /
       # gen-prod-env.py 均写 smtp），缺键时 compose 直接拒启而非静默回落 logger 把验证码写进日志

@@ -268,12 +268,14 @@ rag:
     allow-empty-sources: []          # 允许零条目为健康结果（VALID_EMPTY）的源 key 集（#186 成功分类学）：逐源外置=空态语义由运营口径决定
                                      # （新频道空 feed 属正常；官网列表空页=模板改版嫌疑 fail-closed）。未列入的源零条目仍计结构失配
     admission-source-daily-caps:     # 源日准入上限表（#185，sourceKey→条/日 HKT）：命中者覆盖 admission-default-source-daily-cap（50）；
-                                     # 只是局部上限，全站仍受 admission-daily-site-cap（60/日）约束。#188 批 2 四源保守 5/日
-                                     # （月更级节奏合计增量 ~1 条/日，5/日已留 5 倍余量；批 1 判例=GNews 源级 cap 5/日）
-      alumni-news: 5
-      lib-news: 5
-      fb-news: 5
-      fhss-news: 5
+                                     # 只是局部上限，全站仍受 admission-daily-site-cap（60/日，env 可调 RAG_NEWS_ADMISSIONDAILYSITECAP）约束。
+                                     # #188 批 2 四源：回灌突发窗临时 200/日（2026-09-30 批 2 启用+95 天回灌，与旧文归档门 2280h+
+                                     # 富化批 200+全站 200/日同窗配套；验收后回落 5-20。稳态参考：月更级节奏合计增量 ~1 条/日，
+                                     # 批 1 判例=GNews 源级 cap 5/日）
+      alumni-news: 200
+      lib-news: 200
+      fb-news: 200
+      fhss-news: 200
     topic-governance:
       promote-threshold: 10          # 主题提案转正（promote）引用阈值（#202，item_refs≥阈值方可转正，服务层机器校验）：
                                      # 默认 10 为 #181 拍板口径，落配置可调不写死；阈值默认值变更属规则框架变更须回维护者裁决。
