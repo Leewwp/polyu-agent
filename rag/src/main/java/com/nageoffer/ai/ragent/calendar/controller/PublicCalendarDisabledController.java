@@ -25,8 +25,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 公开校历关闭态兜底（照 PublicNewsDisabledController 孪生范式）：flag
- * rag.calendar.enabled 关（默认）时 {@link PublicKeyDateController} 不装配，
- * 本兜底接管同路径返回 HTTP 404——「功能未部署」语义，不泄漏开关状态。
+ * rag.calendar.enabled 关（默认）时 {@link PublicKeyDateController} 与
+ * {@link PublicKeyDateIcsController} 不装配，本兜底接管同路径返回 HTTP 404
+ * ——「功能未部署」语义，不泄漏开关状态。
  */
 @RestController
 @RequestMapping("/public/calendar")
@@ -38,6 +39,14 @@ public class PublicCalendarDisabledController {
      */
     @GetMapping("/key-dates")
     public ResponseEntity<Void> keyDates() {
+        return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * .ics 订阅端点 404 兜底（#194 同范式：关闭态日历客户端得到 404 而非系统错误）
+     */
+    @GetMapping("/key-dates.ics")
+    public ResponseEntity<Void> keyDatesIcs() {
         return ResponseEntity.notFound().build();
     }
 }
