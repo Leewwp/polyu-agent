@@ -255,6 +255,10 @@ rag:
       gnews-polyu-admission: 2
       gnews-polyu-scholarship: 2
       gnews-polyu-career: 2
+      alumni-news: 2          #   #188 批 2 官网子站源=2（保守小值起步：seed 停用期零效果，启用验收后可按官网类=3 对齐）
+      lib-news: 2
+      fb-news: 2
+      fhss-news: 2
     ua: "polyuguide-feed/1.0 (+https://polyuguide.com)"  # 抓取 UA（fetcher 使用）
     probe-cron: "0 30 8 * * *"       # 日级探活时刻（#186）：自动隔离源（disabled_reason=auto）每日一次，两次有效完整成功自动复归；
                                      # 默认 08:30=首轮抓取后半小时错峰；人工停用/策略禁止不探活
@@ -263,6 +267,13 @@ rag:
     robots-cache-ttl-seconds: 86400  # robots.txt 进程内缓存 TTL 秒（#186 修「缓存永不过期」）：到期后同 host 下一次请求重拉——robots 规则变更（含 Disallow 解除）TTL 内可见
     allow-empty-sources: []          # 允许零条目为健康结果（VALID_EMPTY）的源 key 集（#186 成功分类学）：逐源外置=空态语义由运营口径决定
                                      # （新频道空 feed 属正常；官网列表空页=模板改版嫌疑 fail-closed）。未列入的源零条目仍计结构失配
+    admission-source-daily-caps:     # 源日准入上限表（#185，sourceKey→条/日 HKT）：命中者覆盖 admission-default-source-daily-cap（50）；
+                                     # 只是局部上限，全站仍受 admission-daily-site-cap（60/日）约束。#188 批 2 四源保守 5/日
+                                     # （月更级节奏合计增量 ~1 条/日，5/日已留 5 倍余量；批 1 判例=GNews 源级 cap 5/日）
+      alumni-news: 5
+      lib-news: 5
+      fb-news: 5
+      fhss-news: 5
 
   site:
     enabled: false  # 站点反馈与关于页 feature flag（doc 25）：默认关；关闭时 /public/feedback、/public/about 由兜底控制器统一 404。
