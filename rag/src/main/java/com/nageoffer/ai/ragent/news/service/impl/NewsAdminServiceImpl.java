@@ -22,11 +22,17 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsPipelineStatusVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthEventVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsLlmReceiptDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceHealthEventDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsLlmReceiptMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceHealthEventMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import com.nageoffer.ai.ragent.news.service.NewsAdminService;
 import lombok.RequiredArgsConstructor;
@@ -38,9 +44,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 资讯管理面服务实现
@@ -57,6 +66,8 @@ public class NewsAdminServiceImpl implements NewsAdminService {
 
     private final NewsItemMapper itemMapper;
     private final NewsLlmReceiptMapper receiptMapper;
+    private final NewsSourceMapper sourceMapper;
+    private final NewsSourceHealthEventMapper healthEventMapper;
     private final NewsFetchProperties fetchProperties;
 
     @Override
@@ -158,6 +169,71 @@ public class NewsAdminServiceImpl implements NewsAdminService {
     private static long longOf(Map<String, Object> row, String key) {
         Object value = row.get(key);
         return value instanceof Number number ? number.longValue() : 0L;
+    }
+
+    /**
+     * 源健康面板（#186）：全量源行快照——停用原因三分/最近六类结果/探活状态/
+     * 停止与复归时刻/allow-empty 命中/是否探活对象（enabled=false AND reason=auto）
+     */
+    @Override
+    public List<NewsSourceHealthVO> sourceHealth() {
+        List<NewsSourceDO> sources = sourceMapper.selectList(Wrappers.lambdaQuery(NewsSourceDO.class));
+        return sources.stream()
+                .sorted(Comparator.comparing(NewsSourceDO::getSourceKey,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(source -> NewsSourceHealthVO.builder()
+                        .id(source.getId())
+                        .sourceKey(source.getSourceKey())
+                        .displayName(source.getDisplayName())
+                        .displayNameEn(source.getDisplayNameEn())
+                        .platform(source.getPlatform())
+                        .fetchStrategy(source.getFetchStrategy())
+                        .enabled(source.getEnabled())
+                        .disabledReason(source.getDisabledReason())
+                        .consecutiveFailures(source.getConsecutiveFailures())
+                        .lastOutcome(source.getLastOutcome())
+                        .lastOutcomeTime(source.getLastOutcomeTime())
+                        .probeSuccesses(source.getProbeSuccesses())
+                        .probeTime(source.getProbeTime())
+                        .isolatedTime(source.getIsolatedTime())
+                        .recoveredTime(source.getRecoveredTime())
+                        .allowEmpty(fetchProperties.isAllowEmptySource(source.getSourceKey()))
+                        .probeEligible(Boolean.FALSE.equals(source.getEnabled())
+                                && NewsSourceDO.DISABLED_REASON_AUTO.equals(source.getDisabledReason()))
+                        .build())
+                .toList();
+    }
+
+    /**
+     * 信源健康事件流水（#186）：倒序最近 N 条；sourceKey join 还原（源已删回退 ID 展示）
+     */
+    @Override
+    public List<NewsSourceHealthEventVO> sourceHealthEvents(int limit) {
+        int bounded = Math.max(1, Math.min(limit, 200));
+        List<NewsSourceHealthEventDO> events = healthEventMapper.selectList(
+                Wrappers.lambdaQuery(NewsSourceHealthEventDO.class)
+                        .orderByDesc(NewsSourceHealthEventDO::getId)
+                        .last("LIMIT " + bounded));
+        if (events.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, String> keyById = sourceMapper.selectList(Wrappers.lambdaQuery(NewsSourceDO.class))
+                .stream()
+                .collect(Collectors.toMap(NewsSourceDO::getId,
+                        source -> source.getSourceKey() != null ? source.getSourceKey()
+                                : String.valueOf(source.getId()),
+                        (a, b) -> a));
+        Function<Long, String> keyOf = id -> keyById.getOrDefault(id, "deleted#" + id);
+        return events.stream()
+                .map(event -> NewsSourceHealthEventVO.builder()
+                        .id(event.getId())
+                        .sourceKey(keyOf.apply(event.getSourceId()))
+                        .eventType(event.getEventType())
+                        .outcome(event.getOutcome())
+                        .detail(event.getDetail())
+                        .eventTime(event.getEventTime())
+                        .build())
+                .toList();
     }
 
     @Override

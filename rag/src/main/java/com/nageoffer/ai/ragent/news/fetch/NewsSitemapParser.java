@@ -57,9 +57,19 @@ public final class NewsSitemapParser {
     /**
      * 解析 news-sitemap.xml 字节流
      *
-     * @throws NewsFetchException 零条目或 XML 不合法（防结构改版静默空结果）
+     * @throws NewsFetchStructureException 零条目或 XML 不合法（防结构改版静默空结果；#186）
      */
     public static List<SitemapEntry> parse(byte[] xml) {
+        return parse(xml, true);
+    }
+
+    /**
+     * 允许空变体（#186 成功分类学）：{@code failClosedOnEmpty=false} 时零条目返回空列表
+     * （源级 allow-empty 配置驱动——允许空源的「有效空」是健康结果）；XML 不合法仍抛
+     *
+     * @throws NewsFetchStructureException XML 不合法；或零条目且 failClosedOnEmpty
+     */
+    public static List<SitemapEntry> parse(byte[] xml, boolean failClosedOnEmpty) {
         Document document = parseXml(xml);
         NodeList urlNodes = document.getElementsByTagNameNS(NS_SITEMAP, "url");
         List<SitemapEntry> entries = new ArrayList<>();
@@ -94,8 +104,8 @@ public final class NewsSitemapParser {
             entries.add(new SitemapEntry(loc.trim(), title == null ? null : title.trim(),
                     language == null ? null : language.trim(), publishTime, Map.copyOf(alternates)));
         }
-        if (entries.isEmpty()) {
-            throw new NewsFetchException("news-sitemap 解析零条目（结构改版嫌疑，fail-closed）", false);
+        if (entries.isEmpty() && failClosedOnEmpty) {
+            throw new NewsFetchStructureException("news-sitemap 解析零条目（结构改版嫌疑，fail-closed）");
         }
         return entries;
     }
@@ -112,7 +122,7 @@ public final class NewsSitemapParser {
             factory.setNamespaceAware(true);
             return factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml));
         } catch (Exception e) {
-            throw new NewsFetchException("news-sitemap XML 解析失败: " + e.getMessage(), false, e);
+            throw new NewsFetchStructureException("news-sitemap XML 解析失败: " + e.getMessage(), e);
         }
     }
 

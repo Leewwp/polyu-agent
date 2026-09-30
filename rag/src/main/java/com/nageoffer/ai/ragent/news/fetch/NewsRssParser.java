@@ -50,9 +50,20 @@ public final class NewsRssParser {
     /**
      * 解析 feed 字节流：Atom 1.0（YouTube）优先，零条目时回落 RSS 2.0（Google News）
      *
-     * @throws NewsFetchException 零条目或 XML 不合法（防静默空结果）
+     * @throws NewsFetchStructureException 零条目或 XML 不合法（防静默空结果；结构失配 #186）
      */
     public static List<RssEntry> parse(byte[] xml) {
+        return parse(xml, true);
+    }
+
+    /**
+     * 允许空变体（#186 成功分类学）：{@code failClosedOnEmpty=false} 时零条目返回空列表
+     * （调用方按源级 allow-empty 配置传入——允许空源的「有效空」是健康结果）；
+     * XML 不合法仍抛（垃圾输入不因 allow-empty 冒充有效空）
+     *
+     * @throws NewsFetchStructureException XML 不合法；或零条目且 failClosedOnEmpty
+     */
+    public static List<RssEntry> parse(byte[] xml, boolean failClosedOnEmpty) {
         Document document;
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
@@ -64,14 +75,14 @@ public final class NewsRssParser {
             factory.setNamespaceAware(true);
             document = factory.newDocumentBuilder().parse(new ByteArrayInputStream(xml));
         } catch (Exception e) {
-            throw new NewsFetchException("RSS XML 解析失败: " + e.getMessage(), false, e);
+            throw new NewsFetchStructureException("RSS XML 解析失败: " + e.getMessage(), e);
         }
         List<RssEntry> parsed = parseAtomEntries(document);
         if (parsed.isEmpty()) {
             parsed = parseRss2Items(document);
         }
-        if (parsed.isEmpty()) {
-            throw new NewsFetchException("RSS 解析零条目（结构变更嫌疑，fail-closed）", false);
+        if (parsed.isEmpty() && failClosedOnEmpty) {
+            throw new NewsFetchStructureException("RSS 解析零条目（结构变更嫌疑，fail-closed）");
         }
         return parsed;
     }

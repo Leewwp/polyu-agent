@@ -134,6 +134,53 @@ class NewsHttpFetchClientTests {
         assertEquals(2, server.getRequestCount());
     }
 
+    // ---------- #186：robots 缓存 TTL（修「进程内缓存永不过期」）+ 策略禁止分类 ----------
+
+    @Test
+    void robotsCacheHitsWithinTtlAndRefetchesAfterExpiry() throws Exception {
+        // 修前缺陷：robotsCache 只 put 不失效——Disallow 规则变更（含解除）在进程生命
+        // 周期内不可见。修后：TTL 内复用缓存零 robots 请求；到期后下一次请求重拉，
+        // 规则变更即时生效。TTL=30s（注意 host 节拍 10s 的 sleep 会推进假时钟）
+        NewsHttpFetchClient ttlClient = new NewsHttpFetchClient(new OkHttpClient(),
+                new RedirectGuard(new IngestionUrlGuard(true)), new IngestionUrlGuard(true),
+                1024L, "polyuguide-feed/1.0", 30_000L, sleeper, clock);
+
+        server.enqueue(body(""));   // robots #1（允许全部）
+        server.enqueue(body("a"));  // 内容 #1
+        ttlClient.get(url("/p1/")); // 节拍 sleep 10s → clock=10s；robots fetchedAt=0
+
+        clock.advance(5_000L);      // clock=15s：TTL 内
+        server.enqueue(body("b"));  // 内容 #2（robots 走缓存）
+        ttlClient.get(url("/p2/"));
+
+        assertEquals(3, server.getRequestCount(), "TTL 内 robots 复用缓存（无第二次 robots 请求）");
+
+        clock.advance(20_000L);     // clock=40s：距 fetchedAt=0 已 40s > 30s TTL
+        server.enqueue(body("""
+                User-agent: *
+                Disallow: /private/
+                """));              // robots #2：规则已变更（新增 Disallow）
+        NewsFetchPolicyException ex = assertThrows(NewsFetchPolicyException.class,
+                () -> ttlClient.get(url("/private/x")));
+        assertTrue(ex.getMessage().contains("Disallow"), "实际：" + ex.getMessage());
+        assertEquals(4, server.getRequestCount(), "过期后重拉 robots，新 Disallow 生效（无内容请求）");
+    }
+
+    @Test
+    void robotsDisallowRaisesPolicyExceptionNotGenericFailure() {
+        // #186 分类学：robots Disallow=策略禁止类（非源故障、非网络失败）——健康面据此
+        // 转 disabled_reason=policy 停用，不进三败滞回
+        server.enqueue(body("""
+                User-agent: *
+                Disallow: /
+                """));
+
+        NewsFetchPolicyException ex = assertThrows(NewsFetchPolicyException.class,
+                () -> client.get(url("/anything/")));
+        assertFalse(ex.isTransientError());
+        assertTrue(ex.getMessage().contains("robots.txt Disallow"));
+    }
+
     @Test
     void transient500RetriesExactlyOnceThenSucceeds() throws Exception {
         server.enqueue(body(""));               // robots

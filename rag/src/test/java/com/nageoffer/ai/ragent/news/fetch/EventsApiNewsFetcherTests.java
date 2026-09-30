@@ -29,6 +29,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -131,5 +132,19 @@ class EventsApiNewsFetcherTests {
                 .thenReturn("{\"events\":[]}".getBytes(StandardCharsets.UTF_8));
 
         assertThrows(NewsFetchException.class, () -> fetcher.fetch(source));
+    }
+
+    @Test
+    void allowEmptySourceToleratesEmptyCurrentAndNextMonth() {
+        // #186 成功分类学：allow-empty 源的当前/下月零条目=有效空（VALID_EMPTY，源健康），
+        // 不再 fail-closed 计结构失配
+        properties.getAllowEmptySources().add("events");
+        when(fetchClient.get(anyString()))
+                .thenReturn("{\"events\":[]}".getBytes(StandardCharsets.UTF_8));
+
+        List<RawNewsItem> items = fetcher.fetch(source);
+
+        assertTrue(items.isEmpty(), "allow-empty 源零条目=空产出（非抛断）");
+        verify(fetchClient, times(2)).get(anyString());
     }
 }

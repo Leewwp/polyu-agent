@@ -47,7 +47,7 @@ class GoogleNewsRssFetcherTests {
     @BeforeEach
     void setUp() throws Exception {
         fetchClient = mock(NewsHttpFetchClient.class);
-        fetcher = new GoogleNewsRssFetcher(fetchClient);
+        fetcher = new GoogleNewsRssFetcher(fetchClient, new NewsFetchProperties());
         source = NewsSourceDO.builder()
                 .id(10L).sourceKey("gnews-polyu-en").platform("gnews")
                 .fetchEndpoint("https://news.google.com/rss/search?q=PolyU&hl=en-HK&gl=HK&ceid=HK:en")

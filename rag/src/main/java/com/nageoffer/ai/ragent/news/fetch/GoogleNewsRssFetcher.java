@@ -38,6 +38,7 @@ import java.util.List;
 public class GoogleNewsRssFetcher implements NewsSourceFetcher {
 
     private final NewsHttpFetchClient fetchClient;
+    private final NewsFetchProperties properties;
 
     @Override
     public String supportedStrategy() {
@@ -47,8 +48,9 @@ public class GoogleNewsRssFetcher implements NewsSourceFetcher {
     @Override
     public List<RawNewsItem> fetch(NewsSourceDO source) {
         byte[] xml = fetchClient.get(source.getFetchEndpoint());
+        boolean failClosedOnEmpty = !properties.isAllowEmptySource(source.getSourceKey());
         List<RawNewsItem> items = new ArrayList<>();
-        for (NewsRssParser.RssEntry entry : NewsRssParser.parse(xml)) {
+        for (NewsRssParser.RssEntry entry : NewsRssParser.parse(xml, failClosedOnEmpty)) {
             // description 片段只解析一次，供原文链接提取与锚文本标题清洗共用
             Document fragment = entry.description() == null || entry.description().isBlank()
                     ? null : Jsoup.parse(entry.description());

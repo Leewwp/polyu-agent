@@ -28,9 +28,10 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.heat.NewsHeatService;
-import com.nageoffer.ai.ragent.news.fetch.NewsFetchDeferredException;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchOutcome;
 import com.nageoffer.ai.ragent.news.service.impl.NewsEnrichService;
 import com.nageoffer.ai.ragent.news.service.impl.NewsFetchService;
+import com.nageoffer.ai.ragent.news.service.impl.NewsSourceHealthService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,12 +49,17 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * 资讯抓取定时任务（接线抓取、LLM 补全与人工抽检日志）
+ * 资讯抓取定时任务（接线抓取、LLM 补全与人工抽检日志；#186 加日级探活）
  *
- * <p>轮次序列：逐源抓取（runSafely 隔离，失败滞回 ≥3 自动禁源）→ LLM 补全批
- * （缺摘要条目，逐条隔离）→ 热度重算 → 人工抽检日志（仅首段轮次，日志输出当日新增
- * 与随机 5 条，供人工抽验）。每步独立隔离，单步失败不阻断后续步骤。
- * flag rag.news.enabled 关（默认）时本组件不装配，无任何调度行为。
+ * <p>轮次序列：逐源抓取（六类结果分类学+健康记账：defer 零计数豁免、结构失配/
+ * 网络失败滞回 ≥3 自动隔离、策略禁止立即转停）→ LLM 补全批（缺摘要条目，逐条隔离）
+ * → 热度重算 → 人工抽检日志（仅首段轮次，日志输出当日新增与随机 5 条，供人工抽验）。
+ * 每步独立隔离，单步失败不阻断后续步骤。flag rag.news.enabled 关（默认）时本组件
+ * 不装配，无任何调度行为。
+ *
+ * <p>探活 {@link #probeAutoIsolatedSources()}：日级（默认 08:30，cron 外置
+ * rag.news.probe-cron）对自动隔离源（disabled_reason=auto）探活——人工停用/策略
+ * 禁止不探；两次有效完整成功自动复归（编排细节见 NewsSourceHealthService）。
  */
 @Slf4j
 @Component
@@ -80,6 +86,7 @@ public class NewsFetchJob {
     private final NewsItemTopicMapper itemTopicMapper;
     private final NewsTopicMapper topicMapper;
     private final NewsFetchService fetchService;
+    private final NewsSourceHealthService healthService;
     private final NewsEnrichService enrichService;
     private final NewsHeatService heatService;
     private final Supplier<Date> nowSupplier;
@@ -90,9 +97,11 @@ public class NewsFetchJob {
                         NewsItemTopicMapper itemTopicMapper,
                         NewsTopicMapper topicMapper,
                         NewsFetchService fetchService,
+                        NewsSourceHealthService healthService,
                         NewsEnrichService enrichService,
                         NewsHeatService heatService) {
-        this(sourceMapper, itemMapper, itemTopicMapper, topicMapper, fetchService, enrichService, heatService, Date::new);
+        this(sourceMapper, itemMapper, itemTopicMapper, topicMapper, fetchService, healthService,
+                enrichService, heatService, Date::new);
     }
 
     /**
@@ -103,6 +112,7 @@ public class NewsFetchJob {
                  NewsItemTopicMapper itemTopicMapper,
                  NewsTopicMapper topicMapper,
                  NewsFetchService fetchService,
+                 NewsSourceHealthService healthService,
                  NewsEnrichService enrichService,
                  NewsHeatService heatService,
                  Supplier<Date> nowSupplier) {
@@ -111,6 +121,7 @@ public class NewsFetchJob {
         this.itemTopicMapper = itemTopicMapper;
         this.topicMapper = topicMapper;
         this.fetchService = fetchService;
+        this.healthService = healthService;
         this.enrichService = enrichService;
         this.heatService = heatService;
         this.nowSupplier = nowSupplier;
@@ -128,23 +139,31 @@ public class NewsFetchJob {
             return;
         }
         log.info("[news] 抓取轮启动：{} 个启用信源", sources.size());
-        // 阶段一：逐源取候选（失败隔离+滞回；defer 豁免不计滞回）
+        // 阶段一：逐源取候选（六类分类+健康记账：defer 零计数豁免在健康服务落地）
         List<NewsFetchService.SourceCandidates> batches = new ArrayList<>(sources.size());
         int failures = 0;
+        int defers = 0;
         for (NewsSourceDO source : sources) {
             try {
-                batches.add(fetchService.fetchCandidates(source));
-            } catch (NewsFetchDeferredException deferred) {
-                // defer 不是失败（#152）：源健康，本轮按源站 Crawl-delay 豁免——不计滞回
-                // 不计失败数，调度器已立即继续其它源；豁免到期后的轮次自然恢复抓取
-                log.info("[news] 源 {} 本轮 defer（源站 Crawl-delay 超单次等待上限，豁免期后再抓）：{}",
-                        source.getSourceKey(), deferred.getMessage());
+                NewsFetchService.SourceFetchResult result = fetchService.fetch(source);
+                healthService.recordFetchOutcome(source, result);
+                if (result.isValid()) {
+                    batches.add(new NewsFetchService.SourceCandidates(source, result.items()));
+                } else if (result.outcome() == NewsFetchOutcome.DEFER) {
+                    defers++;
+                    log.info("[news] 源 {} 本轮 defer（源站 Crawl-delay 超单次等待上限，零计数豁免，豁免期后再抓）：{}",
+                            source.getSourceKey(), result.detail());
+                } else {
+                    failures++;
+                }
             } catch (Exception e) {
+                // fetch 已内部归类不抛；这里兜底 JVM 级故障（如 OOM 前兆）——不影响其余源
                 failures++;
-                log.error("[news] 源 {} 本轮失败（滞回已计）：{}", source.getSourceKey(), e.getMessage(), e);
+                log.error("[news] 源 {} 本轮异常退出（健康未记账）：{}", source.getSourceKey(), e.getMessage(), e);
             }
         }
-        log.info("[news] 候选收集结束：{} 源成功，失败 {} 源", batches.size(), failures);
+        log.info("[news] 候选收集结束：{} 源成功，失败 {} 源，defer {} 源（不计失败）",
+                batches.size(), failures, defers);
         // 阶段二：整轮全局公平准入（48h 归档/全站日上限/按源轮转，#185）
         runSafely("公平准入", () -> fetchService.admitAll(batches));
         // 待富化 TTL 收尾：超龄 pending → expired 终态退出待办（#185）
@@ -159,6 +178,22 @@ public class NewsFetchJob {
         runSafely("热度重算", () ->
                 log.info("[news] 轮末热度重算：{} 条变更", heatService.recomputeHeat()));
         runSafely("晨报抽样", this::logMorningSample);
+    }
+
+    /**
+     * 日级探活（#186）：自动隔离源低频探活——仅 disabled_reason=auto（人工停用/
+     * 策略禁止不探），每源每 HKT 日至多一次，连续两次有效完整成功（≤48h 窗口）
+     * 自动复归；复归内容经下一常规轮 #185 准入与 #184 预算进入管线。cron 外置
+     * rag.news.probe-cron，默认 08:30（首轮抓取后半小时，错峰）
+     */
+    @Scheduled(cron = "${rag.news.probe-cron:0 30 8 * * *}")
+    public void probeAutoIsolatedSources() {
+        runSafely("日级探活", () -> {
+            NewsSourceHealthService.ProbeSweepResult result = healthService.probeSweep();
+            if (result.probed() > 0) {
+                log.info("[news] 日级探活完成：探活 {} 源，复归 {} 源", result.probed(), result.recovered());
+            }
+        });
     }
 
     /**
