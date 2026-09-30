@@ -34,7 +34,9 @@ import java.util.stream.Collectors;
  *   <li>结构与覆盖证据：页面学年证据存在；WRITE/VERIFY 日期落学年窗；星期列
  *       校验已在解析器内拦截（矛盾行落 UNKNOWN）；</li>
  *   <li>候选片段全量归类：未知候选必须为 0（HTTP 200/锚点/行数下限/未知率≤10%
- *       均不能替代）；</li>
+ *       均不能替代）；writer 源 WRITE 候选空集下限（#195 审核修正防线 B）——
+ *       空候选集不得静默五门全过（防结构改版后整源全量撤回）；verifier 源
+ *       （{@link CalendarLexicon#VERIFIER_SOURCES}）WRITE=0 合法，豁免；</li>
  *   <li>解析出处闭合：合并由 {@link CandidateMerger} 白名单进行，歧义在这里拦截；</li>
  *   <li>时间与身份合法：exact-range 端点合法有序、WRITE 必有学年。</li>
  * </ol>
@@ -72,6 +74,13 @@ public final class SourceGate {
         if (!unknowns.isEmpty()) {
             reasons.add("未知候选 %d 个：%s".formatted(unknowns.size(),
                     unknowns.stream().map(KeyDateCandidate::getLocator).collect(Collectors.joining(", "))));
+        }
+        // 防线 B：writer 源 WRITE 候选空集下限——候选集空（0 WRITE + 0 UNKNOWN）时
+        // 五门原本全部静默通过，随后 applyComplete 的撤回循环会把该源覆盖学年全部
+        // published 行撤空。verifier 源零写径是其合同（WRITE=0 合法），按词表豁免
+        boolean writerSource = !CalendarLexicon.VERIFIER_SOURCES.contains(sourceKey);
+        if (writerSource && cands.stream().noneMatch(c -> c.getDisposition() == Disposition.WRITE)) {
+            reasons.add("writer 源零 WRITE 候选（页面结构改版或全部行不可归类）——空候选不得发布或触发撤回");
         }
         String ay = CalendarPageParser.pageAy(sourceKey, pageText,
                 "cal-academic-calendar".equals(sourceKey) ? rows : null);

@@ -31,6 +31,11 @@ import java.util.Map;
  *
  * <p>主表：学期行 | 考试区间列 | 时间表发布窗列。值可为区间式或模糊窗式
  * （Middle/Mid 别名同桶）。
+ *
+ * <p>fail-closed（#195 审核修正，防线 A）：表头行（r0）与空行之外的非空数据行
+ * 学期标签未命中词表 → 该行落 UNKNOWN（整源退化）——与其余三源同口径；校验列
+ * 缺失同理落 UNKNOWN 而非抛 IndexOutOfBounds。verifier 源 WRITE=0 合法（零写径），
+ * 由 {@link SourceGate} 的 writer 空集下限豁免。
  */
 public class ExamTimetableParser implements CalendarPageParser {
 
@@ -52,7 +57,12 @@ public class ExamTimetableParser implements CalendarPageParser {
         List<KeyDateCandidate> out = new ArrayList<>();
         for (int ri = 0; ri < rows.size(); ri++) {
             List<String> r = rows.get(ri);
-            if (ri == 0 || r.isEmpty() || !TERM_ROWS.containsKey(r.get(0))) {
+            if (ri == 0 || r.isEmpty()) {
+                continue; // 表头行/空行合法跳过（#2/#3/#5 先例同口径）
+            }
+            if (!TERM_ROWS.containsKey(r.get(0))) {
+                out.add(new KeyDateCandidate(sourceKey(), "r" + ri, String.join(" | ", r),
+                        Disposition.UNKNOWN, "学期行标签未命中词表：" + r.get(0)));
                 continue;
             }
             String term = TERM_ROWS.get(r.get(0));
@@ -66,6 +76,11 @@ public class ExamTimetableParser implements CalendarPageParser {
 
     private void verifyCell(List<KeyDateCandidate> out, int ri, int ci, List<String> r, String term,
                             String code, String slot, String note, String ay, String ayEvidence) {
+        if (ci >= r.size()) {
+            out.add(new KeyDateCandidate(sourceKey(), "r" + ri + ":c" + ci, String.join(" | ", r),
+                    Disposition.UNKNOWN, "校验列缺失（行仅 " + r.size() + " 列，取不到第 " + ci + " 列）"));
+            return;
+        }
         String val = r.get(ci).strip();
         String raw = r.get(0) + " | " + val;
         String loc = "r" + ri + ":c" + ci;

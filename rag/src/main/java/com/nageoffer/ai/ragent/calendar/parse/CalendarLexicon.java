@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.calendar.parse;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -41,6 +42,14 @@ public final class CalendarLexicon {
             "cal-timetable-exam-results", "https://www.polyu.edu.hk/ar/students-in-taught-programmes/annual-schedules/timetable-exam-assessment/",
             "cal-exam-timetable", "https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/examination-timetable-and-arrangements/",
             "cal-assessment-results", "https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/assessment-results/");
+
+    /**
+     * 纯校验源（verifier，零事件写径；合同§2 与 t_key_date_source.role 同口径）。
+     * 门禁 writer 空集下限（#195 审核修正防线 B）只对 writer 源生效——verifier 源
+     * WRITE=0 是合法状态（零写径即其合同）。放词表而非解析器接口：SOURCE_URLS/
+     * AY_PROSE 同为按 source_key 承载的源级固定常量，单一事实源两处 evaluate 复用
+     */
+    public static final Set<String> VERIFIER_SOURCES = Set.of("cal-exam-timetable");
 
     /**
      * 学期措辞→学期码（AY/S1/S2/SU；AY=学年级事件如假期/学年结束）

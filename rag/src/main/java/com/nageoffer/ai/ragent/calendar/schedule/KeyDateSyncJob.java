@@ -83,9 +83,11 @@ public class KeyDateSyncJob {
     }
 
     /**
-     * 日级同步；cron 外置 rag.calendar.sync-cron（默认每日 07:30 HKT 服务器时区）
+     * 日级同步；cron 外置 rag.calendar.sync-cron（默认每日 07:30）。zone 显式
+     * Asia/Hong_Kong（#195 审核修正 P3：票面合同即 HKT 口径；容器 JVM 默认时区
+     * 是 UTC，不显式声明则实际 15:30 HKT 才跑——对齐合同非行为变更）
      */
-    @Scheduled(cron = "${rag.calendar.sync-cron:0 30 7 * * *}")
+    @Scheduled(cron = "${rag.calendar.sync-cron:0 30 7 * * *}", zone = "Asia/Hong_Kong")
     public void syncAllSources() {
         List<KeyDateSourceDO> sources = sourceMapper.selectList(new LambdaQueryWrapper<KeyDateSourceDO>()
                 .eq(KeyDateSourceDO::getEnabled, "1"));
@@ -103,12 +105,25 @@ public class KeyDateSyncJob {
             } catch (NewsFetchException e) {
                 // 抓取失败=退化路径（零事件写、保留最后完整版本、状态机计退化）
                 log.warn("[calendar] 源 {} 抓取失败（按退化轮处理）：{}", source.getSourceKey(), e.getMessage());
-                syncService.applyDegraded(source, List.of("抓取失败：" + e.getMessage()));
+                safeApplyDegraded(source, "抓取失败：" + e.getMessage());
             } catch (Exception e) {
                 log.error("[calendar] 源 {} 同步异常（隔离计失败轮，不阻断其余源）",
                         source.getSourceKey(), e);
-                syncService.applyDegraded(source, List.of("同步异常：" + e.getMessage()));
+                safeApplyDegraded(source, "同步异常：" + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * catch 面内的退化记账自身再失败（如 DB 抖动）不得逃逸中断本轮其余源
+     * （#195 审核修正 P3）——只记日志；streak 未清零，下一轮自然重试
+     */
+    private void safeApplyDegraded(KeyDateSourceDO source, String reason) {
+        try {
+            syncService.applyDegraded(source, List.of(reason));
+        } catch (Exception ex) {
+            log.error("[calendar] 源 {} 退化记账失败（本轮放弃记账，不影响其余源）：{}",
+                    source.getSourceKey(), ex.getMessage(), ex);
         }
     }
 

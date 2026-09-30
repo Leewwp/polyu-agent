@@ -22,6 +22,7 @@ import com.nageoffer.ai.ragent.calendar.model.KeyDateCandidate;
 import com.nageoffer.ai.ragent.calendar.parse.AcademicCalendarParser;
 import com.nageoffer.ai.ragent.calendar.parse.AssessmentResultsParser;
 import com.nageoffer.ai.ragent.calendar.parse.CalendarHtmlTables;
+import com.nageoffer.ai.ragent.calendar.parse.CandidateMerger;
 import com.nageoffer.ai.ragent.calendar.parse.ExamTimetableParser;
 import com.nageoffer.ai.ragent.calendar.parse.FeePaymentAnnualParser;
 import com.nageoffer.ai.ragent.calendar.parse.SourceGate;
@@ -52,6 +53,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 变异，与 replay.py 反例执行记录逐条对齐。K01–K06/K08/K10/K11/K12（状态机
  * 面）为纯内存；K07/K09 的存储面（同 UID 改期/撤回/恢复、跨学年零撤回、退化
  * 零写、源级原子性）在真库门控 IT {@code KeyDateSyncPgIt} 复跑。
+ * K13/K14/K16 为 #195 审核修正反例（防线 A fail-closed / 防线 B writer 空集
+ * 下限 / congregation 身份键分桶）；防线 C 存储面在 {@code KeyDateSyncPgIt} K15。
  */
 class CalendarCounterCaseTests {
 
@@ -397,6 +400,134 @@ class CalendarCounterCaseTests {
         }
         assertEquals(KeyDateSourceStateMachine.Mode.ACTIVE, hash.getMode(),
                 "哈希 30 天不变 → 仍 active（年度表常态，不判死）");
+    }
+
+    // --------------------------------------------------------------- K13（#195 审核修正防线 A）
+
+    /**
+     * K13 TERM_ROWS 两解析器（#4/#5）fail-closed：不可归类数据行不再静默跳过——
+     * 学期标签未命中 → UNKNOWN→整源退化（原实现 0 候选可静默过门）；数据列缺失
+     * 判 UNKNOWN 而非抛 IndexOutOfBounds 中断解析
+     */
+    @Test
+    void k13TermRowsParsersFailClosedOnUnclassifiableRows() throws IOException {
+        String carHtml = snap("cal-assessment-results");
+        String carText = CalendarHtmlTables.visibleText(carHtml);
+        SourceGate.GateResult carUnknown = SourceGate.evaluate(new AssessmentResultsParser(),
+                mutate(carHtml, main -> {
+                    main.get(1).set(0, "Winter Term");
+                    return main;
+                }), carText);
+        assertTrue(carUnknown.degraded(), "未知学期行 → 整源退化（fail-closed，对齐其余三源）");
+        assertEquals(1, count(carUnknown, Disposition.UNKNOWN));
+        assertEquals("r1", carUnknown.candidates().stream()
+                .filter(c -> c.getDisposition() == Disposition.UNKNOWN).findFirst().orElseThrow().getLocator());
+
+        String cetHtml = snap("cal-exam-timetable");
+        SourceGate.GateResult cetUnknown = SourceGate.evaluate(new ExamTimetableParser(),
+                mutate(cetHtml, main -> {
+                    main.get(2).set(0, "Winter Term");
+                    return main;
+                }), CalendarHtmlTables.visibleText(cetHtml));
+        assertTrue(cetUnknown.degraded(), "verifier 源同样 fail-closed：未知行拦截发布路径");
+        assertEquals(1, count(cetUnknown, Disposition.UNKNOWN));
+        assertEquals("r2", cetUnknown.candidates().stream()
+                .filter(c -> c.getDisposition() == Disposition.UNKNOWN).findFirst().orElseThrow().getLocator());
+
+        // 列缺失（学期行仅 1 列）：两个数据/校验列各判 1 UNKNOWN，不抛越界异常
+        SourceGate.GateResult carShort = SourceGate.evaluate(new AssessmentResultsParser(),
+                mutate(carHtml, main -> {
+                    main.set(1, new ArrayList<>(List.of("Semester One")));
+                    return main;
+                }), carText);
+        assertTrue(carShort.degraded());
+        assertEquals(2, count(carShort, Disposition.UNKNOWN), "c1/c2 各一条 UNKNOWN");
+        SourceGate.GateResult cetShort = SourceGate.evaluate(new ExamTimetableParser(),
+                mutate(cetHtml, main -> {
+                    main.set(1, new ArrayList<>(List.of("Semester One")));
+                    return main;
+                }), CalendarHtmlTables.visibleText(cetHtml));
+        assertTrue(cetShort.degraded());
+        assertEquals(2, count(cetShort, Disposition.UNKNOWN));
+    }
+
+    // --------------------------------------------------------------- K14（#195 审核修正防线 B）
+
+    /**
+     * K14 writer 源 WRITE 空集下限：0 WRITE + 0 UNKNOWN 的空候选不再静默五门
+     * 全过（否则随后 applyComplete 空 seen 表会把覆盖学年 published 全撤）；
+     * verifier 源（cal-exam-timetable）零写径 WRITE=0 是合法态，豁免
+     */
+    @Test
+    void k14WriterZeroWriteEmptyCandidatesDegradeAtGate() throws IOException {
+        String carHtml = snap("cal-assessment-results");
+        String carText = CalendarHtmlTables.visibleText(carHtml);
+        // 页面学年散文证据仍在、主表仅剩表头行 → 解析 0 候选（0 WRITE + 0 UNKNOWN）
+        SourceGate.GateResult headerOnly = SourceGate.evaluate(new AssessmentResultsParser(),
+                List.of(List.of("", "Announcement Date - Subject Results", "Announcement Date - Overall Results")),
+                carText);
+        assertTrue(headerOnly.degraded(), "writer 源零 WRITE 候选 → degraded");
+        assertTrue(headerOnly.reasons().stream().anyMatch(s -> s.contains("writer 源零 WRITE 候选")),
+                "下限原因可查：" + headerOnly.reasons());
+        assertEquals(0, headerOnly.candidates().size());
+        assertEquals(0, headerOnly.events().size());
+
+        // 直接注入空候选集（K 反例注入路径同源）——原实现此处五门全过
+        SourceGate.GateResult injected = SourceGate.evaluate("cal-assessment-results",
+                List.of(), carText, List.of());
+        assertTrue(injected.degraded(), "空候选集不得静默通过门禁");
+
+        String cetHtml = snap("cal-exam-timetable");
+        SourceGate.GateResult verifier = SourceGate.evaluate("cal-exam-timetable",
+                List.of(), CalendarHtmlTables.visibleText(cetHtml), List.of());
+        assertFalse(verifier.degraded(), "verifier 源 WRITE=0 合法（零写径合同），不受 writer 下限影响");
+    }
+
+    // --------------------------------------------------------------- K16（#195 审核修正 P2-b）
+
+    /**
+     * K16 congregation 按身份键分桶（与 pairs 同口径）：跨身份键各自成事件不互并
+     * （原实现全局单桶取 parts.get(0) 身份静默合并）；同键白名单形态=恰两段互异
+     * 月份——同月双实例判 ambiguous（同键重复检测对 congregation 生效）
+     */
+    @Test
+    void k16CongregationBucketsByIdentityKey() {
+        List<KeyDateCandidate> events = CandidateMerger.merge(List.of(
+                cong("2026/27", "r12", LocalDate.of(2026, 10, 31), null),
+                cong("2026/27", "r14", LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 21)),
+                cong("2027/28", "r12", LocalDate.of(2027, 10, 30), null),
+                cong("2027/28", "r14", LocalDate.of(2027, 11, 1), LocalDate.of(2027, 11, 20))));
+        assertEquals(2, events.size(), "两个身份键 → 两个事件，不互并");
+        KeyDateCandidate y27 = events.stream().filter(e -> "2026/27".equals(e.getAy())).findFirst().orElseThrow();
+        KeyDateCandidate y28 = events.stream().filter(e -> "2027/28".equals(e.getAy())).findFirst().orElseThrow();
+        assertFalse(y27.isAmbiguous());
+        assertFalse(y28.isAmbiguous());
+        assertEquals(LocalDate.of(2026, 10, 31), y27.getDateStart(), "2026/27 桶取自身首段起点");
+        assertEquals(LocalDate.of(2026, 11, 21), y27.getDateEnd());
+        assertEquals(LocalDate.of(2027, 10, 30), y28.getDateStart(), "2027/28 桶身份与区间独立（不被首桶吞并）");
+        assertEquals(LocalDate.of(2027, 11, 20), y28.getDateEnd());
+
+        // 同键双实例但同月（白名单「跨月两段」外）→ ambiguous → 整源退化
+        List<KeyDateCandidate> sameMonth = CandidateMerger.merge(List.of(
+                cong("2026/27", "r12", LocalDate.of(2026, 10, 10), null),
+                cong("2026/27", "r14", LocalDate.of(2026, 10, 31), null)));
+        assertEquals(1, sameMonth.size());
+        assertTrue(sameMonth.get(0).isAmbiguous(), "同键白名单外多实例 → 身份歧义");
+        assertEquals(List.of("r12", "r14"), sameMonth.get(0).getProvenance());
+    }
+
+    private static KeyDateCandidate cong(String ay, String locator, java.time.LocalDate start, java.time.LocalDate end) {
+        KeyDateCandidate c = new KeyDateCandidate("cal-academic-calendar", locator,
+                locator + " Congregation", Disposition.WRITE, "写域：同届毕业典礼总体区间（跨月两段白名单合并）");
+        c.setAy(ay);
+        c.setTerm("AY");
+        c.setEventCode("congregation");
+        c.setAudienceCode("all");
+        c.setSlot("overall-window");
+        c.setPrecision(end == null ? "exact-day" : "exact-range");
+        c.setDateStart(start);
+        c.setDateEnd(end);
+        return c;
     }
 
     // --------------------------------------------------------------- 共用

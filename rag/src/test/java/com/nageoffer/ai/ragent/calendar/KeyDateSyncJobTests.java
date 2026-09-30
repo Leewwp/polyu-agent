@@ -145,4 +145,29 @@ class KeyDateSyncJobTests {
         verify(syncService, times(1)).applyComplete(any(), eq("2026/27"), anyList());
         verify(syncService, times(1)).applyDegraded(any(), anyList());
     }
+
+    /**
+     * #195 审核修正 P3：catch 面内退化记账自身失败（如 DB 抖动）不得逃逸中断
+     * 本轮其余源——记账异常只记日志，后续源照常同步
+     */
+    @Test
+    void degradedBookkeepingFailureDoesNotBreakRemainingSources() {
+        KeyDateSourceMapper sourceMapper = mock(KeyDateSourceMapper.class);
+        KeyDateSyncService syncService = mock(KeyDateSyncService.class);
+        NewsHttpFetchClient fetchClient = mock(NewsHttpFetchClient.class);
+        when(sourceMapper.selectList(any())).thenReturn(java.util.List.of(
+                source("cal-assessment-results", "writer", "active"),
+                source("cal-academic-calendar", "writer", "active")));
+        when(fetchClient.get(anyString()))
+                .thenThrow(new com.nageoffer.ai.ragent.news.fetch.NewsFetchException("HTTP 503", true))
+                .thenReturn(CAC_HTML.getBytes(StandardCharsets.UTF_8));
+        org.mockito.Mockito.doThrow(new RuntimeException("db down"))
+                .when(syncService).applyDegraded(any(), anyList());
+        KeyDateSyncJob job = new KeyDateSyncJob(sourceMapper, syncService, fetchClient);
+
+        job.syncAllSources();
+        // 第一源退化记账抛错被吞（不逃逸）；第二源仍走完发布——本轮未被中断
+        verify(syncService).applyDegraded(any(), anyList());
+        verify(syncService, times(1)).applyComplete(any(), eq("2026/27"), anyList());
+    }
 }

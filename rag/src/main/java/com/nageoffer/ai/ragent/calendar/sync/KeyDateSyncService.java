@@ -111,10 +111,28 @@ public class KeyDateSyncService {
 
     /**
      * 完整候选版本原子发布（writer 源）。coverageAy=本页覆盖学年（撤回域限定；
-     * 事件自身 academic_year 可早/晚于覆盖学年——如 class-tt-release 目标学年）
+     * 事件自身 academic_year 可早/晚于覆盖学年——如 class-tt-release 目标学年）。
+     *
+     * <p>防线 C（#195 审核修正，纵深兜底）：本次完整候选为空且库内该源覆盖学年
+     * 存在 published 行 → 拒绝发布并按退化处理（原因入 last_diag 可查），不执行
+     * 撤回——防线 A/B（解析 fail-closed/门禁 writer 空集下限）失效时的保底：
+     * 空 events 的 seen 表会把该覆盖学年全部 published 行撤空且无告警。
      */
     public CompleteResult applyComplete(KeyDateSourceDO source, String coverageAy,
                                         List<KeyDateCandidate> events) {
+        if (events.isEmpty()) {
+            Long published = keyDateMapper.selectCount(new LambdaQueryWrapper<KeyDateDO>()
+                    .eq(KeyDateDO::getSourceKey, source.getSourceKey())
+                    .eq(KeyDateDO::getAcademicYear, coverageAy)
+                    .eq(KeyDateDO::getStatus, "published"));
+            if (published != null && published > 0) {
+                log.warn("[calendar] 源 {} 完整候选为空但库内覆盖学年 {} 有 {} 条 published——按退化处理，不发布不撤回（防线 C 兜底）",
+                        source.getSourceKey(), coverageAy, published);
+                applyDegraded(source, List.of("空完整候选拒绝发布（防线 C 兜底）：库内覆盖学年 " + coverageAy
+                        + " 仍有 " + published + " 条 published 事件，撤回被拦截"));
+                return new CompleteResult(List.of(), List.of(), List.of(), 0);
+            }
+        }
         return txTemplate.execute(tx -> {
             LocalDateTime now = LocalDateTime.now(clock);
             List<String> upserted = new ArrayList<>();
@@ -358,6 +376,8 @@ public class KeyDateSyncService {
     }
 
     private static KeyDateSourceStateMachine machineOf(KeyDateSourceDO source) {
+        // manual_disabled 仅内存态：库面 CHECK（ck_key_date_source_auto）只允许
+        // active/auto_isolated——人工停用的落库表示是 enabled='0'，不走本列
         KeyDateSourceStateMachine.Mode mode = switch (source.getAutoState() == null ? "active" : source.getAutoState()) {
             case "auto_isolated" -> KeyDateSourceStateMachine.Mode.AUTO_ISOLATED;
             case "manual_disabled" -> KeyDateSourceStateMachine.Mode.MANUAL_DISABLED;
@@ -368,11 +388,22 @@ public class KeyDateSyncService {
                 source.getProbeOkStreak() == null ? 0 : source.getProbeOkStreak());
     }
 
-    private static void persistMachine(KeyDateSourceDO source, KeyDateSourceStateMachine machine) {
+    /**
+     * 状态机落源行（包私有=护栏测试直测，snapshotOf 同先例）：MANUAL_DISABLED
+     * 仅内存态禁落库（#195 审核修正 P3）——auto_state 的 CHECK 约束只允许
+     * active/auto_isolated，人工停用落库面=enabled='0'；遇 MANUAL_DISABLED 时
+     * 保持 auto_state 原值不动（不写 manual_disabled 违约值）
+     */
+    static void persistMachine(KeyDateSourceDO source, KeyDateSourceStateMachine machine) {
+        if (machine.getMode() == KeyDateSourceStateMachine.Mode.MANUAL_DISABLED) {
+            source.setDegradedStreak(machine.getDegradedStreak());
+            source.setProbeOkStreak(machine.getProbeOkStreak());
+            return;
+        }
         source.setAutoState(switch (machine.getMode()) {
             case AUTO_ISOLATED -> "auto_isolated";
-            case MANUAL_DISABLED -> "manual_disabled";
             case ACTIVE -> "active";
+            case MANUAL_DISABLED -> "active"; // 不可达（上方已过滤）——编译期穷尽性要求
         });
         source.setDegradedStreak(machine.getDegradedStreak());
         source.setProbeOkStreak(machine.getProbeOkStreak());

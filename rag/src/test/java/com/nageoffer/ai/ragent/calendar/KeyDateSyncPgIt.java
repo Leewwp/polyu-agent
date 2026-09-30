@@ -44,6 +44,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -54,6 +55,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -125,7 +127,10 @@ class KeyDateSyncPgIt {
     }
 
     @AfterEach
+    @BeforeEach
     void cleanTables() {
+        // 每用例前后全清（类注释「每用例前全清自净」口径）：260930 迁移已种五源行，
+        // 用例前也须清——selectList(null).get(0) 等断言只认本用例自插行
         keyDateMapper.delete(null);
         sourceMapper.delete(null);
     }
@@ -474,6 +479,43 @@ class KeyDateSyncPgIt {
                 .eq(KeyDateSourceDO::getSourceKey, "cal-exam-timetable"));
         assertNotNull(cetRow.getLastDiag(), "discrepancy 写入源诊断");
         assertTrue(cetRow.getLastDiag().contains("discrepancy"));
+    }
+
+    /**
+     * K15 存储面（#195 审核修正防线 C）：完整候选为空 + 库内覆盖学年已有
+     * published → 拒绝发布按退化处理，不执行撤回（空 seen 表曾会把该源覆盖学年
+     * 全部 published 撤空且无告警）；last_success_at/最后完整快照不刷新，退化
+     * 计数与拒绝原因落库可查
+     */
+    @Test
+    void k15EmptyCompleteCandidateNeverWithdrawsPublished() throws IOException {
+        KeyDateSourceDO cfp = source("cal-fee-payment-annual", "writer");
+        syncService.applyComplete(cfp, "2026/27", gate("cal-fee-payment-annual").events());
+        List<KeyDateDO> published = keyDateMapper.selectList(null);
+        assertTrue(published.size() >= 13, "基线已发布");
+        assertTrue(published.stream().allMatch(r -> "published".equals(r.getStatus())));
+        KeyDateSourceDO before = sourceMapper.selectList(null).get(0);
+        LocalDateTime lastSuccess = before.getLastSuccessAt();
+        String snapshot = before.getLastCompleteSnapshot();
+        assertNotNull(lastSuccess);
+
+        KeyDateSyncService.CompleteResult r = syncService.applyComplete(cfp, "2026/27", List.of());
+        assertEquals(0, r.withdrawn().size(), "零撤回（防线 C 兜底拦截）");
+        assertEquals(0, r.upserted().size());
+        assertEquals(0, r.restored().size());
+        List<KeyDateDO> after = keyDateMapper.selectList(null);
+        assertEquals(published.size(), after.size(), "事件行零变化");
+        assertTrue(after.stream().allMatch(row -> "published".equals(row.getStatus())),
+                "全部保持 published——空候选不触发限定域撤回");
+
+        KeyDateSourceDO degraded = sourceMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KeyDateSourceDO>()
+                        .eq(KeyDateSourceDO::getSourceKey, "cal-fee-payment-annual"));
+        assertTrue(degraded.getLastDiag().contains("防线 C"), "拒绝原因入 last_diag 可查：" + degraded.getLastDiag());
+        assertEquals(1, degraded.getDegradedStreak(), "按退化轮计（状态机 onParse(true)）");
+        assertEquals("active", degraded.getAutoState(), "1 轮退化未达隔离阈值");
+        assertEquals(lastSuccess, degraded.getLastSuccessAt(), "退化轮不刷新 last_success_at");
+        assertEquals(snapshot, degraded.getLastCompleteSnapshot(), "最后完整快照不被空候选覆盖");
     }
 
     /**

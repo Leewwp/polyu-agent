@@ -24,7 +24,9 @@ package com.nageoffer.ai.ragent.calendar.sync;
  *   <li>auto_isolated 保留日级只读探测（探测轮不发布候选——由调度层拦截）；
  *       连续 2 轮完整有效候选 → 恢复 active（恢复后的下一轮才发布）；</li>
  *   <li>manual_disabled（人工停用/策略禁止）任何输入都不变——不自动复活，
- *       与自动隔离严格区分；</li>
+ *       与自动隔离严格区分。仅内存态：人工停用的落库表示是
+ *       t_key_date_source.enabled='0'（auto_state 的 CHECK 约束只允许
+ *       active/auto_isolated，本枚举值禁落库——同步服务 persist 前过滤）；</li>
  *   <li>哈希长期不变是年度表正常情况——本状态机无「内容不变判死」路径。源失败
  *       不撤回事件（退化轮零写由同步服务保证，与状态机正交）。</li>
  * </ul>

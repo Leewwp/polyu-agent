@@ -20,15 +20,19 @@
 --     +90 天由导出层执行，本表不建留存时钟列。
 --   t_key_date_source 源状态合同（合同§6）：
 --     role ∈ writer(四)/verifier(一，cal-exam-timetable 零事件写径)；
---     enabled=人工启停（manual_disabled 语义，不自动复活）；auto_state ∈
---     active/auto_isolated（自动隔离=3 轮退化；隔离期日级只读探测、两次完整探测
---     复归——与人工停用严格区分）；last_success_at 只在完整版本原子发布后刷新
+--     enabled=人工启停（状态机 MANUAL_DISABLED 语义，仅内存态不落 auto_state；
+--     落库停用面=enabled='0'，不自动复活）；auto_state ∈ active/auto_isolated
+--     （自动隔离=3 轮退化；隔离期日级只读探测、两次完整探测复归——与人工停用
+--     严格区分）；last_success_at 只在完整版本原子发布后刷新
 --     （不等于内容更新时间）；last_complete_snapshot=最后完整候选版本（JSON，
 --     退化不覆盖）；last_diag=有界诊断（未知/跳过/discrepancy 摘要，不保凭据）。
--- 索引：限定域撤回扫描（source_key+academic_year+status）、展示排序（precision+
--- date_start）、源状态查询。
--- 只出 SQL 走 upgrades 管道（本地栈验证，生产应用由维护者派发）；新环境走
---   schema_pg.sql 全量初始化已含本变更。本脚本幂等（IF NOT EXISTS，重复执行无害）。
+-- 索引：限定域撤回扫描（source_key+academic_year+status）、展示排序（date_start
+-- 上 published 部分索引——fuzzy 行 date_* 为 NULL 不进展示序）；t_key_date_source
+-- 五行小表，source_key UNIQUE 即源状态查询路径，不另建索引。
+-- 只出 SQL 走 upgrades 管道（本地栈验证，生产应用由维护者派发）；新环境=compose
+--   首启自动装载 schema_pg.sql（DDL，本表变更已含）+ init_data_pg.sql（种子，同下方
+--   五行同源双落）。本脚本幂等（IF NOT EXISTS / ON CONFLICT
+--   DO NOTHING，重复执行无害）。
 -- 调度默认关：rag.calendar.enabled=false（先例 RAG_NEWS_ENABLED），生产启停归维护者。
 
 CREATE TABLE IF NOT EXISTS t_key_date (
@@ -96,3 +100,16 @@ COMMENT ON COLUMN t_key_date.ics_export_state IS 'ICS 导出历史最小承载�
 COMMENT ON TABLE t_key_date_source IS '校历源状态（合同§6）：人工启停（enabled，不自动复活）与自动隔离（auto_state，3 轮退化隔离、两次完整探测复归）严格区分；verifier 零事件写径';
 COMMENT ON COLUMN t_key_date_source.last_success_at IS '最近完整同步时间（完整候选原子发布后才刷新；≠内容更新时间；退化轮不刷新）';
 COMMENT ON COLUMN t_key_date_source.last_complete_snapshot IS '最后完整候选版本快照（JSON）；退化不覆盖——保留用于比对与恢复判定';
+
+-- 五源种子（#195 审核修正补；URL 与 CalendarLexicon.SOURCE_URLS 单一事实源一致，
+-- role 与合同§2 表一致：写者四+纯校验源一）。enabled/auto_state 走表默认值
+-- （'1'/'active'）——人工启停列与全局开关 rag.calendar.enabled 正交：全局默认关，
+-- 打开管线后各源默认参与同步，维护者按行置 enabled='0' 人工停用。
+-- 幂等：uk_key_date_source(source_key) 冲突跳过（先例 260912_news_source_expansion.sql）。
+INSERT INTO t_key_date_source (source_key, source_url, role) VALUES
+  ('cal-academic-calendar',     'https://www.polyu.edu.hk/ar/students-in-taught-programmes/academic-calendar/', 'writer'),
+  ('cal-fee-payment-annual',    'https://www.polyu.edu.hk/ar/students-in-taught-programmes/annual-schedules/fee-payment/', 'writer'),
+  ('cal-timetable-exam-results', 'https://www.polyu.edu.hk/ar/students-in-taught-programmes/annual-schedules/timetable-exam-assessment/', 'writer'),
+  ('cal-exam-timetable',        'https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/examination-timetable-and-arrangements/', 'verifier'),
+  ('cal-assessment-results',    'https://www.polyu.edu.hk/ar/students-in-taught-programmes/examination-information/assessment-results/', 'writer')
+ON CONFLICT (source_key) DO NOTHING;

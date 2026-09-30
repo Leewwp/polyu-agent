@@ -29,6 +29,11 @@ import java.util.Map;
  * 权威写者：各学期科目成绩（subject）与总评成绩（overall）发布日期。两个
  * event_code 独立；定稿日期（#1 的 results-finalisation）与对外发布日期不能合并
  * （合同§3.1）。
+ *
+ * <p>fail-closed（#195 审核修正，防线 A）：表头行（r0）与空行之外的非空数据行
+ * 学期标签未命中词表 → 该行落 UNKNOWN（整源退化）——与其余三源同口径（词表未
+ * 命中不静默跳过，防「结构改版后 0 候选静默过门」）；数据列缺失同理落 UNKNOWN
+ * 而非抛 IndexOutOfBounds。
  */
 public class AssessmentResultsParser implements CalendarPageParser {
 
@@ -50,7 +55,12 @@ public class AssessmentResultsParser implements CalendarPageParser {
         List<KeyDateCandidate> out = new ArrayList<>();
         for (int ri = 0; ri < rows.size(); ri++) {
             List<String> r = rows.get(ri);
-            if (ri == 0 || r.isEmpty() || !TERM_ROWS.containsKey(r.get(0))) {
+            if (ri == 0 || r.isEmpty()) {
+                continue; // 表头行/空行合法跳过（#2/#3 先例同口径）
+            }
+            if (!TERM_ROWS.containsKey(r.get(0))) {
+                out.add(new KeyDateCandidate(sourceKey(), "r" + ri, String.join(" | ", r),
+                        Disposition.UNKNOWN, "学期行标签未命中词表：" + r.get(0)));
                 continue;
             }
             String term = TERM_ROWS.get(r.get(0));
@@ -62,6 +72,11 @@ public class AssessmentResultsParser implements CalendarPageParser {
 
     private void emitRelease(List<KeyDateCandidate> out, int ri, int ci, List<String> r, String term,
                              String code, String slot, String zh, String ay, String ayEvidence) {
+        if (ci >= r.size()) {
+            out.add(new KeyDateCandidate(sourceKey(), "r" + ri + ":c" + ci, String.join(" | ", r),
+                    Disposition.UNKNOWN, "数据列缺失（行仅 " + r.size() + " 列，取不到第 " + ci + " 列）"));
+            return;
+        }
         KeyDateCandidate c = new KeyDateCandidate(sourceKey(), "r" + ri + ":c" + ci,
                 r.get(0) + " | " + r.get(ci).strip(), Disposition.WRITE,
                 "写域：%s成绩发布日".formatted(zh));

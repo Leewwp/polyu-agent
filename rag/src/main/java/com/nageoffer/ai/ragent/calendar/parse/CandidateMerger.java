@@ -33,7 +33,9 @@ import java.util.Map;
  * <p>仅三类合并规则（预定义起止配对，其余合并=身份歧义）：
  * <ul>
  *   <li>pair：exam-period / revision-days 的 commences/ends 两半行合一区间事件；</li>
- *   <li>cross-month-overall：congregation 跨月两段合并为总体区间；</li>
+ *   <li>cross-month-overall：congregation 跨月两段合并为总体区间（#195 审核修正：
+ *       按身份键分桶——与 pairs 同口径；桶外实例各自成事件不互并，白名单形态
+ *       之外的桶内多实例判 ambiguous）；</li>
  * </ul>
  * 同身份键多实例且无规则覆盖 → 标记 ambiguous（整源退化）。合并保留全部出处
  * 映射（provenance 排序列表）与拼接 raw_text——一对多/多对一出处的证据闭合。
@@ -49,7 +51,7 @@ public final class CandidateMerger {
     public static List<KeyDateCandidate> merge(List<KeyDateCandidate> cands) {
         Map<List<String>, KeyDateCandidate> events = new LinkedHashMap<>();
         Map<List<String>, List<KeyDateCandidate>> pairs = new LinkedHashMap<>();
-        List<KeyDateCandidate> congregationParts = null;
+        Map<List<String>, List<KeyDateCandidate>> congregationBuckets = new LinkedHashMap<>();
         for (KeyDateCandidate c : cands) {
             if (c.getDisposition() != Disposition.WRITE) {
                 continue;
@@ -60,10 +62,7 @@ public final class CandidateMerger {
             if (pair) {
                 pairs.computeIfAbsent(key, k -> new ArrayList<>()).add(c);
             } else if (crossMonth) {
-                if (congregationParts == null) {
-                    congregationParts = new ArrayList<>();
-                }
-                congregationParts.add(c);
+                congregationBuckets.computeIfAbsent(key, k -> new ArrayList<>()).add(c);
             } else if (events.containsKey(key)) {
                 KeyDateCandidate first = events.get(key);
                 first.setAmbiguous(true);
@@ -113,15 +112,35 @@ public final class CandidateMerger {
                     .reduce((a, b) -> a + " + " + b).orElse(""));
             out.add(merged);
         }
-        if (congregationParts != null) {
-            List<KeyDateCandidate> parts = congregationParts.stream()
+        for (Map.Entry<List<String>, List<KeyDateCandidate>> e : congregationBuckets.entrySet()) {
+            List<KeyDateCandidate> parts = e.getValue().stream()
                     .sorted(Comparator.comparing(KeyDateCandidate::getDateStart,
                             Comparator.nullsLast(Comparator.naturalOrder())))
                     .toList();
+            // 白名单形态=恰两段且互异月份（同届跨月两段，合同§3/逐源合同表）；
+            // 白名单外（单段不完整/同月两段/≥3 段）→ ambiguous——同键重复检测对
+            // congregation 生效（不再全局收单桶后无声合并）
+            boolean crossMonthPair = parts.size() == 2
+                    && parts.get(0).getDateStart() != null && parts.get(1).getDateStart() != null
+                    && parts.get(0).getDateStart().getMonthValue() != parts.get(1).getDateStart().getMonthValue();
+            if (!crossMonthPair) {
+                KeyDateCandidate broken = new KeyDateCandidate(parts.get(0).getSourceKey(),
+                        String.join(",", parts.stream().map(KeyDateCandidate::getLocator).toList()),
+                        String.join(" + ", parts.stream().map(KeyDateCandidate::getRawText).toList()),
+                        Disposition.WRITE, null);
+                broken.setAy(e.getKey().get(0));
+                broken.setTerm(e.getKey().get(1));
+                broken.setEventCode(e.getKey().get(2));
+                broken.setSlot(e.getKey().get(4));
+                broken.setProvenance(new ArrayList<>(parts.stream().map(KeyDateCandidate::getLocator).toList()));
+                broken.setAmbiguous(true);
+                out.add(broken);
+                continue;
+            }
             KeyDateCandidate merged = parts.get(0).copy();
             merged.setPrecision("exact-range");
             merged.setDateStart(parts.get(0).getDateStart());
-            merged.setDateEnd(parts.get(parts.size() - 1).getDateEnd());
+            merged.setDateEnd(parts.get(1).getDateEnd());
             merged.setProvenance(parts.stream().map(KeyDateCandidate::getLocator).sorted()
                     .collect(java.util.stream.Collectors.toCollection(ArrayList::new)));
             merged.setRawText(parts.stream().map(KeyDateCandidate::getRawText)
