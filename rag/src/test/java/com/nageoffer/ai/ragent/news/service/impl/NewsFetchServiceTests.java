@@ -22,8 +22,12 @@ import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchDeferredException;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchException;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchOutcome;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchPolicyException;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchStructureException;
 import com.nageoffer.ai.ragent.news.fetch.NewsSourceFetcher;
 import com.nageoffer.ai.ragent.news.fetch.NewsUrlNormalizer;
 import com.nageoffer.ai.ragent.news.fetch.RawNewsItem;
@@ -133,40 +137,93 @@ class NewsFetchServiceTests {
         when(itemMapper.selectMaps(any())).thenReturn(rows);
     }
 
-    // ================== 阶段一：候选与滞回（沿既有范式） ==================
+    // ================== 阶段一：六类结果分类学（#186） ==================
 
     @Test
-    void fetchCandidatesInMemoryDedupAndSuccessResetsFailures() {
+    void fetchWithContentDeduplicatesAndValidOutcome() {
         fetcher.items = List.of(item("stub-source", "a", HOUR), item("stub-source", "a", HOUR),
                 item("stub-source", "b", HOUR));
 
-        NewsFetchService.SourceCandidates candidates = service.fetchCandidates(source(1, "stub-source"));
+        NewsFetchService.SourceFetchResult result = service.fetch(source(1, "stub-source"));
 
-        assertEquals(2, candidates.items().size(), "同源同轮 url_hash 去重");
-        verify(sourceMapper, never()).update(any(), any()); // consecutiveFailures=0 时跳过清零写库
+        assertEquals(NewsFetchOutcome.VALID_WITH_CONTENT, result.outcome(), "解析产出 ≥1 条=有效有内容");
+        assertTrue(result.isValid(), "有效结果两类可进阶段二准入");
+        assertEquals(2, result.items().size(), "同源同轮 url_hash 去重");
+        verify(sourceMapper, never()).update(any(), any()); // 健康记账归 NewsSourceHealthService，本服务不写库
     }
 
     @Test
-    void failureIncrementsCounterAndDisablesAtThreshold() {
+    void zeroItemsClassifiedByAllowEmptyConfig() {
+        fetcher.items = List.of();
+        NewsSourceDO configured = source(1, "empty-ok");
+        properties.getAllowEmptySources().add("empty-ok");
+
+        NewsFetchService.SourceFetchResult validEmpty = service.fetch(configured);
+
+        assertEquals(NewsFetchOutcome.VALID_EMPTY, validEmpty.outcome(), "allow-empty 源零条目=有效空（源健康）");
+        assertTrue(validEmpty.isValid(), "有效空同为有效完整成功（探活可复归的合格判定）");
+        assertTrue(validEmpty.items().isEmpty());
+
+        NewsFetchService.SourceFetchResult mismatch = service.fetch(source(2, "empty-not-ok"));
+
+        assertEquals(NewsFetchOutcome.STRUCTURE_MISMATCH, mismatch.outcome(),
+                "未配置 allow-empty 的源零条目=fail-closed 结构失配（模板改版嫌疑）");
+        assertFalse(mismatch.isValid());
+    }
+
+    @Test
+    void transientFetchFailureClassifiesAsNetworkFailureWithoutThrowOrDbWrite() {
         fetcher.failure = new NewsFetchException("HTTP 500", true);
         NewsSourceDO twoFailures = source(1, "stub-source");
         twoFailures.setConsecutiveFailures(2);
 
-        NewsFetchException thrown = assertThrows(NewsFetchException.class,
-                () -> service.fetchCandidates(twoFailures));
-        assertTrue(thrown.isTransientError());
-        assertEquals(3, twoFailures.getConsecutiveFailures());
-        assertFalse(twoFailures.getEnabled());
+        NewsFetchService.SourceFetchResult result = service.fetch(twoFailures);
+
+        assertEquals(NewsFetchOutcome.NETWORK_FAILURE, result.outcome(), "HTTP/IO 故障=网络失败");
+        assertFalse(result.isValid());
+        assertTrue(result.detail().contains("HTTP 500"));
+        // #186 缺陷修复回归：fetch 不再先 recordFailure 再抛——滞回与停用记账整体迁出本服务
+        assertEquals(2, twoFailures.getConsecutiveFailures(), "fetch 不碰滞回计数（健康服务单点记账）");
+        assertTrue(twoFailures.getEnabled(), "fetch 不再直接禁源");
+        verify(sourceMapper, never()).update(any(), any());
         verify(itemMapper, never()).insert(any(NewsItemDO.class));
     }
 
     @Test
-    void unknownStrategyFailsAndCounts() {
+    void deferAndPolicyExceptionsClassifyWithoutTouchingFailures() {
+        NewsSourceDO source = source(1, "stub-source");
+        source.setConsecutiveFailures(2);
+        fetcher.failure = new NewsFetchDeferredException("Crawl-delay 300s 超单次等待上限");
+
+        NewsFetchService.SourceFetchResult deferred = service.fetch(source);
+
+        assertEquals(NewsFetchOutcome.DEFER, deferred.outcome(), "礼貌等待=defer 类");
+        assertFalse(deferred.isValid());
+        assertEquals(2, source.getConsecutiveFailures(),
+                "defer 不清零滞回（豁免=不增不清零，零计数由健康服务保证）");
+
+        fetcher.failure = new NewsFetchPolicyException("robots.txt Disallow: /media/");
+        NewsFetchService.SourceFetchResult forbidden = service.fetch(source);
+
+        assertEquals(NewsFetchOutcome.POLICY_FORBIDDEN, forbidden.outcome(), "robots/守卫拒绝=策略禁止类");
+        assertEquals(2, source.getConsecutiveFailures(), "策略禁止同样不经 fetch 计滞回");
+    }
+
+    @Test
+    void structureExceptionAndUnknownStrategyClassifyAsStructureMismatch() {
         NewsSourceDO source = source(1, "stub-source");
         source.setFetchStrategy("TELEPATHY");
 
-        assertThrows(NewsFetchException.class, () -> service.fetchCandidates(source));
-        assertEquals(1, source.getConsecutiveFailures());
+        NewsFetchService.SourceFetchResult unknown = service.fetch(source);
+
+        assertEquals(NewsFetchOutcome.STRUCTURE_MISMATCH, unknown.outcome(), "未知 fetch_strategy=本地配置失配=结构失配");
+        assertEquals(0, source.getConsecutiveFailures(), "fetch 不改计数");
+
+        fetcher.failure = new NewsFetchStructureException("RSS 解析零条目（结构变更嫌疑，fail-closed）");
+        NewsFetchService.SourceFetchResult parserMismatch = service.fetch(source(2, "stub-source"));
+
+        assertEquals(NewsFetchOutcome.STRUCTURE_MISMATCH, parserMismatch.outcome(),
+                "解析器 fail-closed 抛出=结构失配（HTTP 200 不是恢复充分条件）");
     }
 
     // ================== 旧文 48h 归档与 null 发布时间不入库 ==================

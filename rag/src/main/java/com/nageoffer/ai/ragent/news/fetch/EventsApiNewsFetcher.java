@@ -64,18 +64,22 @@ public class EventsApiNewsFetcher implements NewsSourceFetcher {
     public List<RawNewsItem> fetch(NewsSourceDO source) {
         String endpoint = source.getFetchEndpoint();
         if (!endpoint.contains(MONTH_PLACEHOLDER)) {
-            throw new NewsFetchException("events 端点缺少 " + MONTH_PLACEHOLDER + " 占位: "
-                    + source.getSourceKey(), false);
+            // 本地配置失配（种子行缺占位）=结构失配类（#186 分类学），计入滞回
+            throw new NewsFetchStructureException("events 端点缺少 " + MONTH_PLACEHOLDER + " 占位: "
+                    + source.getSourceKey());
         }
         ZonedDateTime now = ZonedDateTime.now(HKT);
         int pastMonths = Math.max(0, properties.getEventsPastMonths());
+        // allow-empty 源（#186）：当前/下月零条目也按有效空收；历史回溯月本就宽和
+        boolean allowEmpty = properties.isAllowEmptySource(source.getSourceKey());
         List<RawNewsItem> items = new ArrayList<>();
         Map<String, RawNewsItem> byUrl = new LinkedHashMap<>();
         for (int offset = -pastMonths; offset <= 1; offset++) {
             String month = monthToken(now.plusMonths(offset));
             byte[] json = fetchClient.get(endpoint.replace(MONTH_PLACEHOLDER, month));
-            // 历史回溯月零活动属正常（宽和）；当前/下月零条目仍 fail-closed
-            for (NewsEventsJsonParser.EventEntry entry : NewsEventsJsonParser.parse(json, offset >= 0)) {
+            // 历史回溯月零活动属正常（宽和）；当前/下月零条目仍 fail-closed（allow-empty 源除外）
+            for (NewsEventsJsonParser.EventEntry entry : NewsEventsJsonParser.parse(json,
+                    offset < 0 ? false : !allowEmpty)) {
                 String url = NewsUrlNormalizer.normalize(entry.link());
                 byUrl.putIfAbsent(url, new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), entry.title(),
                         null, "en", entry.start(), entry.typeHint(), source.getSourceKey()));

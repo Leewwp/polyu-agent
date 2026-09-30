@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * RSS（YouTube Atom）型解析测试
@@ -75,6 +76,20 @@ class NewsRssParserTests {
                 </feed>
                 """;
         assertThrows(NewsFetchException.class, () -> NewsRssParser.parse(xml.getBytes()));
+    }
+
+    // ---------- #186：允许空变体（allow-empty 源的「有效空」是健康结果） ----------
+
+    @Test
+    void zeroEntriesReturnsEmptyListWhenAllowEmptyWhileGarbageStillFails() {
+        String xml = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <feed xmlns="http://www.w3.org/2005/Atom"></feed>
+                """;
+        assertTrue(NewsRssParser.parse(xml.getBytes(), false).isEmpty(),
+                "allow-empty 源零条目=空列表（调用方归 VALID_EMPTY，源健康）");
+        // 垃圾输入不因 allow-empty 冒充有效空：XML 不合法仍抛结构失配
+        assertThrows(NewsFetchStructureException.class, () -> NewsRssParser.parse("<feed>".getBytes(), false));
     }
 
     @Test

@@ -23,9 +23,15 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsLlmBudgetStatusVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthEventVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceHealthVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceHealthEventDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsLlmReceiptMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceHealthEventMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -52,15 +59,23 @@ class NewsAdminServiceImplTests {
 
     private NewsItemMapper itemMapper;
     private NewsLlmReceiptMapper receiptMapper;
+    private NewsSourceMapper sourceMapper;
+    private NewsSourceHealthEventMapper healthEventMapper;
+    private NewsFetchProperties properties;
     private NewsAdminServiceImpl service;
 
     @BeforeEach
     void setUp() {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
         TableInfoHelper.initTableInfo(assistant, NewsItemDO.class);
+        TableInfoHelper.initTableInfo(assistant, NewsSourceDO.class);
+        TableInfoHelper.initTableInfo(assistant, NewsSourceHealthEventDO.class);
         itemMapper = mock(NewsItemMapper.class);
         receiptMapper = mock(NewsLlmReceiptMapper.class);
-        service = new NewsAdminServiceImpl(itemMapper, receiptMapper, new NewsFetchProperties());
+        sourceMapper = mock(NewsSourceMapper.class);
+        healthEventMapper = mock(NewsSourceHealthEventMapper.class);
+        properties = new NewsFetchProperties();
+        service = new NewsAdminServiceImpl(itemMapper, receiptMapper, sourceMapper, healthEventMapper, properties);
     }
 
     @Test
@@ -185,5 +200,72 @@ class NewsAdminServiceImplTests {
         assertEquals(0L, status.getDailyDegraded());
         assertEquals(0, status.getDailyCostYuan().compareTo(BigDecimal.ZERO));
         assertEquals(0, status.getDailyRemainingYuan().compareTo(BigDecimal.ONE));
+    }
+
+    // ================== #186：源健康面板与停止/复归事件流水 ==================
+
+    @Test
+    void sourceHealthExposesThreeWayDisableReasonAndProbeEligibility() {
+        // 三类停用各一行 + 一行启用：manual/policy 不探活，唯一 probeEligible=auto
+        NewsSourceDO manual = NewsSourceDO.builder().id(1L).sourceKey("a-manual")
+                .platform("official").displayName("人工停用源").fetchEndpoint("https://x.invalid/a")
+                .fetchStrategy("HTML_LIST").enabled(false).consecutiveFailures(0)
+                .disabledReason(NewsSourceDO.DISABLED_REASON_MANUAL).build();
+        NewsSourceDO auto = NewsSourceDO.builder().id(2L).sourceKey("b-auto")
+                .platform("official").displayName("自动隔离源").fetchEndpoint("https://x.invalid/b")
+                .fetchStrategy("HTML_LIST").enabled(false).consecutiveFailures(3)
+                .disabledReason(NewsSourceDO.DISABLED_REASON_AUTO)
+                .probeSuccesses(1).lastOutcome("network_failure").build();
+        NewsSourceDO policy = NewsSourceDO.builder().id(3L).sourceKey("c-policy")
+                .platform("official").displayName("策略禁止源").fetchEndpoint("https://x.invalid/c")
+                .fetchStrategy("HTML_LIST").enabled(false).consecutiveFailures(0)
+                .disabledReason(NewsSourceDO.DISABLED_REASON_POLICY).build();
+        NewsSourceDO active = NewsSourceDO.builder().id(4L).sourceKey("d-active")
+                .platform("official").displayName("启用源").fetchEndpoint("https://x.invalid/d")
+                .fetchStrategy("HTML_LIST").enabled(true).consecutiveFailures(0).build();
+        when(sourceMapper.selectList(any())).thenReturn(new java.util.ArrayList<>(
+                List.of(policy, auto, manual, active)));
+        properties.getAllowEmptySources().add("d-active");
+
+        List<NewsSourceHealthVO> rows = service.sourceHealth();
+
+        assertEquals(4, rows.size());
+        assertEquals(List.of("a-manual", "b-auto", "c-policy", "d-active"),
+                rows.stream().map(NewsSourceHealthVO::getSourceKey).toList(), "按 sourceKey 升序");
+        NewsSourceHealthVO autoRow = rows.get(1);
+        assertEquals(NewsSourceDO.DISABLED_REASON_AUTO, autoRow.getDisabledReason(), "停用原因三分可查");
+        assertEquals("network_failure", autoRow.getLastOutcome(), "最近六类结果可查");
+        assertEquals(1, autoRow.getProbeSuccesses(), "探活连续成功可查");
+        assertTrue(autoRow.isProbeEligible(), "自动隔离=唯一探活对象");
+        assertFalse(rows.get(0).isProbeEligible(), "人工停用不探活");
+        assertFalse(rows.get(2).isProbeEligible(), "策略禁止不探活");
+        assertFalse(rows.get(3).isProbeEligible(), "启用源不在探活面");
+        assertTrue(rows.get(3).isAllowEmpty(), "allow-empty 命中可查");
+        assertFalse(rows.get(1).isAllowEmpty());
+    }
+
+    @Test
+    void sourceHealthEventsJoinsSourceKeyAndFallsBackForDeletedSource() {
+        NewsSourceDO existing = NewsSourceDO.builder().id(7L).sourceKey("it-source")
+                .platform("official").displayName("源").fetchEndpoint("https://x.invalid")
+                .fetchStrategy("HTML_LIST").enabled(false).build();
+        when(sourceMapper.selectList(any())).thenReturn(List.of(existing));
+        java.util.Date eventTime = new java.util.Date();
+        when(healthEventMapper.selectList(any())).thenReturn(List.of(
+                NewsSourceHealthEventDO.builder().id(11L).sourceId(7L)
+                        .eventType(NewsSourceHealthEventDO.TYPE_ISOLATED)
+                        .outcome("network_failure").detail("连续 3 次失败").eventTime(eventTime).build(),
+                NewsSourceHealthEventDO.builder().id(12L).sourceId(99L)
+                        .eventType(NewsSourceHealthEventDO.TYPE_RECOVERED)
+                        .outcome("valid_with_content").detail("连续 2 次有效完整成功").eventTime(eventTime).build()));
+
+        List<NewsSourceHealthEventVO> events = service.sourceHealthEvents(50);
+
+        assertEquals(2, events.size());
+        assertEquals("it-source", events.get(0).getSourceKey(), "sourceKey join 还原");
+        assertEquals(NewsSourceHealthEventDO.TYPE_ISOLATED, events.get(0).getEventType());
+        assertEquals("network_failure", events.get(0).getOutcome(), "事件携带触发轮六类结果（判定依据）");
+        assertEquals("deleted#99", events.get(1).getSourceKey(), "源已删回退显示 ID");
+        assertEquals(NewsSourceHealthEventDO.TYPE_RECOVERED, events.get(1).getEventType());
     }
 }

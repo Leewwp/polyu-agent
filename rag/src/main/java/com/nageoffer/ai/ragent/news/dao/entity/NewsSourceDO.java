@@ -34,6 +34,10 @@ import java.util.Date;
  *
  * <p>V1 只上校级账号；扩源=加行无代码改动（enabled 列即源级开关）。
  * consecutive_failures 沿用失败滞回范式：阈值 3 自动置 enabled=false。
+ * #186 源治理：停用原因三分（disabled_reason：manual 人工停用 / auto 自动隔离 /
+ * policy 策略禁止——只探活 auto）+ 探活记账（probe_*）+ 最近六类结果（last_outcome）
+ * + 停止/复归审计（isolated_time/recovered_time，事件流水另见
+ * t_news_source_health_event）。
  */
 @Data
 @NoArgsConstructor
@@ -41,6 +45,24 @@ import java.util.Date;
 @Builder
 @TableName("t_news_source")
 public class NewsSourceDO {
+
+    /**
+     * 停用原因（disabled_reason 列）：人工停用（seed 明示停更/维护者 SQL 置停，
+     * 不探活不自动解禁）
+     */
+    public static final String DISABLED_REASON_MANUAL = "manual";
+
+    /**
+     * 停用原因（disabled_reason 列）：自动隔离（连续 3 次失败滞回——唯一探活对象，
+     * 日级两次有效完整成功自动复归）
+     */
+    public static final String DISABLED_REASON_AUTO = "auto";
+
+    /**
+     * 停用原因（disabled_reason 列）：策略禁止（robots Disallow/出站守卫拒绝——
+     * 不因可达自动解禁，复归=人工）
+     */
+    public static final String DISABLED_REASON_POLICY = "policy";
 
     /**
      * 主键 ID，数据库自增（BIGSERIAL）
@@ -97,6 +119,43 @@ public class NewsSourceDO {
      * 连续抓取失败计数
      */
     private Integer consecutiveFailures;
+
+    /**
+     * 停用原因（#186 三分）：manual=人工停用 / auto=自动隔离（唯一探活对象） /
+     * policy=策略禁止（robots/出站守卫）；NULL=启用中或未判定。既有禁用行由
+     * upgrades 迁移判据归类（consecutive_failures≥3 → auto，其余保守 → manual）
+     */
+    private String disabledReason;
+
+    /**
+     * 最近一次停用（自动隔离/策略禁止转停）时刻——admin 停止记录可查
+     */
+    private Date isolatedTime;
+
+    /**
+     * 最近一次探活自动复归时刻——admin 复归记录可查
+     */
+    private Date recoveredTime;
+
+    /**
+     * 连续有效完整成功次数（探活记账；任一失败清零，复归阈值 2）
+     */
+    private Integer probeSuccesses;
+
+    /**
+     * 最近一次探活时刻（HKT 日级节拍：每源每日至多探一次；defer 不推进）
+     */
+    private Date probeTime;
+
+    /**
+     * 最近一轮六类结果代码（{@link com.nageoffer.ai.ragent.news.fetch.NewsFetchOutcome}）
+     */
+    private String lastOutcome;
+
+    /**
+     * 最近一轮结果落账时刻
+     */
+    private Date lastOutcomeTime;
 
     /**
      * 创建时间
