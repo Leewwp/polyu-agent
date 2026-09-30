@@ -240,7 +240,7 @@ class NewsPipelinePgIt {
             Date eligibleAt = new Date(fixedNow);
             for (NewsItemDO item : pending) {
                 enrichService.applyPayload(item, new NewsEnrichService.NewsSummaryPayload(
-                        "标题", "Title", "摘要。\n\n段落。", "Summary.\n\nPara.", "campus", List.of()));
+                        "标题", "Title", "摘要。\n\n段落。", "Summary.\n\nPara.", "campus", List.of()), null);
             }
             // 大源一条走零调用回退
             List<NewsItemDO> bigPendingRows = itemMapper.selectList(

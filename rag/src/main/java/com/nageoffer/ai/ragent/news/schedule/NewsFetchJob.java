@@ -27,7 +27,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
-import com.nageoffer.ai.ragent.news.heat.NewsHeatService;
+import com.nageoffer.ai.ragent.news.heat.NewsEventService;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchOutcome;
 import com.nageoffer.ai.ragent.news.service.impl.NewsEnrichService;
 import com.nageoffer.ai.ragent.news.service.impl.NewsFetchService;
@@ -53,9 +53,10 @@ import java.util.stream.Collectors;
  *
  * <p>轮次序列：逐源抓取（六类结果分类学+健康记账：defer 零计数豁免、结构失配/
  * 网络失败滞回 ≥3 自动隔离、策略禁止立即转停）→ LLM 补全批（缺摘要条目，逐条隔离）
- * → 热度重算 → 人工抽检日志（仅首段轮次，日志输出当日新增与随机 5 条，供人工抽验）。
- * 每步独立隔离，单步失败不阻断后续步骤。flag rag.news.enabled 关（默认）时本组件
- * 不装配，无任何调度行为。
+ * → 事件重归组（#187：持久身份/独立源投票/热度重算一体的
+ * {@link NewsEventService#regroupEvents()}）→ 人工抽检日志（仅首段轮次，日志输出
+ * 当日新增与随机 5 条，供人工抽验）。每步独立隔离，单步失败不阻断后续步骤。
+ * flag rag.news.enabled 关（默认）时本组件不装配，无任何调度行为。
  *
  * <p>探活 {@link #probeAutoIsolatedSources()}：日级（默认 08:30，cron 外置
  * rag.news.probe-cron）对自动隔离源（disabled_reason=auto）探活——人工停用/策略
@@ -88,7 +89,7 @@ public class NewsFetchJob {
     private final NewsFetchService fetchService;
     private final NewsSourceHealthService healthService;
     private final NewsEnrichService enrichService;
-    private final NewsHeatService heatService;
+    private final NewsEventService eventService;
     private final Supplier<Date> nowSupplier;
 
     @Autowired
@@ -99,9 +100,9 @@ public class NewsFetchJob {
                         NewsFetchService fetchService,
                         NewsSourceHealthService healthService,
                         NewsEnrichService enrichService,
-                        NewsHeatService heatService) {
+                        NewsEventService eventService) {
         this(sourceMapper, itemMapper, itemTopicMapper, topicMapper, fetchService, healthService,
-                enrichService, heatService, Date::new);
+                enrichService, eventService, Date::new);
     }
 
     /**
@@ -114,7 +115,7 @@ public class NewsFetchJob {
                  NewsFetchService fetchService,
                  NewsSourceHealthService healthService,
                  NewsEnrichService enrichService,
-                 NewsHeatService heatService,
+                 NewsEventService eventService,
                  Supplier<Date> nowSupplier) {
         this.sourceMapper = sourceMapper;
         this.itemMapper = itemMapper;
@@ -123,7 +124,7 @@ public class NewsFetchJob {
         this.fetchService = fetchService;
         this.healthService = healthService;
         this.enrichService = enrichService;
-        this.heatService = heatService;
+        this.eventService = eventService;
         this.nowSupplier = nowSupplier;
     }
 
@@ -175,8 +176,12 @@ public class NewsFetchJob {
         });
         runSafely("LLM 补全批", () ->
                 log.info("[news] 轮内 LLM 补全：{} 条成功", enrichService.enrichPendingItems()));
-        runSafely("热度重算", () ->
-                log.info("[news] 轮末热度重算：{} 条变更", heatService.recomputeHeat()));
+        runSafely("事件重归组", () -> {
+            NewsEventService.RegroupResult result = eventService.regroupEvents();
+            log.info("[news] 轮末事件重归组：新建 {} 事件，合并 {} 次，分裂 {} 条，改组 {} 条，摘除 {} 条，热度写入 {} 条",
+                    result.created(), result.merges(), result.splits(), result.regroups(),
+                    result.detached(), result.heatWrites());
+        });
         runSafely("晨报抽样", this::logMorningSample);
     }
 

@@ -23,17 +23,20 @@ import java.util.Set;
 /**
  * 热度/聚类视野内的资讯条目（热度模型输入形状）
  *
- * <p>热度计算与故事线聚类的统一输入形状：由持久化重算（NewsHeatService）与
+ * <p>热度计算与故事线聚类的统一输入形状：由持久化重算（NewsEventService）与
  * 查询侧（NewsQueryServiceImpl /hot 与列表徽章）从 DO 组装，聚类器不碰库。
  *
- * @param id         t_news_item.id
- * @param titleZh    标题中文（可 null，补全前仅 sitemap 源有）
- * @param titleEn    标题英文（可 null；双题皆空时该条目不参与跨条合并）
- * @param category   固定 8 类（补全前统一 other——同主分类条件天然满足）
- * @param sourceId   所属信源 ID
- * @param publishTime 发布时间（热度衰减时间锚）
- * @param topicIds   主题关联 ID 集（故事线合并的「共享 ≥1 主题」条件；补全前恒空集）
- * @param heat       当前已持久化热度（查询侧直接复用；重算时作变更检测基线）
+ * @param id             t_news_item.id
+ * @param titleZh        标题中文（可 null，补全前仅 sitemap 源有）
+ * @param titleEn        标题英文（可 null）
+ * @param category       固定 8 类（补全前统一 other——同主分类条件天然满足）
+ * @param sourceId       所属信源 ID
+ * @param publishTime    发布时间（热度衰减时间锚）
+ * @param topicIds       主题关联 ID 集（故事线合并的「共享 ≥1 主题」条件；补全前恒空集）
+ * @param heat           当前已持久化热度（查询侧直接复用；重算时作变更检测基线）
+ * @param summaryZh      中文摘要词面（#187 事件合并的证据面——有效摘要=非空且
+ *                       summarySource≠fallback；摘要缺失/回退不猜测合并）
+ * @param summarySource  摘要产出方式（llm/fallback/NULL=#185 前历史富化行——视同 llm）
  */
 public record NewsStoryItem(Long id,
                             String titleZh,
@@ -42,5 +45,7 @@ public record NewsStoryItem(Long id,
                             Long sourceId,
                             Date publishTime,
                             Set<Long> topicIds,
-                            Integer heat) {
+                            Integer heat,
+                            String summaryZh,
+                            String summarySource) {
 }

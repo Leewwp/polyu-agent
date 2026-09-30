@@ -635,6 +635,19 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   ('gnews-polyu-career',      'gnews', 'GNews 就业报道',   'GNews: Careers',           'https://news.google.com/search?q=site:polyu.edu.hk+career', 'https://news.google.com/rss/search?q=site%3Apolyu.edu.hk+%28career+OR+careers+OR+employment%29&hl=en-HK&gl=HK&ceid=HK%3Aen', 'RSS_GNEWS', FALSE, TRUE, NULL)
 ON CONFLICT (source_key) DO NOTHING;
 
+-- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
+-- 幂等守卫 independence_group IS NULL（与 upgrades/v2.0.0/260930_02_news_event_identity.sql 同构；
+-- 人工改组后重跑不覆盖）。NULL=按 source_key 自成一组（AI 扩源默认独立）。
+UPDATE t_news_source SET independence_group = 'polyu-official'
+WHERE independence_group IS NULL
+  AND source_key IN ('news-sitemap', 'media-releases', 'recent-focus', 'events', 'campus-reports',
+                     'sao-news', 'ar-notices', 'feng-news', 'comp-news', 'fce-news', 'shtm-news',
+                     'youtube-main', 'youtube-feng', 'youtube-comp', 'youtube-fce');
+UPDATE t_news_source SET independence_group = 'prn-wire'
+WHERE independence_group IS NULL AND source_key = 'prn';
+UPDATE t_news_source SET independence_group = 'gnews'
+WHERE independence_group IS NULL AND source_key LIKE 'gnews-%';
+
 INSERT INTO t_news_topic (slug, name_zh, name_en, topic_group, description_zh, description_en, curated, status) VALUES
   ('eng',        '工学院',             'Faculty of Engineering',             'FACULTY',        '工学院及旗下学系的科研、课程与活动动态',   'Research, programmes and events from FENG and its departments', TRUE, 'active'),
   ('bus',        '工商管理学院',       'Faculty of Business',                 'FACULTY',        '商学院及旗下学系与中心的动态',             'Updates from FB and its schools and centres', TRUE, 'active'),

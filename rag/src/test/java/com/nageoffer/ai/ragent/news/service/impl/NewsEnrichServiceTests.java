@@ -48,6 +48,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -169,7 +170,7 @@ class NewsEnrichServiceTests {
                 "理大团队获奖", "PolyU team wins award", "理大团队获奖。", "PolyU team won.",
                 "不存在的类别", List.of("Artificial intelligence", "全新概念"));
 
-        service.applyPayload(item(5), payload);
+        service.applyPayload(item(5), payload, null);
 
         ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
         verify(itemMapper).update(any(), captor.capture());
@@ -325,7 +326,8 @@ class NewsEnrichServiceTests {
         assertEquals(0, enriched, "预算耗尽当日降级=仅入库不富化");
         verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class));
         verify(itemMapper, never()).update(any(), any());
-        verify(itemMapper, times(1)).selectList(any());
+        // #187：选题 1 次 + 内容哈希复用查证 1 次（查证命中前不进 LLM 路径）
+        verify(itemMapper, times(2)).selectList(any());
     }
 
     @Test
@@ -476,8 +478,9 @@ class NewsEnrichServiceTests {
 
         org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<NewsItemDO>> captor =
                 org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
-        verify(itemMapper).selectList(captor.capture());
-        String sql = captor.getValue().getSqlSegment();
+        // #187：选题 1 次+内容哈希复用查证 1 次——选题 SQL=首次调用
+        verify(itemMapper, times(2)).selectList(captor.capture());
+        String sql = captor.getAllValues().get(0).getSqlSegment();
         assertTrue(sql.contains("status ="), "选题限定 pending（富化前不可公开），实际=" + sql);
         assertTrue(sql.contains("summary_en IS NULL"), "缺摘要条目，实际=" + sql);
         assertTrue(sql.contains("fetch_time >="), "超龄（TTL 48h 外）条目不选题，实际=" + sql);
@@ -615,5 +618,97 @@ class NewsEnrichServiceTests {
             quarter += NewsEnrichService.isFullWidth(text.charAt(i)) ? 4L : 1L;
         }
         return (quarter + 3) / 4;
+    }
+
+    // ================== #187：内容哈希零调用复用（判重三合同之二） ==================
+
+    @Test
+    void contentHashNormalizesWhitespaceAndCaseOnly() {
+        NewsItemDO a = NewsItemDO.builder().id(1L).titleZh("理大 公告").titleEn("PolyU Notice")
+                .build();
+        NewsItemDO b = NewsItemDO.builder().id(2L).titleZh("理大公告").titleEn("polyu notice")
+                .build();
+        assertEquals(NewsEnrichService.contentHash(a, "Body text.\nSecond line."),
+                NewsEnrichService.contentHash(b, "body text. second  line."),
+                "规范化=去空白+小写化：措辞空白/大小写差不破坏确切重复判定");
+        assertNotEqualsHash(a, "Body text.", "正文差一个字符即不同 hash（只承诺确切重复复用）");
+        assertNull(NewsEnrichService.contentHash(a, null), "无正文（YouTube 跳过）不参与复用");
+        assertNull(NewsEnrichService.contentHash(a, "  "), "空白正文不参与复用");
+        assertNull(NewsEnrichService.contentHash(
+                NewsItemDO.builder().id(3L).build(), "正文存在但标题全空——标题单独不构成确切重复证据"),
+                "标题全空不参与复用");
+    }
+
+    private void assertNotEqualsHash(NewsItemDO item, String content, String message) {
+        assertNotEquals(NewsEnrichService.contentHash(item, "Body text.\nSecond line."),
+                NewsEnrichService.contentHash(item, content), message);
+    }
+
+    @Test
+    void identicalContentReusesDonorSummaryWithZeroLlmCall() {
+        NewsItemDO pending = NewsItemDO.builder().id(6L).sourceId(12L)
+                .url("https://www.polyu.edu.hk/sao/news/6").titleEn("PolyU team wins award")
+                .langRaw("en").status("pending").category("other").heat(0).build();
+        NewsItemDO donor = NewsItemDO.builder().id(5L).sourceId(11L)
+                .url("https://www.polyu.edu.hk/media/5").titleZh("理大团队获奖")
+                .titleEn("PolyU team wins award").summaryZh("理大团队获奖，研究获国际认可。")
+                .summaryEn("PolyU team wins award.").category("research")
+                .status("published").summarySource("llm").promptVersion("abc123def456")
+                .build();
+        when(itemMapper.selectList(any())).thenReturn(List.of(donor));
+        when(httpFetchClient.get(any())).thenReturn(
+                ("<html><body><main><p>Research news content.</p></main></body></html>")
+                        .getBytes(StandardCharsets.UTF_8));
+        when(itemTopicMapper.selectList(any())).thenReturn(List.of(
+                NewsItemTopicDO.builder().itemId(5L).topicId(9L).build()));
+        when(itemTopicMapper.selectCount(any())).thenReturn(0L);
+
+        service.enrichOne(pending);
+
+        // #184 边界：复用先于预算服务返回，不产生请求指纹与回执
+        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class));
+        ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(itemMapper).update(any(), captor.capture());
+        Map<String, Object> params = ((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<NewsItemDO>)
+                captor.getValue()).getParamNameValuePairs();
+        assertTrue(params.containsValue("理大团队获奖，研究获国际认可。"), "供体中文摘要原样复用，实际=" + params);
+        assertTrue(params.containsValue("research"), "供体分类复用");
+        assertTrue(params.containsValue("llm"), "summary_source=llm（产物确为 LLM 输出）");
+        assertTrue(params.containsValue("abc123def456"), "prompt_version 随供体（可追溯口径一致）");
+        assertTrue(params.containsValue("published"), "复用即落发布资格走正常发布门");
+        verify(itemTopicMapper, times(1)).insert(any(NewsItemTopicDO.class));
+    }
+
+    @Test
+    void fallbackDonorIsNeverReused() {
+        NewsItemDO pending = NewsItemDO.builder().id(8L).sourceId(11L)
+                .url("https://www.polyu.edu.hk/media/8").titleEn("PolyU team wins award")
+                .langRaw("en").status("pending").category("other").heat(0).build();
+        NewsItemDO fallbackDonor = NewsItemDO.builder().id(7L).sourceId(11L)
+                .summaryZh("原文标题（AI 摘要暂缺）：PolyU team wins award")
+                .summaryEn("Source headline (AI summary unavailable): PolyU team wins award")
+                .status("published").summarySource("fallback").build();
+        when(itemMapper.selectList(any())).thenReturn(List.of(fallbackDonor));
+        when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
+
+        service.enrichOne(pending);
+
+        // fallback 供体（标题派生回退）不作复用来源——复用它等于标题猜测
+        verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class));
+    }
+
+    @Test
+    void youtubeItemSkipsContentHashLookup() {
+        NewsItemDO yt = NewsItemDO.builder().id(9L).sourceId(22L)
+                .url("https://www.youtube.com/watch?v=x").titleEn("Video title")
+                .langRaw("en").status("pending").category("other").heat(0).build();
+        when(sourceMapper.selectById(22L)).thenReturn(
+                com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO.builder()
+                        .id(22L).sourceKey("youtube-main").platform("youtube").build());
+
+        service.enrichOne(yt);
+
+        verify(itemMapper, never()).selectList(any(Wrapper.class));
+        verify(httpFetchClient, never()).get(anyString());
     }
 }

@@ -1,0 +1,1026 @@
+{
+ "provenance": "#187 聚簇真实样本硬门 fixture：rows=本地库 polyu-pg/ragent t_news_item 真实行（2026-09-29 经 research/cluster-samples 样本账本维护者抽验，标题/摘要/分类/主题=真实词面，db_id 列仅作溯源、测试内以行序重编 id）；local_pairs=账本 23 组本地对（类1-4+类6，链式对 chain_ids 含桥接项）；public_pairs=账本 25 组公开对（原始 feed 条目，双侧无中文摘要——类5 保守门验证）。判定语义（采样方法说明 §3）：类1 公开对的「合并」为富化后合同终态，本回放验证其在词面缺失态被 E1 门保守分开；类5 的「保守分开」即门的目标行为。",
+ "rows": [
+  {
+   "db_id": 41,
+   "source_key": "media-releases",
+   "title_zh": "理大参与SEAM@InnoHK，贡献电网技术与太空制造专长",
+   "title_en": "PolyU participates in SEAM@InnoHK, contributing grid technology and space manufacturing expertise",
+   "category": "research",
+   "publish_date": "2026-09-01",
+   "summary_zh": "香港理工大学（理大）参与了由香港特别行政区政府设立的第三个InnoHK研究集群SEAM@InnoHK。该平台于2026年9月1日举行 launch 祭典，由香港特区政府创新科技署署长孙东教授主持。理大在SEAM@InnoHK中扮演双重角色：其InnoHK研究中心——智能电网与能源科技研究中心（InnoHK I-GET）是该集群中唯一专注于电网技术的研究中心，致力于通过智能电网研究支持碳中和目标。同时，理大作为香港科学院空间制造技术中心（InnoHK CSMT）的主要本地合作伙伴，贡献其先进制造与材料技术专长。理大代表包括校长滕锦光教授、电机工程系系主任郑志坚教授、副校长（科研与创新）赵志高教授、副校长（知识转移）郑子贤教授、工程学院院长文海成教授等出席仪式。此外，中国科学院空间应用工程与技术中心、南方电网、中华电力、澳门电力公司等企业代表亦参与其中。理大通过此平台整合科研优势与全球网络，推动香港建设国际科技创新枢纽。",
+   "summary_source": null,
+   "topics": [
+    "energy",
+    "eng",
+    "gba",
+    "materials"
+   ]
+  },
+  {
+   "db_id": 43,
+   "source_key": "media-releases",
+   "title_zh": "香港理工大启动InnoHK I-GET，共建智能电网助力碳中和未来",
+   "title_en": "PolyU launches InnoHK I-GET to build intelligent grid for carbon-neutral future",
+   "category": "research",
+   "publish_date": "2026-09-03",
+   "summary_zh": "香港理工大学（理大）于2026年9月3日正式启动InnoHK研究中心——智能电网与能源技术研究中心（InnoHK I-GET），该中心是香港特别行政区政府InnoHK科研平台的第三批集群“SEAM@InnoHK”中的唯一电力电网专项。中心位于香港，由理大电机工程学系教授钟志荣担任主任，伦敦国王学院高级副校长兼首席研究员Sir Bashir M. Al-Hashimi担任联合主任。中心汇聚超过70位来自香港、内地及海外的跨学科教授，并与伦敦国王学院、清华大学、巴黎居斯塔夫·埃菲尔大学、雅典国立技术大学、牛津苏州先进研究院、谢菲尔德大学及苏州国家实验室等全球领先机构合作。其四大核心研究领域包括：智能电网自主能源管理技术、绿色智能电网接口、电网友好型新能源传输以及新兴电网与能源技术。中心致力于推动智能电网与前沿能源技术的研发、验证、标准制定与产业化，支持国家及香港实现碳中和目标。面对AI数据中心、电动车及分布式可再生能源带来的用电需求激增，传统单向输电系统已难以应对供需波动，极端天气频发更威胁城市供电韧性。InnoHK I-GET将运用人工智能与大数据分析，实现大电网与微电网的协同运行、实时用电监控与供需协调，提升电力系统稳定性与可靠性。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "energy",
+    "gba"
+   ]
+  },
+  {
+   "db_id": 46,
+   "source_key": "media-releases",
+   "title_zh": "香港理工与迪恩斯科技共建联合实验室 推动AI医疗创新",
+   "title_en": "PolyU and Diagens Tech establish joint laboratory to advance AI-driven medical innovation",
+   "category": "research",
+   "publish_date": "2026-09-04",
+   "summary_zh": "香港理工大学（理大）与杭州德适生物科技有限公司（德适科技）于2026年9月4日共同成立「理大-德适通用人工智能与医疗应用联合实验室」。该联合实验室位于理大校园，旨在开发并转化专为医疗场景设计的通用人工智能（AI）应用。研究重点包括医学影像分析、医学基础模型及医疗自动化技术。理大方面参与人员包括副校长（科研与创新）曹振华教授、计算及数理科学学院署理院长陈昌文教授、计算机系副主管（合作与伙伴关系）肖斌教授、科研与创新总监黄咏琪教授。德适科技方面参与人员包括董事长兼首席执行官宋宁博士、医疗通用智能实验室负责人魏然先生、战略投资部董事会秘书兼总经理吴成发先生、德适科技香港办公室总裁办公室助理经理赵彦诚先生、市场与品牌总监朱怡琼女士，以及联合实验室项目负责人李永奇博士。双方将结合理大的AI、数据科学与医疗科技研究优势，以及德适科技在医学影像、智能医疗设备与数字医疗装备方面的产业经验，推动智慧医疗技术发展，提升香港、中国内地及更广泛地区的医疗服务质量和效率。该合作被视为响应国家「健康中国」倡议的重要举措。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "biomed",
+    "csm",
+    "gba"
+   ]
+  },
+  {
+   "db_id": 47,
+   "source_key": "news-sitemap",
+   "title_zh": "理大展开迎新活动 逾2,500名新生参与校长迎新典礼",
+   "title_en": "PolyU Student Orientation 2026 commences with over 2,500 freshmen attending President’s Welcome",
+   "category": "event",
+   "publish_date": "2026-08-28",
+   "summary_zh": "香港理工大学（PolyU）学生迎新活动2026于2026年8月28日在校园正式开启，超过2,500名新生出席了位于赛马会礼堂的校长欢迎仪式。校长滕锦光教授及校方高层管理团队共同出席，向新生介绍理大的历史、愿景与使命，强调培养具有国家认同感与全球视野的社会责任型专业人才。理大校友、BOTINKIT创始人兼首席执行官陈瑞女士分享了其在人工智能领域的创业历程与职业发展经验，鼓励新生勇敢追求理想。活动由学生事务处主办，主会场设于赛马会礼堂，并通过直播形式覆盖黄曼兴楼及唐家伟全球学生中心等校园多个地点。迎新系列活动还包括9月1日于邵氏体育中心举行的迎新展销会，届时将有超过45个单位和学生组织设立展位，介绍课外活动与校园支援服务。此外，9月17日还将举办年度才艺表演，由理大STARS住宿学院学生呈现多元精彩演出。活动旨在帮助新生融入校园生活，了解理大提供的全面发展机会。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 48,
+   "source_key": "events",
+   "title_zh": "国庆升旗礼暨香港理工大学中国文化节「湾区客家遗产：共塑未来」大湾区客家文化联合展演开幕",
+   "title_en": "National Day Flag-Raising Ceremony & Opening Ceremony of PolyU Chinese Culture Festival “Hakka Heritage in the Bay Area: Shaping a Shared Future” – Greater Bay Area Hakka Cultural Joint Showcase",
+   "category": "event",
+   "publish_date": "2026-10-01",
+   "summary_zh": "香港理工大学将于2026年10月1日举行国庆升旗礼及中华文化节开幕活动，主题为「湾区客家遗产：共塑未来」大湾区客家文化联合展。升旗礼于上午10时至10时15分在校园广场举行。开幕式于同日10时30分至11时10分在林大辉剧场举行。展览《大湾区客家历史、文化与杰出人物》将于10月1日至16日开放，每日9时至晚上7时，10月1日当天下午1时起对公众开放，16日仅开放至下午4时，地点位于黄文正及唐洁华全球学生中心。舞蹈剧《1942穿越封锁线》于10月1日中午12时至下午1时在赛马会礼堂上演，语言为普通话，演出前提供轻食招待。2026年10月2日将举办大湾区客家文化论坛，时间上午10时至中午12时，地点为蒋陈工作室剧院。客家非物质文化遗产工作坊将于10月6-7日及14-15日举行，内容包括龙形武术、瑶绣、传统中兴灯笼制作及五华弦线傀儡戏，地点在校友中庭及BC201、BC202室。活动由香港理工大学主办，惠州市、河源市、梅州市、韶关市人民政府协办。相关咨询可联系传讯及公共事务处或文化推广与活动办公室。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event",
+    "gba"
+   ]
+  },
+  {
+   "db_id": 49,
+   "source_key": "events",
+   "title_zh": "香港理工大学中秋文化晚会",
+   "title_en": "PolyU Chinese Culture Festival - Mid-Autumn Festival Gala",
+   "category": "event",
+   "publish_date": "2026-09-18",
+   "summary_zh": "香港理工大学将于2026年9月18日举行中华文化节之中秋节晚会。活动由文化推广与活动办公室主办，时间为下午6时15分至晚上8时30分，地点位于大学广场。本次活动面向所有理大学生、教职员工及校友开放参与。晚会内容包括开幕仪式和精彩的艺术表演，同时校园内设有传统手作工作坊、文化体验区及节日主题拍照点。参与者可在满月下共度中秋佳节，感受传统文化魅力与团圆氛围。活动详情可访问官网链接获取。注册现已开放。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 119,
+   "source_key": "media-releases",
+   "title_zh": "香港理工大学举行升旗仪式庆祝香港特区成立29周年",
+   "title_en": "PolyU holds flag-raising ceremony to celebrate 29th anniversary of establishment of the HKSAR",
+   "category": "event",
+   "publish_date": "2026-07-01",
+   "summary_zh": "香港理工大学于2026年7月1日在校园举行升旗仪式，庆祝香港特别行政区成立29周年。仪式由理大校董会主席林大辉博士、署理校长黄永德教授等嘉宾主持，约400名嘉宾、师生及校友出席。活动由中国人民解放军香港部队与理大学生升旗队联合执行，并随后放映纪录片《孔子》作为理大中华文化节系列活动之一。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 127,
+   "source_key": "media-releases",
+   "title_zh": "倪一青教授荣获中国工程院第十六届光华工程科技奖",
+   "title_en": "PolyU scholar Prof. Yi-Qing NI receives 16th Guanghua Engineering Science and Technology Award by the Chinese Academy of Engineering",
+   "category": "research",
+   "publish_date": "2026-07-17",
+   "summary_zh": "香港理工大学倪一青教授获中国工程院颁发第十六届光华工程科技奖。该奖项每两年评选一次，是中國工程界最高荣誉之一。今年全国共40人获奖，其中3人为香港代表。倪教授在结构健康监测与振动控制领域享有国际声誉。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "eng",
+    "gba"
+   ]
+  },
+  {
+   "db_id": 133,
+   "source_key": "media-releases",
+   "title_zh": "理大×中银香港国际未来挑战赛（香港区决赛）决出四强，18支创新团队亮相全球独角兽峰会",
+   "title_en": "PolyU x BOCHK International Future Challenge (Hong Kong Regional Final) yields top four teams, 18 innovative teams showcase capabilities at Global Unicorn Summit",
+   "category": "event",
+   "publish_date": "2026-08-24",
+   "summary_zh": "2026年8月24日，香港理工大学与中银香港联合主办的国际未来挑战赛香港区决赛在香港会议展览中心落幕。18支从300多个项目中脱颖而出的创新团队现场展示成果，其中四强将晋级明年1月举行的全球总决赛。赛事聚焦生命科学、先进制造、金融科技、智慧城市及航空航天五大领域。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "energy",
+    "event"
+   ]
+  },
+  {
+   "db_id": 135,
+   "source_key": "media-releases",
+   "title_zh": "香港理工大学国际未来挑战赛（前海区域决赛）决出四强晋级总决赛",
+   "title_en": "PolyU International Future Challenge (Qianhai Regional Final) advances top four teams to Grand Final",
+   "category": "event",
+   "publish_date": "2026-08-21",
+   "summary_zh": "香港理工大学于2026年8月20日在深圳前海举办国际未来挑战赛前海区域决赛，16支创新创业团队角逐奖项。比赛聚焦生命科学、先进制造、智慧城市与航空航天等领域，前四名将晋级2027年1月在港举行的总决赛。活动深化了港深在科研转化与产学研合作方面的协作。",
+   "summary_source": null,
+   "topics": [
+    "career",
+    "event",
+    "gba",
+    "prop-66f62d1807d3"
+   ]
+  },
+  {
+   "db_id": 152,
+   "source_key": "prn",
+   "title_zh": "以新兴科技推动创新：理大推出免费先进科技进修课程",
+   "title_en": "Driving Innovation with Emerging Technologies: PolyU Launches Free Advanced Technology Short Course",
+   "category": "event",
+   "publish_date": "2026-07-20",
+   "summary_zh": "香港理工大学于2026年9月推出为期12周的免费高级技术进修课程，涵盖光子学、量子科技、人工智能物联网等六大领域。课程面向公众开放，无需相关学科背景，提供面授及网上学习两种模式。报名截止日期为2026年8月31日，名额有限，符合出席要求者可申请修读证明书。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "event",
+    "materials"
+   ]
+  },
+  {
+   "db_id": 153,
+   "source_key": "prn",
+   "title_zh": "通过新兴技术推动创新：香港理工大学推出免费高级技术课程",
+   "title_en": "Advancing innovation through emerging technologies: PolyU launches free course on advanced technologies",
+   "category": "event",
+   "publish_date": "2026-07-20",
+   "summary_zh": "香港理工大学于2026年9月推出为期12周的免费高级技术课程，涵盖光子学、量子技术、智能可穿戴系统等六大领域。课程面向公众开放，无需专业背景，提供线上线下双模式学习。报名截止日期为2026年8月31日，现场名额有限，线上名额按先到先得分配。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "energy",
+    "materials"
+   ]
+  },
+  {
+   "db_id": 262,
+   "source_key": "sao-news",
+   "title_zh": "五名学生获颁2026创新科技奖学金",
+   "title_en": "Five Students Awarded Innovation and Technology Scholarship 2026",
+   "category": "scholarship",
+   "publish_date": "2026-07-02",
+   "summary_zh": "五名本地本科生获颁2026创新科技奖学金，由汇丰银行与香港特区政府创新科技署联合赞助。获奖学生来自纺织、电子工程、健康科技资讯及物流海事等学系。每人最高可获15万港元，用于参与海外或内地实习计划，并参与导师计划、服务项目及创意成果展示等活动。",
+   "summary_source": null,
+   "topics": [
+    "career",
+    "exchange",
+    "gba",
+    "scholarship"
+   ]
+  },
+  {
+   "db_id": 265,
+   "source_key": "sao-news",
+   "title_zh": "时装与纺织学生荣获著名杨若武纪念奖学金",
+   "title_en": "Fashion and Textiles Student Honoured with Prestigious Sir Edward Youde Memorial Scholarship",
+   "category": "scholarship",
+   "publish_date": "2026-07-02",
+   "summary_zh": "香港理工大学时装与纺织学院二年级学生潘慧云（Fiona）获颁著名杨若武纪念奖学金，以表彰其卓越学术表现。该奖学金旨在支持香港全日制高等院校学生，鼓励勇于学习、领导与追梦的青年。奖项强调学术成就与全面发展的结合，助力优秀学子为香港未来贡献力量。",
+   "summary_source": null,
+   "topics": [
+    "scholarship"
+   ]
+  },
+  {
+   "db_id": 268,
+   "source_key": "sao-news",
+   "title_zh": "迎新展吸引逾3400名新生探索校园生活",
+   "title_en": "Orientation Showcase Attracts over 3,400 Freshmen to Explore Campus Life",
+   "category": "event",
+   "publish_date": "2026-09-01",
+   "summary_zh": "2026年9月1日，香港理工大学在邵逸夫体育中心举办迎新展，吸引超过3400名新生参与。活动设有47个展位，由校方行政单位及学生团体组织，介绍校园支持服务与课外生活。校长滕锦光教授等校领导亲临现场，鼓励新生把握大学机遇。活动为新生融入校园生活奠定基础。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 269,
+   "source_key": "sao-news",
+   "title_zh": "11名理大学生获「新鸿基地产郭氏基金会×理大」筑心安居奖学金",
+   "title_en": "11 PolyU Students Recognised under SHKP-Kwoks’ Foundation x PolyU Building Homes with Heart Scholarship Programme",
+   "category": "scholarship",
+   "publish_date": "2026-08-28",
+   "summary_zh": "11名理大学生在2025/26学年获「新鸿基地产郭氏基金会×理大」筑心安居奖学金，涵盖建筑、测量及土木工程专业。该计划自2022年启动，四年来已资助42名学生，总金额约150万港元。获奖学生参观了西九龙高铁路站上盖的国际枢纽中心（IGC），了解绿色建筑与智能技术。项目促进产学合作，培育香港建设与地产行业未来人才。",
+   "summary_source": null,
+   "topics": [
+    "career",
+    "city",
+    "energy",
+    "scholarship"
+   ]
+  },
+  {
+   "db_id": 270,
+   "source_key": "sao-news",
+   "title_zh": "香港理工大学2026级新生迎新礼启动，逾2500名新生出席校长欢迎会",
+   "title_en": "PolyU Student Orientation 2026 Commences with over 2,500 Freshmen Attending President’s Welcome",
+   "category": "event",
+   "publish_date": "2026-08-28",
+   "summary_zh": "2026年8月28日，香港理工大学在赛马会演讲厅举行新生迎新礼，逾2500名新生出席校长欢迎会。校长陈正光教授介绍校史与愿景，强调培养具国家情怀与全球视野的社会责任型人才。校友陈瑞分享人工智能领域创业经历，鼓励新生勇敢追梦。活动还设有学生代表介绍与校园才艺展演。",
+   "summary_source": null,
+   "topics": [
+    "admission",
+    "campus",
+    "career",
+    "event"
+   ]
+  },
+  {
+   "db_id": 271,
+   "source_key": "sao-news",
+   "title_zh": "香港理工大学举行升旗礼庆祝香港特区成立29周年",
+   "title_en": "PolyU holds flag-raising ceremony to celebrate 29th anniversary of establishment of the HKSAR",
+   "category": "event",
+   "publish_date": "2026-07-01",
+   "summary_zh": "香港理工大学于2026年7月1日在校园内举行升旗仪式，庆祝香港特别行政区成立29周年。\n\n本次仪式由理大校董会主席林大辉博士（左起第7位）、署理校长黄永维教授（右起第7位）、中央人民政府驻香港特别行政区维护国家安全办公室二级督察宋一平先生（左起第6位）及外交部驻香港特别行政区特派员公署领事部副主任田振峰先生（右起第6位）主持。出席嘉宾包括副校董会主席叶仲荣博士（左起第5位）、大学校务委员会主席颜洁莹博士（右起第5位）、大学司库李锦坤先生（左起第4位）、荣誉校务委员会主席钟志平博士（右起第4位）、荣休校长潘兆中教授（左起第3位）、副校长（科研与创新）赵志坚教授（右起第3位），以及校董会、校务委员会成员、大学高层管理人员、荣誉毕业生、大学院士、杰出校友、理大基金会成员、教职员工、学生及校友近400人。\n\n仪式由中国人民解放军香港部队与理大学生升旗队联合执行。仪式后，理大在赛马会演讲厅放映纪录片《孔子》，作为2024年起举办的「理大中华文化节」系列活动之一。该片为首次在港公映，以生动影像呈现孔子这位著名思想家、政治家与教育家。林大辉博士强调，今年是香港回归祖国29周年，也是国家‘十四五’规划的开局之年，理大将紧随国家与香港发展步伐，致力于培养具有国家认同感、全球视野与社会责任感的人才，并推动科技、教育与人才强国建设。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 275,
+   "source_key": "ar-notices",
+   "title_zh": "2026/27 学年第一学期加退选安排（含开学前调整）",
+   "title_en": "2026/27 Semester One Add/Drop Arrangements (including Adjustment before Semester Commencement Period)",
+   "category": "admin",
+   "publish_date": "2026-08-14",
+   "summary_zh": "香港理工大学公布2026/27学年第一学期加退选安排，包括开学前调整时段。相关安排适用于所有注册学生。具体时间及流程将另行通知，请留意官方公告。",
+   "summary_source": null,
+   "topics": [
+    "admin"
+   ]
+  },
+  {
+   "db_id": 276,
+   "source_key": "ar-notices",
+   "title_zh": "2026/27 学年第一学期加退选安排（含开学前调整）",
+   "title_en": "(Reminder) 2026/27 Semester One Add/Drop Arrangements (including Adjustment before Semester Commencement Period)",
+   "category": "admin",
+   "publish_date": "2026-08-14",
+   "summary_zh": "香港理工大学提醒学生，2026/27 学年第一学期的加退选安排已公布，包括开学前的课程调整时段。相关安排适用于所有注册学生，具体时间与流程请参阅官方通知。",
+   "summary_source": null,
+   "topics": [
+    "admin"
+   ]
+  },
+  {
+   "db_id": 279,
+   "source_key": "ar-notices",
+   "title_zh": "2026/27 学期第一阶段选课调整安排（含开学前调整）",
+   "title_en": "(Reminder) 2026/27 Semester One Add/Drop Arrangements (including Adjustment before Semester Commencement Period)",
+   "category": "admin",
+   "publish_date": "2026-08-26",
+   "summary_zh": "香港理工大学提醒学生，2026/27 学期第一阶段的选课调整安排已公布，包括开学前的课程调整。相关安排适用于所有注册学生，具体时间与流程请以官方通知为准。",
+   "summary_source": null,
+   "topics": [
+    "admin"
+   ]
+  },
+  {
+   "db_id": 282,
+   "source_key": "feng-news",
+   "title_zh": "理大工程学院杰出校友奖结果公布",
+   "title_en": "Result Announcement - Outstanding Alumni Award of PolyU Faculty of Engineering",
+   "category": "event",
+   "publish_date": "2026-09-04",
+   "summary_zh": "理大工程学院宣布2024年杰出校友奖获奖名单，四位杰出毕业生获此殊荣。获奖者包括郭海生先生、吳海琳女士、邱維寶教授及聂涌泉博士。奖项表彰他们在专业领域、母校支持及社会贡献方面的卓越成就。",
+   "summary_source": null,
+   "topics": [
+    "career",
+    "eng",
+    "event"
+   ]
+  },
+  {
+   "db_id": 289,
+   "source_key": "comp-news",
+   "title_zh": "张磊教授荣获国际基础科学大会2026年科学前沿奖",
+   "title_en": "Prof. ZHANG Lei Honoured with 2026 Frontiers of Science Award by the International Congress of Basic Science",
+   "category": "research",
+   "publish_date": "2026-09-04",
+   "summary_zh": "张磊教授因在图像处理与计算机视觉领域的杰出贡献，荣获2026年国际基础科学大会科学前沿奖。该奖项表彰其2017年发表于IEEE Transactions on Image Processing的论文《超越高斯去噪器：基于深度CNN的残差学习图像去噪》。他自2015年起连续十年入选科睿唯安高被引学者。其研究成果已应用于OPPO Find X7、X8、X9系列智能手机。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "eng",
+    "prop-66f62d1807d3"
+   ]
+  },
+  {
+   "db_id": 290,
+   "source_key": "comp-news",
+   "title_zh": "郑元庆教授获授研究资助局研究院士",
+   "title_en": "Prof. ZHENG Yuanqing Honoured as RGC Research Fellow",
+   "category": "research",
+   "publish_date": "2026-07-22",
+   "summary_zh": "郑元庆教授获授2026/27年度研究资助局研究院士计划。该计划每年仅授予10名杰出全职及副教授，资助金额约560万港元。郑教授研究方向包括人本计算、无线网络与RFID系统。其项目聚焦软件定义边缘无线接入网络架构设计。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "city",
+    "energy",
+    "eng"
+   ]
+  },
+  {
+   "db_id": 292,
+   "source_key": "fce-news",
+   "title_zh": "香港理工大学建设及环境学院2026年度杰出校友奖",
+   "title_en": "Outstanding Alumni Award of PolyU Faculty of Construction and Environment 2026",
+   "category": "event",
+   "publish_date": "2026-08-31",
+   "summary_zh": "香港理工大学建设及环境学院宣布2026年度杰出校友奖得主。四位杰出校友因在专业与学术领域的卓越成就，以及对母校和社群的持续贡献而获表彰。该奖项自2022年起每年颁发，旨在肯定优秀校友的成就。获奖者包括来自工程测量、土木工程、建筑测量及哲学博士等领域的代表。",
+   "summary_source": null,
+   "topics": [
+    "career",
+    "ce",
+    "event"
+   ]
+  },
+  {
+   "db_id": 294,
+   "source_key": "fce-news",
+   "title_zh": "第190期电子简报 / 建设及环境学院2026年杰出校友奖揭晓",
+   "title_en": "e-Bulletin Issue 190 / Outstanding Alumni Awards 2026 for FCE",
+   "category": "scholarship",
+   "publish_date": "2026-08-31",
+   "summary_zh": "建设及环境学院公布2026年杰出校友奖得主，4位校友获表彰，涵盖专业成就与学术贡献。另有11名本科生获SHKP-Kwoks基金会奖学金，每人最高资助4万港元。3名学生获汇丰奖学金，由HSBC于2026年7月15日在中环主楼颁发。学院还公布了2025/26年度优秀博士论文奖得主。",
+   "summary_source": null,
+   "topics": [
+    "ce",
+    "event",
+    "prop-66f62d1807d3",
+    "scholarship"
+   ]
+  },
+  {
+   "db_id": 770,
+   "source_key": "events",
+   "title_zh": "香港理工大学本科招生资讯日",
+   "title_en": "PolyU InfoDay (for Undergraduate Admissions)",
+   "category": "event",
+   "publish_date": "2026-10-10",
+   "summary_zh": "香港理工大学将于2026年10月10日举办本科招生资讯日，欢迎有意申请的学生、家长及公众参与。本次活动由学生招生与奖学金办公室主办，旨在让访客深入了解学校各学术项目与校园环境。\n\n活动时间为上午10时至下午5时，地点位于香港理工大学校园内。参与者可与教授面对面交流，参加入学说明会，参观先进的实验室，了解学生创新项目，并听取在读学生分享校园生活经验。现场还提供多样化的餐饮与饮品选择，同时展示世界级校园设施与独特建筑风格。\n\n报名已开放，详情与注册链接请访问 https://www.polyu.edu.hk/infoday。建议提前添加日历提醒，携带好奇心参与。",
+   "summary_source": null,
+   "topics": [
+    "admission",
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 771,
+   "source_key": "media-releases",
+   "title_zh": "理大中秋文化节举办中秋晚会，汇聚师生校友共庆中华文化传承",
+   "title_en": "PolyU Chinese Culture Festival presents Mid-Autumn Festival Gala, bringing staff, students and alumni together to celebrate and promote Chinese cultural heritage",
+   "category": "event",
+   "publish_date": "2026-09-21",
+   "summary_zh": "香港理工大学于2026年9月17日至19日举办为期三天的「理大中国文化节——中秋晚会」，吸引超过17,000名师生及校友注册参与。活动包括「点灯之夜」「文化体验之夜」和「月下灯影之夜」三个环节，通过沉浸式文化活动与节日节目，展现中华传统文化魅力。\n\n活动由理大校董会主席林大辉博士、校长滕锦光教授等多位高层领导共同主持开幕，并巡园与参与者互动。现场设有制作漆扇、香囊及宋锦磁贴等传统手工艺工作坊，同时布置多个以中秋为主题的光影摄影点，营造浪漫温馨的校园夜景。该文化节是理大推动中华优秀传统文化传承的重要举措，亦为即将举行的建校90周年庆典预热，持续深化校园多元包容氛围。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event"
+   ]
+  },
+  {
+   "db_id": 774,
+   "source_key": "media-releases",
+   "title_zh": "香港理工大学与复旦大学共建沪港人工智能医疗联合实验室，推动AI与医疗协同创新",
+   "title_en": "PolyU and Fudan University establish Suanova Hong Kong-Shanghai Joint Laboratory for AI in Healthcare, advancing collaborative innovation in artificial intelligence and healthcare",
+   "category": "research",
+   "publish_date": "2026-09-22",
+   "summary_zh": "香港理工大学与复旦大学于2026年9月21日在上海 Bay Valley 科技园签署合作协议，共同成立 Suanova 沪港人工智能医疗联合实验室。该实验室由苏诺华科技有限公司（Suanova Technology Limited）捐赠支持，将提供计算资源，推动人工智能在医疗领域的前沿研究与应用。\n\n两校将结合各自在人工智能、医学、公共卫生及临床研究方面的优势，聚焦生成式AI、传染病研究、医学信息学与生物信息学等方向，开展跨学科合作。实验室将支持研究生、博士后及青年科研人才的联合培养，促进学术交流与产学研融合，加速科研成果向临床服务转化。复旦大学将为实验室提供办公空间、实验设施及临床研究条件，确保研究可持续推进。",
+   "summary_source": null,
+   "topics": [
+    "ai",
+    "biomed",
+    "gba",
+    "prop-66f62d1807d3"
+   ]
+  },
+  {
+   "db_id": 775,
+   "source_key": "media-releases",
+   "title_zh": "理大与中建香港深化产学研合作 共建联合实验室及设立工程奖学金 培育创科建造人才",
+   "title_en": "PolyU and China Construction Hong Kong Deepen Industry-Academia-Research Collaboration to Establish Joint Lab and Engineering Scholarship for Innovation-Driven Construction Talent Development",
+   "category": "research",
+   "publish_date": "2026-09-25",
+   "summary_zh": "理大与中建香港深化产学研合作，共建联合实验室并设立工程奖学金，以培育创科建造人才。该合作聚焦于推动建筑科技领域的创新与人才培养，强化高校与企业之间的协同机制。\n\n此次合作由理大建设及环境学院主导，中建香港作为主要合作伙伴参与。双方将共同建设联合实验室，用于开展前沿建筑工程技术研究，涵盖智能建造、绿色建筑及可持续基础设施等方向。同时，设立工程奖学金，资助在相关领域表现优异的学生，具体金额与名额未在文本中披露。合作计划自2026年9月25日起启动，覆盖范围包括理大建设及环境学院的本科生与研究生。\n\n该举措旨在提升学生在实际工程场景中的创新能力与实践能力，为大湾区乃至全国的建筑业数字化转型提供人才支持。后续将根据项目进展评估实验室运行成效与奖学金实施效果，并可能扩展至更多院校与企业合作。",
+   "summary_source": null,
+   "topics": [
+    "ce",
+    "city",
+    "gba",
+    "scholarship"
+   ]
+  },
+  {
+   "db_id": 776,
+   "source_key": "media-releases",
+   "title_zh": "香港理工大学本科招生资讯日将于10月10日举行，涵盖250多项活动及最新入学信息",
+   "title_en": "PolyU Info Day for Undergraduate Admissions to be held on 10 October, featuring over 250 activities on undergraduate programmes and the latest admissions information",
+   "category": "event",
+   "publish_date": "2026-09-25",
+   "summary_zh": "香港理工大学将于2026年10月10日（星期六）上午10时至下午5时举办本科招生资讯日，提供逾250项活动，涵盖各本科课程详情与最新入学安排。本次活动由学生招生与奖学金办公室主办，面向有意申请本科课程的潜在学生及家长，内容包括JUPAS、非JUPAS（非本地资格）、高年级入学（副学位或高级文凭资格）及高考（Gaokao）等各类申请途径的最新程序与要求说明。\n\n活动期间，各学院、学系将组织课程讲座与咨询会，并设有校友与学生分享环节、工作坊、展览及教学设施与实验室的导览。为响应人工智能发展与社会变革，学校正推进教育4.0计划，强调以学生为中心，融合人工智能、跨学科学习、体验式教育与国际视野，培养具备创新思维、数字素养与社会责任感的未来领袖。2027/28学年起，理学院将重组生物技术与化学科技荣誉理学士课程，分为应用生物学（生物技术）与化学科技两个独立课程，以支持学生更专注地发展专业能力。",
+   "summary_source": null,
+   "topics": [
+    "admission",
+    "campus",
+    "event",
+    "exchange"
+   ]
+  },
+  {
+   "db_id": 778,
+   "source_key": "media-releases",
+   "title_zh": "理大呈献「湾区客家遗产：共塑未来」——大湾区客家文化联合展；多元活动展现客家文化，促进湾区文化交流",
+   "title_en": "PolyU presents “Hakka Heritage in the Bay Area: Shaping a Shared Future” — Greater Bay Area Hakka Cultural Joint Showcase; Diverse array of activities showcases Hakka culture, fostering cultural exchange across the Greater Bay Area",
+   "category": "event",
+   "publish_date": "2026-09-23",
+   "summary_zh": "香港理工大学将于2026年10月1日至16日举办「湾区客家遗产：共塑未来」——大湾区客家文化联合展，通过展览、舞剧、论坛及非遗工作坊等形式，展示客家文化在大湾区的深厚渊源。本次活动由理大中国文化节主办，获惠州、河源、梅州、韶关海外联谊会共同支持，于10月1日上午在理大林太费礼堂举行启动仪式。\n\n展览将展出包括珍贵海外汇款信复制品在内的历史文物，呈现惠州、韶关、河源、梅州四地“四府同源”的文化联系，并突出“粤港同心”与“连接全球华人”的主题。10月1日中午将上演由惠州歌舞剧院演出的原创舞剧《1942封锁线》，再现抗战时期救出数百文化人士与爱国志士的历史壮举。10月2日举办大湾区客家文化高层论坛，由嘉应大学客家文化研究院院长肖文平教授与理大中文历史与文化学系讲师刘启尧博士主讲。此外，10月6日、7日、14日及15日将分别举行“龙形拳武术”、“弦线傀儡戏”、“中兴灯笼制作”及“瑶族刺绣”四项非遗体验工作坊，参与者可亲身体验传统技艺魅力。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event",
+    "gba",
+    "prop-f1947f79fdfb"
+   ]
+  },
+  {
+   "db_id": 780,
+   "source_key": "sao-news",
+   "title_zh": "理大2026年度才艺秀精彩回顾",
+   "title_en": "PolyU Annual Talent Show 2026 Highlights",
+   "category": "event",
+   "publish_date": "2026-09-17",
+   "summary_zh": "香港理工大学2026年度才艺秀于9月17日在红磡学生宿舍举行，由理大特殊才能招生与认可计划（STARS）住宿学院及红磡学生宿舍联合举办。\n\n活动汇聚了来自STARS住宿学院和红磡学生宿舍的学生，共同呈现了一场视听盛宴。表演涵盖动感流行乐队、K-pop舞蹈、钢琴与小提琴独奏，以及国际学生的传统艺术演出，充分展现理大学生的多元才华与青春活力。现场气氛热烈，观众热情欢呼，将整场演出推向高潮。",
+   "summary_source": null,
+   "topics": [
+    "campus",
+    "event",
+    "housing"
+   ]
+  }
+ ],
+ "local_pairs": [
+  {
+   "sample": "CLU-001",
+   "klass": 1,
+   "a": 119,
+   "b": 271,
+   "expect": "merge",
+   "judgment": "合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-002",
+   "klass": 1,
+   "a": 47,
+   "b": 270,
+   "expect": "merge",
+   "judgment": "合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-003",
+   "klass": 1,
+   "a": 770,
+   "b": 776,
+   "expect": "merge",
+   "judgment": "合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-004",
+   "klass": 1,
+   "a": 152,
+   "b": 153,
+   "expect": "merge",
+   "judgment": "合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-013",
+   "klass": 2,
+   "a": 46,
+   "b": 774,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-014",
+   "klass": 2,
+   "a": 775,
+   "b": 46,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-015",
+   "klass": 2,
+   "a": 289,
+   "b": 290,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-016",
+   "klass": 2,
+   "a": 127,
+   "b": 289,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-017",
+   "klass": 2,
+   "a": 262,
+   "b": 265,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-018",
+   "klass": 2,
+   "a": 269,
+   "b": 262,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-019",
+   "klass": 2,
+   "a": 43,
+   "b": 41,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-025",
+   "klass": 3,
+   "a": 133,
+   "b": 135,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-026",
+   "klass": 3,
+   "a": 275,
+   "b": 276,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-027",
+   "klass": 3,
+   "a": 276,
+   "b": 279,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-028",
+   "klass": 3,
+   "a": 282,
+   "b": 292,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-029",
+   "klass": 3,
+   "a": 47,
+   "b": 268,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-030",
+   "klass": 3,
+   "a": 47,
+   "b": 780,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-035",
+   "klass": 4,
+   "a": 292,
+   "b": 294,
+   "expect": "separate",
+   "judgment": "保守分开",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-036",
+   "klass": 4,
+   "a": 49,
+   "b": 771,
+   "expect": "separate",
+   "judgment": "保守分开",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-037",
+   "klass": 4,
+   "a": 48,
+   "b": 778,
+   "expect": "separate",
+   "judgment": "保守分开",
+   "chain_ids": null
+  },
+  {
+   "sample": "CLU-045",
+   "klass": 6,
+   "a": 292,
+   "b": 269,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": [
+    292,
+    294,
+    269
+   ]
+  },
+  {
+   "sample": "CLU-046",
+   "klass": 6,
+   "a": 119,
+   "b": 48,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": [
+    119,
+    271,
+    48
+   ]
+  },
+  {
+   "sample": "CLU-047",
+   "klass": 6,
+   "a": 774,
+   "b": 775,
+   "expect": "separate",
+   "judgment": "不合并",
+   "chain_ids": [
+    774,
+    46,
+    775
+   ]
+  }
+ ],
+ "public_pairs": [
+  {
+   "sample": "CLU-005",
+   "klass": 1,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "Anthropic releases Sonnet 5.5, which it calls a significantly cheaper, faster work partner",
+   "a_date": "2026-09-28",
+   "b_source": "ai-the-decoder",
+   "b_title": "Anthropic's Claude Sonnet 5.5 nearly matches Opus 5.5 on benchmarks while costing up to 30 percent less per task",
+   "b_date": "2026-09-28",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-006",
+   "klass": 1,
+   "a_source": "ai-simon-willison",
+   "a_title": "Claude Sonnet 5.5",
+   "a_date": "2026-09-28",
+   "b_source": "ai-techcrunch-ai",
+   "b_title": "Anthropic releases Sonnet 5.5, which it calls a significantly cheaper, faster work partner",
+   "b_date": "2026-09-28",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-007",
+   "klass": 1,
+   "a_source": "ai-deepmind-blog",
+   "a_title": "Gemini 3.8 text-to-speech says hello",
+   "a_date": "2026-09-23",
+   "b_source": "ai-simon-willison",
+   "b_title": "Gemini 3.8 TTS Playground",
+   "b_date": "2026-09-23",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-008",
+   "klass": 1,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "AMD will acquire Fei-Fei Li's World Labs for $8.2 billion",
+   "a_date": "2026-09-28",
+   "b_source": "ai-verge-ai",
+   "b_title": "AMD is acquiring AI company World Labs in a deal worth more than $8 billion",
+   "b_date": "2026-09-28",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-009",
+   "klass": 1,
+   "a_source": "ai-qbitai",
+   "a_title": "李飞飞创业公司被苏姿丰550亿收购！世界模型最大交易落地",
+   "a_date": "2026-09-29",
+   "b_source": "ai-techcrunch-ai",
+   "b_title": "AMD will acquire Fei-Fei Li's World Labs for $8.2 billion",
+   "b_date": "2026-09-28",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-010",
+   "klass": 1,
+   "a_source": "ai-openai-news",
+   "a_title": "How we will do better for Australia",
+   "a_date": "2026-09-28",
+   "b_source": "ai-techcrunch-ai",
+   "b_title": "OpenAI apologizes to Australia after its AI agents breached government sites",
+   "b_date": "2026-09-29",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-011",
+   "klass": 1,
+   "a_source": "ai-verge-ai",
+   "a_title": "Anthropic warns of 'catastrophic' AI risks in its own IPO filing",
+   "a_date": "2026-09-29",
+   "b_source": "ai-techcrunch-ai",
+   "b_title": "Anthropic's prospectus details losses, growth, and, yes, a warning that its AI could end humanity",
+   "b_date": "2026-09-29",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-012",
+   "klass": 1,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "OpenAI reportedly ditches model over safety concerns",
+   "a_date": "2026-09-28",
+   "b_source": "ai-the-decoder",
+   "b_title": "GPT-6.1 Astra is too deceptive for release, marking OpenAI's most dramatic safety intervention yet",
+   "b_date": "2026-09-29",
+   "judgment": "合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-020",
+   "klass": 2,
+   "a_source": "ai-openai-news",
+   "a_title": "Basis completes a tax workbook 2x faster with GPT-6 Astra",
+   "a_date": "2026-09-28",
+   "b_source": "ai-openai-news",
+   "b_title": "Harvey turns legal context into stronger drafts with GPT-6 Astra",
+   "b_date": "2026-09-23",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-021",
+   "klass": 2,
+   "a_source": "ai-openai-news",
+   "a_title": "How invideo improves color grading 3x with GPT‑6 Astra",
+   "a_date": "2026-09-23",
+   "b_source": "ai-openai-news",
+   "b_title": "Basis completes a tax workbook 2x faster with GPT-6 Astra",
+   "b_date": "2026-09-28",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-022",
+   "klass": 2,
+   "a_source": "ai-deepmind-blog",
+   "a_title": "Introducing WeatherNext 3, our most advanced and accurate global weather AI model",
+   "a_date": "2026-09-03",
+   "b_source": "ai-deepmind-blog",
+   "b_title": "AlphaGenome Atlas: A predictive map of every possible DNA letter change in the human genome",
+   "b_date": "2026-09-08",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-023",
+   "klass": 2,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "Anthropic releases Sonnet 5.5, which it calls a significantly cheaper, faster work partner",
+   "a_date": "2026-09-28",
+   "b_source": "ai-techcrunch-ai",
+   "b_title": "Anthropic's prospectus details losses, growth, and, yes, a warning that its AI could end humanity",
+   "b_date": "2026-09-29",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-024",
+   "klass": 2,
+   "a_source": "ai-openai-news",
+   "a_title": "Two years of OpenAI Academy",
+   "a_date": "2026-09-23",
+   "b_source": "ai-openai-news",
+   "b_title": "ChatGPT Ads expands to Southeast Asia and Taiwan",
+   "b_date": "2026-09-23",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-031",
+   "klass": 3,
+   "a_source": "ai-deepmind-blog",
+   "a_title": "Introducing Gemini 3.8 Live and 3.8 Live Extended Thinking",
+   "a_date": "2026-09-15",
+   "b_source": "ai-deepmind-blog",
+   "b_title": "Introducing Gemini 3.8 Live with Live Avatar",
+   "b_date": "2026-09-24",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-032",
+   "klass": 3,
+   "a_source": "ai-deepmind-blog",
+   "a_title": "Introducing Gemini 3.7 Flash",
+   "a_date": "2026-08-13",
+   "b_source": "ai-deepmind-blog",
+   "b_title": "Introducing Gemini 3.8 Flash and 3.8 Flash Cyber",
+   "b_date": "2026-09-02",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-033",
+   "klass": 3,
+   "a_source": "ai-deepmind-blog",
+   "a_title": "Gemini Omni 1.1 Flash lets you build with more control",
+   "a_date": "2026-08-27",
+   "b_source": "ai-deepmind-blog",
+   "b_title": "Introducing Gemini 3.8 Flash and 3.8 Flash Cyber",
+   "b_date": "2026-09-02",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-034",
+   "klass": 3,
+   "a_source": "ai-openai-news",
+   "a_title": "ChatGPT Ads expands across Europe",
+   "a_date": "2026-08-18",
+   "b_source": "ai-openai-news",
+   "b_title": "ChatGPT Ads expands to Southeast Asia and Taiwan",
+   "b_date": "2026-09-23",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-038",
+   "klass": 4,
+   "a_source": "ai-ars-technica-ai",
+   "a_title": "OpenAI agent “didn't accept no for an answer” in Australian government breach",
+   "a_date": "2026-09-24",
+   "b_source": "ai-openai-news",
+   "b_title": "How we will do better for Australia",
+   "b_date": "2026-09-28",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-039",
+   "klass": 4,
+   "a_source": "ai-latent-space",
+   "a_title": "[AINews] Meta Connect 2026: Muse glasses, voice, video, and Charm",
+   "a_date": "2026-09-24",
+   "b_source": "ai-ars-technica-ai",
+   "b_title": "Meta puts its AI assistant on a keychain",
+   "b_date": "2026-09-24",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-040",
+   "klass": 4,
+   "a_source": "ai-aws-ml-blog",
+   "a_title": "Introducing Claude Sonnet 5.5 on AWS",
+   "a_date": "2026-09-28",
+   "b_source": "ai-the-decoder",
+   "b_title": "Anthropic's Claude Sonnet 5.5 nearly matches Opus 5.5 on benchmarks while costing up to 30 percent less per task",
+   "b_date": "2026-09-28",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-041",
+   "klass": 5,
+   "a_source": "ai-latent-space",
+   "a_title": "[AINews] AMD buys World Labs for $8.2B, as Atlas solves sparse reconstruction problem for robotics, design and more",
+   "a_date": "2026-09-29",
+   "b_source": "ai-qbitai",
+   "b_title": "李飞飞创业公司被苏姿丰550亿收购！世界模型最大交易落地",
+   "b_date": "2026-09-29",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-042",
+   "klass": 5,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "Anthropic's prospectus details losses, growth, and, yes, a warning that its AI could end humanity",
+   "a_date": "2026-09-29",
+   "b_source": "ai-the-decoder",
+   "b_title": "Anthropic's IPO filing shows soaring revenue, mounting costs, and \"existential\" risks",
+   "b_date": "2026-09-29",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-043",
+   "klass": 5,
+   "a_source": "ai-the-decoder",
+   "a_title": "Nvidia wants to keep AI agents on a short leash with a watchdog built into its chips",
+   "a_date": "2026-09-28",
+   "b_source": "ai-verge-ai",
+   "b_title": "Nvidia says its new AI safety platform can contain rogue agents within 'milliseconds'",
+   "b_date": "2026-09-28",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-044",
+   "klass": 5,
+   "a_source": "ai-techcrunch-ai",
+   "a_title": "Meta launches enterprise AI platform, hires MongoDB CEO to lead new initiative",
+   "a_date": "2026-09-28",
+   "b_source": "ai-the-decoder",
+   "b_title": "Meta wants to turn Muse into a moneymaker by selling AI services to businesses",
+   "b_date": "2026-09-28",
+   "judgment": "保守分开",
+   "expect": "gate-separate"
+  },
+  {
+   "sample": "CLU-048",
+   "klass": 6,
+   "a_source": "ai-openai-news",
+   "a_title": "How we will do better for Australia",
+   "a_date": "2026-09-28",
+   "b_source": "ai-the-decoder",
+   "b_title": "OpenAI's AI agents exploited a Google security education game to scrape UN trade data",
+   "b_date": "2026-09-28",
+   "judgment": "不合并",
+   "expect": "gate-separate"
+  }
+ ]
+}
