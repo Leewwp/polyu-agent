@@ -600,9 +600,10 @@ VALUES ('2001523723396309017', '2001523723396309001', 'AGENT_MAIN', $prompt$# �
 $prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0);
 
 -- ============================================
--- 资讯流：信源与主题种子（2026-09-10；扩源 2026-09-12）
--- 信源 21 行：原 7 行（campus-reports 停更默认禁用）+ 扩源批次一学院 YouTube 3 行
+-- 资讯流：信源与主题种子（2026-09-10；扩源 2026-09-12；#188 批 2 2026-09-30）
+-- 信源 25 行：原 7 行（campus-reports 停更默认禁用）+ 扩源批次一学院 YouTube 3 行
 --   / 批次二 GNews 检索 5 行 / 批次三官网域内 6 行（2026-09-12 JVM 形态探测命中既有列表形态）
+--   / #188 批 2 官网域内 HTML_LIST 4 行（alumni/lib/fb/fhss，seed 停用待授权启用）
 -- 主题 20 行=原型 TOPICS 注册表（学院与部门 6/研究领域与话题 6/学生事务 8）
 -- ============================================
 
@@ -632,7 +633,15 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   ('gnews-polyu-zh',          'gnews', 'GNews 中文检索',   'GNews: 理大 (ZH-Hant)',    'https://news.google.com/search?q=%E9%A6%99%E6%B8%AF%E7%90%86%E5%B7%A5%E5%A4%A7%E5%AD%B8+OR+%28%E7%90%86%E5%A4%A7+%E9%A6%99%E6%B8%AF%29', 'https://news.google.com/rss/search?q=%E9%A6%99%E6%B8%AF%E7%90%86%E5%B7%A5%E5%A4%A7%E5%AD%B8+OR+%28%E7%90%86%E5%A4%A7+%E9%A6%99%E6%B8%AF%29&hl=zh-HK&gl=HK&ceid=HK%3Azh-Hant', 'RSS_GNEWS', FALSE, TRUE, NULL),
   ('gnews-polyu-admission',   'gnews', 'GNews 招生报道',   'GNews: Admissions',        'https://news.google.com/search?q=site:polyu.edu.hk+admission', 'https://news.google.com/rss/search?q=site%3Apolyu.edu.hk+%28admission+OR+admissions+OR+JUPAS%29&hl=en-HK&gl=HK&ceid=HK%3Aen', 'RSS_GNEWS', FALSE, TRUE, NULL),
   ('gnews-polyu-scholarship', 'gnews', 'GNews 奖学金报道', 'GNews: Scholarships',      'https://news.google.com/search?q=site:polyu.edu.hk+scholarship', 'https://news.google.com/rss/search?q=site%3Apolyu.edu.hk+%28scholarship+OR+scholarships%29&hl=en-HK&gl=HK&ceid=HK%3Aen', 'RSS_GNEWS', FALSE, TRUE, NULL),
-  ('gnews-polyu-career',      'gnews', 'GNews 就业报道',   'GNews: Careers',           'https://news.google.com/search?q=site:polyu.edu.hk+career', 'https://news.google.com/rss/search?q=site%3Apolyu.edu.hk+%28career+OR+careers+OR+employment%29&hl=en-HK&gl=HK&ceid=HK%3Aen', 'RSS_GNEWS', FALSE, TRUE, NULL)
+  ('gnews-polyu-career',      'gnews', 'GNews 就业报道',   'GNews: Careers',           'https://news.google.com/search?q=site:polyu.edu.hk+career', 'https://news.google.com/rss/search?q=site%3Apolyu.edu.hk+%28career+OR+careers+OR+employment%29&hl=en-HK&gl=HK&ceid=HK%3Aen', 'RSS_GNEWS', FALSE, TRUE, NULL),
+  -- #188 批 2：官网域内 4 源 HTML_LIST（2026-09-30 维护者裁决；2026-09-30 生产侧+本地双探测命中解析形态）。
+  -- seed 明示停用待维护者授权启用：enabled=FALSE + disabled_reason='manual'（#186：不探活不自动解禁）；
+  -- independence_group 经下方 polyu-official 组映射落（#187 事件投票去重键）。
+  -- lib-news 注意：必须 www.lib 子域（library. 不可达）；robots Crawl-delay 10 与抓取节拍天然兼容。
+  ('alumni-news',   'official', '校友事务处新闻',       'Alumni News',               'https://www.polyu.edu.hk/alumni/news/', 'https://www.polyu.edu.hk/alumni/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('lib-news',      'official', '包玉刚图书馆新闻',     'Pao Yue-kong Library News', 'https://www.lib.polyu.edu.hk/news',     'https://www.lib.polyu.edu.hk/news',     'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('fb-news',       'official', '工商管理学院动态',     'FB News',                   'https://www.polyu.edu.hk/fb/news-events/news/', 'https://www.polyu.edu.hk/fb/news-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('fhss-news',     'official', '医疗及社会科学院动态', 'FHSS News',                 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'HTML_LIST', TRUE, FALSE, 'manual')
 ON CONFLICT (source_key) DO NOTHING;
 
 -- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
@@ -642,7 +651,8 @@ UPDATE t_news_source SET independence_group = 'polyu-official'
 WHERE independence_group IS NULL
   AND source_key IN ('news-sitemap', 'media-releases', 'recent-focus', 'events', 'campus-reports',
                      'sao-news', 'ar-notices', 'feng-news', 'comp-news', 'fce-news', 'shtm-news',
-                     'youtube-main', 'youtube-feng', 'youtube-comp', 'youtube-fce');
+                     'youtube-main', 'youtube-feng', 'youtube-comp', 'youtube-fce',
+                     'alumni-news', 'lib-news', 'fb-news', 'fhss-news');
 UPDATE t_news_source SET independence_group = 'prn-wire'
 WHERE independence_group IS NULL AND source_key = 'prn';
 UPDATE t_news_source SET independence_group = 'gnews'

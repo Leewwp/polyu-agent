@@ -35,17 +35,23 @@ import java.util.regex.Pattern;
 /**
  * HTML 列表页条目发现解析器（HTML_LIST 型）
  *
- * <p>覆盖三个已知模板族，按「首个产出条目的族胜出」自动探测——扩源=加
+ * <p>覆盖四个已知模板族，按「首个产出条目的族胜出」自动探测——扩源=加
  * t_news_source 行即可命中同族模板，无代码改动：
  * <ol>
- *   <li>PolyU 官网列表族（media-releases / campus-releases 同组件库）：
- *       {@code a.border-hover-shadow-list__itm}，标题 {@code .long-img-side-blk__title}、
- *       日期 {@code .p-date}（"10 Sep, 2026"）、类别 {@code .color-plate-text__color}；</li>
+ *   <li>PolyU 官网列表族（media-releases / campus-releases / 批 2 alumni-news、
+ *       fb-news、fhss-news 同组件库）：{@code a.border-hover-shadow-list__itm}，
+ *       标题 {@code .long-img-side-blk__title}、日期 {@code .p-date}（"10 Sep, 2026"）、
+ *       类别 {@code .color-plate-text__color}；</li>
  *   <li>PR Newswire 通稿族：{@code a.newsreleaseconsolidatelink}，日期在
  *       {@code h3 > small}（"Jul 20, 2026, 00:00 ET"），标题=h3 文本去 small；</li>
  *   <li>PolyU recent-focus 族：{@code a[href^=/recent-focus/YYYYMMDD_slug/]}，
  *       卡片无日期（日期在 URL slug），标题取最近 .slogan-open-blk 容器内
  *       .slogan-tag__slogan 文本。</li>
+ *   <li>图书馆 Drupal views 族（#188 批 2 lib-news，www.lib.polyu.edu.hk）：
+ *       {@code div.views-row h3.views-field-title a}，日期=行内
+ *       .views-news-events-posted 的裸文本节点（"Friday, September 18, 2026 - 08:30"，
+ *       前 .badge 为类别 News/Event/Notice）。列表页无 URL slug 日期可回退，
+ *       日期元素缺失的行 publishTime=null 由调用方跳过。</li>
  * </ol>
  *
  * <p>实现裁量（已记录）：设计上写「复用 HtmlDocumentParser」，但该解析器的
@@ -64,6 +70,12 @@ public final class NewsHtmlListParser {
             DateTimeFormatter.ofPattern("MMM d, uuuu", Locale.ENGLISH);
 
     /**
+     * "September 18, 2026"（图书馆 Drupal 站星期前缀剥离后的全月名形态）
+     */
+    private static final DateTimeFormatter ENGLISH_DATE_FULL_MONTH =
+            DateTimeFormatter.ofPattern("MMMM d, uuuu", Locale.ENGLISH);
+
+    /**
      * media-releases 详情 URL 内的 /2026/0910_slug/ 日期段
      */
     private static final Pattern SLUG_DATE_WITH_YEAR = Pattern.compile("/(\\d{4})/(\\d{2})(\\d{2})_[^/]+/");
@@ -72,6 +84,14 @@ public final class NewsHtmlListParser {
      * recent-focus URL 内的 /20260819_slug/ 日期段
      */
     private static final Pattern SLUG_DATE_COMPACT = Pattern.compile("/(\\d{4})(\\d{2})(\\d{2})_[^/]+/");
+
+    /**
+     * 图书馆 Drupal 站日期文本 "Friday, September 18, 2026 - 08:30" 的星期前缀剥离：
+     * 捕获组=裸日期 "September 18, 2026"（交由 {@link #ENGLISH_DATE_FULL_MONTH} 解析——
+     * 短月名 {@link #ENGLISH_DATE_ALT} 不吃全月名，java.time 严格解析）
+     */
+    private static final Pattern WEEKDAY_PREFIXED_DATE =
+            Pattern.compile("(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\\s*([A-Za-z]+\\s+\\d{1,2},\\s*\\d{4})");
 
     /**
      * 官网列表页无时区信息的日期一律按 HKT（+08:00）解释（时区统一口径）
@@ -106,6 +126,10 @@ public final class NewsHtmlListParser {
             return entries;
         }
         entries.addAll(parseRecentFocusFamily(document));
+        if (!entries.isEmpty()) {
+            return entries;
+        }
+        entries.addAll(parseLibViewsFamily(document));
         if (failClosed && entries.isEmpty()) {
             throw new NewsFetchStructureException("HTML 列表页解析零条目（模板改版嫌疑，fail-closed）");
         }
@@ -188,20 +212,60 @@ public final class NewsHtmlListParser {
     }
 
     /**
-     * 解析日期文本（"10 Sep, 2026" / "Jul 20, 2026, 00:00 ET"），按 HKT 解释
+     * 图书馆 Drupal views 族（#188 批 2 lib-news）：行容器 .views-row，标题锚
+     * h3.views-field-title a；日期取 .views-news-events-posted 的<b>裸文本节点</b>
+     * （.badge 子元素是类别 News/Event/Notice，不得混入日期文本）——&amp;nbsp; 经
+     * jsoup 以 \u00A0 保留，统一替换为空格后 trim
+     */
+    private static List<ListEntry> parseLibViewsFamily(Document document) {
+        List<ListEntry> entries = new ArrayList<>();
+        for (Element anchor : document.select("div.views-row h3.views-field-title a[href]")) {
+            String link = anchor.absUrl("href");
+            if (link.isBlank()) {
+                continue;
+            }
+            Element row = anchor.closest(".views-row");
+            if (row == null) {
+                continue;
+            }
+            String dateText = null;
+            Element posted = row.selectFirst(".views-news-events-posted");
+            if (posted != null) {
+                List<org.jsoup.nodes.TextNode> textNodes = posted.textNodes();
+                if (!textNodes.isEmpty()) {
+                    String candidate = textNodes.get(textNodes.size() - 1).getWholeText()
+                            .replace('\u00A0', ' ').trim();
+                    dateText = candidate.isEmpty() ? null : candidate;
+                }
+            }
+            entries.add(new ListEntry(link, textOrNull(anchor), dateText,
+                    textOrNull(row.selectFirst(".views-news-events-posted .badge")), null));
+        }
+        return entries;
+    }
+
+    /**
+     * 解析日期文本（"10 Sep, 2026" / "Jul 20, 2026, 00:00 ET" /
+     * "Friday, September 18, 2026 - 08:30"），按 HKT 解释（Drupal 站的 "- HH:mm"
+     * 时刻截到日粒度，与其余源口径一致）
      */
     static java.util.Date parseDateText(String dateText) {
         if (dateText == null || dateText.isBlank()) {
             return null;
         }
         String cleaned = dateText.trim();
+        // 图书馆 Drupal 形态：剥离星期前缀与 "- HH:mm" 尾巴，留裸日期 "September 18, 2026"
+        Matcher weekdayPrefixed = WEEKDAY_PREFIXED_DATE.matcher(cleaned);
+        if (weekdayPrefixed.find()) {
+            cleaned = weekdayPrefixed.group(1);
+        }
         // 去 ", 00:00 ET" 时区后缀（ET 与站点日期不同日风险可忽略：列表给的是发布日）
         int commaIdx = cleaned.indexOf(',');
         int secondComma = commaIdx >= 0 ? cleaned.indexOf(',', commaIdx + 1) : -1;
         if (secondComma > 0) {
             cleaned = cleaned.substring(0, secondComma);
         }
-        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT)) {
+        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH)) {
             try {
                 LocalDate date = LocalDate.parse(cleaned, formatter);
                 return Date.from(date.atStartOfDay(SITE_ZONE).toInstant());
