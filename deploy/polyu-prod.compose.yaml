@@ -46,6 +46,9 @@ services:
       # feature flags / 邮件参数：env 文件值经此处进容器（Spring relaxed binding 覆盖 application.yaml；
       # 开关必须在此列出让 compose 传递，只在 env 文件里翻转是静默 no-op）；缺省值与 yaml 默认一致
       RAG_NEWS_ENABLED: ${RAG_NEWS_ENABLED:-false}
+      # 校历关键日期管线 flag（#192，2026-09-30 补列——#191 先例同因：不列则只在 env
+      # 文件翻转是静默 no-op）：默认关；开启后日级抓取五源写 t_key_date/t_key_date_source
+      RAG_CALENDAR_ENABLED: ${RAG_CALENDAR_ENABLED:-false}
       # 站点反馈/关于页 flag（doc 25）：go-live 开闸新增键——2026-09-16 曾漏列致静默 no-op（D18 续）
       RAG_SITE_ENABLED: ${RAG_SITE_ENABLED:-false}
       # 统一分享 flag（issue #124）：答案+会话两粒度共用（原 AGENT_SHARE_* 两键归一为 SHARE_*）

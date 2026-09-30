@@ -88,6 +88,19 @@ ssh -i <密钥> <用户>@<服务器IP> \
   < resources/database/upgrades/v2.0.0/xxxx.sql
 ```
 
+## 功能开关透传（feature flags）
+
+开关键必须在 compose 的 `polyu-app.environment` 里列出才会进容器——只在
+`polyu-prod.env` 里翻转而 compose 未列的键是**静默 no-op**（2026-09-16 RAG_SITE 漏列教训）。
+现列出的开关键（env 文件里按需覆盖，缺省值与 application.yaml 默认一致）：
+
+- `RAG_NEWS_ENABLED`（默认 `false`）：资讯流管线。
+- `RAG_CALENDAR_ENABLED`（默认 `false`，#192）：校历关键日期管线——开启后
+  `KeyDateSyncJob` 按 `rag.calendar.sync-cron`（默认每日 07:30 Asia/Hong_Kong）日级抓取
+  AR 五个校历页面，五源解析过门禁后原子写入 `t_key_date`（事件）与 `t_key_date_source`
+  （源状态）；种子五行走 `init_data_pg.sql`（存量库走 `upgrades/v2.0.0/260930_key_date_ingest.sql`）。
+  源级人工启停=`t_key_date_source.enabled`（'0' 不抓取不复活），与全局开关正交。
+
 ## 本机冒烟（不占生产端口）
 
 镜像构建（根目录为 context；本机若 Docker Hub 不可达，可经镜像源补拉基础镜像后 retag）：
