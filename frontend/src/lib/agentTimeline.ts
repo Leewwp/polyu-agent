@@ -200,7 +200,7 @@ export function applyConfirmStatus(
   status: AgentConfirmStatus
 ): AgentBlockUI[] {
   const card = blocks.find((block) => block.id === blockId && block.kind === "confirm");
-  if (!card || (card.status !== "pending" && card.status !== "submitting")) return blocks;
+  if (!card) return blocks;
   const deniedCallIds = new Set(
     status === "denied"
       ? (card.calls ?? []).map((call) => call.toolCallId).filter((id) => id?.trim())
@@ -353,15 +353,10 @@ export function buildTimelineRows(turn: AgentTurn): TraceRow[] {
   const claimed = claimByConfirm(turn);
   const superseded = supersededBlockIds(turn);
   // 关联的未执行记录由确认卡展示，用户拒绝后已结算为 denied 的原工具块也不再单独成行。
-  // 带有结果或执行时间的块不在这里隐藏。
   const hidden = (block: AgentBlockUI) =>
     superseded.has(block.id) ||
     (block.kind === "tool" &&
       (block.status === "awaiting" || block.status === "denied") &&
-      !block.result &&
-      block.startedAt == null &&
-      block.endedAt == null &&
-      block.durationMs == null &&
       Boolean(block.toolCallId) &&
       claimed.has(block.toolCallId as string));
   // 同批只要有一条要授权 整批就一起停下 卡里没有这条 它就只是随批等着 说它「待确认」是让用户去授权一件没人问他的事

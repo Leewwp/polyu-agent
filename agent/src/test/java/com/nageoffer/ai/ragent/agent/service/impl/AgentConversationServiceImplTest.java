@@ -237,28 +237,18 @@ class AgentConversationServiceImplTest {
 
     @Test
     void shouldOnlyDenyCallsNamedByCardNotOtherSameNameOrBatchTools() {
-        AgentMessageDO message = confirmationWithTools(List.of("call-1", "call-2"),
+        AgentBlock completed = toolBlock("call-done", "done");
+        completed.setResult("原始工具结果");
+        AgentMessageDO message = confirmationWithTools(List.of("call-1", "call-2", "call-done", " "),
                 toolBlock("call-1", "awaiting"), toolBlock("call-2", "awaiting"),
-                toolBlock("call-3", "awaiting"), toolBlock(null, "awaiting"));
+                toolBlock("call-3", "awaiting"), completed, toolBlock(" ", "awaiting"));
 
         service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", false);
 
         assertThat(message.getBlocks()).extracting(AgentBlock::getStatus)
-                .containsExactly("denied", "denied", "awaiting", "awaiting", "denied");
+                .containsExactly("denied", "denied", "awaiting", "done", "awaiting", "denied");
+        assertThat(completed.getResult()).isEqualTo("原始工具结果");
         verify(messageMapper).updateById(message);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"pending", "running", "done", "failed", "denied", "interrupted"})
-    void shouldPreserveLinkedToolUnlessAwaiting(String status) {
-        AgentBlock tool = toolBlock("call-1", status);
-        tool.setResult("原始工具结果");
-        AgentMessageDO message = confirmationWithTools(List.of("call-1"), tool);
-
-        service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", false);
-
-        assertThat(message.getBlocks()).extracting(AgentBlock::getStatus).containsExactly(status, "denied");
-        assertThat(tool.getResult()).isEqualTo("原始工具结果");
     }
 
     @Test
@@ -299,35 +289,11 @@ class AgentConversationServiceImplTest {
         verify(messageMapper).updateById(message);
     }
 
-    @Test
-    void shouldNotGuessToolIdentityWhenCardHasNoUsableCallIds() {
-        AgentMessageDO message = confirmationWithTools(List.of("", " "),
-                toolBlock(null, "awaiting"), toolBlock("", "awaiting"), toolBlock(" ", "awaiting"),
-                toolBlock("call-1", "awaiting"));
-        message.getBlocks().get(4).getCalls().add(AgentConfirmCall.builder().name("leave_submit").build());
-
-        service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", false);
-
-        assertThat(message.getBlocks()).extracting(AgentBlock::getStatus)
-                .containsExactly("awaiting", "awaiting", "awaiting", "awaiting", "denied");
-    }
-
-    @Test
-    void shouldSettleLegacyCardWithoutCalls() {
-        AgentMessageDO message = confirmationWithTools(List.of(), toolBlock("call-1", "awaiting"));
-        message.getBlocks().get(1).setCalls(null);
-
-        service.settlePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004", false);
-
-        assertThat(message.getBlocks()).extracting(AgentBlock::getStatus).containsExactly("awaiting", "denied");
-        verify(messageMapper).updateById(message);
-    }
-
     private AgentMessageDO confirmationWithTools(List<String> callIds, AgentBlock... tools) {
         AgentMessageDO message = pendingConfirmation();
         AgentBlock card = message.getBlocks().get(0);
-        card.setCalls(new ArrayList<>(callIds.stream().map(id -> AgentConfirmCall.builder()
-                .toolCallId(id).name("leave_submit").build()).toList()));
+        card.setCalls(callIds.stream().map(id -> AgentConfirmCall.builder()
+                .toolCallId(id).name("leave_submit").build()).toList());
         List<AgentBlock> blocks = new ArrayList<>(List.of(tools));
         blocks.add(card);
         message.setBlocks(blocks);

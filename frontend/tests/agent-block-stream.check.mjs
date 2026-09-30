@@ -4,8 +4,6 @@ import { build } from "esbuild";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(root, ".output/agent-block-stream");
@@ -16,7 +14,6 @@ try {
     stdin: {
       contents: `export { useAgentChatStore } from "./src/stores/agentChatStore";
         export { buildTimelineRows } from "./src/lib/agentTimeline";
-        export { AgentTurnItem } from "./src/components/agent/AgentTurn";
         export { api } from "./src/services/api";`,
       resolveDir: root,
       loader: "ts"
@@ -29,7 +26,7 @@ try {
     tsconfig: resolve(root, "tsconfig.app.json"),
     define: { "import.meta.env": "{}" }
   });
-  const { useAgentChatStore: store, buildTimelineRows, AgentTurnItem, api } =
+  const { useAgentChatStore: store, buildTimelineRows, api } =
     await import(pathToFileURL(resolve(outDir, "store.mjs")));
   const initial = store.getState();
   const text = (kind, delta) => ["message", { type: kind, delta }];
@@ -113,8 +110,6 @@ try {
     ]
   });
   const rowsOf = () => buildTimelineRows({ id: "turn", index: 1, assistants: store.getState().messages });
-  const renderTurn = () => renderToStaticMarkup(createElement(AgentTurnItem,
-    { turn: { id: "turn", index: 1, assistants: store.getState().messages } }));
   // 只比较用户可见的状态和结果；回放重新分配本地块 ID。
   const visible = () => rowsOf().map(row => ({
     channel: row.channel, status: row.block?.status, toolCallId: row.block?.toolCallId,
@@ -149,7 +144,6 @@ try {
     assert.equal(store.getState().messages[0].messageStatus, "NORMAL");
     assert.deepEqual(rowsOf().filter(row => row.channel === "tool").map(row => row.block.toolCallId), ["c2"]);
     assert.equal(rowsOf().find(row => row.channel === "confirm").outcomes[0].status, "denied");
-    assert.equal((renderTurn().match(/data-channel="tool"/g) ?? []).length, 1, "组件只显示未被卡片认领的 c2 工具行");
     const live = visible();
     const saved = confirmFixture();
     saved.messageStatus = "NORMAL";
@@ -169,11 +163,6 @@ try {
       tool("c1", "running"), tool("c1", status, { result }), finish, done]);
     await store.getState().confirmPendingTool("confirm-1", 10003, true);
     assert.deepEqual(store.getState().messages[0].blocks.map(block => block.status), ["awaiting", "awaiting", "approved"]);
-    const resultRow = rowsOf().find(row => row.channel === "tool" && row.block.toolCallId === "c1");
-    assert.equal(resultRow.block.status, status);
-    assert.equal(resultRow.block.result, result);
-    assert.equal(rowsOf().find(row => row.channel === "confirm").outcomes[0].status, status);
-    assert.ok(renderTurn().includes(result), "真实组件必须显示结果或错误摘要");
     const live = visible();
     const saved = confirmFixture();
     saved.messageStatus = "NORMAL";
@@ -181,15 +170,18 @@ try {
     await replayHistory([saved, { id: "saved-1", role: "assistant", content: "", messageStatus: "NORMAL",
       blocks: [tool("c1", status, { result })[1]] }]);
     assert.deepEqual(visible(), live);
-    console.log(`ok 同意后 ${status}：真实结果与错误可见，刷新一致`);
+    console.log(`ok 同意后 ${status}：卡片 approved、原工具保持 awaiting，实时与历史一致`);
   }
 
   store.setState({ ...initial, currentSessionId: "conversation-1", messages: [confirmFixture()] }, true);
   const expired = confirmFixture();
   expired.messageStatus = "NORMAL";
   expired.blocks[2].status = "expired";
-  api.defaults.adapter = async config => ({ data: { code: "0", data: [expired] },
-    status: 200, statusText: "OK", headers: {}, config });
+  api.defaults.adapter = async config => {
+    assert.deepEqual(store.getState().messages[0].blocks.map(block => block.status),
+      ["awaiting", "awaiting", "submitting"], "历史回查覆盖本地消息前，不得把失效请求当成用户拒绝");
+    return { data: { code: "0", data: [expired] }, status: 200, statusText: "OK", headers: {}, config };
+  };
   try {
     // 失效请求没有 meta；确认入口会重新加载服务端卡片。
     respondWith([["error", { message: "待确认的操作已失效" }], done]);

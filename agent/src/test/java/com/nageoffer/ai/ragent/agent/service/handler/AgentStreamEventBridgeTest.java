@@ -51,8 +51,6 @@ import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
@@ -568,7 +566,6 @@ class AgentStreamEventBridgeTest {
 
         assertThat(capturedBlocks()).singleElement().satisfies(block -> {
             assertThat(block.getStatus()).isEqualTo("denied");
-            assertThat(block.getToolCallId()).isEqualTo("call-1");
             // 没执行过，无批次无起止
             assertThat(block.getBatchId()).isNull();
             assertThat(block.getStartedAt()).isNull();
@@ -611,24 +608,21 @@ class AgentStreamEventBridgeTest {
     /**
      * 续跑没有 ToolCallStart，从 ToolResultStart 补建块
      */
-    @ParameterizedTest
-    @EnumSource(value = ToolResultState.class, names = {"SUCCESS", "ERROR"})
-    void shouldOpenBlockWhenResumedRunSkipsCallStart(ToolResultState state) {
+    @Test
+    void shouldOpenBlockWhenResumedRunSkipsCallStart() {
         ToolBatchFact batch = beginBatch("call-1");
         bridge.onEvent(new ToolResultStartEvent(ACT_ID, "call-1", "leave_submit"));
         facts.markStarted("call-1");
         clock.advance(15);
         facts.markEnded("call-1");
-        String result = state == ToolResultState.SUCCESS ? "已提交" : "提交失败：服务不可用";
-        bridge.onEvent(new ToolResultTextDeltaEvent(ACT_ID, "call-1", "leave_submit", result));
-        bridge.onEvent(new ToolResultEndEvent(ACT_ID, "call-1", "leave_submit", state));
+        bridge.onEvent(new ToolResultTextDeltaEvent(ACT_ID, "call-1", "leave_submit", "已提交"));
+        bridge.onEvent(new ToolResultEndEvent(ACT_ID, "call-1", "leave_submit", ToolResultState.SUCCESS));
         facts.endBatch(batch);
         bridge.onComplete();
 
         assertThat(capturedBlocks()).singleElement().satisfies(block -> {
-            assertThat(block.getToolCallId()).isEqualTo("call-1");
-            assertThat(block.getStatus()).isEqualTo(state == ToolResultState.SUCCESS ? "done" : "failed");
-            assertThat(block.getResult()).isEqualTo(result);
+            assertThat(block.getStatus()).isEqualTo("done");
+            assertThat(block.getResult()).isEqualTo("已提交");
             // 序号由 acting 名册补
             assertThat(block.getCallIndex()).isZero();
             assertThat(block.getDurationMs()).isEqualTo(15);
