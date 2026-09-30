@@ -26,10 +26,12 @@ import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicAliasDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicAliasMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import com.nageoffer.ai.ragent.news.fetch.NewsHttpFetchClient;
@@ -87,9 +89,11 @@ import java.util.function.Supplier;
  * 摘要质量受限，记为已知限制）。
  *
  * <p>主题受控词表内嵌 prompt（二开纪律：提示词外置 prompt/news-summary.st）；
- * 词表命中按 slug/中英名回链 t_news_item_topic；未命中新词以 curated=false
- * 提案入库（topic_group=PROPOSED），目录接口只取 curated=true 天然不展示，
- * 人工抽检时顺带人工审（合并/转正/丢弃）。
+ * 词表命中按 slug/中英名回链 t_news_item_topic；未命中先过<b>别名账拦截</b>
+ * （#202：merged 别名回链目标 curated 主题、rejected 别名跳过，已治理名称
+ * 不再进提案面——防再提），仍未命中才以 curated=false 提案入库
+ * （topic_group=PROPOSED），目录接口只取 curated=true 天然不展示，处置走
+ * #202 三轨治理（merge/promote/reject，admin 批量审核端点）。
  *
  * <p>逐条隔离：单条 LLM/抓取失败只记日志留待下轮（行保持 summary_en IS NULL），
  * 不阻断批内其余条目；批上限防长事务与 LLM 花费失控。
@@ -140,6 +144,12 @@ public class NewsEnrichService {
     private final NewsSourceMapper sourceMapper;
     private final NewsTopicMapper topicMapper;
     private final NewsItemTopicMapper itemTopicMapper;
+    /**
+     * 别名账 Mapper（#202 防再提）：提案消费点词表未命中后、建提案行前查一次——
+     * 命中 merged 别名回链目标 curated 主题、命中 rejected 别名跳过（不建行不挂关联）。
+     * 测试便捷构造器传 null=零拦截（行为与 #202 前完全一致）
+     */
+    private final NewsTopicAliasMapper aliasMapper;
     private final NewsHttpFetchClient httpFetchClient;
     private final HtmlDocumentParser htmlDocumentParser;
     private final NewsLlmBudgetService llmBudgetService;
@@ -161,15 +171,19 @@ public class NewsEnrichService {
                              NewsSourceMapper sourceMapper,
                              NewsTopicMapper topicMapper,
                              NewsItemTopicMapper itemTopicMapper,
+                             NewsTopicAliasMapper aliasMapper,
                              NewsHttpFetchClient httpFetchClient,
                              HtmlDocumentParser htmlDocumentParser,
                              NewsLlmBudgetService llmBudgetService,
                              PromptTemplateLoader promptTemplateLoader,
                              NewsFetchProperties fetchProperties) {
-        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, httpFetchClient,
-                htmlDocumentParser, llmBudgetService, promptTemplateLoader, new ObjectMapper(), fetchProperties);
+        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, aliasMapper, httpFetchClient,
+                htmlDocumentParser, llmBudgetService, promptTemplateLoader, new ObjectMapper(), fetchProperties, Date::new);
     }
 
+    /**
+     * 测试便捷构造器（无别名账=零拦截，行为与 #202 前一致）
+     */
     NewsEnrichService(NewsItemMapper itemMapper,
                       NewsSourceMapper sourceMapper,
                       NewsTopicMapper topicMapper,
@@ -180,12 +194,12 @@ public class NewsEnrichService {
                       PromptTemplateLoader promptTemplateLoader,
                       ObjectMapper objectMapper,
                       NewsFetchProperties fetchProperties) {
-        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, httpFetchClient,
+        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, null, httpFetchClient,
                 htmlDocumentParser, llmBudgetService, promptTemplateLoader, objectMapper, fetchProperties, Date::new);
     }
 
     /**
-     * 全参构造器（测试注入时钟——发布门 eligible_time 与 TTL 选题的时间旅行）
+     * 测试便捷构造器（注入时钟，无别名账）
      */
     NewsEnrichService(NewsItemMapper itemMapper,
                       NewsSourceMapper sourceMapper,
@@ -198,10 +212,30 @@ public class NewsEnrichService {
                       ObjectMapper objectMapper,
                       NewsFetchProperties fetchProperties,
                       Supplier<Date> nowSupplier) {
+        this(itemMapper, sourceMapper, topicMapper, itemTopicMapper, null, httpFetchClient,
+                htmlDocumentParser, llmBudgetService, promptTemplateLoader, objectMapper, fetchProperties, nowSupplier);
+    }
+
+    /**
+     * 全参构造器（测试注入时钟+别名账——#202 拦截路径的时间旅行与拦截桩）
+     */
+    NewsEnrichService(NewsItemMapper itemMapper,
+                      NewsSourceMapper sourceMapper,
+                      NewsTopicMapper topicMapper,
+                      NewsItemTopicMapper itemTopicMapper,
+                      NewsTopicAliasMapper aliasMapper,
+                      NewsHttpFetchClient httpFetchClient,
+                      HtmlDocumentParser htmlDocumentParser,
+                      NewsLlmBudgetService llmBudgetService,
+                      PromptTemplateLoader promptTemplateLoader,
+                      ObjectMapper objectMapper,
+                      NewsFetchProperties fetchProperties,
+                      Supplier<Date> nowSupplier) {
         this.itemMapper = itemMapper;
         this.sourceMapper = sourceMapper;
         this.topicMapper = topicMapper;
         this.itemTopicMapper = itemTopicMapper;
+        this.aliasMapper = aliasMapper;
         this.httpFetchClient = httpFetchClient;
         this.htmlDocumentParser = htmlDocumentParser;
         this.llmBudgetService = llmBudgetService;
@@ -642,8 +676,11 @@ public class NewsEnrichService {
     }
 
     /**
-     * 主题回链：词表命中（slug/中文名/英文名忽略大小写）→ 关联行；未命中新词 →
-     * curated=false 提案入库（slug 由内容哈希生成保证幂等复用）→ 关联行。
+     * 主题回链：词表命中（slug/中文名/英文名忽略大小写）→ 关联行；未命中 →
+     * <b>别名账拦截</b>（#202 防再提，最小接线：只加消费侧查证，提案生成逻辑
+     * 零改动）——命中 merged 别名直接回链目标 curated 主题（不落新行）、命中
+     * rejected 别名跳过（不建提案不挂关联）；仍未命中 → curated=false 提案入库
+     * （slug 由内容哈希生成保证幂等复用）→ 关联行。
      * 替换语义（2026-09-13 定稿·重生成同轮）：先清本条目既有关联再按本次输出回链——
      * 首轮入库时无既有关联（delete 为空操作零影响），重跑/重生成时旧标签（含误标）
      * 不残留成「旧∪新」并集（09-14 实测：追加语义下 id=129 服务学习旧 ai 标签重生成后仍在）。
@@ -664,12 +701,65 @@ public class NewsEnrichService {
             }
             NewsTopicDO topic = matchVocab(vocab, token.strip());
             if (topic == null) {
-                topic = createProposal(token.strip());
+                AliasHit alias = lookupAlias(token.strip());
+                if (alias.hit()) {
+                    // 命中即终局：merged→目标（不可解析时 null=跳过）；rejected→null=跳过——均不再建提案
+                    topic = alias.target();
+                } else {
+                    topic = createProposal(token.strip());
+                }
             }
             if (topic != null && topic.getId() != null && linked.add(topic.getId())) {
                 linkIfAbsent(itemId, topic.getId());
             }
         }
+    }
+
+    /**
+     * 别名账拦截（#202）：词表未命中的 token 查别名账（normalizeKey 同一口径）。
+     * 返回 {@link AliasHit#MISS}=未命中（照旧走 createProposal）；
+     * {@code hit=true}=命中（<b>终局，不再建提案行</b>）——merged 别名 target=目标
+     * curated 主题（目标异常缺失/停用时保守跳过不回退建提案），rejected 别名
+     * target=null（不建提案不挂关联）。hit 与 target 分离承载正是为了区分
+     * 「未命中该建提案」与「命中 rejected 该跳过」两种 null。
+     */
+    private AliasHit lookupAlias(String token) {
+        if (aliasMapper == null) {
+            return AliasHit.MISS;
+        }
+        String key = NewsTopicAliasDO.normalizeKey(token);
+        if (key == null) {
+            return AliasHit.MISS;
+        }
+        NewsTopicAliasDO alias = aliasMapper.selectOne(Wrappers.lambdaQuery(NewsTopicAliasDO.class)
+                .eq(NewsTopicAliasDO::getAliasKey, key)
+                .last("LIMIT 1"));
+        if (alias == null) {
+            return AliasHit.MISS;
+        }
+        if (alias.getTargetTopicId() == null) {
+            // rejected：命中即终局——不建提案行不挂关联（09-30 polyu 再提类问题的解）
+            log.info("[news] 主题标签 {} 命中 rejected 别名，跳过不建提案（#202 幂等拦截）", token);
+            return new AliasHit(true, null);
+        }
+        NewsTopicDO target = topicMapper.selectById(alias.getTargetTopicId());
+        if (target == null || !NewsTopicDO.STATUS_ACTIVE.equals(target.getStatus())) {
+            // merged 目标异常缺失/停用：保守跳过（不回退建提案——该名称已治理）
+            log.warn("[news] 主题标签 {} 命中 merged 别名但目标 {} 不可用，跳过（#202）",
+                    token, alias.getTargetTopicId());
+            return new AliasHit(true, null);
+        }
+        log.info("[news] 主题标签 {} 命中 merged 别名，回链目标主题 {}（#202 幂等拦截）",
+                token, target.getSlug());
+        return new AliasHit(true, target);
+    }
+
+    /**
+     * 别名拦截结果：hit=是否命中别名账（命中即终局）；target=merged 目标主题
+     * （rejected/不可解析时 null）
+     */
+    private record AliasHit(boolean hit, NewsTopicDO target) {
+        static final AliasHit MISS = new AliasHit(false, null);
     }
 
     private Map<String, NewsTopicDO> loadVocab() {
