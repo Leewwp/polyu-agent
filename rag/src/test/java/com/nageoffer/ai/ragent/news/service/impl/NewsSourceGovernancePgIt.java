@@ -40,6 +40,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.postgresql.ds.PGSimpleDataSource;
@@ -70,7 +71,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </ol>
  * 门控：CI 无 PG 不跑（默认跳过）；本地执行={@code mvn -pl rag test
  * -Dtest=NewsSourceGovernancePgIt -Dpolyu.pg.it=1}（-Dpolyu.pg.it.url/user/pass
- * 可覆盖默认连接）。行以 it-gov- 前缀隔离，收尾自清。
+ * 可覆盖默认连接）。行以 it-gov- 前缀隔离，收尾自清；<b>每用例前清种自净</b>
+ * （{@code @BeforeEach}，沿 KeyDateSyncPgIt 先例）——本地 polyu-pg 为门控 IT
+ * 共享库，probeSweep 又是全局扫描，用例不得依赖库内既有行（详见 reset 方法注释）。
  */
 @EnabledIfSystemProperty(named = "polyu.pg.it", matches = "1")
 class NewsSourceGovernancePgIt {
@@ -136,6 +139,37 @@ class NewsSourceGovernancePgIt {
         }
     }
 
+    /**
+     * 每用例前清种自净（审核修正 [P1-测试隔离]，沿 KeyDateSyncPgIt @BeforeEach 先例）：
+     * 修前 probeSweep 全局扫描会把库内既有 auto 行（如 260930 迁移在共享库回填的
+     * youtube/gnews 9 行）连探——「day1.probed()==1」类全表计数断言在已应用迁移的库上
+     * 必红（审核者复现 expected 1 but was 10）。已知态三步：
+     * <ul>
+     *   <li><b>事件流水全清</b>（append-only 审计表，无入向外键引用，全表 DELETE 可行）：
+     *       事件计数/顺序断言只认自插行，且顺带清掉共享库残留事件；</li>
+     *   <li><b>本类前缀残留行清除</b>：@AfterAll 只在整类收尾清一次——方法间也不互污
+     *       （如迁移用例留下的已分类 it-gov 行会混进下一用例的探活面）；</li>
+     *   <li><b>探活面归零</b>：把库内既有 enabled=false AND disabled_reason='auto' 行
+     *       回置 NULL（=迁移前「未判定」态，重跑 260930 迁移可再分类）。t_news_source
+     *       不做全表 DELETE——t_news_item.source_id 外键引用既有源行；此后每用例自造
+     *       全部前置（迁移用例自插未分类禁用行），不依赖任何库内环境。</li>
+     * </ul>
+     */
+    @BeforeEach
+    void resetGovernanceStateToKnownBaseline() {
+        try (SqlSession session = sqlSessionFactory.openSession(true)) {
+            NewsSourceHealthEventMapper eventMapper = session.getMapper(NewsSourceHealthEventMapper.class);
+            eventMapper.delete(null);
+            NewsSourceMapper sourceMapper = session.getMapper(NewsSourceMapper.class);
+            sourceMapper.delete(com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(NewsSourceDO.class)
+                    .likeRight(NewsSourceDO::getSourceKey, PREFIX));
+            sourceMapper.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaUpdate(NewsSourceDO.class)
+                    .eq(NewsSourceDO::getEnabled, false)
+                    .eq(NewsSourceDO::getDisabledReason, NewsSourceDO.DISABLED_REASON_AUTO)
+                    .set(NewsSourceDO::getDisabledReason, null));
+        }
+    }
+
     private static NewsSourceDO insertSource(SqlSession session, String key, boolean enabled,
                                              Integer failures, String disabledReason) {
         NewsSourceDO source = NewsSourceDO.builder()
@@ -166,13 +200,14 @@ class NewsSourceGovernancePgIt {
             try (Connection connection = sqlSessionFactory.getConfiguration().getEnvironment()
                     .getDataSource().getConnection();
                  Statement statement = connection.createStatement()) {
-                // 与 260930 迁移 SQL 同构：一次性守卫迁移
+                // 与 260930 迁移 SQL 同构：一次性守卫迁移（@BeforeEach 已清本类前缀残留
+                // 与共享库 auto 行——判定的行集=本用例自插的 3 行，计数确定）
                 int classified = statement.executeUpdate(
                         "UPDATE t_news_source SET disabled_reason = "
                                 + "CASE WHEN consecutive_failures >= 3 THEN 'auto' ELSE 'manual' END "
                                 + "WHERE enabled = false AND disabled_reason IS NULL "
                                 + "AND source_key LIKE '" + PREFIX + "%'");
-                assertTrue(classified >= 3, "三条未分类禁用行被判定，实际=" + classified);
+                assertEquals(3, classified, "被判定的=本用例自插的三条未分类禁用行（环境隔离后确定）");
             }
 
             NewsSourceMapper sourceMapper = session.getMapper(NewsSourceMapper.class);
