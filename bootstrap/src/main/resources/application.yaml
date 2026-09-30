@@ -199,6 +199,12 @@ rag:
     display:                # 展示面参数（#193 查询侧分类，不写回库；先例 rag.news.* 外置防魔数）
       archive-after-days: 14  # 过期 N 天自动归档：结束日距今 >N 天进 archived 段（恰 N 天仍 recent，边界含端）
       archived-cap: 120       # archived 段返回条数上限（跨学年累积防无界载荷；archivedTotal 另给全量计数）
+    ics:                    # .ics 订阅导出（#194 /public/calendar/key-dates.ics）：导出即写回
+                            # ics_export_state/ics_last_dates（票面唯一写径）；fuzzy/onwards 只入展示不入提醒
+      deadline-event-codes: [fee-deadline, results-subject-release, results-overall-release]
+                              # VALARM 仅明确 deadline 事件码白名单（票面反例：fee-notification 同 fee 类别但不挂）
+      alarm-lead-days: 7     # 截止提醒前置天数（VALARM TRIGGER=-P7D；实际提醒及时性=客户端兼容观察项，不承诺必达）
+      cancel-retention-days: 90  # CANCELLED 组件自撤回日起留存天数（合同下限 ≥90：配置低于 90 按 90 钳制执行）
   news:
     enabled: ${RAG_NEWS_ENABLED:${RAGENT_NEWS_ENABLED:false}}  # 资讯流 feature flag：默认关；关闭时 /public/news/** 由兜底控制器统一 404。
                               # env 覆盖双名兼容：RAG_NEWS_ENABLED（属性逐段映射正名）/ RAGENT_NEWS_ENABLED（生产 gen-prod-env 口径），前者优先
