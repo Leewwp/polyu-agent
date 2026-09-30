@@ -28,6 +28,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.Date;
+import java.util.Set;
 
 /**
  * 资讯主题词表实体
@@ -41,6 +42,33 @@ import java.util.Date;
 @Builder
 @TableName("t_news_topic")
 public class NewsTopicDO {
+
+    /**
+     * 正常展示：curated=true 进目录；curated=false=AI 提案待审
+     */
+    public static final String STATUS_ACTIVE = "active";
+
+    /**
+     * 已并入近义 curated 主题（#202 merge 轨）：关联已迁移至目标，本行保留审计
+     * （curated 保持 false），名称入别名账防再提
+     */
+    public static final String STATUS_MERGED = "merged";
+
+    /**
+     * 已弃（#202 reject 轨）：泛化无检索价值，残留关联已摘除并留痕
+     * （curated 保持 false），名称入别名账防再提
+     */
+    public static final String STATUS_REJECTED = "rejected";
+
+    /**
+     * 正式三维分组之外的 AI 提案占位组（目录按 curated=true 过滤，本组永不展示）
+     */
+    public static final String GROUP_PROPOSED = "PROPOSED";
+
+    /**
+     * 正式分组（promote 转正时人工归入）
+     */
+    public static final Set<String> FORMAL_GROUPS = Set.of("FACULTY", "RESEARCH", "STUDENT_AFFAIRS");
 
     /**
      * 主键 ID，数据库自增（BIGSERIAL）
@@ -84,7 +112,9 @@ public class NewsTopicDO {
     private Boolean curated;
 
     /**
-     * active=正常展示
+     * active=正常展示（curated=true 进目录；curated=false=AI 提案待审）/
+     * merged=已并入近义 curated 主题（关联已迁移，行保留审计）/ rejected=已弃
+     * （残留关联已摘除留痕）——一律软状态不硬删（#202）
      */
     private String status;
 

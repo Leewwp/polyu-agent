@@ -274,6 +274,11 @@ rag:
       lib-news: 5
       fb-news: 5
       fhss-news: 5
+    topic-governance:
+      promote-threshold: 10          # 主题提案转正（promote）引用阈值（#202，item_refs≥阈值方可转正，服务层机器校验）：
+                                     # 默认 10 为 #181 拍板口径，落配置可调不写死；阈值默认值变更属规则框架变更须回维护者裁决。
+                                     # 三轨语义：merge 并入近义 curated 主题（关联迁移+别名入账）/ promote 转正（curated=true+
+                                     # 正式组+稳定 slug）/ reject 弃（关联摘除留痕+别名入账）；处置走 /admin/news/topic/** 批量端点
 
   site:
     enabled: false  # 站点反馈与关于页 feature flag（doc 25）：默认关；关闭时 /public/feedback、/public/about 由兜底控制器统一 404。
