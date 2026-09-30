@@ -1253,6 +1253,7 @@ COMMENT ON TABLE t_news_topic IS '资讯主题词表（三维分组：学院与�
 COMMENT ON COLUMN t_news_topic.slug IS '主题稳定标识，与原型 TOPICS 注册表键一致';
 COMMENT ON COLUMN t_news_topic.topic_group IS 'FACULTY=学院与部门；RESEARCH=研究领域与话题；STUDENT_AFFAIRS=学生事务';
 COMMENT ON COLUMN t_news_topic.curated IS 'TRUE=策展词表进目录；FALSE=AI 提案待审不进目录';
+COMMENT ON COLUMN t_news_topic.status IS 'active=正常展示（curated=true 进目录；curated=false=AI 提案待审）/ merged=已并入近义 curated 主题（关联已迁移，本行保留审计，curated 保持 false）/ rejected=已弃（泛化无检索价值，残留关联已摘除并留痕，curated 保持 false）——一律软状态不硬删（#202）';
 
 CREATE TABLE t_news_item_topic (
   item_id  BIGINT NOT NULL REFERENCES t_news_item(id) ON DELETE CASCADE,
@@ -1261,6 +1262,44 @@ CREATE TABLE t_news_item_topic (
 );
 CREATE INDEX idx_news_item_topic ON t_news_item_topic(topic_id);
 COMMENT ON TABLE t_news_item_topic IS '条目-主题多对多关联（保留期清理随 t_news_item 级联删除）';
+
+-- 主题提案治理（2026-09-30，#202——父票 #181 §3 P1-B）：三轨处置（merge 并入/promote
+-- 转正/reject 弃）当前态落 t_news_topic.status 软状态；别名账防再提（消费点命中别名
+-- 不再落新行）；治理留痕 append-only 流水（沿 #186 t_news_source_health_event 形态：
+-- 当前态可 UPDATE，流水只 INSERT）。增量环境走 upgrades/v2.0.0/260930_04_news_topic_governance.sql
+CREATE TABLE t_news_topic_alias (
+  id              BIGSERIAL PRIMARY KEY,
+  alias_key       VARCHAR(128) NOT NULL UNIQUE,
+  alias_display   VARCHAR(128),
+  action          VARCHAR(16) NOT NULL,     -- merged / rejected
+  source_topic_id BIGINT      NOT NULL REFERENCES t_news_topic(id),
+  target_topic_id BIGINT      REFERENCES t_news_topic(id),  -- merged 必填；rejected NULL
+  operator        VARCHAR(64),
+  reason          VARCHAR(512),
+  create_time     TIMESTAMP   NOT NULL DEFAULT now(),
+  update_time     TIMESTAMP   NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_news_topic_alias_source ON t_news_topic_alias(source_topic_id);
+CREATE INDEX idx_news_topic_alias_target ON t_news_topic_alias(target_topic_id);
+COMMENT ON TABLE t_news_topic_alias IS '主题别名账（#202 防再提）：merged/rejected 提案 name_zh/name_en 的规范化映射（alias_key=lower+去全部空白）；富化提案消费点命中别名不再落新行——merged 别名回链 target_topic_id，rejected 别名跳过不挂关联';
+COMMENT ON COLUMN t_news_topic_alias.alias_key IS '规范化别名键：lower(Locale.ROOT)+去全部空白（与 NewsEnrichService 提案消费点同一 normalize 口径）；同一提案 name_zh/name_en 规范化后同键只入一行';
+COMMENT ON COLUMN t_news_topic_alias.action IS '入账动作：merged=并入近义 curated 主题（target_topic_id 必填）/ rejected=弃（target_topic_id 为 NULL）';
+COMMENT ON COLUMN t_news_topic_alias.operator IS '处置操作者（admin 账号名；批量端点经 UserContext 落行）';
+
+CREATE TABLE t_news_topic_governance_event (
+  id              BIGSERIAL PRIMARY KEY,
+  topic_id        BIGINT      NOT NULL REFERENCES t_news_topic(id),
+  action          VARCHAR(16) NOT NULL,     -- merged / promoted / rejected
+  target_topic_id BIGINT,
+  detail          VARCHAR(512),
+  operator        VARCHAR(64),
+  event_time      TIMESTAMP   NOT NULL,
+  create_time     TIMESTAMP   NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_news_topic_gov_event_topic ON t_news_topic_governance_event(topic_id);
+COMMENT ON TABLE t_news_topic_governance_event IS '主题治理留痕流水（#202，append-only）：merged/promoted/rejected 三轨处置逐行留痕，detail 含关联迁移/摘除计数与 slug 变更明细——当前态在 t_news_topic.status，本表只增不改';
+COMMENT ON COLUMN t_news_topic_governance_event.detail IS '处置明细（迁移关联数/摘除关联数/旧→新 slug/阈值依据，超长截断 500 字符）';
+COMMENT ON COLUMN t_news_topic_governance_event.operator IS '处置操作者（admin 账号名；本地回放为 replay 标记）';
 
 -- 事件最小模型（2026-09-30，#187——父票 #180 §3/§5/§8：判重三合同的事件面+持久身份
 -- +48h 参与者证据+独立来源映射+24h 半衰；明确不做：综述/事件页/向量/评分。
