@@ -23,9 +23,11 @@ import com.nageoffer.ai.ragent.news.dao.dto.TopicPublishedCountDTO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemStatus;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.Date;
 import java.util.List;
@@ -76,4 +78,26 @@ public interface NewsItemTopicMapper extends BaseMapper<NewsItemTopicDO> {
             + "ORDER BY ii.publish_time DESC, ii.id DESC")
     IPage<NewsItemDO> selectVisiblePageByTopic(IPage<NewsItemDO> page, @Param("topicId") Long topicId,
                                                @Param("gateFloor") Date gateFloor);
+
+    // ==================== 主题治理关联迁移（#202 merge 轨） ====================
+
+    /**
+     * merge 前置去重：删除「同一 item 同时挂源与目标主题」的<b>源侧</b>行
+     * （保留目标行——该 item 与目标主题的关联不丢失，去重不损内容覆盖）。
+     * 复合主键 (item_id, topic_id) 下若不先去重，直接 UPDATE 源行 topic_id 会撞主键。
+     * 返回去重删除行数（迁移留痕 detail 的 dedupedLinks）
+     */
+    @Delete("DELETE FROM t_news_item_topic a USING t_news_item_topic b "
+            + "WHERE a.topic_id = #{sourceTopicId} AND b.topic_id = #{targetTopicId} AND a.item_id = b.item_id")
+    int deleteLinksAlsoInTarget(@Param("sourceTopicId") Long sourceTopicId,
+                                @Param("targetTopicId") Long targetTopicId);
+
+    /**
+     * 关联迁移：源主题关联行整批改写 topic_id 至目标主题（行不删——merge 语义=
+     * 改挂目标，item 与主题的关联关系原样保留在目标侧）。返回迁移行数
+     * （迁移留痕 detail 的 migratedLinks）
+     */
+    @Update("UPDATE t_news_item_topic SET topic_id = #{targetTopicId} WHERE topic_id = #{sourceTopicId}")
+    int migrateLinksToTarget(@Param("sourceTopicId") Long sourceTopicId,
+                             @Param("targetTopicId") Long targetTopicId);
 }
