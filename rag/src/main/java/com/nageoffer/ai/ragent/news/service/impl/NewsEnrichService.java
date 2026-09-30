@@ -731,9 +731,7 @@ public class NewsEnrichService {
         if (key == null) {
             return AliasHit.MISS;
         }
-        NewsTopicAliasDO alias = aliasMapper.selectOne(Wrappers.lambdaQuery(NewsTopicAliasDO.class)
-                .eq(NewsTopicAliasDO::getAliasKey, key)
-                .last("LIMIT 1"));
+        NewsTopicAliasDO alias = aliasMapper.selectByAliasKey(key);
         if (alias == null) {
             return AliasHit.MISS;
         }

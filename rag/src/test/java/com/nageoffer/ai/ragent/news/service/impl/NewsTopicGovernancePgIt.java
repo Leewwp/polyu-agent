@@ -405,6 +405,16 @@ class NewsTopicGovernancePgIt {
             List<NewsTopicProposalVO> pending = service.listPendingProposals().stream()
                     .filter(p -> p.getSlug().startsWith(PROPOSAL_PREFIX)).toList();
             assertTrue(pending.stream().noneMatch(p -> p.getId().equals(proposal.getId())));
+
+            // ── 收口票 #206：幂等先于阈值——转正后关联被保留期清理摘空，同批重放仍 SKIPPED ──
+            session.getMapper(NewsItemTopicMapper.class).delete(Wrappers.lambdaQuery(NewsItemTopicDO.class)
+                    .eq(NewsItemTopicDO::getTopicId, promoted.getId()));
+            assertEquals(0L, linksOf(session, promoted.getId()));
+            NewsTopicGovernanceApplyResultVO rerun = service.applyBatch(
+                    List.of(disposition(proposal.getId(), "PROMOTE", null,
+                            TARGET_PREFIX + "research-" + runId, "RESEARCH", "重跑")), "it-admin");
+            assertEquals(0, rerun.getAppliedCount(), "引用回落不阻断幂等重放");
+            assertEquals("SKIPPED", rerun.getResults().get(0).getOutcome());
         }
     }
 
@@ -480,6 +490,14 @@ class NewsTopicGovernancePgIt {
             assertThrows(ClientException.class, () -> service.applyBatch(
                             List.of(disposition(toMerge.getId(), "REJECT", null, null, null, "改判")), "it-admin"),
                     "已 merged 再 reject=改判冲突拒绝（软状态不自动反转）");
+
+            // ── 收口票 #206：promote 轨终态防线——已 merged 行提升=冲突拒绝且零新留痕 ──
+            assertThrows(ClientException.class, () -> service.applyBatch(
+                            List.of(disposition(toMerge.getId(), "PROMOTE", null,
+                                    TARGET_PREFIX + "promote-" + runId, "RESEARCH", "终态提升")), "it-admin"),
+                    "已 merged 再 promote=改判冲突拒绝（不得假留痕）");
+            assertEquals(2L, session.getMapper(NewsTopicGovernanceEventMapper.class).selectCount(null),
+                    "两次冲突拒绝均零新留痕");
         }
     }
 

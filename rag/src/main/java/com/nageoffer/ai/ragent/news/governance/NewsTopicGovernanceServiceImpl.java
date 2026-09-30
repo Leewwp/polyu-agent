@@ -137,6 +137,7 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         List<NewsTopicProposalVO> result = new ArrayList<>(pending.size());
         for (NewsTopicDO proposal : pending) {
             long refs = countLinks(proposal.getId());
+            Suggestion suggestion = suggestTrack(refs, threshold);
             result.add(NewsTopicProposalVO.builder()
                     .id(proposal.getId())
                     .slug(proposal.getSlug())
@@ -144,8 +145,8 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
                     .nameEn(proposal.getNameEn())
                     .topicGroup(proposal.getTopicGroup())
                     .itemRefs(refs)
-                    .suggestedAction(suggestTrack(refs, threshold).suggested())
-                    .suggestedReason(suggestTrack(refs, threshold).reason().apply(threshold))
+                    .suggestedAction(suggestion.suggested())
+                    .suggestedReason(suggestion.reason().apply(threshold))
                     .createTime(proposal.getCreateTime())
                     .build());
         }
@@ -192,8 +193,9 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
     // ==================== 批量应用 ====================
 
     /**
-     * 全批原子：任一指令非法（缺参/阈值未达/slug 冲突/改判冲突）抛 ClientException
-     * 整批回滚（已处置行不残留半程态）；已处目标终态的行 SKIPPED 不报错（幂等重跑）
+     * 全批原子：任一指令非法（缺参/阈值未达/slug 冲突/改判冲突/条件更新未生效）抛
+     * ClientException 整批回滚（已处置行不残留半程态）；已处目标终态的行 SKIPPED
+     * 不报错（幂等重跑）；三轨条件更新均校验影响行数，0 行=状态漂移拒绝防假留痕（#206）
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -266,10 +268,11 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         long linksBefore = countLinks(proposal.getId());
         int deduped = itemTopicMapper.deleteLinksAlsoInTarget(proposal.getId(), target.getId());
         int migrated = itemTopicMapper.migrateLinksToTarget(proposal.getId(), target.getId());
-        topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
-                .eq(NewsTopicDO::getId, proposal.getId())
-                .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
-                .set(NewsTopicDO::getStatus, NewsTopicDO.STATUS_MERGED));
+        requireSingleRowUpdate(topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
+                        .eq(NewsTopicDO::getId, proposal.getId())
+                        .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
+                        .set(NewsTopicDO::getStatus, NewsTopicDO.STATUS_MERGED)),
+                TRACK_MERGE, proposal);
         bookAliases(proposal, NewsTopicAliasDO.ACTION_MERGED, target.getId(), disposition.getReason(), operator);
         String detail = truncate("merged into " + target.getSlug() + "(id=" + target.getId() + "): linksBefore="
                 + linksBefore + ", migrated=" + migrated + ", deduped=" + deduped
@@ -280,9 +283,12 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
     }
 
     /**
-     * promote 转正：引用阈值机器校验（refs ≥ promote-threshold）→ 稳定 slug 校验
-     * （形态+全库唯一+不得 prop- 前缀）→ curated=true + 正式组 + slug 替换（关联按
-     * topic_id 引用不伤）+ 可选名称/描述策展覆盖 → 留痕（旧→新 slug）
+     * promote 转正：终态防线先行（merged/rejected=改判冲突拒绝——防人工恢复关联使
+     * refs 过线的形态下条件更新 0 行生效仍记事件的假留痕）→ 幂等先行（已转正同
+     * slug SKIPPED，先于阈值——转正后引用被保留期清理回落不阻断重放）→ 引用阈值
+     * 机器校验（refs ≥ promote-threshold）→ 稳定 slug 校验（形态+全库唯一+不得
+     * prop- 前缀）→ curated=true + 正式组 + slug 替换（关联按 topic_id 引用不伤）
+     * + 可选名称/描述策展覆盖 → 留痕（旧→新 slug）
      */
     private NewsTopicGovernanceApplyResultVO.DispositionOutcome promote(
             NewsTopicDO proposal, NewsTopicGovernanceApplyRequest.NewsTopicDisposition disposition, String operator) {
@@ -302,6 +308,21 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
             throw new ClientException("PROMOTE 轨 promoteGroup 须为 FACULTY / RESEARCH / STUDENT_AFFAIRS");
         }
         group = group.strip().toUpperCase(Locale.ROOT);
+        // 终态防线（对齐 merge/reject 轨，#206）：merged/rejected 软状态一律改判冲突
+        // 拒绝，不得落入阈值/更新路径（refs 过线+条件更新 eq(status,'active') 0 行生效
+        // 仍记事件返 APPLIED——假留痕）
+        String terminalSkip = skipIfTerminal(proposal, TRACK_PROMOTE, null);
+        if (terminalSkip != null) {
+            return outcome(proposal.getId(), TRACK_PROMOTE, OUTCOME_SKIPPED, terminalSkip);
+        }
+        // 幂等先行（先于 slug 全库比对与阈值校验，#206）：已转正（curated=true 且
+        // active——skipIfTerminal 已保证）同 slug → SKIPPED；slug 不一致=改判冲突拒绝
+        if (Boolean.TRUE.equals(proposal.getCurated())) {
+            if (slug.equals(proposal.getSlug())) {
+                return outcome(proposal.getId(), TRACK_PROMOTE, OUTCOME_SKIPPED, "已转正（slug=" + slug + "），幂等跳过");
+            }
+            throw new ClientException("提案已转正（slug=" + proposal.getSlug() + "），slug 变更属改判，归维护者 SQL");
+        }
         Long conflicts = topicMapper.selectCount(Wrappers.lambdaQuery(NewsTopicDO.class)
                 .eq(NewsTopicDO::getSlug, slug)
                 .ne(NewsTopicDO::getId, proposal.getId()));
@@ -313,29 +334,23 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         if (refs < threshold) {
             throw new ClientException("引用数 " + refs + " 未达转正阈值 " + threshold + "（规则合同：无近义目标 AND item_refs≥阈值）");
         }
-        // 幂等：已转正（curated=true 且 active）且 slug 一致 → SKIPPED；slug 不一致=改判冲突拒绝
-        if (Boolean.TRUE.equals(proposal.getCurated())) {
-            if (NewsTopicDO.STATUS_ACTIVE.equals(proposal.getStatus()) && slug.equals(proposal.getSlug())) {
-                return outcome(proposal.getId(), TRACK_PROMOTE, OUTCOME_SKIPPED, "已转正（slug=" + slug + "），幂等跳过");
-            }
-            throw new ClientException("提案已转正（slug=" + proposal.getSlug() + "），slug 变更属改判，归维护者 SQL");
-        }
         String oldSlug = proposal.getSlug();
         // 可选策展覆盖四列：先空安全归一（条件 set 的实参是急切求值，须先判空）
         String nameZh = stripOrNull(disposition.getPromoteNameZh());
         String nameEn = stripOrNull(disposition.getPromoteNameEn());
         String descriptionZh = stripOrNull(disposition.getPromoteDescriptionZh());
         String descriptionEn = stripOrNull(disposition.getPromoteDescriptionEn());
-        topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
-                .eq(NewsTopicDO::getId, proposal.getId())
-                .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
-                .set(NewsTopicDO::getSlug, slug)
-                .set(NewsTopicDO::getTopicGroup, group)
-                .set(NewsTopicDO::getCurated, true)
-                .set(nameZh != null, NewsTopicDO::getNameZh, nameZh)
-                .set(nameEn != null, NewsTopicDO::getNameEn, nameEn)
-                .set(descriptionZh != null, NewsTopicDO::getDescriptionZh, descriptionZh)
-                .set(descriptionEn != null, NewsTopicDO::getDescriptionEn, descriptionEn));
+        requireSingleRowUpdate(topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
+                        .eq(NewsTopicDO::getId, proposal.getId())
+                        .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
+                        .set(NewsTopicDO::getSlug, slug)
+                        .set(NewsTopicDO::getTopicGroup, group)
+                        .set(NewsTopicDO::getCurated, true)
+                        .set(nameZh != null, NewsTopicDO::getNameZh, nameZh)
+                        .set(nameEn != null, NewsTopicDO::getNameEn, nameEn)
+                        .set(descriptionZh != null, NewsTopicDO::getDescriptionZh, descriptionZh)
+                        .set(descriptionEn != null, NewsTopicDO::getDescriptionEn, descriptionEn)),
+                TRACK_PROMOTE, proposal);
         String detail = truncate("promoted: refs=" + refs + " >= threshold " + threshold
                 + "; slug " + oldSlug + " -> " + slug + "; group " + proposal.getTopicGroup() + " -> " + group
                 + "; reason=" + safe(disposition.getReason()));
@@ -356,10 +371,11 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         }
         long detached = itemTopicMapper.delete(Wrappers.lambdaQuery(NewsItemTopicDO.class)
                 .eq(NewsItemTopicDO::getTopicId, proposal.getId()));
-        topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
-                .eq(NewsTopicDO::getId, proposal.getId())
-                .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
-                .set(NewsTopicDO::getStatus, NewsTopicDO.STATUS_REJECTED));
+        requireSingleRowUpdate(topicMapper.update(null, Wrappers.lambdaUpdate(NewsTopicDO.class)
+                        .eq(NewsTopicDO::getId, proposal.getId())
+                        .eq(NewsTopicDO::getStatus, NewsTopicDO.STATUS_ACTIVE)
+                        .set(NewsTopicDO::getStatus, NewsTopicDO.STATUS_REJECTED)),
+                TRACK_REJECT, proposal);
         bookAliases(proposal, NewsTopicAliasDO.ACTION_REJECTED, null, disposition.getReason(), operator);
         String detail = truncate("rejected: detachedLinks=" + detached
                 + "; aliases=" + aliasKeys(proposal) + "; reason=" + safe(disposition.getReason()));
@@ -413,6 +429,18 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         return latest == null ? null : latest.getTargetTopicId();
     }
 
+    /**
+     * 条件状态更新须恰好生效一行（#206）：0 行=提案状态在本批读取之后已漂移（并发
+     * 处置或人工改态）——拒绝并随事务整批回滚，杜绝「0 行生效仍记事件返 APPLIED」
+     * 的假留痕
+     */
+    private static void requireSingleRowUpdate(int updatedRows, String track, NewsTopicDO proposal) {
+        if (updatedRows != 1) {
+            throw new ClientException("提案状态已非 active（并发处置或人工改态），" + track
+                    + " 拒绝以防假留痕：" + proposal.getSlug());
+        }
+    }
+
     private NewsTopicDO requireCuratedTarget(Long targetId) {
         NewsTopicDO target = topicMapper.selectById(targetId);
         if (target == null) {
@@ -430,9 +458,7 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
      */
     private void bookAliases(NewsTopicDO proposal, String action, Long targetTopicId, String reason, String operator) {
         for (String key : aliasKeySet(proposal)) {
-            NewsTopicAliasDO existing = aliasMapper.selectOne(Wrappers.lambdaQuery(NewsTopicAliasDO.class)
-                    .eq(NewsTopicAliasDO::getAliasKey, key)
-                    .last("LIMIT 1"));
+            NewsTopicAliasDO existing = aliasMapper.selectByAliasKey(key);
             if (existing == null) {
                 aliasMapper.insert(NewsTopicAliasDO.builder()
                         .aliasKey(key)

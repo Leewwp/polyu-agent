@@ -47,6 +47,11 @@ import java.util.List;
  *   <li>治理留痕流水（处置历史可复核）。</li>
  * </ol>
  * admin UI 归后续扩展，本控制器仅承载端点（票面：端点即可，无前端页面）。
+ *
+ * <p>装配口径（#206 注记）：本控制器不受 {@code rag.news.enabled} 门控（与
+ * AdminNewsItemController 同例）——治理与留痕属 admin 运维审计面，资讯抓取/公开展示
+ * 关停时处置历史仍须可复核；公开面与抓取面的开关门控在 PublicNewsController /
+ * NewsFetchJob 各自装配。
  */
 @RestController
 @RequestMapping("/admin/news/topic")

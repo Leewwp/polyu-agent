@@ -22,6 +22,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.news.controller.request.NewsTopicGovernanceApplyRequest;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicGovernanceApplyResultVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicGovernanceEventVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicProposalVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicAliasDO;
@@ -137,7 +138,8 @@ class NewsTopicGovernanceServiceImplTests {
         when(itemTopicMapper.selectCount(any())).thenReturn(3L);
         when(itemTopicMapper.deleteLinksAlsoInTarget(28L, 15L)).thenReturn(1);
         when(itemTopicMapper.migrateLinksToTarget(28L, 15L)).thenReturn(2);
-        when(aliasMapper.selectOne(any())).thenReturn(null);
+        when(topicMapper.update(any(), any())).thenReturn(1); // 条件更新生效一行（#206 行数校验）
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(null);
 
         NewsTopicGovernanceApplyResultVO result = service.applyBatch(
                 List.of(disposition(28, "MERGE", 15L, null, null, "文化活动≈校园生活")), "it-admin");
@@ -197,6 +199,7 @@ class NewsTopicGovernanceServiceImplTests {
         when(topicMapper.selectById(21L)).thenReturn(research);
         when(topicMapper.selectCount(any())).thenReturn(0L); // slug 无冲突
         when(itemTopicMapper.selectCount(any())).thenReturn(19L); // refs=19
+        when(topicMapper.update(any(), any())).thenReturn(1); // 条件更新生效一行（#206 行数校验）
 
         NewsTopicGovernanceApplyResultVO result = service.applyBatch(List.of(disposition(
                 21, "PROMOTE", null, "research", "RESEARCH", "RESEARCH 组无通用科研位；唯一过阈值行")), "it-admin");
@@ -249,7 +252,8 @@ class NewsTopicGovernanceServiceImplTests {
         NewsTopicDO polyu = proposal(34, "prop-polyu", "polyu", "polyu");
         when(topicMapper.selectById(34L)).thenReturn(polyu);
         when(itemTopicMapper.delete(any())).thenReturn(1);
-        when(aliasMapper.selectOne(any())).thenReturn(null);
+        when(topicMapper.update(any(), any())).thenReturn(1); // 条件更新生效一行（#206 行数校验）
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(null);
 
         NewsTopicGovernanceApplyResultVO result = service.applyBatch(
                 List.of(disposition(34, "REJECT", null, null, null, "全站皆 PolyU 零区分度")), "it-admin");
@@ -309,9 +313,10 @@ class NewsTopicGovernanceServiceImplTests {
         NewsTopicDO polyu = proposal(34, "prop-polyu", "polyu", "polyu");
         when(topicMapper.selectById(34L)).thenReturn(polyu);
         when(itemTopicMapper.delete(any())).thenReturn(0);
+        when(topicMapper.update(any(), any())).thenReturn(1); // 条件更新生效一行（#206 行数校验）
         NewsTopicAliasDO existing = NewsTopicAliasDO.builder().id(7L).aliasKey("polyu")
                 .action("rejected").sourceTopicId(34L).build();
-        when(aliasMapper.selectOne(any())).thenReturn(existing);
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(existing);
 
         service.applyBatch(List.of(disposition(34, "REJECT", null, null, null, "再次弃，覆盖入账")), "it-admin");
 
@@ -334,5 +339,79 @@ class NewsTopicGovernanceServiceImplTests {
         assertEquals("culture", NewsTopicAliasDO.normalizeKey(" Culture "));
         assertEquals(null, NewsTopicAliasDO.normalizeKey("  "));
         assertEquals(null, NewsTopicAliasDO.normalizeKey(null));
+    }
+
+    // ==================== 收口票 #206：promote 防线与留痕面 ====================
+
+    @Test
+    void promoteOnTerminalRowIsConflictAndNeverRecordsEvent() {
+        NewsTopicDO mergedAlready = proposal(28, "prop-culture", "文化", "Culture");
+        mergedAlready.setStatus("merged");
+        when(topicMapper.selectById(28L)).thenReturn(mergedAlready);
+        when(itemTopicMapper.selectCount(any())).thenReturn(19L); // 人工恢复关联使 refs 过线
+
+        assertThrows(ClientException.class, () -> service.applyBatch(List.of(disposition(
+                28, "PROMOTE", null, "culture", "FACULTY", "x")), "op"),
+                "已 merged 再 promote=改判冲突拒绝（不得假留痕）");
+        verify(topicMapper, never()).update(any(), any());
+        verify(eventMapper, never()).insert(any(NewsTopicGovernanceEventDO.class));
+    }
+
+    @Test
+    void promoteRerunSkipsBeforeThresholdWhenRefsFallen() {
+        NewsTopicDO promotedAlready = proposal(21, "research", "research", "research");
+        promotedAlready.setCurated(true);
+        when(topicMapper.selectById(21L)).thenReturn(promotedAlready);
+        when(itemTopicMapper.selectCount(any())).thenReturn(0L); // 转正后引用被保留期清理摘空
+
+        NewsTopicGovernanceApplyResultVO rerun = service.applyBatch(List.of(disposition(
+                21, "PROMOTE", null, "research", "RESEARCH", "重跑")), "op");
+
+        assertEquals(0, rerun.getAppliedCount(), "幂等先于阈值：引用回落不阻断同 slug 重放");
+        assertEquals(1, rerun.getSkippedCount());
+        assertEquals("SKIPPED", rerun.getResults().get(0).getOutcome());
+    }
+
+    @Test
+    void conditionalUpdateAffectingZeroRowsRefusesInsteadOfFalseAudit() {
+        when(topicMapper.selectById(34L)).thenReturn(proposal(34, "prop-polyu", "polyu", "polyu"));
+        when(itemTopicMapper.delete(any())).thenReturn(1);
+        when(aliasMapper.selectByAliasKey(any())).thenReturn(null);
+        when(topicMapper.update(any(), any())).thenReturn(0); // 读后状态漂移
+
+        assertThrows(ClientException.class, () -> service.applyBatch(List.of(disposition(
+                34, "REJECT", null, null, null, "x")), "op"),
+                "0 行生效=状态漂移，拒绝防假留痕");
+        verify(eventMapper, never()).insert(any(NewsTopicGovernanceEventDO.class));
+    }
+
+    @Test
+    void listGovernanceEventsBackfillsSlugAndClampsLimit() {
+        when(eventMapper.selectList(any())).thenReturn(List.of(
+                NewsTopicGovernanceEventDO.builder().id(9L).topicId(1L)
+                        .action(NewsTopicGovernanceEventDO.ACTION_MERGED).targetTopicId(2L)
+                        .detail("d1").operator("op").build(),
+                NewsTopicGovernanceEventDO.builder().id(8L).topicId(99L)
+                        .action(NewsTopicGovernanceEventDO.ACTION_REJECTED)
+                        .detail("d2").operator("op").build()));
+        when(topicMapper.selectBatchIds(any())).thenReturn(List.of(
+                curated(1, "ai"),
+                NewsTopicDO.builder().id(2L).nameZh("无slug").build()));
+
+        List<NewsTopicGovernanceEventVO> events = service.listGovernanceEvents(500);
+        service.listGovernanceEvents(0);
+
+        assertEquals(2, events.size());
+        assertEquals("ai", events.get(0).getTopicSlug());
+        assertEquals("2", events.get(0).getTargetTopicSlug(), "目标行 slug 缺失回退 id 字串");
+        assertEquals("deleted#99", events.get(1).getTopicSlug(), "主题行已删回退 deleted#id");
+        assertEquals(null, events.get(1).getTargetTopicSlug());
+        var captor = org.mockito.ArgumentCaptor
+                .forClass(com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper.class);
+        verify(eventMapper, times(2)).selectList(captor.capture());
+        assertTrue(captor.getAllValues().get(0).getSqlSegment().contains("LIMIT 200"),
+                "limit=500 限幅至 200，实际=" + captor.getAllValues().get(0).getSqlSegment());
+        assertTrue(captor.getAllValues().get(1).getSqlSegment().contains("LIMIT 1"),
+                "limit=0 下限托底至 1，实际=" + captor.getAllValues().get(1).getSqlSegment());
     }
 }
