@@ -158,6 +158,16 @@ describe("mapTopic", () => {
     expect(affairs.nameEn).toBe("招生");
     expect(affairs.descZh).toBe("");
   });
+
+  it("backfills icons for governed/promoted topics (research 2026-09-30, alumni preset)", () => {
+    const promoted = mapTopic({ slug: "research", nameZh: "综合科研", nameEn: null, topicGroup: "RESEARCH", descriptionZh: null, descriptionEn: null, itemCount: 34 });
+    expect(promoted.group).toBe(1);
+    expect(promoted.icon).toBe("🔬");
+
+    const preset = mapTopic({ slug: "alumni", nameZh: "校友", nameEn: null, topicGroup: "STUDENT_AFFAIRS", descriptionZh: null, descriptionEn: null, itemCount: 8 });
+    expect(preset.group).toBe(2);
+    expect(preset.icon).toBe("🤝");
+  });
 });
 
 describe("hktClockSafe", () => {

@@ -40,11 +40,11 @@ describe("newsMockData fixtures", () => {
     }
   });
 
-  it("has 20 topics in three groups 6/6/8 with bilingual names (prototype TOPICS registry)", () => {
-    expect(NEWS_TOPICS).toHaveLength(20);
+  it("has 22 topics in three groups 6/7/9 with bilingual names (prototype registry + 转正 research + 预置 alumni)", () => {
+    expect(NEWS_TOPICS).toHaveLength(22);
     expect(NEWS_TOPICS.filter((t) => t.group === 0)).toHaveLength(6);
-    expect(NEWS_TOPICS.filter((t) => t.group === 1)).toHaveLength(6);
-    expect(NEWS_TOPICS.filter((t) => t.group === 2)).toHaveLength(8);
+    expect(NEWS_TOPICS.filter((t) => t.group === 1)).toHaveLength(7);
+    expect(NEWS_TOPICS.filter((t) => t.group === 2)).toHaveLength(9);
     expect(NEWS_TOPIC_GROUPS).toHaveLength(3);
     for (const topic of NEWS_TOPICS) {
       expect(topic.nameZh.length).toBeGreaterThan(0);
@@ -90,9 +90,9 @@ describe("newsService (mock-backed)", () => {
     expect(await fetchHotRank()).toHaveLength(10);
   });
 
-  it("fetchTopics returns 20 topics and 3 groups", async () => {
+  it("fetchTopics returns 22 topics and 3 groups", async () => {
     const { groups, topics } = await fetchTopics();
-    expect(topics).toHaveLength(20);
+    expect(topics).toHaveLength(22);
     expect(groups.map((g) => g.nameZh)).toEqual(["学院与部门", "研究领域与话题", "学生事务"]);
   });
 

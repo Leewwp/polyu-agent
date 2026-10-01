@@ -7,7 +7,8 @@ import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
 import type { NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH, NEWS_TOPICS } from "@/services/newsMockData";
-import { fetchNewsDetail } from "@/services/newsService";
+import { fetchNewsDetail, fetchTopics } from "@/services/newsService";
+import type { NewsTopic } from "@/types/news";
 import { isSafeUrl } from "@/utils/urlSafety";
 
 /**
@@ -43,9 +44,34 @@ export function NewsDetailPage() {
   );
 }
 
+/** fetchTopics 标签缓存（模块级）：详情页间共享一次拉取；mock 模式下即注册表映射 */
+let topicLabelCache: Record<string, NewsTopic> | null = null;
+
 function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boolean }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
+  // 主题 chip 标签以 /topics 目录（API）为权威——治理转正主题（如 research）不在静态
+  // 注册表内，注册表仅兜底；模块级缓存全详情页共享一次拉取（P3：chip 硬编码缺口）
+  const [topicLabels, setTopicLabels] = useState<Record<string, NewsTopic>>(topicLabelCache ?? {});
+  useEffect(() => {
+    if (topicLabelCache) {
+      return;
+    }
+    let alive = true;
+    fetchTopics()
+      .then(({ topics }) => {
+        topicLabelCache = Object.fromEntries(topics.map((topic) => [topic.slug, topic]));
+        if (alive) {
+          setTopicLabels(topicLabelCache);
+        }
+      })
+      .catch(() => {
+        // 目录拉取失败静默：chip 落回静态注册表
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 不存在/已下架/功能未部署（flag 关 404）同形文案：不向匿名访问者区分存在性
   if (!item) {
@@ -103,7 +129,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
         {item.topics.length > 0 && (
           <div className="mb-1 flex flex-wrap items-center gap-2">
             {item.topics.map((slug) => {
-              const topic = NEWS_TOPICS.find((candidate) => candidate.slug === slug);
+              const topic = topicLabels[slug] ?? NEWS_TOPICS.find((candidate) => candidate.slug === slug);
               if (!topic) {
                 return null;
               }

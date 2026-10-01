@@ -45,19 +45,21 @@ describe("TopicsPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders 20 topic cards across 3 groups with counts and detail links, anonymously without /auth requests", async () => {
+  it("renders 22 topic cards across 3 groups with counts and detail links, anonymously without /auth requests", async () => {
     const { requestedUrls } = instrumentNetwork();
     const { container } = renderPage();
 
     // 页头（原型 topics-head；顶栏标题与页头 h2 同名并存）
     expect(screen.getAllByText("主题地图").length).toBeGreaterThan(1);
-    expect(screen.getByText(/20 个主题由 AI 标签自动聚合/)).toBeTruthy();
 
     await waitFor(() => {
-      expect(container.querySelectorAll("a[href^='/topics/']")).toHaveLength(20);
+      expect(container.querySelectorAll("a[href^='/topics/']")).toHaveLength(22);
     });
 
-    // 三维分组头（6/6/8）
+    // 计数随目录数据动态（waitFor 后=已加载，勿在加载前断言数字，有竞态）
+    expect(screen.getByText(/22 个主题由 AI 标签自动聚合/)).toBeTruthy();
+
+    // 三维分组头（6/7/9）
     expect(screen.getByText("学院与部门")).toBeTruthy();
     expect(screen.getByText("研究领域与话题")).toBeTruthy();
     expect(screen.getByText("学生事务")).toBeTruthy();
