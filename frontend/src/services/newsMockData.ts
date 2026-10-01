@@ -450,6 +450,9 @@ export const NEWS_TOPICS: NewsTopic[] = [
   { slug: "city", nameZh: "智慧城市", nameEn: "Smart City", descZh: "智慧城市与城市韧性相关研究与实践", descEn: "Smart-city and urban resilience research", itemCount: 26, group: 1, icon: "🏙" },
   { slug: "materials", nameZh: "新材料", nameEn: "Advanced Materials", descZh: "新材料研发与应用的进展", descEn: "Advanced materials research and applications", itemCount: 23, group: 1, icon: "🧱" },
   { slug: "gba", nameZh: "大湾区合作", nameEn: "Greater Bay Area", descZh: "理大与大湾区机构的合作与交流", descEn: "Collaborations and exchanges across the GBA", itemCount: 19, group: 1, icon: "🌉" },
+  // research：2026-09-30 经 #202 治理转正（组 RESEARCH）——库内无 icon 列、按 slug 回填，
+  // 转正主题须在此登记图标，否则目录卡名称前缀缺图（P3 缺口首例）
+  { slug: "research", nameZh: "综合科研", nameEn: "Research", descZh: "跨学科综合科研动态与全校范围的研究要闻", descEn: "Cross-disciplinary and university-wide research updates", itemCount: 0, group: 1, icon: "🔬" },
   { slug: "admission", nameZh: "招生入学", nameEn: "Admissions", descZh: "本科与研究生申请、截止日与录取动态", descEn: "Ug and pg applications, deadlines and admissions", itemCount: 46, group: 2, icon: "🎓" },
   { slug: "campus", nameZh: "校园生活", nameEn: "Campus Life", descZh: "体育、社团、宿舍与校园日常", descEn: "Sports, clubs, halls and everyday campus", itemCount: 64, group: 2, icon: "🏫" },
   { slug: "event", nameZh: "活动讲座", nameEn: "Events & Lectures", descZh: "公开讲座、工作坊与报名中的活动", descEn: "Public lectures, workshops and open events", itemCount: 51, group: 2, icon: "📅" },
@@ -457,7 +460,9 @@ export const NEWS_TOPICS: NewsTopic[] = [
   { slug: "exchange", nameZh: "国际交流", nameEn: "Exchange & Study Abroad", descZh: "交换计划、游学与海外学习机会", descEn: "Exchange programmes and overseas study", itemCount: 32, group: 2, icon: "✈️" },
   { slug: "housing", nameZh: "宿舍与生活", nameEn: "Housing & Living", descZh: "宿舍申请、住宿生活与周边租房", descEn: "Hall applications and off-campus housing", itemCount: 21, group: 2, icon: "🏠" },
   { slug: "scholarship", nameZh: "奖学金资助", nameEn: "Scholarships", descZh: "入学奖学金、专项资助与申请通道", descEn: "Entrance scholarships, grants and applications", itemCount: 18, group: 2, icon: "🏆" },
-  { slug: "admin", nameZh: "校务公告", nameEn: "Official Notices", descZh: "校历变更、政策与服务调整", descEn: "Calendar, policy and service updates", itemCount: 22, group: 2, icon: "📣" }
+  { slug: "admin", nameZh: "校务公告", nameEn: "Official Notices", descZh: "校历变更、政策与服务调整", descEn: "Calendar, policy and service updates", itemCount: 22, group: 2, icon: "📣" },
+  // alumni：预置登记（提案引用已近转正阈值）——提前入注册表，转正上线即带图标零二次发布
+  { slug: "alumni", nameZh: "校友", nameEn: "Alumni", descZh: "校友活动、校友故事与校友服务动态", descEn: "Alumni events, stories and services", itemCount: 0, group: 2, icon: "🤝" }
 ];
 
 /** 主题三维分组目录头（原型 TOPIC_GROUPS 原样，顺序=group 0/1/2） */
