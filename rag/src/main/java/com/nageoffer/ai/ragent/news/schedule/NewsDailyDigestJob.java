@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.news.schedule;
 
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.service.IndexNowService;
 import com.nageoffer.ai.ragent.news.service.NewsDailyDigestService;
 import com.nageoffer.ai.ragent.news.service.impl.NewsDailyDigestTemplates;
 import lombok.extern.slf4j.Slf4j;
@@ -51,10 +52,13 @@ public class NewsDailyDigestJob {
 
     private final NewsDailyDigestService digestService;
     private final NewsFetchProperties properties;
+    private final IndexNowService indexNowService;
 
-    public NewsDailyDigestJob(NewsDailyDigestService digestService, NewsFetchProperties properties) {
+    public NewsDailyDigestJob(NewsDailyDigestService digestService, NewsFetchProperties properties,
+                              IndexNowService indexNowService) {
         this.digestService = digestService;
         this.properties = properties;
+        this.indexNowService = indexNowService;
     }
 
     /**
@@ -70,6 +74,7 @@ public class NewsDailyDigestJob {
             try {
                 if (digestService.generateIfMissing(date)) {
                     built++;
+                    submitToIndexNow(date);
                 }
             } catch (Exception e) {
                 // 逐日期隔离：单日失败不阻断其余日期补齐（下一轮调度再试）
@@ -78,6 +83,20 @@ public class NewsDailyDigestJob {
         }
         if (built > 0) {
             log.info("[news][daily] 本轮日报调度：新生成 {} 刊（检查近 {} 日）", built, backfillDays);
+        }
+    }
+
+    /**
+     * IndexNow 提交钩（#213）：新刊生成后提交 /daily 与 /daily/{date} 两个本站
+     * canonical URL——调度层调用（generateIfMissing 事务已提交，外网调用不入事务）；
+     * 失败由服务内吞噬（收录=观察项，票面非验收门）。条目详情页不随刊提交
+     * （入口由 sitemap 覆盖，避免逐条 ping 噪音）
+     */
+    private void submitToIndexNow(LocalDate digestDate) {
+        try {
+            indexNowService.submitSiteUrls(java.util.List.of("/daily", "/daily/" + digestDate));
+        } catch (Exception e) {
+            log.warn("[news][daily] 日报 {} 的 IndexNow 提交钩失败（不影响出刊）：{}", digestDate, e.getMessage());
         }
     }
 }

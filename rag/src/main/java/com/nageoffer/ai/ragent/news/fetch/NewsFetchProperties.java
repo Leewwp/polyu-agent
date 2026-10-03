@@ -171,6 +171,58 @@ public class NewsFetchProperties {
                 ? "https://polyuguide.com" : digestRssSiteUrl.strip();
     }
 
+    // ================== 站点出口 SEO（#213，父票 #182 r3 §RSS、发现面——P2-b） ==================
+
+    /**
+     * 站点 canonical 基准 URL（feed.xml 条目链接/sitemap loc/IndexNow 提交共用的
+     * 绝对 URL 前缀）。与 {@link #digestRssSiteUrl} 同默认值但语义分离：本键是站点级
+     * canonical 面（所有出口一致），日报键是 #212 期刊 RSS 专有——两键暂不同并，
+     * 部署异构时须同步覆盖
+     */
+    private String siteBaseUrl = "https://polyuguide.com";
+
+    /**
+     * IndexNow 提交开关（#213，票面已批协议）：默认开；关=调度钩零调用（幂等可灰度）
+     */
+    private boolean indexnowEnabled = true;
+
+    /**
+     * IndexNow key（协议要求自生成、无账号注册）：与站点根静态键文件
+     * frontend/public/{key}.txt 同源同值——key 明文进公开静态文件是协议设计
+     * （验证提交者控制该站点），非泄密
+     */
+    private String indexnowKey = "ee751b74b79272cc9e40f864450cbca4";
+
+    /**
+     * IndexNow 提交端点（官方公共端点；后续如换自托管再外置）
+     */
+    private String indexnowEndpoint = "https://api.indexnow.org/indexnow";
+
+    /**
+     * 站点 canonical 基准 URL 有效值（空白回退默认域名；去尾斜杠防拼接双斜杠）
+     */
+    public String effectiveSiteBaseUrl() {
+        String value = siteBaseUrl == null || siteBaseUrl.isBlank()
+                ? "https://polyuguide.com" : siteBaseUrl.strip();
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    /**
+     * IndexNow key 有效值（空白=视为未配置，提交跳过并 WARN——缺 key 的提交必被
+     * 搜索引擎拒收，不如本侧先行短路）
+     */
+    public String effectiveIndexnowKey() {
+        return indexnowKey == null ? "" : indexnowKey.strip();
+    }
+
+    /**
+     * IndexNow 端点有效值（空白回退官方公共端点）
+     */
+    public String effectiveIndexnowEndpoint() {
+        return indexnowEndpoint == null || indexnowEndpoint.isBlank()
+                ? "https://api.indexnow.org/indexnow" : indexnowEndpoint.strip();
+    }
+
     // ================== 源治理：成功分类学/允许空/停用原因/探活（#186，父票 #181 §2） ==================
 
     /**

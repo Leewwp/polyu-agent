@@ -3,3 +3,11 @@
 # 本地排查栈占位值（上游同款形态），非任何真实服务的凭据。基线化仅为 CI 门过绿所需。
 # CI 扫描口径=gitleaks detect --log-opts="--full-history HEAD"（HEAD 可达全历史）。
 005cf2ace5f8f7664ed3c69a72a8ea6a5017e757:resources/docker/langfuse/langfuse-stack-v4.compose.yaml:generic-api-key:24
+# IndexNow 提交 key（#213，ee751b74…非凭据）：协议要求该值以 <key>.txt 明文部署在
+# 站点根供搜索引擎验证「提交者控制该站点」（frontend/public/ee751b74….txt）——
+# 公开是协议设计而非泄漏；持钥不授予任何访问面，提交面仅本站 canonical URL。
+# 三处命中=application.yaml 配置默认值/NewsFetchProperties 常量默认值/前端静态件
+# 测试断言，四者必须逐字同源（键文件内容=key）。
+30bda39e013fee5fac8c040a4f674f6bba06d843:bootstrap/src/main/resources/application.yaml:generic-api-key:229
+30bda39e013fee5fac8c040a4f674f6bba06d843:frontend/src/staticPublicAssets.test.ts:generic-api-key:34
+30bda39e013fee5fac8c040a4f674f6bba06d843:rag/src/main/java/com/nageoffer/ai/ragent/news/fetch/NewsFetchProperties.java:generic-api-key:194

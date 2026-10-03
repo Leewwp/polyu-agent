@@ -222,7 +222,15 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
         return new DigestBuildResult(digestDate, snapshots.size(), introSource, true);
     }
 
+    /**
+     * 本方法同样标 {@code @Transactional}（#213 收编窗复核补修）：生产路径=Job 经代理
+     * 调本方法后<strong>自调用</strong> {@link #rebuildForDate}——Spring 代理不拦截
+     * this 调用，仅 rebuildForDate 持注解时事务被旁路，「同一事务先删后插」失效
+     * （崩溃窗内可能留半刊且跳过逻辑不自愈）。注解上提到代理入口后内层 this 调用
+     * 运行于外层事务内，语义与冻结设计一致。
+     */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public boolean generateIfMissing(LocalDate digestDate) {
         Long existing = digestMapper.selectCount(new LambdaQueryWrapper<NewsDailyDigestDO>()
                 .eq(NewsDailyDigestDO::getDigestDate, digestDate));

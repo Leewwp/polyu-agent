@@ -58,7 +58,10 @@ class OkHttpClientInjectionTripwireTest {
             "com/nageoffer/ai/ragent/core/parser/mineru/MinerUClient.java",
             "com/nageoffer/ai/ragent/rag/core/graph/LightRagClient.java",
             "com/nageoffer/ai/ragent/rag/core/retrieval/channel/WebSearchChannel.java",
-            "com/nageoffer/ai/ragent/news/fetch/NewsHttpFetchClient.java");
+            "com/nageoffer/ai/ragent/news/fetch/NewsHttpFetchClient.java",
+            // #213：IndexNow 提交——外网端点（api.indexnow.org），注入
+            // @Qualifier("guardedHttpClient")（GuardedDns 连接级复校），与资讯抓取同纪律
+            "com/nageoffer/ai/ragent/news/service/impl/IndexNowServiceImpl.java");
 
     @Test
     void okhttp注入点必须全部归类() throws IOException {

@@ -30,9 +30,10 @@ PolyU information is scattered across dozens of department sites (Academic Regis
 | Scheduled refresh | URL-sourced documents refreshed incrementally on cron (native to the base); news feed: scheduled discovery of official/university channels → bilingual AI summaries and classification → feed / trending / topic browsing; global search with sort direction and category scope (feature-flag gated) |
 | Daily digest | fixed-window (previous 08:00 → today 08:00 HKT) digest of all publicly-visible updates, deterministically selected and stored as independent snapshots (readable after the 90-day news-item retention purge); the LLM writes only a fail-safe bilingual intro under the shared news LLM budget — page and RSS requests never trigger model calls; exposed on the site `/daily` page and a per-date RSS 2.0 feed (feature-flag gated) |
 | Academic calendar | key dates (registration / exams / holidays / deadlines) synced from the official academic calendar into a structured table, exposed via a public key-dates API and a subscribable iCalendar (.ics) feed (feature-flag gated) |
+| Syndication & discovery | site news RSS feed (feed.xml), sitemap.xml, llms.txt / robots.txt, and IndexNow pings — item links stay on canonical site URLs with original-source backlinks; hidden content is isolated consistently across every exit |
 | Multilingual | simplified Chinese and English officially supported at launch; trilingual document identity and cross-lingual retrieval retained underneath; traditional Chinese is compatibility-smoke-tested only for now |
 | Feedback & about | anonymous feedback (daily IP limit) with back-office management; about page with markdown editing and a tip jar (feature-flag gated) |
-| MCP tools & skills | The agentic chain mounts an in-repo MCP tool service through the intent-tree gate (first tool: library past-paper search returning deep links by course code; paper content stays behind the PolyU NetID wall); skill manuals follow load_skill progressive disclosure |
+| MCP tools & skills | The agentic chain mounts an in-repo MCP tool service through the intent-tree gate — three tools: library past-paper search (deep links by course code; paper content stays behind the PolyU NetID wall), campus news search (keyword × topic × time window), and academic-calendar key-dates query; skill manuals follow load_skill progressive disclosure |
 | Real-demand loop | social-media questions feed the golden set and colloquial query forms; failed online questions keep only de-identified scenario + diagnostics and asynchronously produce knowledge-gap reports |
 
 ## Interface preview
@@ -57,7 +58,7 @@ The live site [polyuguide.com](https://polyuguide.com) can be tried as a guest w
 - `framework/` / `infra-ai/` — base framework layer and AI infrastructure (model routing, middleware adapters, shared plumbing)
 - `rag/` — retrieval domain (knowledge bases and ingestion, intent tree, query rewriting, evaluation, news fetching and heat ranking)
 - `agent/` — agentic Q&A chain (ReAct, confirmation cards, tracing)
-- `mcp-server/` — MCP tool service (library past-paper search tool, mounted into the agent via the intent-tree MCP gate)
+- `mcp-server/` — MCP tool service (past-paper search, news search and key-dates query tools, mounted into the agent via the intent-tree MCP gate)
 - `system/` — users, auth, audit, data retention and other system concerns
 - `frontend/` — React frontend (Vite + zustand + Tailwind)
 - `resources/` — schema SQL and incremental upgrades, knowledge corpus, demo initializers, local middleware compose
@@ -95,4 +96,4 @@ The site is live and running (https://polyuguide.com). Main capabilities:
 
 - **News feed GA**: scheduled discovery → automatic classification → feed display
 - **i18n**: official traditional-Chinese support
-- **Stretch**: calendar/deadline MCP tools, a LightRAG graph channel, and — subject to compliance and feedback — evaluating contact with the university
+- **Stretch**: a LightRAG graph channel and — subject to compliance and feedback — evaluating contact with the university

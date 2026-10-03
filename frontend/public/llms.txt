@@ -1,0 +1,26 @@
+# PolyU Guide
+
+> 香港理工大学校园信息聚合问答站：把分散在教务处/学生事务处/图书馆/ITS 等数十个部门站点的公开信息聚合成可引用溯源的 RAG 问答，附资讯流（官方渠道双语 AI 摘要）、每日日报与校历关键日期。游客可试用（每日配额），注册后可用完整问答与 Agent 工具链。
+> Aggregates public PolyU information into a citation-traceable RAG Q&A, with a news feed (bilingual AI summaries of official channels), a daily digest, and academic-calendar key dates. Simplified Chinese and English are supported.
+
+## 主要页面
+
+- [首页问答](https://polyuguide.com/): RAG 问答入口（引用溯源：答案内联引用标记 + 官方原文链接预览）
+- [资讯热点](https://polyuguide.com/hot): 官方渠道资讯流与热点（可按分类/主题浏览，AI 摘要注明以原文为准）
+- [主题目录](https://polyuguide.com/topics): 资讯主题分类目录（奖学金/招生/科研/活动等）
+- [每日日报](https://polyuguide.com/daily): 每日资讯日报（固定窗口 08:00-08:00 HKT，确定性选材+独立快照）
+- [校历关键日期](https://polyuguide.com/key-dates): 学期起止/Add-Drop/考试期/deadline 结构化表（含 .ics 订阅）
+
+## 订阅与发现
+
+- [RSS 资讯 feed](https://polyuguide.com/feed.xml): 站点级资讯 RSS 2.0（双语摘要+原文回链）
+- [每日日报 RSS](https://polyuguide.com/api/ragent/public/news/daily/2026-10-04/rss): 日报按日期归档 feed（示例日期，替换为目标日）
+- [校历 .ics 订阅](https://polyuguide.com/api/ragent/public/calendar/key-dates.ics): 日历应用直接订阅
+- [站点地图](https://polyuguide.com/sitemap.xml): sitemaps.org 0.9 协议
+
+## API 与机器接口
+
+- 公开只读 API 前缀 `/api/ragent/public/`：资讯列表/详情/主题/日报/校历（匿名可读，返回 JSON）
+- MCP 工具服务：站内 Agent 链挂载三工具（往年试卷深链检索 `search_exam_papers`、资讯检索 `search_news`、校历查询 `query_key_dates`），经意图树门控对站内 Agent 暴露
+- 资讯内容仅聚合**已发布**的公开条目；下架内容全出口一致隔离
+- 摘要由 AI 生成，内容以官方原文链接为准

@@ -223,6 +223,11 @@ rag:
     digest-max-items: 200     # 日报单刊快照条数防御上界（#212）：非选材过滤器——选材冻结口径=「全部动态」
                              # （容量合同 ≤60 条/日新准入，200 已远超日常量级，触界=异常态截断+WARN）
     digest-rss-site-url: "https://polyuguide.com"  # 日报 RSS 频道站点基准 URL（channel/link 前缀；部署异构时覆盖）
+    site-base-url: "https://polyuguide.com"  # 站点 canonical 基准 URL（#213：feed.xml/sitemap/IndexNow 共用前缀；
+                                             # 与 digest-rss-site-url 同默认、语义分离，部署异构时两者同步覆盖）
+    indexnow-enabled: true   # IndexNow 提交开关（#213，票面已批协议）：调度钩新刊后 ping，关=零调用
+    indexnow-key: "ee751b74b79272cc9e40f864450cbca4"  # 与站点根静态键文件 frontend/public/<key>.txt 同源同值（协议设计非泄密）
+    indexnow-endpoint: "https://api.indexnow.org/indexnow"  # 官方公共端点（后续如换自托管再外置）
     enrich-batch: 20          # LLM 摘要补全单批上限（防长事务与花费失控，剩余下轮消化）
     budget-daily-yuan: 1.0        # 资讯 LLM 日额度（元，HKT 日切，#184）：超额当日降级=仅入库不富化，次日按配额补偿。
                                  # 口径：资讯额度=资讯 LLM 调用专用独立额度；全项目成本口径（资讯+主链 RAG 等）另行统计，不混算
