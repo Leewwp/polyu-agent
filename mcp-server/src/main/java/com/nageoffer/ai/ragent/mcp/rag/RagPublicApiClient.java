@@ -53,12 +53,13 @@ public class RagPublicApiClient implements RagPublicApi {
 
     private final RestClient restClient;
 
-    public RagPublicApiClient(RestClient.Builder builder,
-                              @Value("${ragent.rag.base-url}") String baseUrl) {
+    public RagPublicApiClient(@Value("${ragent.rag.base-url}") String baseUrl) {
+        // 不注入 RestClient.Builder：Boot 4.1 模块化 autoconfigure 后容器默认不再提供该
+        // bean（#219 生产启动失败根因）；本客户端自持超时配置，直建无共享定制损失。
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(3));
         factory.setReadTimeout(Duration.ofSeconds(8));
-        this.restClient = builder
+        this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(factory)
                 .build();

@@ -23,7 +23,6 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -185,15 +184,14 @@ class RagPublicApiClientTest {
         try (ServerSocket socket = new ServerSocket(0)) {
             deadPort = socket.getLocalPort();
         }
-        RagPublicApi dead = new RagPublicApiClient(RestClient.builder(),
-                "http://127.0.0.1:" + deadPort);
+        RagPublicApi dead = new RagPublicApiClient("http://127.0.0.1:" + deadPort);
 
         RuntimeException ex = assertThrows(RuntimeException.class, () -> dead.searchNews("x", null, null, null, 1, 5));
         assertInstanceOf(IllegalStateException.class, ex);
     }
 
     private static RagPublicApi client() {
-        return new RagPublicApiClient(RestClient.builder(), baseUrl);
+        return new RagPublicApiClient(baseUrl);
     }
 
     private static int findDeadPort() throws IOException {
