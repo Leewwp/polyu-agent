@@ -99,6 +99,30 @@ public class PublicNewsDisabledController {
         return notFound();
     }
 
+    /**
+     * 与启用态同形的日报目录端点 404 兜底（#212 后增路径）
+     */
+    @GetMapping("/daily")
+    public ResponseEntity<Void> dailyList(@RequestParam(value = "limit", defaultValue = "30") int limit) {
+        return notFound();
+    }
+
+    /**
+     * 与启用态同形的日报详情端点 404 兜底（#212 后增路径）
+     */
+    @GetMapping("/daily/{date}")
+    public ResponseEntity<Void> dailyDetail(@PathVariable String date) {
+        return notFound();
+    }
+
+    /**
+     * 与启用态同形的日报 RSS 端点 404 兜底（#212 后增路径）
+     */
+    @GetMapping("/daily/{date}/rss")
+    public ResponseEntity<Void> dailyRss(@PathVariable String date) {
+        return notFound();
+    }
+
     private ResponseEntity<Void> notFound() {
         return ResponseEntity.notFound().build();
     }

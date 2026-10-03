@@ -45,6 +45,8 @@ class PublicNewsFeatureFlagTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withBean(NewsQueryService.class, () -> mock(NewsQueryService.class))
+            .withBean(com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService.class))
             .withBean(NewsSourceMapper.class, () -> mock(NewsSourceMapper.class))
             .withBean(NewsItemMapper.class, () -> mock(NewsItemMapper.class))
             // 抽检 tags 接线后 NewsFetchJob 增补的两个 join 表 mapper
@@ -63,8 +65,14 @@ class PublicNewsFeatureFlagTest {
             .withBean(NewsHeatService.class, () -> mock(NewsHeatService.class))
             .withBean(org.springframework.jdbc.core.JdbcTemplate.class,
                     () -> mock(org.springframework.jdbc.core.JdbcTemplate.class))
+            // #212：日报生成/调度（生成服务依赖注入由 mock 面覆盖）
+            .withBean(com.nageoffer.ai.ragent.news.service.NewsDailyDigestService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.service.NewsDailyDigestService.class))
+            .withBean(com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties.class,
+                    com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties::new)
             .withUserConfiguration(PublicNewsController.class, PublicNewsDisabledController.class,
-                    NewsFetchJob.class, NewsRetentionJob.class);
+                    NewsFetchJob.class, NewsRetentionJob.class,
+                    com.nageoffer.ai.ragent.news.schedule.NewsDailyDigestJob.class);
 
     @Test
     void flagOffAssemblesOnlyDisabledTwin() {
@@ -73,6 +81,7 @@ class PublicNewsFeatureFlagTest {
             assertThat(context).doesNotHaveBean(PublicNewsController.class);
             assertThat(context).doesNotHaveBean(NewsFetchJob.class);
             assertThat(context).doesNotHaveBean(NewsRetentionJob.class);
+            assertThat(context).doesNotHaveBean(com.nageoffer.ai.ragent.news.schedule.NewsDailyDigestJob.class);
         });
     }
 
@@ -83,6 +92,7 @@ class PublicNewsFeatureFlagTest {
             assertThat(context).doesNotHaveBean(PublicNewsController.class);
             assertThat(context).doesNotHaveBean(NewsFetchJob.class);
             assertThat(context).doesNotHaveBean(NewsRetentionJob.class);
+            assertThat(context).doesNotHaveBean(com.nageoffer.ai.ragent.news.schedule.NewsDailyDigestJob.class);
         });
     }
 
@@ -93,6 +103,7 @@ class PublicNewsFeatureFlagTest {
             assertThat(context).doesNotHaveBean(PublicNewsDisabledController.class);
             assertThat(context).hasSingleBean(NewsFetchJob.class);
             assertThat(context).hasSingleBean(NewsRetentionJob.class);
+            assertThat(context).hasSingleBean(com.nageoffer.ai.ragent.news.schedule.NewsDailyDigestJob.class);
         });
     }
 

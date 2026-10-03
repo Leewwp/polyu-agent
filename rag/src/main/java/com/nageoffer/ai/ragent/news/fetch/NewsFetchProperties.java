@@ -126,6 +126,51 @@ public class NewsFetchProperties {
      */
     private int publishGateSeconds = 180;
 
+    // ================== 日报（#212，父票 #182 r3 §日报——P2-a 出口） ==================
+
+    /**
+     * 日报单刊快照条数硬上界：防御性容量护栏（防历史回灌日把单刊撑爆），
+     * <b>不是选材过滤器</b>——确定性选材冻结口径=「全部动态」（窗口内全部
+     * 公开资格条目，无 tier/配额/top-N 精选；容量合同 ≤60 条/日新准入，
+     * 默认 200 已远超日常量级，触界=异常态按 seq 截断并 WARN）
+     */
+    private int digestMaxItems = 200;
+
+    /**
+     * 日报漏跑回补窗口（HKT 日，含当日）：每日调度时检查窗口内缺失日期并补跑
+     * （已存在的刊不自动重建——重建只由显式 rebuild 触发）；非正回退 2
+     * （当日+昨日，覆盖单日宕机场景）
+     */
+    private int digestBackfillDays = 2;
+
+    /**
+     * 日报 RSS 频道站点基准 URL（channel/link 与条目 guid 前缀）——RSS 规范要求
+     * 绝对 URL；默认线上域名，部署异构时外置覆盖
+     */
+    private String digestRssSiteUrl = "https://polyuguide.com";
+
+    /**
+     * 日报单刊快照条数硬上界有效值（非正回退 200）
+     */
+    public int effectiveDigestMaxItems() {
+        return digestMaxItems > 0 ? digestMaxItems : 200;
+    }
+
+    /**
+     * 日报漏跑回补窗口有效值（HKT 日数，非正回退 2）
+     */
+    public int effectiveDigestBackfillDays() {
+        return digestBackfillDays > 0 ? digestBackfillDays : 2;
+    }
+
+    /**
+     * 日报 RSS 站点基准 URL 有效值（空白回退默认域名）
+     */
+    public String effectiveDigestRssSiteUrl() {
+        return digestRssSiteUrl == null || digestRssSiteUrl.isBlank()
+                ? "https://polyuguide.com" : digestRssSiteUrl.strip();
+    }
+
     // ================== 源治理：成功分类学/允许空/停用原因/探活（#186，父票 #181 §2） ==================
 
     /**
