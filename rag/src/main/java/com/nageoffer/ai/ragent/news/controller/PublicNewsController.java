@@ -46,6 +46,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -65,13 +66,28 @@ public class PublicNewsController {
     private final NewsSeoService newsSeoService;
 
     /**
-     * 资讯流列表：category 过滤（固定 8 类，空=全部资讯态）+ 分页
+     * 资讯流列表：category 过滤（固定 8 类，空=全部资讯态）+ 分页；
+     * topics=逗号分隔主题 slug 集（「只看关注」多主题过滤，空=不过滤——服务端过滤
+     * 保分页正确性，客户端过滤全局流有页内漏配判例）
      */
     @GetMapping("/list")
     public Result<NewsPageVO> list(@RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "topics", required = false) String topics,
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
-        return Results.success(newsQueryService.listPublished(category, page, size));
+        return Results.success(newsQueryService.listPublished(category, parseTopicSlugs(topics), page, size));
+    }
+
+    /** topics 参数解析：逗号分隔 slug，trim 后滤空；全空/null 入参=不过滤（null） */
+    private static List<String> parseTopicSlugs(String topics) {
+        if (topics == null || topics.isBlank()) {
+            return null;
+        }
+        List<String> slugs = Arrays.stream(topics.split(","))
+                .map(String::strip)
+                .filter(slug -> !slug.isEmpty())
+                .toList();
+        return slugs.isEmpty() ? null : slugs;
     }
 
     /**
