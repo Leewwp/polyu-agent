@@ -1,0 +1,428 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.nageoffer.ai.ragent.news.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
+import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.infra.enums.Tier;
+import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
+import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.service.NewsDailyDigestService;
+import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+/**
+ * 资讯日报生成服务实现（#212，父票 #182 r3 §日报——P2-a 出口）
+ *
+ * <p><b>窗口合同（冻结）</b>：一刊=D 的 HKT 日，窗口=[D-1 08:00, D 08:00)
+ * <b>左闭右开</b>；publish_time 恰落 08:00:00.000 的条目归属<b>下一期</b>
+ * （窗口起点侧）。默认调度 08:40（rag.news.digest-cron）——08:00 采集轮
+ * 已收尾、与 08:30 探活错峰，生成时读到的都是已完成行。
+ *
+ * <p><b>不抢读未完成行</b>：候选只取<b>统一公开资格</b>条目（status=published
+ * 且过发布门——pending/expired/archived/hidden 与未过门条目一律不可见），
+ * 与 NewsQueryServiceImpl.visibleItems 同一判据（#180 R4 可见性合同）；
+ * 08:00 轮新入库的 pending 行在 08:40 时若仍未富化，自然不在候选内，
+ * 不存在抢读。
+ *
+ * <p><b>迟到数据规则（冻结）</b>：条目归属只看 publish_time 与窗口的关系，
+ * 与抓取/富化时刻无关——发布于 07:50、13:00 轮才富化过门的条目属当日刊的
+ * 迟到数据，当日 08:40 生成时<b>尚未</b>过门 → 不进当期（不回捞）；
+ * 显式 rebuildForDate(D) 重跑时若已过门 → 并入 D 刊（窗口边界不变，
+ * 重跑=按冻结窗口全量重算）。漏跑由调度按 digest-backfill-days 补齐
+ * （已存在的刊不自动重建）。
+ *
+ * <p><b>确定性选材（冻结，无评分）</b>：交付「全部动态」口径——窗口内全部
+ * 公开资格条目全量入选，刊内序=publish_time DESC, id DESC（与资讯流列表
+ * 同一确定性排序）。不引入 tier/分类配额/top-N 精选（t_news_source 无
+ * tier 序、无冻结配额依据；票面明示无规则时只交付全部动态口径，不恢复
+ * 评分流水线）。digest-max-items（默认 200）只是防御性容量上界（容量合同
+ * ≤60 条/日新准入，200 已远超日常量级），<b>不是选材过滤器</b>。
+ *
+ * <p><b>导语（唯一 LLM 触点）</b>：单次调用走 {@link NewsLlmBudgetService}
+ * （Tier.FAST、与摘要共用资讯 ¥10 月额度、t_news_llm_receipt 记账），
+ * 提示词外置 prompt/news-digest-intro.st；调用失败/预算耗尽/解析无效
+ * → 固定模板导语（{@link NewsDailyDigestTemplates}，零新增调用）照常出刊。
+ * 空刊零调用直接落空刊模板。读取面（页面/RSS）零 LLM——见
+ * {@link com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService}。
+ *
+ * <p><b>幂等</b>：digest_date 库级唯一；重建=按日期先删后插（快照行经
+ * digest_id 外键 ON DELETE CASCADE 随旧刊头带走），同日期重跑只产一刊。
+ * 单事务包住删+插，中途失败不产生半刊（下一轮重跑再建）。
+ */
+@Slf4j
+@Service
+public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
+
+    /**
+     * 导语提示词模板（外置，二开纪律）
+     */
+    static final String INTRO_PROMPT_PATH = "prompt/news-digest-intro.st";
+
+    /**
+     * 导语提示词携带的条目行上限（输入体积防线：40 行×60 字符≈2400 CJK 字符
+     * ≈2400 tokens，在 max-input-tokens 4000 的正文预算内；超限截断只影响
+     * 导语概括面，不影响快照全量——快照始终按窗口全量落库）
+     */
+    static final int INTRO_PROMPT_MAX_ITEMS = 40;
+
+    /**
+     * 导语提示词单行标题截断（字符）
+     */
+    static final int INTRO_PROMPT_TITLE_MAX_CHARS = 60;
+
+    private static final String STATUS_PUBLISHED = "published";
+
+    private final NewsDailyDigestMapper digestMapper;
+    private final NewsDailyDigestItemMapper digestItemMapper;
+    private final NewsItemMapper itemMapper;
+    private final NewsItemTopicMapper itemTopicMapper;
+    private final NewsTopicMapper topicMapper;
+    private final NewsSourceMapper sourceMapper;
+    private final NewsLlmBudgetService llmBudgetService;
+    private final PromptTemplateLoader promptTemplateLoader;
+    private final NewsFetchProperties properties;
+    private final ObjectMapper objectMapper;
+    private final Supplier<Date> nowSupplier;
+
+    @Autowired
+    public NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
+                                      NewsDailyDigestItemMapper digestItemMapper,
+                                      NewsItemMapper itemMapper,
+                                      NewsItemTopicMapper itemTopicMapper,
+                                      NewsTopicMapper topicMapper,
+                                      NewsSourceMapper sourceMapper,
+                                      NewsLlmBudgetService llmBudgetService,
+                                      PromptTemplateLoader promptTemplateLoader,
+                                      NewsFetchProperties properties) {
+        this(digestMapper, digestItemMapper, itemMapper, itemTopicMapper, topicMapper, sourceMapper,
+                llmBudgetService, promptTemplateLoader, properties, new ObjectMapper(), Date::new);
+    }
+
+    /**
+     * 全参构造器（测试注入时钟与 ObjectMapper，NewsFetchJob 先例同源）
+     */
+    NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
+                               NewsDailyDigestItemMapper digestItemMapper,
+                               NewsItemMapper itemMapper,
+                               NewsItemTopicMapper itemTopicMapper,
+                               NewsTopicMapper topicMapper,
+                               NewsSourceMapper sourceMapper,
+                               NewsLlmBudgetService llmBudgetService,
+                               PromptTemplateLoader promptTemplateLoader,
+                               NewsFetchProperties properties,
+                               ObjectMapper objectMapper,
+                               Supplier<Date> nowSupplier) {
+        this.digestMapper = digestMapper;
+        this.digestItemMapper = digestItemMapper;
+        this.itemMapper = itemMapper;
+        this.itemTopicMapper = itemTopicMapper;
+        this.topicMapper = topicMapper;
+        this.sourceMapper = sourceMapper;
+        this.llmBudgetService = llmBudgetService;
+        this.promptTemplateLoader = promptTemplateLoader;
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.nowSupplier = nowSupplier;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public DigestBuildResult rebuildForDate(LocalDate digestDate) {
+        Objects.requireNonNull(digestDate, "digestDate");
+        ZonedDateTime windowEnd = digestDate.atTime(8, 0).atZone(NewsDailyDigestTemplates.HKT_ZONE);
+        Date windowStart = Date.from(windowEnd.minusDays(1).toInstant());
+        Date windowEndDate = Date.from(windowEnd.toInstant());
+        // 候选=窗口内统一公开资格条目（确定性序：publish_time DESC, id DESC；上限=防御容量界）
+        List<NewsItemDO> candidates = selectWindowCandidates(windowStart, windowEndDate);
+        List<NewsDailyDigestItemDO> snapshots = buildSnapshots(candidates);
+        // 导语：空刊零调用；非空单次 LLM（可失败回退模板）
+        String introSource;
+        String introZh;
+        String introEn;
+        if (snapshots.isEmpty()) {
+            introSource = NewsDailyDigestDO.INTRO_SOURCE_EMPTY;
+            introZh = NewsDailyDigestTemplates.emptyIntroZh(digestDate);
+            introEn = NewsDailyDigestTemplates.emptyIntroEn(digestDate);
+        } else {
+            IntroOutcome intro = generateIntro(digestDate, windowStart, windowEndDate, candidates);
+            introSource = intro.source();
+            introZh = intro.zh();
+            introEn = intro.en();
+        }
+        // 幂等重建：先删后插（同一事务；快照行经 digest_id 外键级联随旧刊头带走）
+        digestMapper.delete(new LambdaQueryWrapper<NewsDailyDigestDO>()
+                .eq(NewsDailyDigestDO::getDigestDate, digestDate));
+        NewsDailyDigestDO header = NewsDailyDigestDO.builder()
+                .digestDate(digestDate)
+                .windowStart(windowStart)
+                .windowEnd(windowEndDate)
+                .introZh(introZh)
+                .introEn(introEn)
+                .introSource(introSource)
+                .itemCount(snapshots.size())
+                .status(NewsDailyDigestDO.STATUS_PUBLISHED)
+                .buildTime(nowSupplier.get())
+                .build();
+        digestMapper.insert(header);
+        int seq = 0;
+        for (NewsDailyDigestItemDO snapshot : snapshots) {
+            snapshot.setDigestId(header.getId());
+            snapshot.setSeq(++seq);
+            digestItemMapper.insert(snapshot);
+        }
+        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}（窗口 [{}, {})）",
+                digestDate, snapshots.size(), introSource, windowStart, windowEndDate);
+        return new DigestBuildResult(digestDate, snapshots.size(), introSource, true);
+    }
+
+    @Override
+    public boolean generateIfMissing(LocalDate digestDate) {
+        Long existing = digestMapper.selectCount(new LambdaQueryWrapper<NewsDailyDigestDO>()
+                .eq(NewsDailyDigestDO::getDigestDate, digestDate));
+        if (existing != null && existing > 0) {
+            log.debug("[news][daily] 日报 {} 已存在，跳过（已存在的刊不自动重建）", digestDate);
+            return false;
+        }
+        rebuildForDate(digestDate);
+        return true;
+    }
+
+    // ==================== 候选选材（统一公开资格，冻结口径） ====================
+
+    /**
+     * 窗口候选：status=published + 过发布门 + publish_time∈[start,end) 左闭右开，
+     * 序=publish_time DESC, id DESC——与 NewsQueryServiceImpl.visibleItems 同一
+     * 可见性判据（#180 R4），pending/未过门/终态行一律不进候选（不抢读未完成行）
+     */
+    private List<NewsItemDO> selectWindowCandidates(Date windowStart, Date windowEnd) {
+        Date gateFloor = new Date(nowSupplier.get().getTime()
+                - properties.effectivePublishGateSeconds() * 1000L);
+        return itemMapper.selectList(new LambdaQueryWrapper<NewsItemDO>()
+                .eq(NewsItemDO::getStatus, STATUS_PUBLISHED)
+                .and(w -> w.isNull(NewsItemDO::getEligibleTime)
+                        .or().le(NewsItemDO::getEligibleTime, gateFloor))
+                .isNotNull(NewsItemDO::getPublishTime)
+                .ge(NewsItemDO::getPublishTime, windowStart)
+                .lt(NewsItemDO::getPublishTime, windowEnd)
+                .orderByDesc(NewsItemDO::getPublishTime)
+                .orderByDesc(NewsItemDO::getId)
+                .last("LIMIT " + properties.effectiveDigestMaxItems()));
+    }
+
+    /**
+     * 快照构建：条目展示字段全冗余（标题/摘要/URL/分类/主题/信源元数据），
+     * 源行后续被 90 天保留清理删除不影响快照可读性
+     */
+    private List<NewsDailyDigestItemDO> buildSnapshots(List<NewsItemDO> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, List<String>> topicSlugs = topicSlugsByItemIds(
+                candidates.stream().map(NewsItemDO::getId).collect(Collectors.toSet()));
+        Map<Long, NewsSourceDO> sources = sourceMapByIds(
+                candidates.stream().map(NewsItemDO::getSourceId).collect(Collectors.toSet()));
+        List<NewsDailyDigestItemDO> snapshots = new ArrayList<>(candidates.size());
+        for (NewsItemDO item : candidates) {
+            NewsSourceDO source = item.getSourceId() == null ? null : sources.get(item.getSourceId());
+            List<String> slugs = topicSlugs.getOrDefault(item.getId(), List.of());
+            snapshots.add(NewsDailyDigestItemDO.builder()
+                    .itemId(item.getId())
+                    .url(item.getUrl())
+                    .urlHash(item.getUrlHash())
+                    .titleZh(item.getTitleZh())
+                    .titleEn(item.getTitleEn())
+                    .summaryZh(item.getSummaryZh())
+                    .summaryEn(item.getSummaryEn())
+                    .category(item.getCategory())
+                    .topicSlugs(slugs.isEmpty() ? null : String.join(",", slugs))
+                    .sourceId(item.getSourceId())
+                    .sourceKey(source == null ? null : source.getSourceKey())
+                    .sourcePlatform(source == null ? null : source.getPlatform())
+                    .sourceOfficial(source == null ? null : source.getOfficial())
+                    .sourceDisplayName(source == null ? null : source.getDisplayName())
+                    .sourceDisplayNameEn(source == null ? null : source.getDisplayNameEn())
+                    .publishTime(item.getPublishTime())
+                    .build());
+        }
+        return snapshots;
+    }
+
+    // ==================== 导语（唯一 LLM 触点，可失败回退） ====================
+
+    /**
+     * 导语生成：渲染外置提示词（携带日期+窗口+条目行，截断上限见常量）→
+     * 预算护栏内单次调用（同指纹重跑复用回执不重复付费）→ JSON 解析；
+     * 预算耗尽（LlmBudgetExhaustedException）/回执终态/解析无效/其它异常
+     * 一律回退固定模板（零新增调用），digest 照常出刊
+     */
+    private IntroOutcome generateIntro(LocalDate digestDate, Date windowStart, Date windowEnd,
+                                       List<NewsItemDO> candidates) {
+        try {
+            String prompt = promptTemplateLoader.render(INTRO_PROMPT_PATH, Map.of(
+                    "digest_date", digestDate.toString(),
+                    "window_label", windowStart + " ~ " + windowEnd + " (HKT)",
+                    "item_lines", introItemLines(candidates)));
+            ChatRequest request = ChatRequest.builder()
+                    .messages(List.of(ChatMessage.user(prompt)))
+                    .temperature(0.2D)
+                    .topP(0.3D)
+                    .thinking(false)
+                    .maxTokens(properties.effectiveSummaryMaxTokens())
+                    .build();
+            NewsLlmBudgetService.LlmCall call = llmBudgetService.call(request, Tier.FAST);
+            try {
+                JsonNode node = parseIntroJson(call.content());
+                String zh = node.path("intro_zh").asText("").strip();
+                String en = node.path("intro_en").asText("").strip();
+                if (!zh.isEmpty() && !en.isEmpty()) {
+                    return new IntroOutcome(NewsDailyDigestDO.INTRO_SOURCE_LLM, zh, en);
+                }
+                call.reportInvalid();
+                log.warn("[news][daily] 日报 {} 导语响应字段缺失（zh/en 任一为空），回退模板", digestDate);
+            } catch (RuntimeException parseFailure) {
+                // 无效响应回报：新鲜响应保留一次下轮复用（已付费），复用响应隔离
+                call.reportInvalid();
+                log.warn("[news][daily] 日报 {} 导语响应解析失败，回退模板：{}", digestDate, parseFailure.getMessage());
+            }
+        } catch (LlmBudgetExhaustedException e) {
+            // 预算耗尽：照常出刊，模板导语（回执 DEGRADED 已由预算服务落账）
+            log.warn("[news][daily] 日报 {} 导语预算耗尽，模板出刊：{}", digestDate, e.getMessage());
+        } catch (Exception e) {
+            // 回执终态/模板缺失/其它异常：模板兜底，不让导语失败阻断出刊
+            log.warn("[news][daily] 日报 {} 导语生成失败，模板出刊：{}", digestDate, e.getMessage());
+        }
+        return new IntroOutcome(NewsDailyDigestDO.INTRO_SOURCE_FALLBACK,
+                NewsDailyDigestTemplates.fallbackIntroZh(digestDate, candidates.size()),
+                NewsDailyDigestTemplates.fallbackIntroEn(digestDate, candidates.size()));
+    }
+
+    /**
+     * 导语提示词条目行（截断上限 INTRO_PROMPT_MAX_ITEMS/TITLE_MAX_CHARS——
+     * 只影响概括面不影响快照全量）
+     */
+    private String introItemLines(List<NewsItemDO> candidates) {
+        StringBuilder lines = new StringBuilder();
+        int count = 0;
+        for (NewsItemDO item : candidates) {
+            if (count >= INTRO_PROMPT_MAX_ITEMS) {
+                lines.append("（其余 ").append(candidates.size() - count).append(" 条略）");
+                break;
+            }
+            String title = item.getTitleZh() != null && !item.getTitleZh().isBlank()
+                    ? item.getTitleZh() : item.getTitleEn();
+            String trimmed = title == null ? "" : (title.length() > INTRO_PROMPT_TITLE_MAX_CHARS
+                    ? title.substring(0, INTRO_PROMPT_TITLE_MAX_CHARS) + "…" : title);
+            lines.append(count + 1).append(". [").append(item.getCategory()).append("] ")
+                    .append(trimmed).append('\n');
+            count++;
+        }
+        return lines.toString().stripTrailing();
+    }
+
+    /**
+     * 导语 JSON 解析：剥代码围栏后取首尾大括号间内容（沿 NewsEnrichService
+     * parsePayload 的宽松口径；严格校验归守卫——导语无守卫，字段级空值即回退）
+     */
+    private JsonNode parseIntroJson(String raw) {
+        String text = raw == null ? "" : raw.strip();
+        if (text.startsWith("```")) {
+            int firstBrace = text.indexOf('{');
+            int lastBrace = text.lastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace) {
+                text = text.substring(firstBrace, lastBrace + 1);
+            }
+        }
+        try {
+            return objectMapper.readTree(text);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("导语响应不是合法 JSON", e);
+        }
+    }
+
+    // ==================== 主题/信源批量装配（沿 NewsQueryServiceImpl 同构） ====================
+
+    private Map<Long, List<String>> topicSlugsByItemIds(Set<Long> itemIds) {
+        Set<Long> nonNullIds = itemIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (nonNullIds.isEmpty()) {
+            return Map.of();
+        }
+        List<NewsItemTopicDO> links = itemTopicMapper.selectList(
+                new LambdaQueryWrapper<NewsItemTopicDO>().in(NewsItemTopicDO::getItemId, nonNullIds));
+        if (links.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> slugByTopicId = topicMapper.selectBatchIds(
+                        links.stream().map(NewsItemTopicDO::getTopicId).collect(Collectors.toSet())).stream()
+                .collect(Collectors.toMap(NewsTopicDO::getId, NewsTopicDO::getSlug));
+        Map<Long, List<String>> result = new LinkedHashMap<>();
+        for (NewsItemTopicDO link : links) {
+            String slug = slugByTopicId.get(link.getTopicId());
+            if (slug != null) {
+                result.computeIfAbsent(link.getItemId(), key -> new ArrayList<>()).add(slug);
+            }
+        }
+        return result;
+    }
+
+    private Map<Long, NewsSourceDO> sourceMapByIds(Set<Long> sourceIds) {
+        Set<Long> nonNullIds = sourceIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (nonNullIds.isEmpty()) {
+            return Map.of();
+        }
+        return sourceMapper.selectBatchIds(nonNullIds).stream()
+                .collect(Collectors.toMap(NewsSourceDO::getId, Function.identity()));
+    }
+
+    /**
+     * 导语产出载荷（内部中转）
+     */
+    private record IntroOutcome(String source, String zh, String en) {
+    }
+}

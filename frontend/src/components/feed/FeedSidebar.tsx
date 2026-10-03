@@ -403,6 +403,7 @@ export function FeedSidebar({
   const isFeedHome = location.pathname === "/" && !isAllView;
   const isTopicsView = location.pathname.startsWith("/topics");
   const isHotView = location.pathname.startsWith("/hot");
+  const isDailyView = location.pathname.startsWith("/daily");
   const isAboutView = location.pathname.startsWith("/about");
 
   const user = useAuthStore((state) => state.user);
@@ -543,6 +544,11 @@ export function FeedSidebar({
           <Link to="/topics" className={navItemClass(isTopicsView)} onClick={onClose}>
             <span className={navEmojiClass()}>🧭</span>
             {zh ? "主题" : "Topics"}
+          </Link>
+          {/* 已接线：日报页 /daily（#212：固定窗口全部动态一刊+RSS 订阅） */}
+          <Link to="/daily" className={navItemClass(isDailyView)} onClick={onClose}>
+            <span className={navEmojiClass()}>📰</span>
+            {zh ? "日报" : "Daily"}
           </Link>
           {/* 验收第三轮：关于页入口自页脚提级到侧边栏（维护者指定主题下方） */}
           <Link to="/about" className={navItemClass(isAboutView)} onClick={onClose}>

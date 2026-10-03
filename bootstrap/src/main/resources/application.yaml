@@ -216,6 +216,13 @@ rag:
     retention-days: 90        # 条目保留期，NewsRetentionJob 清理阈值
     retention-scan-delay-ms: 3600000   # 保留清理巡检间隔（毫秒）
     retention-initial-delay-ms: 120000 # 启动首扫延迟（毫秒），避开启动高峰
+    digest-cron: "0 40 8 * * *"  # 日报生成时刻（#212）：默认 08:40=08:00 采集轮收尾后、与 08:30 探活错峰；
+                                 # 窗口=[D-1 08:00, D 08:00) HKT 左闭右开（恰落 08:00:00.000 归下一期）
+    digest-backfill-days: 2   # 日报漏跑回补窗口（HKT 日，含当日，#212）：每轮调度检查缺失日期补生成；
+                             # 已存在的刊不自动重建（重建只由显式 rebuild 触发）
+    digest-max-items: 200     # 日报单刊快照条数防御上界（#212）：非选材过滤器——选材冻结口径=「全部动态」
+                             # （容量合同 ≤60 条/日新准入，200 已远超日常量级，触界=异常态截断+WARN）
+    digest-rss-site-url: "https://polyuguide.com"  # 日报 RSS 频道站点基准 URL（channel/link 前缀；部署异构时覆盖）
     enrich-batch: 20          # LLM 摘要补全单批上限（防长事务与花费失控，剩余下轮消化）
     budget-daily-yuan: 1.0        # 资讯 LLM 日额度（元，HKT 日切，#184）：超额当日降级=仅入库不富化，次日按配额补偿。
                                  # 口径：资讯额度=资讯 LLM 调用专用独立额度；全项目成本口径（资讯+主链 RAG 等）另行统计，不混算

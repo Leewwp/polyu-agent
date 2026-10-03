@@ -92,3 +92,62 @@ export interface NewsTopicGroup {
   subZh: string;
   subEn: string;
 }
+
+/** ==================== 日报（#212） ==================== */
+
+/** 日报条目快照（后端 NewsDailyDigestItemVO：全部字段来自快照列，与 t_news_item 现值无关） */
+export interface NewsDailyDigestItem {
+  /** 溯源条目 id（点击进 /news/{id} 详情；源行被保留清理后详情 404 属预期） */
+  itemId: number;
+  /** 刊内序（1 起，发布时间倒序） */
+  seq: number;
+  /** 原文 URL 快照（永久外链） */
+  url: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  summaryZh: string | null;
+  summaryEn: string | null;
+  category: NewsCategory;
+  /** 主题 slug 快照（生成时刻关联） */
+  topics: string[];
+  /** ISO 时间串或 null */
+  publishTime: string | null;
+  /** 信源元数据快照 */
+  source: {
+    sourceKey: string;
+    platform: string;
+    official: boolean | null;
+    displayName: string | null;
+    displayNameEn: string | null;
+  } | null;
+}
+
+/** 日报详情（后端 NewsDailyDigestVO：读取期下架复检后的生效口径） */
+export interface NewsDailyDigest {
+  /** YYYY-MM-DD（HKT 窗口闭端日） */
+  digestDate: string;
+  windowStart: string;
+  windowEnd: string;
+  /** 生效导语（有失格条目时已是模板回退，不含被下架内容） */
+  introZh: string;
+  introEn: string;
+  /** 刊头导语产出方式：llm / fallback / empty */
+  storedIntroSource: string;
+  /** true=有快照条目失格，导语已回退模板 */
+  introDegraded: boolean;
+  /** 快照总条数（生成时刻） */
+  itemCount: number;
+  /** 读取期复检后可见条数 */
+  visibleCount: number;
+  disqualifiedCount: number;
+  items: NewsDailyDigestItem[];
+  buildTime: string;
+}
+
+/** 日报目录行（后端 NewsDailyDigestSummaryVO：不携带导语正文） */
+export interface NewsDailyDigestSummary {
+  digestDate: string;
+  itemCount: number;
+  introSource: string;
+  buildTime: string;
+}

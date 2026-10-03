@@ -18,22 +18,33 @@
 package com.nageoffer.ai.ragent.news.controller;
 
 import com.nageoffer.ai.ragent.framework.convention.Result;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.Results;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsHotRankEntryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsItemVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsPageVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicDetailVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicVO;
+import com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService;
 import com.nageoffer.ai.ragent.news.service.NewsQueryService;
+import cn.hutool.core.lang.Assert;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 /**
@@ -49,6 +60,7 @@ import java.util.List;
 public class PublicNewsController {
 
     private final NewsQueryService newsQueryService;
+    private final NewsDailyDigestQueryService dailyDigestQueryService;
 
     /**
      * 资讯流列表：category 过滤（固定 8 类，空=全部资讯态）+ 分页
@@ -126,5 +138,53 @@ public class PublicNewsController {
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
         return Results.success(newsQueryService.getTopicDetail(slug, page, size));
+    }
+
+    // ==================== 日报出口（#212，父票 #182 r3 §日报） ====================
+
+    /**
+     * 日报目录：近 N 期（digest_date 倒序，日期+条数+导语产出方式；不携带导语
+     * 正文）。零 LLM——读取面只见快照表（页面请求不触发模型调用的结构保证）
+     */
+    @GetMapping("/daily")
+    public Result<List<NewsDailyDigestSummaryVO>> dailyList(
+            @RequestParam(value = "limit", defaultValue = "30") int limit) {
+        return Results.success(dailyDigestQueryService.listRecent(limit));
+    }
+
+    /**
+     * 日报详情：刊头+生效导语+快照条目（读取期主动下架复检后）。零 LLM；
+     * 不存在/已清理同形「日报不存在」（不泄漏存在性）
+     */
+    @GetMapping("/daily/{date}")
+    public Result<NewsDailyDigestVO> dailyDetail(@PathVariable String date) {
+        return Results.success(dailyDigestQueryService.getDetail(parseDigestDate(date)));
+    }
+
+    /**
+     * 日报 RSS feed（#212 §独立 RSS feed）：RSS 2.0 原文返回（无 JSON Result
+     * 包裹，沿 PublicKeyDateIcsController 文本 feed 先例）；Cache-Control 一小时
+     * 是客户端节流卫生值。零 LLM——渲染从详情 VO 确定性生成
+     */
+    @GetMapping(value = "/daily/{date}/rss", produces = "application/rss+xml;charset=UTF-8")
+    public ResponseEntity<String> dailyRss(@PathVariable String date) {
+        NewsDailyDigestVO detail = dailyDigestQueryService.getDetail(parseDigestDate(date));
+        Assert.notNull(detail, () -> new ClientException("日报不存在"));
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/rss+xml;charset=" + StandardCharsets.UTF_8))
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                .body(dailyDigestQueryService.renderRss(detail));
+    }
+
+    /**
+     * 日报日期解析：YYYY-MM-DD；非法格式同形「日报不存在」（与详情缺失同口径，
+     * 不向匿名访问者区分「格式错」与「无此刊」）
+     */
+    private static LocalDate parseDigestDate(String date) {
+        try {
+            return LocalDate.parse(date);
+        } catch (DateTimeParseException | NullPointerException e) {
+            throw new ClientException("日报不存在");
+        }
     }
 }

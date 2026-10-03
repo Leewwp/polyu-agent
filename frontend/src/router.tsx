@@ -16,6 +16,7 @@ import { DisclaimerPage } from "@/pages/DisclaimerPage";
 import { FeedPage } from "@/pages/FeedPage";
 import { KeyDatesPage } from "@/pages/KeyDatesPage";
 import { HotRankPage } from "@/pages/HotRankPage";
+import { DailyDigestPage } from "@/pages/DailyDigestPage";
 import { TopicsPage } from "@/pages/TopicsPage";
 import { TopicDetailPage } from "@/pages/TopicDetailPage";
 import { NewsDetailPage } from "@/pages/NewsDetailPage";
@@ -111,6 +112,13 @@ export const router = createBrowserRouter([
     // 裸路由无守卫（FeedPage 范式）
     path: "/hot",
     element: <HotRankPage />
+  },
+  {
+    // 公开日报页（#212）：固定窗口（前一日 08:00 至本日 08:00 HKT）的
+    // 全部公开动态一刊——独立快照落库、零 LLM 读取面；裸路由无守卫
+    // （FeedPage 范式；RSS 订阅外链 /public/news/daily/{date}/rss）
+    path: "/daily",
+    element: <DailyDigestPage />
   },
   {
     // 公开主题地图：三维分组目录卡，裸路由无守卫（FeedPage 范式）
