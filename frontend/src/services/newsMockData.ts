@@ -471,3 +471,71 @@ export const NEWS_TOPIC_GROUPS: NewsTopicGroup[] = [
   { nameZh: "研究领域与话题", nameEn: "Research Areas & Themes", subZh: "跨学院的科研方向与社会议题", subEn: "Cross-faculty directions and themes" },
   { nameZh: "学生事务", nameEn: "Student Affairs", subZh: "入学到毕业的服务型主题", subEn: "Service topics from enrolment to graduation" }
 ];
+
+/** ==================== 日报 mock（#212；vitest 专用，真数据走 /public/news/daily/**） ==================== */
+
+import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
+
+/**
+ * 由 mock 资讯条目按 publishDate 分组派生固定两期日报（确定性 fixture）：
+ * 每期取该日条目（快照序=mock 顺序），导语用固定模板文案（不触发任何 LLM——
+ * mock 面与后端「页面请求零 LLM」口径一致）。
+ */
+function deriveMockDigests(): NewsDailyDigest[] {
+  const byDate = new Map<string, typeof MOCK_NEWS_ITEMS>();
+  for (const item of MOCK_NEWS_ITEMS) {
+    const bucket = byDate.get(item.publishDate) ?? [];
+    bucket.push(item);
+    byDate.set(item.publishDate, bucket);
+  }
+  const dates = [...byDate.keys()].sort((a, b) => (a < b ? 1 : -1)).slice(0, 2);
+  return dates.map((date): NewsDailyDigest => {
+    const items = byDate.get(date)!;
+    return {
+      digestDate: date,
+      windowStart: `${date}T08:00:00+08:00`,
+      windowEnd: `${date}T08:00:00+08:00`,
+      introZh: `本期日报覆盖 ${date} 前一日的公开动态，共 ${items.length} 条，以下按发布时间倒序排列。`,
+      introEn: `This digest covers public updates before ${date} — ${items.length} items, listed newest first.`,
+      storedIntroSource: "fallback",
+      introDegraded: false,
+      itemCount: items.length,
+      visibleCount: items.length,
+      disqualifiedCount: 0,
+      items: items.map((item, seq) => ({
+        itemId: Number(item.id),
+        seq: seq + 1,
+        url: item.url,
+        titleZh: item.titleZh,
+        titleEn: item.titleEn,
+        summaryZh: item.summaryZh,
+        summaryEn: item.summaryEn,
+        category: item.category,
+        topics: item.topics,
+        publishTime: `${item.publishDate}T${item.publishTime}:00+08:00`,
+        source:
+          item.source.sourceKey === "unknown"
+            ? null
+            : {
+                sourceKey: item.source.sourceKey,
+                platform: item.source.platform,
+                official: item.source.official,
+                displayName: item.source.labelZh,
+                displayNameEn: item.source.labelEn
+              }
+      })),
+      buildTime: `${date}T08:40:00+08:00`
+    };
+  });
+}
+
+/** 日报 mock fixture（最近两期，日期倒序） */
+export const MOCK_DAILY_DIGESTS: NewsDailyDigest[] = deriveMockDigests();
+
+/** 日报目录 mock（由 fixture 派生） */
+export const MOCK_DAILY_DIGEST_SUMMARIES: NewsDailyDigestSummary[] = MOCK_DAILY_DIGESTS.map((digest) => ({
+  digestDate: digest.digestDate,
+  itemCount: digest.itemCount,
+  introSource: digest.storedIntroSource,
+  buildTime: digest.buildTime
+}));
