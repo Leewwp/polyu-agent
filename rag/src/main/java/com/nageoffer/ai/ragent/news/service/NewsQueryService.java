@@ -23,6 +23,7 @@ import com.nageoffer.ai.ragent.news.controller.vo.NewsPageVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicDetailVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicVO;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -85,4 +86,22 @@ public interface NewsQueryService {
      * @param category 可选分类过滤，blank=全部理大资讯
      */
     NewsPageVO searchPublished(String q, String sort, String order, String category, int page, int size);
+
+    /**
+     * MCP 出口受限检索（#182 r3 §MCP / #214）：关键词 × 主题 slug × 时间窗三元过滤，
+     * 仅已发布可见条目——与 {@link #searchPublished} 同一条统一公开资格判据
+     * （status=published 且过发布门），下架/未过门条目一律隔离，不得另写可见性规则。
+     *
+     * <p>与前端检索口的分工：本口是机器消费的过滤面（发布时间倒序、无 relevance 档、
+     * 分页钳制同 list），供 mcp-server 无数据库层远程调用；三个过滤维度全部可独立生效，
+     * 全部缺省时语义等价 listPublished（时间倒序首页）。摘要由 AI 生成、以原文为准的
+     * 声明义务在消费侧（mcp-server 出口文案）。
+     *
+     * @param q        关键词；blank 不过滤（标题+摘要四列 ILIKE，转义同 searchPublished）
+     * @param topicSlug 主题 slug；blank 不过滤；非策展（curated+active）主题抛
+     *                  ClientException「主题不存在」（与 getTopicDetail 同形，不泄漏存在性）
+     * @param dateFrom 发布时间窗起（含当日）；null 不过滤
+     * @param dateTo   发布时间窗止（含当日）；null 不过滤；from 晚于 to 抛 ClientException
+     */
+    NewsPageVO searchPublishedForMcp(String q, String topicSlug, LocalDate dateFrom, LocalDate dateTo, int page, int size);
 }
