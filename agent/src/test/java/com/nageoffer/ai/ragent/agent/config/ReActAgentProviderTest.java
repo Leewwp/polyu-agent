@@ -37,24 +37,46 @@ import com.nageoffer.ai.ragent.rag.core.skill.AgentSkillRegistry;
 import com.nageoffer.ai.ragent.rag.enums.IntentKind;
 import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
 import io.agentscope.core.model.ExecutionConfig;
+import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.ToolCallState;
+import io.agentscope.core.message.ToolUseBlock;
+import io.agentscope.core.message.ToolResultBlock;
+import io.agentscope.core.message.ToolResultState;
+import io.agentscope.core.model.ChatResponse;
+import io.agentscope.core.state.AgentState;
+import io.agentscope.core.state.InMemoryAgentStateStore;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.RETURNS_DEFAULTS;
 
 class ReActAgentProviderTest {
 
@@ -63,6 +85,8 @@ class ReActAgentProviderTest {
     private AgentPromptResolver agentPromptResolver;
     private AgentToolCatalog toolCatalog;
     private ReActAgentProvider provider;
+    private OpenAIChatModel model;
+    private PgAgentStateStore stateStore;
 
     @BeforeEach
     void setUp() {
@@ -85,16 +109,19 @@ class ReActAgentProviderTest {
                 mock(AgentMemoryPipeline.class),
                 mock(AgentSkillRegistry.class)));
         AgentProperties agentProperties = new AgentProperties();
+        model = mock(OpenAIChatModel.class);
+        when(model.getModelName()).thenReturn("recovery-test");
+        stateStore = mock(PgAgentStateStore.class, delegatesTo(new InMemoryAgentStateStore()));
         provider = new ReActAgentProvider(
                 agentPromptResolver,
                 toolCatalog,
-                mock(OpenAIChatModel.class),
-                mock(PgAgentStateStore.class),
+                model,
+                stateStore,
                 agentProperties,
-                mock(AgentUserMemoryMiddleware.class),
-                mock(AgentContextCompactionMiddleware.class),
-                mock(AgentConfirmDenialMiddleware.class),
-                mock(AgentSkillMaskingMiddleware.class),
+                passThrough(AgentUserMemoryMiddleware.class),
+                passThrough(AgentContextCompactionMiddleware.class),
+                passThrough(AgentConfirmDenialMiddleware.class),
+                passThrough(AgentSkillMaskingMiddleware.class),
                 new AgentToolBatchMiddleware(),
                 absent(),
                 absent());
@@ -106,6 +133,95 @@ class ReActAgentProviderTest {
     @SuppressWarnings("unchecked")
     private static <T> ObjectProvider<T> absent() {
         return mock(ObjectProvider.class);
+    }
+
+    // Provider 测试只隔离业务中间件，保留真实框架的恢复、推理和存盘流程
+    private static <T> T passThrough(Class<T> type) {
+        return mock(type, invocation -> {
+            if (invocation.getArguments().length == 4
+                    && invocation.getArgument(3) instanceof Function<?, ?>) {
+                Function<Object, Object> next = invocation.getArgument(3);
+                return next.apply(invocation.getArgument(2));
+            }
+            if (invocation.getMethod().getName().equals("onSystemPrompt")) {
+                return Mono.just((String) invocation.getArgument(2));
+            }
+            return RETURNS_DEFAULTS.answer(invocation);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void shouldRecoverOnlyMissingResultsAndKeepConversationUsable(int completed) {
+        try (var agent = provider.getAgent().agent()) {
+            RuntimeContext context = RuntimeContext.builder().userId("user").sessionId("stopped").build();
+            AgentState state = agent.getAgentState("user", "stopped");
+            state.contextMutable().add(Msg.builder().role(MsgRole.ASSISTANT).content(List.of(
+                    pendingTool("first", ToolCallState.SUBMITTED),
+                    pendingTool("second", ToolCallState.SUBMITTED))).build());
+            for (int i = 0; i < completed; i++) {
+                state.contextMutable().add(Msg.builder().role(MsgRole.TOOL).content(List.of(
+                        ToolResultBlock.builder().id(i == 0 ? "first" : "second").name("sales_query")
+                                .state(ToolResultState.SUCCESS)
+                                .output(List.of(TextBlock.builder().text("真实结果").build())).build())).build());
+            }
+            agent.saveAgentState("user", "stopped");
+            agent.clearStateCache("user", "stopped");
+            McpClientWrapper client = mcpClients.get("sales_query").client();
+            clearInvocations(client);
+            when(model.stream(any(), any(), any())).thenAnswer(invocation -> {
+                List<Msg> messages = invocation.getArgument(0);
+                assertRecoveredResults(messages, completed);
+                return Flux.just(ChatResponse.builder()
+                        .content(List.of(TextBlock.builder().text("可以继续回答").build()))
+                        .finishReason("stop").build());
+            });
+
+            for (int turn = 0; turn < 2; turn++) {
+                agent.streamEvents("停止后的第 " + turn + " 问", context)
+                        .collectList().block(Duration.ofSeconds(5));
+                AgentState saved = stateStore.get("user", "stopped", "agent_state", AgentState.class).orElseThrow();
+                assertRecoveredResults(saved.getContext(), completed);
+                agent.clearStateCache("user", "stopped");
+            }
+
+            verify(model, times(2)).stream(any(), any(), any());
+            verifyNoInteractions(client);
+        }
+    }
+
+    @Test
+    void shouldStillRequireConfirmationForAskingTools() {
+        try (var agent = provider.getAgent().agent()) {
+            RuntimeContext context = RuntimeContext.builder().userId("user").sessionId("asking").build();
+            agent.getAgentState("user", "asking").contextMutable().add(
+                    Msg.builder().role(MsgRole.ASSISTANT)
+                            .content(List.of(pendingTool("confirmation", ToolCallState.ASKING))).build());
+            agent.saveAgentState("user", "asking");
+            agent.clearStateCache("user", "asking");
+
+            assertThatThrownBy(() -> agent.streamEvents("继续", context)
+                    .collectList().block(Duration.ofSeconds(5)))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("ASKING");
+            assertThat(agent.getAgentState("user", "asking").getContext()
+                    .stream().flatMap(msg -> msg.getContentBlocks(ToolResultBlock.class).stream())).isEmpty();
+            verify(model, times(0)).stream(any(), any(), any());
+        }
+    }
+
+    private static ToolUseBlock pendingTool(String id, ToolCallState state) {
+        return ToolUseBlock.builder().id(id).name("sales_query").input(Map.of()).state(state).build();
+    }
+
+    private static void assertRecoveredResults(List<Msg> messages, int completed) {
+        List<ToolResultBlock> results = messages.stream()
+                .flatMap(msg -> msg.getContentBlocks(ToolResultBlock.class).stream()).toList();
+        assertThat(results).extracting(ToolResultBlock::getId).containsExactlyInAnyOrder("first", "second");
+        assertThat(results.stream().filter(result -> result.getState() == ToolResultState.ERROR)).hasSize(2 - completed);
+        assertThat(results.stream().filter(result -> result.getState() == ToolResultState.SUCCESS))
+                .hasSize(completed).allSatisfy(result -> assertThat(result.getOutput())
+                        .singleElement().isInstanceOfSatisfying(TextBlock.class,
+                                text -> assertThat(text.getText()).isEqualTo("真实结果")));
     }
 
     @Test
