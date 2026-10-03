@@ -58,7 +58,9 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -93,6 +95,9 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 50;
     private static final int MAX_HOT_LIMIT = 50;
+
+    /** 「只看关注」多主题过滤的 slug 数量上限（关注集远小于目录规模，防参数滥用） */
+    private static final int MAX_TOPIC_FILTER_SLUGS = 20;
     private static final int MIN_PAGE = 1;
     /** 检索排序档：relevance=标题命中优先；其余取值（含 time）走时间倒序 */
     private static final String SORT_RELEVANCE = "relevance";
@@ -167,15 +172,68 @@ public class NewsQueryServiceImpl implements NewsQueryService {
 
     @Override
     public NewsPageVO listPublished(String category, int page, int size) {
+        return listPublished(category, null, page, size);
+    }
+
+    @Override
+    public NewsPageVO listPublished(String category, List<String> topicSlugs, int page, int size) {
+        List<Long> topicIds = resolveCuratedTopicIds(topicSlugs);
+        if (topicIds != null && topicIds.isEmpty()) {
+            // 请求了主题过滤但全部未命中 curated 目录（如转正后被下架）——契约空页，
+            // 不落条目查询（buildPageVO 空页三态之一）
+            return buildPageVO(List.of(), 0L, normalizePage(page), normalizeSize(size), false);
+        }
+        // 急切求值防线（同 promote() 条件 set 判例）：apply 的 sql 实参先于 condition
+        // 求值，topicIds==null 时不得触碰 topicExistsSql——判空后单独注入
+        LambdaQueryWrapper<NewsItemDO> wrapper = visibleItems()
+                .eq(!isBlank(category), NewsItemDO::getCategory, category);
+        if (topicIds != null) {
+            wrapper.apply(topicExistsSql(topicIds));
+        }
         Page<NewsItemDO> pager = newsItemMapper.selectPage(
                 new Page<>(normalizePage(page), normalizeSize(size)),
-                visibleItems()
-                        .eq(!isBlank(category), NewsItemDO::getCategory, category)
+                wrapper
                         .orderByDesc(NewsItemDO::getPublishTime)
                         .orderByDesc(NewsItemDO::getId));
         NewsPageVO pageVO = toPageVO(pager, pager.getRecords());
         fillClusterBadges(pager.getRecords(), pageVO.getRecords());
         return pageVO;
+    }
+
+    /**
+     * 「只看关注」主题 slug → curated+active 主题 id 解析（#215 调整）：
+     * 规范化（trim/小写/去重）+ 数量上限截断（防参数滥用）；null 入参=未启用
+     * 过滤返回 null（与「解析结果为空」区分——后者=契约空页）
+     */
+    private List<Long> resolveCuratedTopicIds(List<String> topicSlugs) {
+        if (topicSlugs == null || topicSlugs.isEmpty()) {
+            return null;
+        }
+        Set<String> normalized = new LinkedHashSet<>();
+        for (String slug : topicSlugs) {
+            String value = slug == null ? "" : slug.strip().toLowerCase(Locale.ROOT);
+            if (!value.isEmpty()) {
+                normalized.add(value);
+                if (normalized.size() >= MAX_TOPIC_FILTER_SLUGS) {
+                    break;
+                }
+            }
+        }
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return newsTopicMapper.selectList(new LambdaQueryWrapper<NewsTopicDO>()
+                        .in(NewsTopicDO::getSlug, normalized)
+                        .eq(NewsTopicDO::getCurated, true)
+                        .eq(NewsTopicDO::getStatus, STATUS_ACTIVE))
+                .stream().map(NewsTopicDO::getId).toList();
+    }
+
+    /** 主题成员 EXISTS 判据（id 列表为库内 Long 字面量拼接，无注入面） */
+    private static String topicExistsSql(List<Long> topicIds) {
+        String joined = topicIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+        return "EXISTS (SELECT 1 FROM t_news_item_topic nit WHERE nit.item_id = t_news_item.id"
+                + " AND nit.topic_id IN (" + joined + "))";
     }
 
     @Override

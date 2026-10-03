@@ -44,6 +44,17 @@ public interface NewsQueryService {
     NewsPageVO listPublished(String category, int page, int size);
 
     /**
+     * 已发布条目分页（多主题过滤档，「只看关注」#215 调整）：在 category 语义之上
+     * 限定条目至少挂载 topicSlugs 之一（解析到 curated+active 主题；全部未解析=空页）
+     *
+     * <p>服务端过滤为分页正确性所必需——客户端过滤全局流会产生页内漏配（/topics/ai
+     * 44 vs 9 计数错位判例）；分页/排序与无过滤档完全一致。
+     *
+     * @param topicSlugs 主题 slug 集（null/空=不过滤，走原语义）
+     */
+    NewsPageVO listPublished(String category, List<String> topicSlugs, int page, int size);
+
+    /**
      * 热点榜 Top N（故事线粒度：热度倒序，同分按最新报道倒序；一簇一条、
      * 附标签与信源名单。热度全 0 时按发布时间兜底序）
      */

@@ -57,11 +57,16 @@ export interface NewsFeedPage {
  * 资讯列表（分页：首屏 20 条+加载更多）。
  * mock 分支在 fixture 上模拟同形分页（15 条 < 20 → 单页无更多）；
  * 真数据分支 VO→NewsItem 映射见 newsMapping。
+ * topics=「只看关注」多主题过滤（#215 调整）：服务端过滤保分页正确性
+ * （客户端过滤全局流有页内漏配判例），mock 分支模拟同语义。
  */
-export async function fetchNewsFeed(query: NewsFeedQuery & { page?: number } = {}): Promise<NewsFeedPage> {
-  const { category = "all", page = 1 } = query;
+export async function fetchNewsFeed(query: NewsFeedQuery & { page?: number; topics?: string[] } = {}): Promise<NewsFeedPage> {
+  const { category = "all", page = 1, topics } = query;
+  const topicSet = topics?.length ? new Set(topics) : null;
   if (USE_MOCK) {
-    const filtered = category === "all" ? MOCK_NEWS_ITEMS : MOCK_NEWS_ITEMS.filter((item) => item.category === category);
+    const filtered = MOCK_NEWS_ITEMS
+      .filter((item) => category === "all" || item.category === category)
+      .filter((item) => !topicSet || item.topics.some((slug) => topicSet.has(slug)));
     const start = (page - 1) * FEED_PAGE_SIZE;
     return {
       records: filtered.slice(start, start + FEED_PAGE_SIZE),
@@ -72,6 +77,7 @@ export async function fetchNewsFeed(query: NewsFeedQuery & { page?: number } = {
   const data = await newsApi.get<NewsPageVO, NewsPageVO>("/public/news/list", {
     params: {
       category: category === "all" ? undefined : category,
+      topics: topics?.length ? topics.join(",") : undefined,
       page
     }
   });

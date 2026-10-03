@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { CategoryChips } from "@/components/feed/CategoryChips";
 import { FeedFooter } from "@/components/feed/FeedFooter";
@@ -13,6 +13,7 @@ import { useStaleRequest } from "@/hooks/useStaleRequest";
 import type { HotRankEntry, NewsCategory, NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_CHIPS } from "@/services/newsMockData";
 import { fetchHotRank, fetchNewsFeed, searchNewsFeed, type NewsSearchOrder, type NewsSearchSort } from "@/services/newsService";
+import { useNewsLocalStore } from "@/stores/newsLocalStore";
 
 /**
  * 公开资讯首页（组件组装版）：
@@ -166,6 +167,66 @@ function SearchStatusCard({ kind, q }: { kind: "failed" | "empty"; q: string }) 
   );
 }
 
+/**
+ * 「只看关注」开关（#215 调整，2026-10-04 维护者设计）：搜索行旁常驻切换钮，
+ * 激活后列表仅显示已关注主题的资讯（服务端 topics 过滤）；检索态禁用（叠加过滤
+ * 暂不支持）。必须作为 FeedShell 子组件渲染（useFeedLang 依赖壳顶 Provider）。
+ */
+function FollowedOnlyToggle({
+  active,
+  disabled,
+  onToggle
+}: {
+  active: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      disabled={disabled}
+      title={
+        disabled
+          ? zh
+            ? "检索态暂不支持叠加「只看关注」"
+            : "Not available while searching"
+          : zh
+            ? "仅显示已关注主题的资讯"
+            : "Show news from followed topics only"
+      }
+      onClick={onToggle}
+      className={
+        (active
+          ? "border-transparent bg-[var(--polyu-red)] text-white"
+          : "border-[var(--feed-line)] bg-white text-[var(--feed-text-secondary)] hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]") +
+        " h-[34px] flex-none rounded-full border px-[15px] text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      }
+    >
+      {zh ? "只看关注" : "Followed only"}
+    </button>
+  );
+}
+
+/** 「只看关注」零关注引导卡：链接去主题目录（清站点数据/新设备=空集的自然落点） */
+function FollowedEmptyCard() {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  return (
+    <div className="mt-4 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
+      {zh ? "还没有关注的主题——到主题目录点「关注」后，这里只看你关心的内容。" : "You haven't followed any topics yet — follow topics in the directory to see them here."}
+      <Link
+        to="/topics"
+        className="ml-1.5 font-semibold text-[var(--polyu-red)] hover:underline"
+      >
+        {zh ? "去主题目录 →" : "Browse topics →"}
+      </Link>
+    </div>
+  );
+}
+
 export function FeedPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryParam = searchParams.get("category");
@@ -180,6 +241,11 @@ export function FeedPage() {
   const sort: NewsSearchSort = isSortKey(sortParam) ? sortParam : "time";
   const orderParam = searchParams.get("order");
   const order: NewsSearchOrder = isOrderDir(orderParam) ? orderParam : "desc";
+  // 「只看关注」（?followed=1，#215 调整）：仅列表态（精选/全部资讯）生效，
+  // 检索态禁用；URL 进参同 ?q=/?view= 范式（刷新/后退保持）
+  const followedOnly = !isSearch && searchParams.get("followed") === "1";
+  const followedTopics = useNewsLocalStore((state) => state.followedTopics);
+  const followedKey = followedTopics.join(",");
 
   const [items, setItems] = useState<NewsItem[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -203,7 +269,7 @@ export function FeedPage() {
     setPage(1);
     const request = isSearch
       ? searchNewsFeed({ q: qParam, sort, order, category, page: 1 })
-      : fetchNewsFeed({ category, page: 1 });
+      : fetchNewsFeed({ category, page: 1, topics: followedOnly ? followedTopics : undefined });
     request
       .then((data) => {
         if (!alive || !isCurrent(requestId)) return;
@@ -225,7 +291,7 @@ export function FeedPage() {
     };
     // begin/isCurrent 为稳定 ref 读写，不进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, isSearch, qParam, sort, order]);
+  }, [category, isSearch, qParam, sort, order, followedOnly, followedKey]);
 
   // 加载更多：追加下一页（检索态走同一分页语义）
   const loadMore = () => {
@@ -235,7 +301,7 @@ export function FeedPage() {
     const requestId = begin();
     const request = isSearch
       ? searchNewsFeed({ q: qParam, sort, order, category, page: page + 1 })
-      : fetchNewsFeed({ category, page: page + 1 });
+      : fetchNewsFeed({ category, page: page + 1, topics: followedOnly ? followedTopics : undefined });
     request
       .then((data) => {
         if (!isCurrent(requestId)) return;
@@ -252,7 +318,7 @@ export function FeedPage() {
 
   const setCategory = (next: NewsCategory | "all") => {
     // T21：关键词×分类互通——检索态点分类保留 q，结果限该分类范围；非检索态行为不变
-    const params: { view?: string; category?: string; q?: string } = {};
+    const params: { view?: string; category?: string; q?: string; followed?: string } = {};
     if (isAllView) {
       params.view = "all";
     }
@@ -261,6 +327,24 @@ export function FeedPage() {
     }
     if (qParam) {
       params.q = qParam;
+    }
+    if (followedOnly) {
+      params.followed = "1";
+    }
+    setSearchParams(params);
+  };
+
+  // 「只看关注」切换：保留视图/分类位；关闭=移除参数回落原列表（检索态钮禁用不会到这）
+  const toggleFollowedOnly = () => {
+    const params: { view?: string; category?: string; followed?: string } = {};
+    if (isAllView) {
+      params.view = "all";
+    }
+    if (category !== "all") {
+      params.category = category;
+    }
+    if (!followedOnly) {
+      params.followed = "1";
     }
     setSearchParams(params);
   };
@@ -320,11 +404,13 @@ export function FeedPage() {
   return (
     <FeedShell title={title}>
       {/* 搜索行（2026-09-12 修复）：页面顶端独立一行、桌面右对齐（参照
-          aihot 形态——图 4 搜索与标题同行）；chips 独占一行横滑不再被挤压。≤860px 全宽。 */}
-      <div className="mb-2 flex justify-end max-[860px]:justify-start">
+          aihot 形态——图 4 搜索与标题同行）；chips 独占一行横滑不再被挤压。≤860px 全宽。
+          #215 调整：行尾常驻「只看关注」切换钮（检索态禁用）。 */}
+      <div className="mb-2 flex flex-wrap items-center justify-end gap-2 max-[860px]:justify-start">
         <div className="w-[340px] flex-none max-[860px]:w-full">
           <NewsSearchBar value={isSearch ? qParam : ""} onSubmit={submitSearch} />
         </div>
+        <FollowedOnlyToggle active={followedOnly} disabled={isSearch} onToggle={toggleFollowedOnly} />
       </div>
       {!isAllView && !isSearch && <AiDigestStrip />}
       {!isAllView && !isSearch && <HotPanel entries={hot} />}
@@ -344,7 +430,10 @@ export function FeedPage() {
         />
       )}
 
-      {failed ? (
+      {/* 「只看关注」零关注引导：空集时列表位让位引导卡（去主题目录点关注） */}
+      {followedOnly && followedTopics.length === 0 ? (
+        <FollowedEmptyCard />
+      ) : failed ? (
         isSearch ? (
           <SearchStatusCard kind="failed" q={qParam} />
         ) : (
