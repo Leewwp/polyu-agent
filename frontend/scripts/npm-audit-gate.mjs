@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 
 const ALLOWED_ADVISORY_IDS = new Set([
   // 2026-09-20 随 #70 工具链对齐（vite 8 / vitest 5）清空：
-  // 原 vite GHSA-fx2h-pf6j-xcff（1123525）与 vitest GHSA-5xrq-8626-4rwp（1139528）
+  // 原 vite GHSA-fx2h-pf6j-xcff（1123525）与 vitest GHSA-5xrq-8626-4gwp（1139528）
   // 两条 known-unfixed 已随大版本升级修复，门自然收紧。
   // 2026-10-03 随 #215 批次加入（PR #216）：braces GHSA-vfj7-8cjw-p6xm（1240992）——
   // 官方把受影响区间扩到 <=3.0.3（lock 在用的 3.0.3 即"修复版"现也落在区间内），

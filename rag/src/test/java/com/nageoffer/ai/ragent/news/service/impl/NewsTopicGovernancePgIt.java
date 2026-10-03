@@ -379,6 +379,26 @@ class NewsTopicGovernancePgIt {
                     "9<10 未达阈值");
             assertTrue(below.getMessage().contains("阈值"), below.getMessage());
 
+            // ── 2026-10-03 规则修订：overrideThreshold 维护者人工放行——低引用转正且留痕带标记 ──
+            NewsTopicDO alumniLike = insertProposal(session, "alumni-" + runId);
+            link(session, insertItem(session, source.getId(), runId + "-a0").getId(), alumniLike.getId());
+            link(session, insertItem(session, source.getId(), runId + "-a1").getId(), alumniLike.getId());
+            NewsTopicGovernanceApplyRequest.NewsTopicDisposition overrideDisposition = disposition(
+                    alumniLike.getId(), "PROMOTE", null,
+                    TARGET_PREFIX + "alumni-" + runId, "STUDENT_AFFAIRS", "维护者终审人工放行（真库）");
+            overrideDisposition.setOverrideThreshold(true);
+            NewsTopicGovernanceApplyResultVO overrideResult = service.applyBatch(
+                    List.of(overrideDisposition), "it-admin");
+            assertEquals(1, overrideResult.getAppliedCount(), "2<10 人工放行转正");
+            NewsTopicDO promotedOverride = session.getMapper(NewsTopicMapper.class).selectById(alumniLike.getId());
+            assertTrue(promotedOverride.getCurated(), "放行后 curated=true 进公开目录口径");
+            NewsTopicGovernanceEventDO overrideEvent = session.getMapper(NewsTopicGovernanceEventMapper.class)
+                    .selectList(Wrappers.lambdaQuery(NewsTopicGovernanceEventDO.class)
+                            .eq(NewsTopicGovernanceEventDO::getTopicId, alumniLike.getId())
+                            .orderByDesc(NewsTopicGovernanceEventDO::getId)
+                            .last("LIMIT 1")).get(0);
+            assertTrue(overrideEvent.getDetail().contains("threshold-override"), overrideEvent.getDetail());
+
             link(session, insertItem(session, source.getId(), runId + "-r9").getId(), proposal.getId());
             NewsTopicGovernanceApplyResultVO result = service.applyBatch(
                     List.of(disposition(proposal.getId(), "PROMOTE", null,

@@ -44,7 +44,8 @@ public class NewsTopicGovernanceApplyRequest {
      * MERGE 须给 mergeTargetTopicId（curated 目标）；
      * PROMOTE 须给 promoteSlug（稳定 slug）+ promoteGroup（FACULTY/RESEARCH/
      * STUDENT_AFFAIRS），名称/描述四列可选拟定（不给则保留提案现值）；
-     * reason 建议必填（留痕可复核）。
+     * reason 建议必填（留痕可复核）；overrideThreshold=true 供维护者人工放行
+     * 低于引用阈值的转正（2026-10-03 规则修订，须附非空 reason）。
      */
     @Data
     @NoArgsConstructor
@@ -99,5 +100,13 @@ public class NewsTopicGovernanceApplyRequest {
          * 处置理由（留痕落行，逐条落票面证据包）
          */
         private String reason;
+
+        /**
+         * PROMOTE 轨人工放行（2026-10-03 维护者规则修订）：true 时越过引用阈值
+         * 机器校验（refs ≥ promote-threshold 不再硬拦），须同时给非空 reason；
+         * 其余校验（终态防线/slug 形态与唯一性/正式组/行数校验）不放宽，事件
+         * 留痕带 threshold-override 标记
+         */
+        private Boolean overrideThreshold;
     }
 }

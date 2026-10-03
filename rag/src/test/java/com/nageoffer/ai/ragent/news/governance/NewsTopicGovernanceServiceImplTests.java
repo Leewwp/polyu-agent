@@ -245,6 +245,45 @@ class NewsTopicGovernanceServiceImplTests {
         verify(eventMapper, never()).insert(any(NewsTopicGovernanceEventDO.class));
     }
 
+    // ── 2026-10-03 规则修订：overrideThreshold 维护者人工放行 ──
+
+    @Test
+    void promoteBelowThresholdWithOverrideAppliesAndStampsOverrideInLedger() {
+        NewsTopicDO alumni = proposal(26, "prop-alumni", "alumni", "alumni");
+        when(topicMapper.selectById(26L)).thenReturn(alumni);
+        when(topicMapper.selectCount(any())).thenReturn(0L); // slug 无冲突
+        when(itemTopicMapper.selectCount(any())).thenReturn(8L); // refs=8 < 10
+        when(topicMapper.update(any(), any())).thenReturn(1); // 条件更新生效一行（#206 行数校验）
+
+        NewsTopicGovernanceApplyRequest.NewsTopicDisposition d = disposition(
+                26, "PROMOTE", null, "alumni", "STUDENT_AFFAIRS", "维护者终审放行：批2校友源启用后校友内容稳定供给");
+        d.setOverrideThreshold(true);
+        NewsTopicGovernanceApplyResultVO result = service.applyBatch(List.of(d), "it-admin");
+
+        assertEquals(1, result.getAppliedCount(), "人工放行越过阈值机器校验");
+        var eventCaptor = org.mockito.ArgumentCaptor.forClass(NewsTopicGovernanceEventDO.class);
+        verify(eventMapper).insert(eventCaptor.capture());
+        assertEquals(NewsTopicGovernanceEventDO.ACTION_PROMOTED, eventCaptor.getValue().getAction());
+        assertTrue(eventCaptor.getValue().getDetail().contains("threshold-override"),
+                eventCaptor.getValue().getDetail());
+        assertTrue(eventCaptor.getValue().getDetail().contains("refs=8"),
+                eventCaptor.getValue().getDetail());
+    }
+
+    @Test
+    void promoteOverrideWithoutReasonRejectedAndNothingBooked() {
+        when(topicMapper.selectById(26L)).thenReturn(proposal(26, "prop-alumni", "alumni", "alumni"));
+        when(itemTopicMapper.selectCount(any())).thenReturn(8L);
+
+        NewsTopicGovernanceApplyRequest.NewsTopicDisposition d = disposition(
+                26, "PROMOTE", null, "alumni", "STUDENT_AFFAIRS", "   ");
+        d.setOverrideThreshold(true);
+        assertThrows(ClientException.class, () -> service.applyBatch(List.of(d), "it-admin"),
+                "人工放行必须附非空 reason");
+        verify(eventMapper, never()).insert(any(NewsTopicGovernanceEventDO.class));
+        verify(topicMapper, never()).update(any(), any());
+    }
+
     // ==================== reject 轨 ====================
 
     @Test
