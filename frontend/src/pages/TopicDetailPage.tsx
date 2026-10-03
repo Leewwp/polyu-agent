@@ -4,6 +4,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { NewsCard } from "@/components/feed/NewsCard";
+import { TopicFollowButton } from "@/components/feed/TopicFollowButton";
 import { groupByDay } from "@/components/feed/NewsList";
 import { useFeedLang } from "@/components/feed/feedLang";
 import { useStaleRequest } from "@/hooks/useStaleRequest";
@@ -146,7 +147,11 @@ function TopicDetailBody({ detail }: { detail: TopicDetailData }) {
         {zh ? "‹ 全部主题" : "‹ All topics"}
       </Link>
       <div className="mb-1 border-b border-[var(--feed-line-soft)] pb-3.5">
-        <h2 className="text-xl font-extrabold">{zh ? topic.nameZh : topic.nameEn}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <h2 className="text-xl font-extrabold">{zh ? topic.nameZh : topic.nameEn}</h2>
+          {/* #215 资讯流侧触点：与主题目录卡共用同一本地关注状态（两触点行为一致） */}
+          <TopicFollowButton slug={topic.slug} nameZh={topic.nameZh} nameEn={topic.nameEn} />
+        </div>
         <p className="mt-1 max-w-[560px] text-[13px] text-[var(--feed-text-secondary)]">
           {zh ? topic.descZh : topic.descEn}
         </p>
