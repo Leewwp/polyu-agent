@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+
 /**
  * 公开资讯关闭态兜底（照 PublicShare 孪生范式）：flag 关（默认）时
  * PublicNewsController 不装配，本兜底接管同路径返回 HTTP 404——
@@ -69,6 +71,19 @@ public class PublicNewsDisabledController {
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
+        return notFound();
+    }
+
+    /**
+     * 与启用态同形的 MCP 出口检索端点 404 兜底（#214 后增路径）
+     */
+    @GetMapping("/mcp-search")
+    public ResponseEntity<Void> mcpSearch(@RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "topic", required = false) String topic,
+            @RequestParam(value = "from", required = false) LocalDate from,
+            @RequestParam(value = "to", required = false) LocalDate to,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
         return notFound();
     }
 

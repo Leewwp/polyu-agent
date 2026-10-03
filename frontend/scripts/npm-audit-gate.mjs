@@ -12,12 +12,12 @@ const ALLOWED_ADVISORY_IDS = new Set([
   // 2026-09-20 随 #70 工具链对齐（vite 8 / vitest 5）清空：
   // 原 vite GHSA-fx2h-pf6j-xcff（1123525）与 vitest GHSA-5xrq-8626-4gwp（1139528）
   // 两条 known-unfixed 已随大版本升级修复，门自然收紧。
-  // 2026-10-03 新增 braces GHSA-vfj7-8cjw-p6xm（1240992，high，CVSS 7.5 可用性）：
-  // 公告区间已扩至 <=3.0.3 且 npm 上最新即 3.0.3（known-unfixed，无补丁版可升），
-  // 唯一「修复」=tailwindcss 3→4 大版本迁移。影响面=tailwind 开发链（chokidar/
-  // micromatch 的构建期 glob），不进产物 bundle、无运行时暴露，攻击前提（外部可控
-  // 展开模式）在本仓构建场景不存在。解除条件：braces 发布 >3.0.3 补丁版或
-  // tailwindcss 升 4 后删除本条目，让门自然收紧。
+  // 2026-10-03 随 #215 批次加入（PR #216）：braces GHSA-vfj7-8cjw-p6xm（1240992）——
+  // 官方把受影响区间扩到 <=3.0.3（lock 在用的 3.0.3 即"修复版"现也落在区间内），
+  // braces 无 3.x 修复版发布，唯一 fixAvailable=tailwindcss 4 大版本升级（isSemVerMajor）。
+  // 暴露面评估：纯 dev 依赖链（tailwindcss→chokidar/micromatch 的构建期 glob 匹配），
+  // 不进构建产物、不进运行时镜像；CWE-674 需向解析器喂深嵌套模式，CI 构建输入为受信源码 glob。
+  // 解除条件：braces 发布 >3.0.3 修复版、或 tailwind 升 4 时删除本条让门自然收紧。
   '1240992',
 ]);
 
