@@ -12,6 +12,13 @@ const ALLOWED_ADVISORY_IDS = new Set([
   // 2026-09-20 随 #70 工具链对齐（vite 8 / vitest 5）清空：
   // 原 vite GHSA-fx2h-pf6j-xcff（1123525）与 vitest GHSA-5xrq-8626-4rwp（1139528）
   // 两条 known-unfixed 已随大版本升级修复，门自然收紧。
+  // 2026-10-03 随 #215 批次加入（PR #216）：braces GHSA-vfj7-8cjw-p6xm（1240992）——
+  // 官方把受影响区间扩到 <=3.0.3（lock 在用的 3.0.3 即"修复版"现也落在区间内），
+  // braces 无 3.x 修复版发布，唯一 fixAvailable=tailwindcss 4 大版本升级（isSemVerMajor）。
+  // 暴露面评估：纯 dev 依赖链（tailwindcss→chokidar/micromatch 的构建期 glob 匹配），
+  // 不进构建产物、不进运行时镜像；CWE-674 需向解析器喂深嵌套模式，CI 构建输入为受信源码 glob。
+  // 解除条件：braces 发布 >3.0.3 修复版、或 tailwind 升 4 时删除本条让门自然收紧。
+  '1240992',
 ]);
 
 // npm audit 在存在漏洞时退出码为 1（stdout 仍带完整 JSON）——spawnSync 不抛错才能拿到报告。

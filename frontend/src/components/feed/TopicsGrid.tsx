@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { NewsTopic, NewsTopicGroup } from "@/types/news";
+import { TopicFollowButton } from "./TopicFollowButton";
 import { useFeedLang } from "./feedLang";
 
 /**
@@ -8,6 +9,8 @@ import { useFeedLang } from "./feedLang";
  * 一个三维分组（0=学院与部门/1=研究领域与话题/2=学生事务）× 2 列目录卡——
  * 名称（分组 1/2 主题带图标前缀）+一句话简介+条目计数，点击进主题详情页 /topics/:slug。
  * 移动端 860px 断点隐藏简介、缩间距（原型 media 口径：.tc-desc{display:none}）。
+ * #215 目录触点：每卡右上角本地关注钮（TopicFollowButton，与主题详情头共用状态）；
+ * 卡主体保持单一 Link（每卡一链），关注钮以兄弟节点绝对定位角标化，不嵌套进链接。
  */
 export function TopicsGrid({ group, topics }: { group: NewsTopicGroup; topics: NewsTopic[] }) {
   const { lang } = useFeedLang();
@@ -21,19 +24,24 @@ export function TopicsGrid({ group, topics }: { group: NewsTopicGroup; topics: N
         {topics.map((topic) => {
           const name = zh ? (topic.icon ? `${topic.icon} ${topic.nameZh}` : topic.nameZh) : topic.nameEn;
           return (
-            <Link
+            <div
               key={topic.slug}
-              to={`/topics/${topic.slug}`}
-              className="flex flex-col gap-[5px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] p-4 shadow-sm transition duration-150 hover:-translate-y-px hover:border-[#D8B7BC] max-[860px]:p-[13px]"
+              className="relative rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm transition duration-150 hover:-translate-y-px hover:border-[#D8B7BC]"
             >
-              <span className="text-[14.5px] font-bold">{name}</span>
-              <span className="text-[12.5px] leading-[1.55] text-[var(--feed-text-secondary)] max-[860px]:hidden">
-                {zh ? topic.descZh : topic.descEn}
-              </span>
-              <span className="mt-[3px] text-xs font-semibold text-[var(--polyu-red)]">
-                {zh ? `查看 ${topic.itemCount} 条 →` : `${topic.itemCount} items →`}
-              </span>
-            </Link>
+              <Link to={`/topics/${topic.slug}`} className="flex flex-col gap-[5px] p-4 max-[860px]:p-[13px]">
+                {/* 右上角关注钮占位让位：名称行预留右内边距防两行重叠 */}
+                <span className="pr-[72px] text-[14.5px] font-bold">{name}</span>
+                <span className="text-[12.5px] leading-[1.55] text-[var(--feed-text-secondary)] max-[860px]:hidden">
+                  {zh ? topic.descZh : topic.descEn}
+                </span>
+                <span className="mt-[3px] text-xs font-semibold text-[var(--polyu-red)]">
+                  {zh ? `查看 ${topic.itemCount} 条 →` : `${topic.itemCount} items →`}
+                </span>
+              </Link>
+              <div className="absolute right-3 top-3 max-[860px]:right-2.5 max-[860px]:top-2.5">
+                <TopicFollowButton slug={topic.slug} nameZh={topic.nameZh} nameEn={topic.nameEn} />
+              </div>
+            </div>
           );
         })}
       </div>

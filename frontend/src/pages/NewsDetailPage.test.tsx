@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { NewsDetailPage } from "./NewsDetailPage";
 import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
+import { NEWS_READ_ITEMS_KEY, useNewsLocalStore } from "@/stores/newsLocalStore";
 
 vi.mock("sonner", () => ({ toast: vi.fn() }));
 import { toast } from "sonner";
@@ -48,6 +49,8 @@ describe("NewsDetailPage", () => {
 
   beforeEach(() => {
     mem = installLocalStorageStub();
+    // #215 已读标记：内存桩就位后重新装配本地 store（用例间零残留）
+    useNewsLocalStore.getState().hydrate();
   });
 
   afterEach(() => {
@@ -123,5 +126,29 @@ describe("NewsDetailPage", () => {
     expect(screen.getAllByRole("button", { name: "Share" }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole("link", { name: "View source ↗" })).toBeTruthy();
     expect(screen.getAllByRole("link", { name: "Source ↗" }).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("#215 marks the item read on entering the detail page (load success, 写穿 localStorage)", async () => {
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(ITEM.titleZh)).toBeTruthy();
+    });
+    // 判定时机=进入详情页且加载成功即标（确定性方案，无停留阈值）
+    expect(useNewsLocalStore.getState().readItems).toEqual([ITEM.id]);
+    expect(JSON.parse(mem.get(NEWS_READ_ITEMS_KEY) ?? "[]")).toEqual([ITEM.id]);
+
+    // 幂等：同一详情页内 effect 不因重渲染产生重复项
+    expect(useNewsLocalStore.getState().readItems).toHaveLength(1);
+  });
+
+  it("#215 does not mark read for unknown ids (not-found 不写入已读)", async () => {
+    renderDetail("nonexistent-id");
+
+    await waitFor(() => {
+      expect(screen.getByText("该资讯不存在或已下架")).toBeTruthy();
+    });
+    expect(useNewsLocalStore.getState().readItems).toEqual([]);
+    expect(mem.has(NEWS_READ_ITEMS_KEY)).toBe(false);
   });
 });

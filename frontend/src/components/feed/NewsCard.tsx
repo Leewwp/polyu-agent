@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 
 import type { NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
+import { useNewsLocalStore } from "@/stores/newsLocalStore";
 import { useFeedLang } from "./feedLang";
 import { isSafeUrl } from "@/utils/urlSafety";
 
@@ -12,11 +13,14 @@ import { isSafeUrl } from "@/utils/urlSafety";
  * - 「查看原文 ↗」保持外链新开标签（永久原文外链语义不变）；
  * - 语言=全局唯一开关（卡片级「中 / EN」小钮已移除，
  *   入口收归 feed/hot/topics/detail 五页共用的顶栏 LangPill）；
- * - 信源徽章五色圆点 + 分类章 + 故事线聚簇章。
+ * - 信源徽章五色圆点 + 分类章 + 故事线聚簇章；
+ * - #215 已读视觉区分：进入过详情页的条目元信息行带「已读」章+标题降不透明度
+ *   （读 store 实时值；仅本浏览器 localStorage，清站点数据即复位）。
  */
 export function NewsCard({ item }: { item: NewsItem }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
+  const isRead = useNewsLocalStore((state) => state.readItems.includes(item.id));
 
   return (
     <article className="mb-3 rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] p-4 shadow-sm transition-colors hover:border-[#D8B7BC] md:px-[18px]">
@@ -35,8 +39,15 @@ export function NewsCard({ item }: { item: NewsItem }) {
               {zh ? `热点 · 另有 ${item.clusterSourceCount} 个来源` : `Hot · ${item.clusterSourceCount} more sources`}
             </span>
           )}
+          {isRead && (
+            <span className="rounded-full border border-[var(--feed-line)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--feed-text-tertiary)]">
+              {zh ? "已读" : "Read"}
+            </span>
+          )}
         </div>
-        <h4 className="mb-1 text-[15.5px] font-semibold leading-[1.45]">{zh ? item.titleZh : item.titleEn}</h4>
+        <h4 className={`mb-1 text-[15.5px] font-semibold leading-[1.45]${isRead ? " opacity-60" : ""}`}>
+          {zh ? item.titleZh : item.titleEn}
+        </h4>
         <p className="line-clamp-3 text-[13px] leading-[1.65] text-[var(--feed-text-secondary)]">
           {zh ? item.summaryZh : item.summaryEn}
         </p>

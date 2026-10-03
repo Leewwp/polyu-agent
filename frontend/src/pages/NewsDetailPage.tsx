@@ -10,6 +10,7 @@ import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH, NEWS_TOPICS } from "@
 import { fetchNewsDetail, fetchTopics } from "@/services/newsService";
 import type { NewsTopic } from "@/types/news";
 import { isSafeUrl } from "@/utils/urlSafety";
+import { useNewsLocalStore } from "@/stores/newsLocalStore";
 
 /**
  * 公开资讯详情页（仅 AI 摘要档——后端无正文列，原文全文
@@ -72,6 +73,15 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
       alive = false;
     };
   }, []);
+
+  // #215 已读判定时机（确定性方案）：进入详情页且条目加载成功即标已读——
+  // 不设停留阈值/滚动埋点；不存在或已下架条目不标。仅写本浏览器 localStorage。
+  const markItemRead = useNewsLocalStore((state) => state.markItemRead);
+  useEffect(() => {
+    if (item) {
+      markItemRead(item.id);
+    }
+  }, [item, markItemRead]);
 
   // 不存在/已下架/功能未部署（flag 关 404）同形文案：不向匿名访问者区分存在性
   if (!item) {
