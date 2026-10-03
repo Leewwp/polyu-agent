@@ -38,11 +38,14 @@ import static org.mockito.Mockito.when;
  */
 class NewsDailyDigestJobTests {
 
+    private final com.nageoffer.ai.ragent.news.service.IndexNowService indexNowService =
+            org.mockito.Mockito.mock(com.nageoffer.ai.ragent.news.service.IndexNowService.class);
+
     @Test
     void backfillsMissingDatesOldestFirst() {
         NewsDailyDigestService digestService = mock(NewsDailyDigestService.class);
         when(digestService.generateIfMissing(any())).thenReturn(true);
-        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties());
+        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties(), indexNowService);
         job.generateDailyDigest();
         @SuppressWarnings("unchecked")
         ArgumentCaptor<LocalDate> dates = ArgumentCaptor.forClass(LocalDate.class);
@@ -59,7 +62,7 @@ class NewsDailyDigestJobTests {
         when(digestService.generateIfMissing(any()))
                 .thenReturn(false)
                 .thenThrow(new RuntimeException("生成失败"));
-        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties());
+        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties(), indexNowService);
         job.generateDailyDigest();
         verify(digestService, times(2)).generateIfMissing(any());
     }
@@ -68,8 +71,34 @@ class NewsDailyDigestJobTests {
     void skipsWhenAllExist() {
         NewsDailyDigestService digestService = mock(NewsDailyDigestService.class);
         when(digestService.generateIfMissing(any())).thenReturn(false);
-        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties());
+        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties(), indexNowService);
         job.generateDailyDigest();
+        verify(digestService, times(2)).generateIfMissing(any());
+    }
+
+    /**
+     * #213 IndexNow 提交钩：仅对「新生成」的日期提交（/daily + /daily/{date}），
+     * 已存在的日期不提交；钩失败不阻断调度
+     */
+    @Test
+    void indexNowHookFiresOnlyForNewlyBuiltDigests() {
+        NewsDailyDigestService digestService = mock(NewsDailyDigestService.class);
+        when(digestService.generateIfMissing(any())).thenReturn(false).thenReturn(true);
+        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties(), indexNowService);
+        job.generateDailyDigest();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Hong_Kong"));
+        verify(indexNowService, times(1)).submitSiteUrls(List.of("/daily", "/daily/" + today));
+    }
+
+    @Test
+    void indexNowHookFailureDoesNotBreakScheduling() {
+        NewsDailyDigestService digestService = mock(NewsDailyDigestService.class);
+        when(digestService.generateIfMissing(any())).thenReturn(true);
+        org.mockito.Mockito.doThrow(new RuntimeException("indexnow down"))
+                .when(indexNowService).submitSiteUrls(any());
+        NewsDailyDigestJob job = new NewsDailyDigestJob(digestService, new NewsFetchProperties(), indexNowService);
+        job.generateDailyDigest();
+        // 两个日期都生成完（钩失败只 WARN 不中断）
         verify(digestService, times(2)).generateIfMissing(any());
     }
 

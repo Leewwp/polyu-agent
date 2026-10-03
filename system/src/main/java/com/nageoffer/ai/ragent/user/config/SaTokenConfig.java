@@ -68,12 +68,15 @@ public class SaTokenConfig implements WebMvcConfigurer {
      *   <li>/public/feedback/**、/public/about/**：站点反馈提交与关于页公开读（doc 25），
      *       匿名可访问，rag.site.enabled 默认关时孪生 404 兜底；</li>
      *   <li>/public/calendar/**：校历关键日期公开读（#193，首页卡片+关键日期页），
-     *       匿名可访问，rag.calendar.enabled 默认关时孪生 404 兜底。</li>
+     *       匿名可访问，rag.calendar.enabled 默认关时孪生 404 兜底；</li>
+     *   <li>/public/sitemap.xml：站点地图匿名读（#213 精确路径项——sitemap 站点级
+     *       常开不随资讯 flag，资讯段内容由服务层按 flag 条件拼入）。</li>
      * </ul>
      */
     public static final String[] PUBLIC_EXCLUDE_PATTERNS = {
             "/auth/**", "/public/share/**", "/public/news/**",
-            "/public/feedback/**", "/public/about/**", "/public/calendar/**", "/error"};
+            "/public/feedback/**", "/public/about/**", "/public/calendar/**",
+            "/public/sitemap.xml", "/error"};
 
     /**
      * 管理面路径模式：admin 角色拦截与 admin 审计共用同一份清单，防两份列表漂移
