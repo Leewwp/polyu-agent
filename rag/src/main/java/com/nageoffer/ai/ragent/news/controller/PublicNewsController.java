@@ -28,6 +28,7 @@ import com.nageoffer.ai.ragent.news.controller.vo.NewsPageVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicDetailVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsTopicVO;
 import com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService;
+import com.nageoffer.ai.ragent.news.service.NewsSeoService;
 import com.nageoffer.ai.ragent.news.service.NewsQueryService;
 import cn.hutool.core.lang.Assert;
 import lombok.RequiredArgsConstructor;
@@ -61,6 +62,7 @@ public class PublicNewsController {
 
     private final NewsQueryService newsQueryService;
     private final NewsDailyDigestQueryService dailyDigestQueryService;
+    private final NewsSeoService newsSeoService;
 
     /**
      * 资讯流列表：category 过滤（固定 8 类，空=全部资讯态）+ 分页
@@ -186,5 +188,19 @@ public class PublicNewsController {
         } catch (DateTimeParseException | NullPointerException e) {
             throw new ClientException("日报不存在");
         }
+    }
+
+    /**
+     * 站点级 news RSS feed（#213，feed.xml）：最近公开条目，item link=本站详情页
+     * canonical URL（描述尾附原文回链）。可见性=listPublished 同页面查询面（#180 R4：
+     * 隐藏条目查询层即隔离）；零 LLM。网关把根路径 /feed.xml 精确反代到本端点。
+     */
+    @GetMapping(value = "/feed.xml", produces = "application/rss+xml;charset=UTF-8")
+    public ResponseEntity<String> newsFeed(
+            @RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/rss+xml;charset=" + StandardCharsets.UTF_8))
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                .body(newsSeoService.renderNewsFeed(Math.max(1, Math.min(limit, 100))));
     }
 }

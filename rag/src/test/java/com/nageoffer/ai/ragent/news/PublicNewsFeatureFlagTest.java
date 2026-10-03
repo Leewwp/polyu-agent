@@ -68,6 +68,11 @@ class PublicNewsFeatureFlagTest {
             // #212：日报生成/调度（生成服务依赖注入由 mock 面覆盖）
             .withBean(com.nageoffer.ai.ragent.news.service.NewsDailyDigestService.class,
                     () -> mock(com.nageoffer.ai.ragent.news.service.NewsDailyDigestService.class))
+            // #213：SEO 出口（feed 渲染服务接口 + IndexNow 提交服务）
+            .withBean(com.nageoffer.ai.ragent.news.service.NewsSeoService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.service.NewsSeoService.class))
+            .withBean(com.nageoffer.ai.ragent.news.service.IndexNowService.class,
+                    () -> mock(com.nageoffer.ai.ragent.news.service.IndexNowService.class))
             .withBean(com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties.class,
                     com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties::new)
             .withUserConfiguration(PublicNewsController.class, PublicNewsDisabledController.class,

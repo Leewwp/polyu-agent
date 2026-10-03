@@ -1,0 +1,10 @@
+# PolyU Guide robots.txt（#213，父票 #182 r3 §发现面）
+# 口径与本项目自身抓取纪律一致：公开内容页允许抓取；管理与 API 内部面不欢迎爬虫。
+# sitemap 指令行同步站点地图出口（根路径 /sitemap.xml 由网关精确反代到公开端点）。
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+
+Sitemap: https://polyuguide.com/sitemap.xml

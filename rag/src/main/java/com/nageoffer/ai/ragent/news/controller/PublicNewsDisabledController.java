@@ -123,6 +123,14 @@ public class PublicNewsDisabledController {
         return notFound();
     }
 
+    /**
+     * 与启用态同形的站点级 news feed 端点 404 兜底（#213 后增路径，/feed.xml）
+     */
+    @GetMapping("/feed.xml")
+    public ResponseEntity<Void> newsFeed(@RequestParam(value = "limit", defaultValue = "50") int limit) {
+        return notFound();
+    }
+
     private ResponseEntity<Void> notFound() {
         return ResponseEntity.notFound().build();
     }
