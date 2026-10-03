@@ -18,7 +18,7 @@ const ALLOWED_ADVISORY_IDS = new Set([
   // micromatch 的构建期 glob），不进产物 bundle、无运行时暴露，攻击前提（外部可控
   // 展开模式）在本仓构建场景不存在。解除条件：braces 发布 >3.0.3 补丁版或
   // tailwindcss 升 4 后删除本条目，让门自然收紧。
-  'GHSA-vfj7-8cjw-p6xm',
+  '1240992',
 ]);
 
 // npm audit 在存在漏洞时退出码为 1（stdout 仍带完整 JSON）——spawnSync 不抛错才能拿到报告。
