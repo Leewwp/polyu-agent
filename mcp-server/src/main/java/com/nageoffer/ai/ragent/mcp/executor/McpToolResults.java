@@ -100,6 +100,18 @@ public final class McpToolResults {
         return request.arguments() != null ? request.arguments() : Map.of();
     }
 
+    /**
+     * 出参字段长度封顶（#214 有界输出）：超长截断加省略号，null/空原样返回。
+     * 上游字段本有长度约束（如资讯摘要 ≤80 字），这里再挡一层是防御上游失控——
+     * 工具输出直接进对话上下文，一条 10k 字的脏标题就能挤掉整轮预算
+     */
+    public static String bound(String text, int maxChars) {
+        if (text == null || text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, Math.max(0, maxChars - 1)) + "…";
+    }
+
     public static LocalDate parseDate(String value) {
         if (StrUtil.isBlank(value)) {
             return null;

@@ -33,6 +33,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -91,6 +92,22 @@ public class PublicNewsController {
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
         return Results.success(newsQueryService.searchPublished(q, sort, order, category, page, size));
+    }
+
+    /**
+     * MCP 出口受限检索（#182 r3 §MCP / #214）：关键词 × 主题 slug × 时间窗三元过滤，
+     * 发布时间倒序、分页钳制同 list（size ≤50）。mcp-server 无数据库层（#164 裁剪），
+     * search_news 工具的数据全走本口；可见性=统一公开资格（#180 R4），下架/隐藏/
+     * 未过门条目隔离。三个过滤维度均可缺省，全缺省语义同 /list 首页。
+     */
+    @GetMapping("/mcp-search")
+    public Result<NewsPageVO> mcpSearch(@RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "topic", required = false) String topic,
+            @RequestParam(value = "from", required = false) LocalDate from,
+            @RequestParam(value = "to", required = false) LocalDate to,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
+        return Results.success(newsQueryService.searchPublishedForMcp(q, topic, from, to, page, size));
     }
 
     /**

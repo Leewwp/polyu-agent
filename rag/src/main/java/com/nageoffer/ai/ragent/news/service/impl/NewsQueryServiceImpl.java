@@ -50,6 +50,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -240,13 +242,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
     @Override
     public NewsTopicDetailVO getTopicDetail(String slug, int page, int size) {
         Assert.notBlank(slug, () -> new ClientException("主题不存在"));
-        NewsTopicDO topic = newsTopicMapper.selectOne(
-                new LambdaQueryWrapper<NewsTopicDO>()
-                        .eq(NewsTopicDO::getSlug, slug)
-                        .eq(NewsTopicDO::getStatus, STATUS_ACTIVE)
-                        .eq(NewsTopicDO::getCurated, true)
-                        .last("LIMIT 1"));
-        Assert.notNull(topic, () -> new ClientException("主题不存在"));
+        NewsTopicDO topic = findCuratedTopic(slug);
         Map<Long, Long> counts = visibleCountByTopic();
         IPage<NewsItemDO> items = newsItemTopicMapper.selectVisiblePageByTopic(
                 new Page<>(normalizePage(page), normalizeSize(size)), topic.getId(), gateFloor());
@@ -314,6 +310,60 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                         ? match.orderByAsc("publish_time").orderByAsc("id")
                         : match.orderByDesc("publish_time").orderByDesc("id"));
         return toPageVO(pager, pager.getRecords());
+    }
+
+    /**
+     * MCP 出口受限检索（#214）：关键词 × 主题 × 时间窗三元可组合过滤，发布时间倒序。
+     * <p>
+     * 可见性与 searchPublished 同一条统一公开资格（QueryWrapper 面：status=published +
+     * 发布门），下架/未过门条目隔离；主题过滤用 EXISTS 半连接（与
+     * NewsItemTopicMapper#selectVisiblePageByTopic 同一关联语义，可见性判据仍由本 wrapper
+     * 独占，不在关联表 SQL 里另写一份）。时间窗端点含当日：上界取「次日零点」开区间，
+     * 不枚举时分秒；Timestamp.valueOf 走墙钟语义，不受 JVM/DB 时区漂移影响。
+     */
+    @Override
+    public NewsPageVO searchPublishedForMcp(String q, String topicSlug, LocalDate dateFrom, LocalDate dateTo,
+                                            int page, int size) {
+        Long topicId = isBlank(topicSlug) ? null : findCuratedTopic(topicSlug).getId();
+        if (dateFrom != null && dateTo != null && dateFrom.isAfter(dateTo)) {
+            throw new ClientException("时间窗不合法：起始日期晚于结束日期");
+        }
+        QueryWrapper<NewsItemDO> match = new QueryWrapper<NewsItemDO>()
+                .eq("status", STATUS_PUBLISHED)
+                .apply("(eligible_time IS NULL OR eligible_time <= {0})", gateFloor());
+        if (!isBlank(q)) {
+            String pattern = "%" + escapeLike(q.trim()) + "%";
+            match.apply("(title_zh ILIKE {0} OR title_en ILIKE {0} OR summary_zh ILIKE {0} OR summary_en ILIKE {0})",
+                    pattern);
+        }
+        if (topicId != null) {
+            match.apply("EXISTS (SELECT 1 FROM t_news_item_topic iit "
+                    + "WHERE iit.item_id = t_news_item.id AND iit.topic_id = {0})", topicId);
+        }
+        if (dateFrom != null) {
+            match.ge("publish_time", Timestamp.valueOf(dateFrom.atStartOfDay()));
+        }
+        if (dateTo != null) {
+            match.lt("publish_time", Timestamp.valueOf(dateTo.plusDays(1).atStartOfDay()));
+        }
+        IPage<NewsItemDO> pager = newsItemMapper.selectPage(new Page<>(normalizePage(page), normalizeSize(size)),
+                match.orderByDesc("publish_time").orderByDesc("id"));
+        return toPageVO(pager, pager.getRecords());
+    }
+
+    /**
+     * 策展主题按 slug 解析（active + curated）：不存在/已合并/已弃/AI 提案一律同形
+     * 「主题不存在」——getTopicDetail 与 MCP 出口检索共用，不泄漏存在性
+     */
+    private NewsTopicDO findCuratedTopic(String slug) {
+        NewsTopicDO topic = newsTopicMapper.selectOne(
+                new LambdaQueryWrapper<NewsTopicDO>()
+                        .eq(NewsTopicDO::getSlug, slug.trim())
+                        .eq(NewsTopicDO::getStatus, STATUS_ACTIVE)
+                        .eq(NewsTopicDO::getCurated, true)
+                        .last("LIMIT 1"));
+        Assert.notNull(topic, () -> new ClientException("主题不存在"));
+        return topic;
     }
 
     /**
