@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -6,12 +6,27 @@ import { NewsCard } from "./NewsCard";
 import { FeedLangContext } from "./feedLang";
 import type { FeedLang } from "./feedLang";
 import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
+import { useNewsLocalStore } from "@/stores/newsLocalStore";
 
 /**
  * 卡片主体（元信息+标题+摘要）可点入 /news/:id 详情页，
  * 「查看原文 ↗」保持外链新开标签；卡片级「中 / EN」小钮已随全局唯一语言开关移除
  * （语言入口收归顶栏 LangPill，全局切换语义不再有单卡覆盖档）。
+ * #215 已读视觉区分：读过（进过详情页）的条目元信息行带「已读」章+标题降不透明度。
  */
+
+function installLocalStorageStub(): Map<string, string> {
+  const mem = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (key: string) => mem.get(key) ?? null,
+      setItem: (key: string, value: string) => void mem.set(key, value),
+      removeItem: (key: string) => void mem.delete(key)
+    },
+    configurable: true
+  });
+  return mem;
+}
 
 function renderCard(itemIndex = 0, lang: FeedLang = "zh") {
   return render(
@@ -24,8 +39,14 @@ function renderCard(itemIndex = 0, lang: FeedLang = "zh") {
 }
 
 describe("NewsCard", () => {
+  beforeEach(() => {
+    installLocalStorageStub();
+    useNewsLocalStore.getState().hydrate();
+  });
+
   afterEach(() => {
     cleanup();
+    Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
   });
 
   it("renders zh fields by default (title/summary/source/category/cluster badges + original link)", () => {
@@ -69,5 +90,30 @@ describe("NewsCard", () => {
     expect(screen.getByRole("link", { name: "查看原文 ↗" }).getAttribute("href")).toBe(item.url);
     // 卡片级「中 / EN」小钮移除，语言=顶栏全局唯一开关
     expect(screen.queryByRole("button", { name: "中 / EN" })).toBeNull();
+  });
+
+  it("#215 read marker: 已读条目带「已读」章+标题降不透明度，未读条目无章", () => {
+    const item = MOCK_NEWS_ITEMS[0];
+    useNewsLocalStore.getState().markItemRead(item.id);
+    const { container } = renderCard(0);
+
+    expect(screen.getByText("已读")).toBeTruthy();
+    const title = container.querySelector("article h4") as HTMLElement;
+    expect(title.className).toContain("opacity-60");
+  });
+
+  it("#215 read marker: 未读条目不渲染已读章（默认态不受影响）", () => {
+    const { container } = renderCard(0);
+
+    expect(screen.queryByText("已读")).toBeNull();
+    const title = container.querySelector("article h4") as HTMLElement;
+    expect(title.className).not.toContain("opacity-60");
+  });
+
+  it("#215 read marker renders en label (Read)", () => {
+    useNewsLocalStore.getState().markItemRead(MOCK_NEWS_ITEMS[0].id);
+    renderCard(0, "en");
+
+    expect(screen.getByText("Read")).toBeTruthy();
   });
 });
