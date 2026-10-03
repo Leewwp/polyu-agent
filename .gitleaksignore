@@ -8,6 +8,9 @@
 # 公开是协议设计而非泄漏；持钥不授予任何访问面，提交面仅本站 canonical URL。
 # 三处命中=application.yaml 配置默认值/NewsFetchProperties 常量默认值/前端静态件
 # 测试断言，四者必须逐字同源（键文件内容=key）。
-30bda39e013fee5fac8c040a4f674f6bba06d843:bootstrap/src/main/resources/application.yaml:generic-api-key:229
-30bda39e013fee5fac8c040a4f674f6bba06d843:frontend/src/staticPublicAssets.test.ts:generic-api-key:34
-30bda39e013fee5fac8c040a4f674f6bba06d843:rag/src/main/java/com/nageoffer/ai/ragent/news/fetch/NewsFetchProperties.java:generic-api-key:194
+# ★指纹锚 main squash 提交（fa009851）：squash 合并改变"引入提交"sha，锚分支提交的
+# 指纹在 main 全历史扫描（deploy 工作流口径）永不匹配——判例：基线指纹必须按目标
+# 扫描面的引入提交写。
+fa009851fce9dfc2e4c2e75b4dc229d3d8b58b05:bootstrap/src/main/resources/application.yaml:generic-api-key:229
+fa009851fce9dfc2e4c2e75b4dc229d3d8b58b05:frontend/src/staticPublicAssets.test.ts:generic-api-key:34
+fa009851fce9dfc2e4c2e75b4dc229d3d8b58b05:rag/src/main/java/com/nageoffer/ai/ragent/news/fetch/NewsFetchProperties.java:generic-api-key:194
