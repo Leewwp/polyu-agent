@@ -229,3 +229,51 @@ export async function fetchTopicDetail(slug: string, page = 1): Promise<TopicDet
     }
   };
 }
+
+/** ==================== 日报（#212）：/public/news/daily/** ==================== */
+
+import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
+import {
+  mapDailyDigest,
+  mapDailyDigestSummary,
+  type NewsDailyDigestSummaryVO,
+  type NewsDailyDigestVO
+} from "@/services/newsMapping";
+import { MOCK_DAILY_DIGESTS, MOCK_DAILY_DIGEST_SUMMARIES } from "@/services/newsMockData";
+
+/**
+ * 日报目录（近 N 期，日期倒序）。读取面零 LLM——后端只读快照表
+ * （结构保证见 NewsDailyDigestQueryServiceImpl）；mock 分支同形。
+ */
+export async function fetchDailyDigestList(limit = 30): Promise<NewsDailyDigestSummary[]> {
+  if (USE_MOCK) {
+    return MOCK_DAILY_DIGEST_SUMMARIES.slice(0, limit);
+  }
+  const data = await newsApi.get<NewsDailyDigestSummaryVO[], NewsDailyDigestSummaryVO[]>("/public/news/daily", {
+    params: { limit }
+  });
+  return (data ?? []).map(mapDailyDigestSummary);
+}
+
+/**
+ * 日报详情（刊头+生效导语+读取期复检后的可见条目）。不存在/已清理后端
+ * 同形报「日报不存在」——本层原样 reject，页面落空态。
+ */
+export async function fetchDailyDigest(digestDate: string): Promise<NewsDailyDigest> {
+  if (USE_MOCK) {
+    const found = MOCK_DAILY_DIGESTS.find((digest) => digest.digestDate === digestDate);
+    if (!found) {
+      throw new Error("日报不存在");
+    }
+    return found;
+  }
+  const data = await newsApi.get<NewsDailyDigestVO, NewsDailyDigestVO>(`/public/news/daily/${digestDate}`);
+  return mapDailyDigest(data);
+}
+
+/**
+ * 日报 RSS 订阅 URL（页面「订阅 RSS」外链用；GET 原文 feed，零 LLM）
+ */
+export function dailyDigestRssUrl(digestDate: string): string {
+  return `${NEWS_API_BASE_URL}/public/news/daily/${digestDate}/rss`;
+}

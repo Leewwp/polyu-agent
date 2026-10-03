@@ -229,3 +229,125 @@ export function mapTopic(vo: NewsTopicVO): NewsTopic {
     icon: registered?.icon
   };
 }
+
+/** ==================== 日报（#212）：/public/news/daily/** VO → 前端类型 ==================== */
+
+import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
+
+/** 后端 NewsDailyDigestItemVO 形状 */
+export interface NewsDailyDigestItemVO {
+  itemId: number;
+  seq: number;
+  url: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  summaryZh: string | null;
+  summaryEn: string | null;
+  category: string;
+  topics?: string[] | null;
+  publishTime: string | null;
+  source: NewsItemVO["source"];
+}
+
+/** 后端 NewsDailyDigestVO 形状 */
+export interface NewsDailyDigestVO {
+  digestDate: string;
+  windowStart: string;
+  windowEnd: string;
+  introZh: string | null;
+  introEn: string | null;
+  storedIntroSource: string;
+  introDegraded: boolean;
+  itemCount: number;
+  visibleCount: number;
+  disqualifiedCount: number;
+  items: NewsDailyDigestItemVO[];
+  buildTime: string;
+}
+
+/** 后端 NewsDailyDigestSummaryVO 形状 */
+export interface NewsDailyDigestSummaryVO {
+  digestDate: string;
+  itemCount: number;
+  introSource: string;
+  buildTime: string;
+}
+
+export function mapDailyDigestSummary(vo: NewsDailyDigestSummaryVO): NewsDailyDigestSummary {
+  return {
+    digestDate: vo.digestDate,
+    itemCount: vo.itemCount ?? 0,
+    introSource: vo.introSource,
+    buildTime: vo.buildTime
+  };
+}
+
+/** 快照条目直映（快照列即展示字段，与 t_news_item 现值无关） */
+export function mapDailyDigestItem(vo: NewsDailyDigestItemVO, now: Date = new Date()): NewsDailyDigestItem {
+  return {
+    itemId: vo.itemId,
+    seq: vo.seq,
+    url: vo.url,
+    titleZh: vo.titleZh,
+    titleEn: vo.titleEn,
+    summaryZh: vo.summaryZh,
+    summaryEn: vo.summaryEn,
+    category: (vo.category as NewsDailyDigestItem["category"]) || "other",
+    topics: vo.topics ?? [],
+    publishTime: vo.publishTime,
+    source: vo.source ?? null
+  };
+}
+
+export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
+  return {
+    digestDate: vo.digestDate,
+    windowStart: vo.windowStart,
+    windowEnd: vo.windowEnd,
+    introZh: vo.introZh ?? "",
+    introEn: vo.introEn ?? "",
+    storedIntroSource: vo.storedIntroSource,
+    introDegraded: vo.introDegraded ?? false,
+    itemCount: vo.itemCount ?? 0,
+    visibleCount: vo.visibleCount ?? 0,
+    disqualifiedCount: vo.disqualifiedCount ?? 0,
+    items: (vo.items ?? []).map((item) => mapDailyDigestItem(item)),
+    buildTime: vo.buildTime
+  };
+}
+
+/**
+ * 日报快照条目 → NewsCard 的 NewsItem 形（复用资讯流卡片）：
+ * 时钟/日期标签按快照 publishTime 以 HKT 归一（同 mapNewsItem 口径）；
+ * heat=0（快照无热度语义），已读标记以 itemId 为键与资讯流互通。
+ */
+export function digestItemToNewsItem(item: NewsDailyDigestItem, now: Date = new Date()): NewsItem {
+  const publish = item.publishTime ? new Date(item.publishTime) : now;
+  const publishDateKey = hktDateKey(publish);
+  const labels = dayLabels(publishDateKey, hktDateKey(now));
+  const sourceVo: NewsItemVO["source"] = item.source
+    ? {
+        sourceKey: item.source.sourceKey,
+        platform: item.source.platform,
+        official: item.source.official,
+        displayName: item.source.displayName,
+        displayNameEn: item.source.displayNameEn
+      }
+    : undefined;
+  return {
+    id: String(item.itemId),
+    url: item.url,
+    category: item.category,
+    topics: item.topics,
+    heat: 0,
+    publishDate: publishDateKey,
+    publishTime: hktClockSafe(publish),
+    dayLabelZh: labels.zh,
+    dayLabelEn: labels.en,
+    source: mapSource(sourceVo),
+    titleZh: item.titleZh ?? item.titleEn ?? "",
+    titleEn: item.titleEn ?? item.titleZh ?? "",
+    summaryZh: item.summaryZh ?? "",
+    summaryEn: item.summaryEn ?? ""
+  };
+}
