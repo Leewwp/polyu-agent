@@ -286,9 +286,10 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
      * promote 转正：终态防线先行（merged/rejected=改判冲突拒绝——防人工恢复关联使
      * refs 过线的形态下条件更新 0 行生效仍记事件的假留痕）→ 幂等先行（已转正同
      * slug SKIPPED，先于阈值——转正后引用被保留期清理回落不阻断重放）→ 引用阈值
-     * 机器校验（refs ≥ promote-threshold）→ 稳定 slug 校验（形态+全库唯一+不得
+     * 机器校验（refs ≥ promote-threshold；overrideThreshold=true 维护者人工放行
+     * 越过阈值，2026-10-03 规则修订，须附非空 reason）→ 稳定 slug 校验（形态+全库唯一+不得
      * prop- 前缀）→ curated=true + 正式组 + slug 替换（关联按 topic_id 引用不伤）
-     * + 可选名称/描述策展覆盖 → 留痕（旧→新 slug）
+     * + 可选名称/描述策展覆盖 → 留痕（旧→新 slug；放行带 threshold-override 标记）
      */
     private NewsTopicGovernanceApplyResultVO.DispositionOutcome promote(
             NewsTopicDO proposal, NewsTopicGovernanceApplyRequest.NewsTopicDisposition disposition, String operator) {
@@ -331,8 +332,15 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
         }
         long refs = countLinks(proposal.getId());
         int threshold = effectivePromoteThreshold();
-        if (refs < threshold) {
-            throw new ClientException("引用数 " + refs + " 未达转正阈值 " + threshold + "（规则合同：无近义目标 AND item_refs≥阈值）");
+        // 人工放行（2026-10-03 维护者规则修订）：overrideThreshold=true 越过阈值机器
+        // 校验，须附非空 reason；其余防线（终态/slug/组/行数校验）不放宽
+        boolean override = Boolean.TRUE.equals(disposition.getOverrideThreshold());
+        if (override && safe(disposition.getReason()).isEmpty()) {
+            throw new ClientException("overrideThreshold=true 须附非空 reason（人工放行留痕）");
+        }
+        if (refs < threshold && !override) {
+            throw new ClientException("引用数 " + refs + " 未达转正阈值 " + threshold
+                    + "（规则合同：无近义目标 AND item_refs≥阈值；维护者人工放行须 overrideThreshold=true 且附 reason）");
         }
         String oldSlug = proposal.getSlug();
         // 可选策展覆盖四列：先空安全归一（条件 set 的实参是急切求值，须先判空）
@@ -351,7 +359,10 @@ public class NewsTopicGovernanceServiceImpl implements NewsTopicGovernanceServic
                         .set(descriptionZh != null, NewsTopicDO::getDescriptionZh, descriptionZh)
                         .set(descriptionEn != null, NewsTopicDO::getDescriptionEn, descriptionEn)),
                 TRACK_PROMOTE, proposal);
-        String detail = truncate("promoted: refs=" + refs + " >= threshold " + threshold
+        String thresholdSegment = override && refs < threshold
+                ? "refs=" + refs + " < threshold " + threshold + " (threshold-override by operator)"
+                : "refs=" + refs + " >= threshold " + threshold;
+        String detail = truncate("promoted: " + thresholdSegment
                 + "; slug " + oldSlug + " -> " + slug + "; group " + proposal.getTopicGroup() + " -> " + group
                 + "; reason=" + safe(disposition.getReason()));
         recordEvent(proposal.getId(), NewsTopicGovernanceEventDO.ACTION_PROMOTED, null, detail, operator);
