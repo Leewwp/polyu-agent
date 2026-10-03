@@ -6,6 +6,7 @@ import { TopicDetailPage } from "./TopicDetailPage";
 import { TOPIC_MISSING_MESSAGE, fetchTopicDetail } from "@/services/newsService";
 import type { TopicDetailData } from "@/services/newsService";
 import { MOCK_NEWS_ITEMS, NEWS_TOPICS } from "@/services/newsMockData";
+import { NEWS_FOLLOWED_TOPICS_KEY, useNewsLocalStore } from "@/stores/newsLocalStore";
 
 /**
  * 公开主题详情页数据全部来自
@@ -63,10 +64,25 @@ function renderPage(slug: string) {
   );
 }
 
+/** jsdom 环境统一走内存桩（NewsDetailPage.test 同款经验），保证用例间零残留 */
+function installLocalStorageStub(): Map<string, string> {
+  const mem = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (key: string) => mem.get(key) ?? null,
+      setItem: (key: string, value: string) => void mem.set(key, value),
+      removeItem: (key: string) => void mem.delete(key)
+    },
+    configurable: true
+  });
+  return mem;
+}
+
 describe("TopicDetailPage", () => {
   let scrollIntoViewMock: ReturnType<typeof vi.fn>;
   // jsdom 实际未实现 scrollIntoView（运行时为 undefined）；按 lib.dom 类型保存原值便于还原
   let originalScrollIntoView: Element["scrollIntoView"];
+  let mem: Map<string, string>;
 
   beforeEach(() => {
     vi.mocked(fetchTopicDetail).mockReset();
@@ -75,6 +91,9 @@ describe("TopicDetailPage", () => {
     scrollIntoViewMock = vi.fn();
     originalScrollIntoView = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = scrollIntoViewMock as unknown as Element["scrollIntoView"];
+    // #215 本地关注：内存桩 + hydrate，用例间零残留
+    mem = installLocalStorageStub();
+    useNewsLocalStore.getState().hydrate();
   });
 
   afterEach(() => {
@@ -82,6 +101,7 @@ describe("TopicDetailPage", () => {
     Element.prototype.scrollIntoView = originalScrollIntoView;
     vi.restoreAllMocks();
     vi.useRealTimers();
+    Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
   });
 
   it("renders header stats and recent focus sorted by heat desc with date-grouped latest updates", async () => {
@@ -222,5 +242,22 @@ describe("TopicDetailPage", () => {
     // hasMore=false 后护栏按钮消失；追加分页请求带递增页码
     expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
     expect(fetchTopicDetail).toHaveBeenLastCalledWith("ai", 2);
+  });
+
+  it("#215 renders the local follow toggle in the header (关注写穿 localStorage，取关回落)", async () => {
+    renderPage("ai");
+    const follow = await screen.findByRole("button", { name: "☆ 关注" });
+    expect(follow.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(follow);
+    const followed = screen.getByRole("button", { name: "★ 已关注" });
+    expect(followed.getAttribute("aria-pressed")).toBe("true");
+    // 写穿 localStorage：存主题 slug 稳定标识（非展示名）
+    expect(JSON.parse(mem.get(NEWS_FOLLOWED_TOPICS_KEY) ?? "[]")).toEqual(["ai"]);
+
+    fireEvent.click(followed);
+    expect(screen.getByRole("button", { name: "☆ 关注" }).getAttribute("aria-pressed")).toBe("false");
+    expect(JSON.parse(mem.get(NEWS_FOLLOWED_TOPICS_KEY) ?? "[]")).toEqual([]);
+    expect(useNewsLocalStore.getState().followedTopics).toEqual([]);
   });
 });
