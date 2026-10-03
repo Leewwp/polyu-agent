@@ -7,3 +7,11 @@ server:
 spring:
   application:
     name: ragent-mcp-server
+
+# rag 公开查询面基址（#214）：mcp-server 无数据库层（#164 裁剪），search_news /
+# query_key_dates 的数据全走该地址下的受限公开 API（SaToken 白名单免登录）。
+# 生产 compose 内网名 polyu-app:8080（context-path /api/ragent）；本地起宿主应用时
+# 改 http://127.0.0.1:9090/api/ragent（env 透传 RAGENT_RAG_BASE_URL，见 deploy compose）
+ragent:
+  rag:
+    base-url: http://polyu-app:8080/api/ragent
