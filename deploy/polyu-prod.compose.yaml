@@ -275,7 +275,7 @@ services:
       # rag 公开查询面基址（#214）：#191 先例同因——不列则只在 env 文件翻转是静默 no-op；
       # 缺省值与 mcp-server application.yml 一致（compose 内网名 polyu-app:8080 + context-path），
       # rag 缺席/不可达时两工具返回结构化错误，不影响其余工具与 app 主链路（fail-soft）
-      RAGENT_RAG_BASE_URL: ${RAGENT_RAG_BASE_URL:-http://polyu-app:8080/api/ragent}
+      RAGENT_RAG_BASE_URL: ${RAGENT_RAG_BASE_URL:-http://polyu-app:9090/api/ragent}
     mem_limit: 384m
     healthcheck:
       # TCP 探活（与 polyu-app 同款）：MCP endpoint 在 HTTP 层按协议握手，TCP 监听足够证明 JVM 起来；
