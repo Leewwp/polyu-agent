@@ -283,7 +283,7 @@ export function mapDailyDigestSummary(vo: NewsDailyDigestSummaryVO): NewsDailyDi
 }
 
 /** 快照条目直映（快照列即展示字段，与 t_news_item 现值无关） */
-export function mapDailyDigestItem(vo: NewsDailyDigestItemVO, now: Date = new Date()): NewsDailyDigestItem {
+export function mapDailyDigestItem(vo: NewsDailyDigestItemVO): NewsDailyDigestItem {
   return {
     itemId: vo.itemId,
     seq: vo.seq,
