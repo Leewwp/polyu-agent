@@ -472,70 +472,356 @@ export const NEWS_TOPIC_GROUPS: NewsTopicGroup[] = [
   { nameZh: "学生事务", nameEn: "Student Affairs", subZh: "入学到毕业的服务型主题", subEn: "Service topics from enrolment to graduation" }
 ];
 
-/** ==================== 日报 mock（#212；vitest 专用，真数据走 /public/news/daily/**） ==================== */
+/** ==================== 日报 mock（#241：30 天确定性仿真 fixture，vitest 专用） ==================== */
 
-import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
 
 /**
- * 由 mock 资讯条目按 publishDate 分组派生固定两期日报（确定性 fixture）：
- * 每期取该日条目（快照序=mock 顺序），导语用固定模板文案（不触发任何 LLM——
- * mock 面与后端「页面请求零 LLM」口径一致）。
+ * #238 原型专用 30 天仿真（2026-09-05 → 2026-10-04，30 期含休刊 7 期），
+ * 覆盖呈批所需全部形态：
+ * - 多类目头版（10-04，11 条 7 类目）；快讯溢出触发期（09-28，research 12 条 → 8+4）
+ * - 周末休刊（09-05/06/13/19/26/27、10-03）；透明口径 chips（09-15 introDegraded）
+ * - 目录首条标题预览（firstTitleZh/En 为后端只读字段的 mock 等价物）
+ * 生成完全确定性（无随机数），窗口按 [D-1 08:00, D 08:00) HKT 落点。
+ * 原型转正（#241）：生产/开发一律真实 API（USE_MOCK 仅 vitest 与显式 env 强制）；
+ * 本 fixture 另供 vite dev 截图仿真中间件读取（VITE_DAILY_SIM=1，见 vite.config.ts）。
  */
-function deriveMockDigests(): NewsDailyDigest[] {
-  const byDate = new Map<string, typeof MOCK_NEWS_ITEMS>();
-  for (const item of MOCK_NEWS_ITEMS) {
-    const bucket = byDate.get(item.publishDate) ?? [];
-    bucket.push(item);
-    byDate.set(item.publishDate, bucket);
-  }
-  const dates = [...byDate.keys()].sort((a, b) => (a < b ? 1 : -1)).slice(0, 2);
-  return dates.map((date): NewsDailyDigest => {
-    const items = byDate.get(date)!;
-    return {
-      digestDate: date,
-      windowStart: `${date}T08:00:00+08:00`,
-      windowEnd: `${date}T08:00:00+08:00`,
-      introZh: `本期日报覆盖 ${date} 前一日的公开动态，共 ${items.length} 条，以下按发布时间倒序排列。`,
-      introEn: `This digest covers public updates before ${date} — ${items.length} items, listed newest first.`,
-      storedIntroSource: "fallback",
-      introDegraded: false,
-      itemCount: items.length,
-      visibleCount: items.length,
-      disqualifiedCount: 0,
-      items: items.map((item, seq) => ({
-        itemId: Number(item.id),
-        seq: seq + 1,
-        url: item.url,
-        titleZh: item.titleZh,
-        titleEn: item.titleEn,
-        summaryZh: item.summaryZh,
-        summaryEn: item.summaryEn,
-        category: item.category,
-        topics: item.topics,
-        publishTime: `${item.publishDate}T${item.publishTime}:00+08:00`,
-        source:
-          item.source.sourceKey === "unknown"
-            ? null
-            : {
-                sourceKey: item.source.sourceKey,
-                platform: item.source.platform,
-                official: item.source.official,
-                displayName: item.source.labelZh,
-                displayNameEn: item.source.labelEn
-              }
-      })),
-      buildTime: `${date}T08:40:00+08:00`
-    };
-  });
+
+type SimSourceKey = keyof typeof NEWS_SOURCES;
+
+interface SimItem {
+  category: NewsCategory;
+  topics: string[];
+  sourceKey: SimSourceKey;
+  zh: string;
+  en: string;
+  sz: string;
+  se: string;
 }
 
-/** 日报 mock fixture（最近两期，日期倒序） */
+/** 池条目（轻量日填充；每类目独立游标顺序消费，30 天内零重复） */
+interface PoolEntry {
+  cat: NewsCategory;
+  zh: string;
+  en: string;
+  sz: string;
+  se: string;
+  topics: string[];
+  sourceKey: SimSourceKey;
+}
+
+const P = (
+  cat: NewsCategory,
+  zh: string,
+  en: string,
+  sz: string,
+  se: string,
+  topics: string[],
+  sourceKey: SimSourceKey
+): PoolEntry => ({ cat, zh, en, sz, se, topics, sourceKey });
+
+const SIM_POOL: PoolEntry[] = [
+  // ---- research（20）----
+  P("research", "理大研发新型导热界面材料，助力数据中心散热降耗", "PolyU develops new thermal interface material to cut data-centre cooling energy", "新材料可显著降低高功率芯片结温，已进入服务器厂商验证阶段。", "The material sharply cuts chip junction temperatures and enters server-vendor validation.", ["materials", "eng"], "official-media-release"),
+  P("research", "理大团队提出城市热岛缓解新方案，获国际规划学会嘉奖", "PolyU team's urban heat-island mitigation plan honoured by planning society", "方案融合遥感数据与街区尺度模拟，为高密度城市降温提供路径。", "The plan blends remote-sensing data with block-scale simulation to cool dense cities.", ["city", "energy"], "official-media-release"),
+  P("research", "理大与合作团队绘制大湾区空气质量高分辨率图谱", "High-resolution air-quality atlas of the Greater Bay Area published", "图谱揭示臭氧与颗粒物的跨界输送通道，支持区域协同治理。", "The atlas reveals cross-boundary transport of ozone and particulates for joint governance.", ["city", "gba"], "prn-polyu"),
+  P("research", "理大研发可穿戴肌电传感器，助力中风康复训练", "Wearable EMG sensor developed at PolyU aids stroke rehabilitation", "传感器可实时反馈肌肉激活程度，居家康复依从性明显提升。", "Real-time muscle-activation feedback markedly improves home rehabilitation adherence.", ["biomed", "hss"], "official-media-release"),
+  P("research", "理大团队破解锂电池快充析锂难题，成果刊于《焦耳》", "Fast-charging lithium plating problem cracked, published in Joule", "新型电解质添加剂抑制负极析锂，快充寿命提升逾五成。", "A new electrolyte additive suppresses lithium plating, extending fast-charge life by half.", ["energy", "materials"], "official-media-release"),
+  P("research", "理大开发AI辅助青光眼筛查系统，进入社区试点", "AI glaucoma screening system enters community pilot", "系统对眼底照片的判读灵敏度接近专科医师，将覆盖十余间社区中心。", "Sensitivity approaches that of specialists; the pilot will cover a dozen community centres.", ["ai", "biomed"], "prn-polyu"),
+  P("research", "理大学者在拓扑光子学取得理论突破", "Theoretical breakthrough in topological photonics", "研究阐明光子晶格中边界态的调控机制，为光子芯片设计提供新自由度。", "The work clarifies boundary-state control in photonic lattices, informing photonic-chip design.", ["research", "eng"], "official-media-release"),
+  P("research", "理大团队研发海堤生态改良模块，兼顾防洪与生物多样性", "Eco-engineered seawall modules balance flood defence and biodiversity", "模块表面结构有利幼鱼与藻类附着，已在吐露港试验段安装。", "Surface textures encourage juvenile fish and algal settlement; installed at Tolo Harbour trial sections.", ["ce", "city"], "official-media-release"),
+  P("research", "理大与合作方开发低轨卫星信道估计算法", "New channel-estimation algorithm for LEO satellites", "算法将高速移动场景下的通信中断率显著降低。", "The algorithm sharply reduces outages in high-mobility satellite links.", ["eng", "ai"], "prn-polyu"),
+  P("research", "理大团队制备超疏水涂层，延长海洋结构物寿命", "Superhydrophobic coating extends marine structure lifespan", "涂层抗盐雾腐蚀与生物污损，维护周期可延长一倍。", "Resistant to salt fog and biofouling, doubling maintenance intervals.", ["materials", "ce"], "official-media-release"),
+  P("research", "理大研究揭示久坐行为与青少年心理健康关联", "Study links sedentary behaviour to adolescent mental health", "追踪逾两千名中学生的数据显示课间轻度活动与情绪指标正相关。", "Data from 2,000+ secondary students links light between-class activity to better mood.", ["hss", "biomed"], "official-media-release"),
+  P("research", "理大团队优化氢燃料电池催化剂，铂用量减半", "Hydrogen fuel-cell catalyst needs half the platinum", "核壳结构催化剂维持性能的同时大幅降低成本。", "A core-shell catalyst keeps performance while slashing cost.", ["energy", "materials"], "prn-polyu"),
+  P("research", "理大开发联邦学习框架，医疗数据不出院即可训模型", "Federated learning framework trains models without moving hospital data", "框架通过隐私保护聚合连接多家医院，影像模型泛化能力提升。", "Privacy-preserving aggregation links hospitals and improves imaging-model generalisation.", ["ai", "biomed"], "official-media-release"),
+  P("research", "理大学者参与深度月壤研究，分析水冰分布线索", "PolyU researchers join lunar soil study on water-ice distribution", "团队对月壤颗粒的分析为极区水冰赋存状态提供新证据。", "Analysis of lunar grains yields new evidence on polar water-ice occurrence.", ["research", "eng"], "official-media-release"),
+  P("research", "理大团队研制软体抓手，可采撷深海脆弱生物", "Soft robotic gripper gently collects fragile deep-sea organisms", "抓手以仿生结构适应不规则形态，深海海试成功。", "A bio-inspired structure adapts to irregular shapes; sea trials succeeded.", ["eng", "biomed"], "prn-polyu"),
+  P("research", "理大研究提出大湾区跨境数据流动治理框架", "GBA cross-border data governance framework proposed", "框架平衡科研数据共享与合规要求，获政策研讨会采纳讨论。", "The framework balances research data sharing with compliance and was tabled at a policy workshop.", ["gba", "ai"], "official-media-release"),
+  P("research", "理大团队提升钙钛矿-硅叠层电池封装可靠性", "Perovskite-silicon tandem packaging made more reliable", "新型封装工艺抑制湿热老化衰减，户外实测寿命显著延长。", "New packaging suppresses damp-heat degradation, extending outdoor lifetime.", ["energy", "materials"], "official-media-release"),
+  P("research", "理大开发无人机群协同巡检算法，用于桥梁安全监测", "Drone-swarm inspection algorithm monitors bridge safety", "多机协同覆盖率达单机的三倍，巡检周期缩短。", "Multi-drone coverage triples that of a single drone, shortening inspection cycles.", ["eng", "city"], "prn-polyu"),
+  P("research", "理大团队揭示城市噪声暴露与睡眠质量的剂量效应", "Dose-response link between urban noise exposure and sleep quality", "研究为住宅隔音标准修订提供量化依据。", "The study quantifies evidence for revising residential sound-insulation standards.", ["city", "hss"], "official-media-release"),
+  P("research", "理大研发快速筛查耐药菌的微流控芯片", "Microfluidic chip rapidly screens drug-resistant bacteria", "芯片将药敏试验从两天压缩到四小时。", "The chip compresses susceptibility testing from two days to four hours.", ["biomed", "eng"], "official-media-release"),
+  // ---- campus（12）----
+  P("campus", "赛马会学生宿舍村新增绿化中庭，正式开放", "New green courtyard opens at Jockey Club student village", "中庭设遮荫座椅与雨水花园，夜间有柔和照明。", "The courtyard adds shaded seating, a rain garden and soft night lighting.", ["campus"], "official-focus"),
+  P("campus", "图书馆延长考试季开放时间至午夜", "Library extends hours to midnight for exam season", "十二月起连续四周，凭学生证入馆。", "For four weeks from December, entry with student ID.", ["campus"], "official-focus"),
+  P("campus", "校园餐厅推出健康轻食新档口", "New healthy-eating outlet opens in campus restaurants", "档口提供热量标注餐单，营养师每周驻场咨询。", "Calorie-labelled menus with weekly dietitian sessions.", ["campus"], "official-focus"),
+  P("campus", "理大龙舟队在香港龙舟锦标赛夺银", "PolyU dragon boat team takes silver at Hong Kong championships", "队伍以0.3秒之差憾失金牌，创历年最佳战绩。", "Missing gold by 0.3 seconds, the team logged its best-ever finish.", ["campus"], "youtube-main"),
+  P("campus", "校内充电桩扩容，新增两处电动车停车位", "More EV charging points added on campus", "新车位位于李楼地下停车场，先到先得。", "New bays at the Li Building car park, first-come-first-served.", ["campus"], "official-focus"),
+  P("campus", "学生会中秋游园会逾千人参与", "Students' Union Mid-Autumn fair draws over a thousand", "晚会设灯笼工作坊与非遗摊位，气氛热烈。", "Lantern workshops and heritage stalls drew lively crowds.", ["campus", "event"], "official-focus"),
+  P("campus", "理大艺术空间展出学生摄影作品「城市肌理」", "Student photo exhibition \"Urban Fabric\" on show", "展览收录四十幅作品，聚焦香港街头的几何与光影。", "Forty works focus on geometry and light in Hong Kong streets.", ["campus"], "youtube-main"),
+  P("campus", "校园步道无障碍改造完成", "Accessibility upgrade of campus walkways completed", "改造覆盖主要连廊坡道与 tactile guide 系统。", "Upgrades cover main ramps and the tactile guidance system.", ["campus"], "official-focus"),
+  P("campus", "体育馆引入夜跑时段预约制", "Bookable night-running slots open at sports complex", "跑道十点后分段开放，保障安全与互不干扰。", "Track segments open after 10 pm for safety and mutual convenience.", ["campus"], "official-focus"),
+  P("campus", "「理大农场」屋顶农圃迎来首季收成", "Rooftop farm logs first harvest", "蔬果将捐赠社区伙伴，种植团队全程由学生运营。", "Produce goes to community partners; the farm is fully student-run.", ["campus", "energy"], "youtube-main"),
+  P("campus", "学生活动中心研讨室线上预约系统上线", "Online booking launches for student hub study rooms", "系统支持提前三天预约，爽约计入信用记录。", "Book up to three days ahead; no-shows feed a credit record.", ["campus"], "official-focus"),
+  P("campus", "校史馆新增互动时间轴展项", "Interactive timeline exhibit added to heritage gallery", "访客可按年代检索九十年校史影像。", "Visitors can browse nine decades of archival footage by era.", ["campus", "event"], "official-focus"),
+  // ---- event（10）----
+  P("event", "杰出学人讲座：量子材料前沿本月开讲", "Distinguished lecture on quantum materials this month", "讲座面向全校开放，设线上直播通道。", "Open to all with a livestream channel.", ["event"], "official-events"),
+  P("event", "理大创新开放日吸引逾三千中学生参观", "Innovation Open Day draws 3,000+ secondary students", "实验室导赏与动手工作坊全日爆满。", "Lab tours and hands-on workshops were fully booked all day.", ["event"], "official-events"),
+  P("event", "创业系列工作坊接受报名，聚焦大湾区市场", "Startup workshop series opens for GBA-focused founders", "六节课程覆盖出海合规与供应链布局。", "Six sessions cover cross-border compliance and supply chains.", ["event", "gba"], "official-events"),
+  P("event", "理大合唱团秋季音乐会将上演粤语合唱新作", "Choir autumn concert to premiere new Cantonese choral work", "音乐会于校内礼堂举行，收益捐助学生应急基金。", "Proceeds support the student emergency fund.", ["event"], "youtube-main"),
+  P("event", "「科学与社会」跨学科论坛下月举行", "Interdisciplinary forum on science and society set for next month", "论坛汇聚人文学者与科学家对谈技术伦理。", "Humanists and scientists discuss the ethics of technology.", ["event", "hss"], "official-events"),
+  P("event", "理大举办中学生机器人大赛，报名开启", "Robotics contest for secondary schools opens", "今年赛题加入AI视觉任务，决赛日在校园直播。", "This year adds AI-vision tasks; finals streamed on campus.", ["event", "ai"], "official-events"),
+  P("event", "数据科学夏令营结营，展出学生项目", "Data science summer camp closes with project showcase", "十二组项目涵盖交通预测与文本挖掘。", "Twelve projects span traffic forecasting and text mining.", ["event", "ai"], "youtube-main"),
+  P("event", "理大博物馆新展回顾校园九十年变迁", "Museum exhibition traces nine decades of campus history", "展览以物件与口述史并置呈现。", "Objects and oral histories sit side by side.", ["event", "campus"], "official-events"),
+  P("event", "圆桌沙龙：生成式AI时代的教学创新", "Roundtable on teaching in the generative-AI era", "八位教师分享课程设计中的AI融入经验。", "Eight teachers share how they weave AI into course design.", ["event", "ai"], "official-events"),
+  P("event", "理大交响乐团慈善音乐会售票开启", "PolyU orchestra charity concert tickets on sale", "曲目涵盖德沃夏克与当代委约新作。", "Programme spans Dvořák and a newly commissioned work.", ["event"], "official-events"),
+  // ---- admission（6）----
+  P("admission", "2027/28学年授课式硕士课程目录上线", "Taught postgraduate catalogue for 2027/28 goes live", "目录新增三个跨学科专业，申请通道明年初开放。", "Three interdisciplinary programmes added; applications open early next year.", ["admission"], "official-focus"),
+  P("admission", "内地本科生招生说明会（线上）接受预约", "Mainland admission webinar open for booking", "说明会分理工与商科两场，设实时答疑。", "Two sessions for STEM and business with live Q&A.", ["admission"], "official-focus"),
+  P("admission", "理大参与国际教育展，介绍联合学位项目", "PolyU to present joint-degree programmes at education fair", "招生团队将现场解答学分互认问题。", "Admissions staff will answer credit-recognition questions on site.", ["admission", "exchange"], "official-focus"),
+  P("admission", "自资课程秋季入学截止日期临近", "Application deadline nears for self-financed autumn intake", "有意申请者须于月底前完成线上提交。", "Applicants must submit online by month-end.", ["admission"], "official-focus"),
+  P("admission", "体艺特长生招生通道说明发布", "Admission scheme for sports and arts talents explained", "通道涵盖杰出运动员与视觉艺术专才两类。", "The scheme covers elite athletes and visual-arts talents.", ["admission", "campus"], "official-focus"),
+  P("admission", "2027本科联合课程宣讲会接受报名", "Joint undergraduate curriculum briefing opens for registration", "宣讲会将介绍与海外伙伴合办的双学位结构。", "The briefing covers dual-degree structures with overseas partners.", ["admission", "exchange"], "official-focus"),
+  // ---- scholarship（4）----
+  P("scholarship", "研究生境外会议资助计划接受申请", "Postgraduate conference travel fund opens", "每人每学年上限一次，优先考虑报告论文者。", "Once per academic year, prioritising paper presenters.", ["scholarship"], "official-focus"),
+  P("scholarship", "「明日领袖」奖学金新增大湾区企业赞助席位", "Tomorrow's Leaders scholarship adds GBA-sponsored seats", "赞助席位含暑期实习与导师配对。", "Sponsored seats include summer internships and mentors.", ["scholarship", "gba"], "official-focus"),
+  P("scholarship", "政府奖学金计划校内提名启动", "Government scholarship internal nomination begins", "提名须经学院初审，材料截止下月中旬。", "Nominations require faculty screening; materials due mid-next-month.", ["scholarship"], "official-focus"),
+  P("scholarship", "校友会急难助学金放宽申请门槛", "Alumni emergency grant widens eligibility", "家庭突发变故学生可随时提交申请。", "Students hit by sudden family hardship may apply anytime.", ["scholarship", "alumni"], "official-focus"),
+  // ---- career（6）----
+  P("career", "理大就业博览新增AI与绿色科技专区", "Career fair adds AI and green-tech zones", "两区合计逾四十家机构设摊。", "The two zones host 40+ organisations.", ["career", "ai"], "official-focus"),
+  P("career", "校友职业分享会：从工学院到创科初创", "Alumni career talk: from engineering to startup", "两位创始人分享技术转化的第一手经验。", "Two founders share first-hand lessons in tech transfer.", ["career", "alumni"], "official-focus"),
+  P("career", "暑期实习计划合作企业名单扩至逾二百家", "Summer internship partner list tops 200", "新增多家跨境远程实习岗位。", "New cross-border remote placements added.", ["career"], "official-focus"),
+  P("career", "简历诊所一对一辅导时段开放预约", "CV clinic one-on-one sessions open", "顾问来自人力资源与行业导师团队。", "Advisers come from HR and industry mentor teams.", ["career"], "official-focus"),
+  P("career", "毕业生就业调查显示起薪中位数上升", "Graduate employment survey shows rising median starting pay", "受访率创新高，数据经独立机构核验。", "A record response rate, verified by an independent body.", ["career"], "official-media-release"),
+  P("career", "职场语言工作坊聚焦跨文化沟通", "Workplace language workshop spotlights cross-cultural communication", "工作坊含模拟谈判与邮件写作实训。", "Mock negotiations and email-writing drills included.", ["career", "exchange"], "official-focus"),
+  // ---- exchange（7）----
+  P("exchange", "与京都大学交换计划新增春季批次", "Kyoto University exchange adds spring cohort", "春季批次名额五名，学分转换细则同步更新。", "Five spring places; credit-transfer rules updated in step.", ["exchange"], "official-focus"),
+  P("exchange", "「一带一路」暑期游学计划成果展举办", "Belt and Road summer programme showcase held", "展览呈现八条路线的学生调研成果。", "Student research from eight routes on display.", ["exchange", "gba"], "official-focus"),
+  P("exchange", "理大与巴黎政治学院签署学生交流协议", "Student exchange pact signed with Sciences Po", "协议涵盖学期交换与暑期学校两档。", "The pact covers semester exchange and summer school.", ["exchange"], "official-media-release"),
+  P("exchange", "海外服务学习计划招募志愿者", "Overseas service-learning programme recruits volunteers", "来年项目覆盖东南亚四个社区。", "Next year's projects span four Southeast Asian communities.", ["exchange", "hss"], "official-focus"),
+  P("exchange", "交换生学分转换新指引发布", "New guidelines for exchange credit transfer", "指引明确课程匹配度评估流程与时限。", "The guidelines set course-matching assessment flow and timelines.", ["exchange", "admin"], "official-focus"),
+  P("exchange", "理大学生赴新加坡参加青年领袖论坛", "Students join youth leadership forum in Singapore", "团队就城市韧性议题提交政策建议书。", "The team tabled policy briefs on urban resilience.", ["exchange"], "official-focus"),
+  P("exchange", "寒假文化沉浸项目开放申请", "Winter cultural immersion programmes open", "项目分语言学习与田野考察两类。", "Tracks cover language study and field research.", ["exchange"], "official-focus"),
+  // ---- admin（7）----
+  P("admin", "十一月初校历调整：停课一日安排公布", "Calendar adjustment: one-day class suspension in early November", "涉及补课安排已在校历系统标注。", "Make-up arrangements are flagged in the calendar system.", ["admin"], "official-focus"),
+  P("admin", "校园网络维护将影响周末部分服务", "Weekend IT maintenance to affect some services", "维护窗口为周日凌晨至六时。", "The window runs Sunday 00:00-06:00.", ["admin"], "official-focus"),
+  P("admin", "学生事务处办公时间临时调整", "SAO opening hours temporarily adjusted", "周三下午暂停柜台服务，线上渠道不受影响。", "Counter service pauses Wednesday afternoon; online channels unaffected.", ["admin"], "official-focus"),
+  P("admin", "校园扩建工程交通改道指引更新", "Traffic diversion guide updated for campus works", "北门行车路线调整，工期约八周。", "North gate routes change for about eight weeks.", ["admin", "campus"], "official-focus"),
+  P("admin", "电子成绩单服务上线，可在线申请", "E-transcript service launches online", "申请后一个工作日内发出验证链接。", "Verified links issued within one working day.", ["admin"], "official-focus"),
+  P("admin", "台风季应急指引更新，请注意最新安排", "Typhoon-season emergency guidance updated", "指引明确八号风球下的考试与活动处理原则。", "The guidance covers exams and events under storm signal No. 8.", ["admin"], "official-focus"),
+  P("admin", "校车服务时刻表新学期起调整", "Campus shuttle timetable adjusts from the new term", "高峰班次加密，末班车延后半小时。", "Peak-hour frequency rises; last bus runs 30 minutes later.", ["admin", "campus"], "official-focus")
+];
+
+/** 轻量日计划：日期 → 类目序列（条目从池内顺序取用） */
+const LIGHT_DAYS: { date: string; cats: NewsCategory[]; degraded?: boolean }[] = [
+  { date: "2026-10-02", cats: ["research", "campus", "admin", "event"] },
+  { date: "2026-10-01", cats: ["admission", "research", "event", "career"] },
+  { date: "2026-09-30", cats: ["research", "research", "campus", "event", "exchange"] },
+  { date: "2026-09-29", cats: ["research", "campus", "career"] },
+  { date: "2026-09-25", cats: ["research", "exchange", "admin"] },
+  { date: "2026-09-24", cats: ["research", "campus", "scholarship"] },
+  { date: "2026-09-23", cats: ["event", "research", "admission", "campus"] },
+  { date: "2026-09-21", cats: ["research", "career", "admin"] },
+  { date: "2026-09-20", cats: ["research", "event"] },
+  { date: "2026-09-17", cats: ["research", "campus", "exchange"] },
+  { date: "2026-09-16", cats: ["research", "admission", "event"] },
+  { date: "2026-09-15", cats: ["research", "campus", "career", "admin"], degraded: true },
+  { date: "2026-09-14", cats: ["research", "event", "scholarship"] },
+  { date: "2026-09-12", cats: ["research"] },
+  { date: "2026-09-11", cats: ["research", "campus", "exchange"] },
+  { date: "2026-09-09", cats: ["research", "campus"] },
+  { date: "2026-09-08", cats: ["event", "admin"] },
+  { date: "2026-09-07", cats: ["research", "exchange"] }
+];
+
+/** 展示日：手写条目（数组顺序 = 快照序，第 0 条即头条） */
+const SHOWCASE_DAYS: { date: string; items: SimItem[] }[] = [
+  {
+    // 头版展示期：11 条 · 7 类目
+    date: "2026-10-04",
+    items: [
+      { category: "research", topics: ["energy", "research"], sourceKey: "official-media-release", zh: "理大团队研发非贵金属海水制氢催化剂，制氢成本显著降低，成果刊于《自然·催化》", en: "PolyU team develops noble-metal-free seawater hydrogen catalyst, published in Nature Catalysis", sz: "理大团队以镍铁基复合材料替代贵金属催化剂，在模拟海水中实现稳定电解制氢，为规模化绿氢生产提供低成本路径。", se: "A nickel-iron composite replaces precious-metal catalysts, delivering stable seawater electrolysis and a low-cost route to green hydrogen." },
+      { category: "event", topics: ["event"], sourceKey: "official-events", zh: "理大举办2026「杰出创科杯」颁奖典礼，24支学生团队获嘉奖", en: "PolyU hosts 2026 Innovation & Technology Cup awards; 24 student teams honoured", sz: "获奖项目涵盖医疗机器人与低碳建材，部分团队将代表理大出战区域赛。", se: "Winning projects span medical robots and low-carbon materials; some teams advance to regional finals." },
+      { category: "admission", topics: ["admission"], sourceKey: "official-focus", zh: "2027/28学年本科招生线上宣讲会10月中旬开讲，覆盖五大学院课程", en: "Online admission briefings for 2027/28 open in mid-October across five faculties", sz: "宣讲会按学院分场，设实时答疑与校园生活分享环节。", se: "Sessions run per faculty with live Q&A and campus-life sharing." },
+      { category: "research", topics: ["research", "materials"], sourceKey: "official-media-release", zh: "理大学者当选欧洲科学院院士，表彰其在智能材料领域贡献", en: "PolyU scholar elected Academia Europaea member for smart-materials contributions", sz: "当选学者的研究聚焦形状记忆合金与驱动器小型化。", se: "The scholar's work centres on shape-memory alloys and actuator miniaturisation." },
+      { category: "campus", topics: ["campus"], sourceKey: "official-focus", zh: "图书馆推出24小时自习区预约服务，考试季前上线", en: "Library launches bookable 24-hour study zone ahead of exam season", sz: "自习区设一百二十个座位，扫码进出并计数管理。", se: "The zone seats 120 with QR-code entry and occupancy management." },
+      { category: "career", topics: ["career"], sourceKey: "official-focus", zh: "秋季大型招聘会10月下旬举行，逾百家机构确认参展", en: "Autumn career fair set for late October with 100+ employers", sz: "招聘会分两日进行，首日面向工商与科技行业。", se: "The fair runs two days, opening with business and technology sectors." },
+      { category: "exchange", topics: ["exchange", "eng"], sourceKey: "official-media-release", zh: "理大与慕尼黑工业大学扩展合作，新增双学位与联合科研通道", en: "PolyU and TUM expand ties with dual degrees and joint research tracks", sz: "合作首期聚焦先进制造与可持续能源两个方向。", se: "The first phase focuses on advanced manufacturing and sustainable energy." },
+      { category: "admin", topics: ["admin"], sourceKey: "official-focus", zh: "10月13日重阳节：本校停课一天，校园服务调整安排公布", en: "Class suspension on 13 October Chung Yeung Festival; service changes announced", sz: "图书馆与体育设施按假日时间运作，校车暂停。", se: "Library and sports facilities follow holiday hours; shuttles suspended." },
+      { category: "scholarship", topics: ["scholarship"], sourceKey: "official-focus", zh: "校长卓越奖学金开始接受提名，截止11月7日", en: "President's Excellence Scholarship nominations open until 7 November", sz: "提名由学院统一提交，奖励全面发展的本科新生。", se: "Faculties submit nominations for well-rounded undergraduate entrants." },
+      { category: "event", topics: ["event", "ai"], sourceKey: "youtube-main", zh: "校长对话系列新片上线：跨学科教育如何应对AI时代", en: "New President's Dialogue episode: interdisciplinary education in the AI era", sz: "本期嘉宾为两位跨学科课程主任，片长约四十分钟。", se: "Two programme directors join the 40-minute conversation." },
+      { category: "research", topics: ["eng", "biomed"], sourceKey: "prn-polyu", zh: "理大孵化初创获数千万元Pre-A融资，加速柔性传感器产业化", en: "PolyU-incubated startup raises tens of millions in Pre-A to scale flexible sensors", sz: "公司主打的贴附式生理监测贴片将扩产两倍。", se: "The wearable physiological-monitoring patch will triple capacity." }
+    ]
+  },
+  {
+    // 快讯溢出触发期：research 12 条 → 版面 8 + 快讯 4
+    date: "2026-09-28",
+    items: [
+      { category: "research", topics: ["eng", "research"], sourceKey: "official-media-release", zh: "理大团队研制太赫兹超表面编码芯片，通信容量提升数倍", en: "PolyU's terahertz metasurface coding chip multiplies link capacity", sz: "芯片以可重构超表面实现波束赋形，实测速率提升四倍，为6G前传提供候选方案。", se: "A reconfigurable metasurface shapes beams and quadruples measured data rates, a candidate for 6G fronthaul." },
+      { category: "admission", topics: ["admission"], sourceKey: "official-focus", zh: "研究生课程2027春季入学申请系统开放", en: "Spring 2027 postgraduate application portal opens", sz: "本轮开放三十余个授课式专业，截止十一月中。", se: "Over 30 taught programmes open, closing mid-November." },
+      { category: "research", topics: ["ce", "energy"], sourceKey: "official-media-release", zh: "理大与合作团队揭示华南河口碳汇机制，成果刊于《自然·地球科学》", en: "Estuarine carbon-sink mechanism revealed in Nature Geoscience", sz: "研究量化红树林-滩涂交互带的碳埋藏通量，为蓝碳核算提供基准。", se: "The work quantifies carbon burial in mangrove-tidal flats, grounding blue-carbon accounting." },
+      { category: "campus", topics: ["campus"], sourceKey: "official-focus", zh: "校园无障碍地图2.0上线，覆盖全部教学楼宇", en: "Accessibility map 2.0 covers every teaching building", sz: "地图标注无障碍入口、升降机与无障碍洗手间位置。", se: "The map marks accessible entrances, lifts and washrooms." },
+      { category: "research", topics: ["biomed"], sourceKey: "prn-polyu", zh: "理大开发疟疾快速检测试纸，15分钟出结果", en: "Rapid malaria test strip delivers results in 15 minutes", sz: "试纸无需仪器即可判读，将在流行地区开展验证。", se: "Instrument-free readout; field validation begins in endemic regions." },
+      { category: "event", topics: ["event", "ai"], sourceKey: "official-events", zh: "数据科学青年学者论坛在理大举行", en: "Young Scholars Forum on Data Science held at PolyU", sz: "论坛收到逾两百篇投稿，设三个分论坛。", se: "200+ submissions across three sub-forums." },
+      { category: "research", topics: ["energy", "materials"], sourceKey: "official-media-release", zh: "理大团队提升固态电解质界面稳定性，固态电池循环寿命翻倍", en: "Solid-electrolyte interface stabilised, doubling solid-state battery cycle life", sz: "界面修饰层抑制枝晶生长，软包电池通过针刺测试。", se: "An interfacial coating suppresses dendrites; pouch cells passed nail-penetration tests." },
+      { category: "admin", topics: ["admin"], sourceKey: "official-focus", zh: "校园网络升级维护公告：周日凌晨暂停部分服务", en: "Campus network upgrade: some services pause Sunday early hours", sz: "维护窗口为零时至六时，影响学习管理系统访问。", se: "The 00:00-06:00 window affects the learning management system." },
+      { category: "research", topics: ["ce", "city"], sourceKey: "official-media-release", zh: "理大发布深海采矿沉积物再悬浮预测模型", en: "Deep-sea mining sediment re-suspension model released", sz: "模型为采矿环评提供羽流扩散范围估算工具。", se: "The model estimates plume spread for mining environmental reviews." },
+      { category: "research", topics: ["biomed", "ai"], sourceKey: "official-media-release", zh: "理大与医院合作推出AI辅助骨折术后康复方案", en: "AI-assisted post-fracture rehabilitation programme launched with hospital partners", sz: "方案按影像随访自动调整负重建议，试点患者依从性提升三成。", se: "Imaging follow-ups auto-adjust loading advice; pilot adherence rose 30%." },
+      { category: "research", topics: ["eng", "city"], sourceKey: "prn-polyu", zh: "理大团队研发高层建筑风振控制调谐装置", en: "Tuned device dampens wind-induced vibration in tall buildings", sz: "装置体积较传统TMD缩小四成，已装设于在建项目。", se: "The device is 40% smaller than conventional TMDs and installed on a live project." },
+      { category: "research", topics: ["biomed", "materials"], sourceKey: "official-media-release", zh: "理大团队实现微塑料降解酶的定向进化", en: "Directed evolution yields enzymes that degrade microplastics", sz: "进化后的酶在常温下六小时降解率超过八成。", se: "Evolved enzymes break down over 80% within six hours at room temperature." },
+      { category: "research", topics: ["hss", "biomed"], sourceKey: "official-media-release", zh: "理大发布老年跌倒风险居家感知系统", en: "Home sensing system flags elderly fall risk", sz: "系统以毫米波雷达识别步态异常，无须穿戴设备。", se: "Millimetre-wave radar spots gait anomalies without wearables." },
+      { category: "research", topics: ["materials", "ce"], sourceKey: "prn-polyu", zh: "理大研制光催化自清洁混凝土，试点人行道落成", en: "Photocatalytic self-cleaning concrete piloted on a walkway", sz: "涂层分解氮氧化物并抗污，养护成本显著下降。", se: "The coating decomposes NOx and resists staining, cutting upkeep costs." },
+      { category: "research", topics: ["eng", "ai"], sourceKey: "official-media-release", zh: "理大突破低轨卫星激光通信捕获跟踪技术", en: "Breakthrough in acquisition and tracking for LEO laser links", sz: "捕获时间缩短至秒级，支持星地高速链路。", se: "Acquisition shrinks to seconds, enabling high-rate ground links." },
+      { category: "research", topics: ["ai", "biomed"], sourceKey: "prn-polyu", zh: "理大开放联邦学习医疗影像基准数据集", en: "PolyU releases federated medical-imaging benchmark", sz: "基准覆盖三家医院的脱敏胸片，供全球研究者复现。", se: "The benchmark spans de-identified chest X-rays from three hospitals for reproducible research." }
+    ]
+  },
+  {
+    // 版面分节展示期：9 条 · 6 类目
+    date: "2026-09-18",
+    items: [
+      { category: "research", topics: ["materials", "biomed"], sourceKey: "official-media-release", zh: "理大研发智能织物，可连续监测心率变异性", en: "Smart fabric continuously monitors heart-rate variability", sz: "纤维电极经三十次水洗仍保持信号质量，适合日常穿戴。", se: "Fibre electrodes retain signal quality after 30 washes for everyday wear." },
+      { category: "admission", topics: ["admission", "exchange"], sourceKey: "official-focus", zh: "2027本科联合课程宣讲会接受报名", en: "Joint undergraduate curriculum briefing opens for registration", sz: "宣讲会将介绍与海外伙伴合办的双学位结构与遴选方式。", se: "The briefing covers dual-degree structures and selection with overseas partners." },
+      { category: "event", topics: ["event"], sourceKey: "official-events", zh: "理大创新开放日吸引逾三千中学生参观", en: "Innovation Open Day draws 3,000+ secondary students", sz: "实验室导赏与动手工作坊全日爆满，来年将增开场次。", se: "Fully booked tours and workshops; more sessions planned next year." },
+      { category: "campus", topics: ["campus"], sourceKey: "official-focus", zh: "邵逸夫楼改造学习共享空间启用", en: "Refurbished learning commons opens in Shaw Building", sz: "空间设协作白板与静音舱，二十四小时开放。", se: "Collaborative whiteboards, focus pods and 24-hour access." },
+      { category: "research", topics: ["energy", "materials"], sourceKey: "official-media-release", zh: "理大团队报道镁离子电池正极新进展", en: "New cathode progress reported for magnesium-ion batteries", sz: "层状正极材料的循环稳定性显著改善。", se: "Layered cathodes show markedly better cycle stability." },
+      { category: "event", topics: ["event", "ai"], sourceKey: "official-events", zh: "圆桌沙龙：生成式AI时代的教学创新", en: "Roundtable on teaching in the generative-AI era", sz: "八位教师分享课程设计中的AI融入经验。", se: "Eight teachers share how they weave AI into course design." },
+      { category: "career", topics: ["career"], sourceKey: "official-focus", zh: "简历诊所一对一辅导时段开放预约", en: "CV clinic one-on-one sessions open", sz: "顾问来自人力资源与行业导师团队，每周三晚开放。", se: "Advisers from HR and industry mentor teams; Wednesday evenings." },
+      { category: "exchange", topics: ["exchange"], sourceKey: "official-focus", zh: "与京都大学交换计划新增春季批次", en: "Kyoto University exchange adds spring cohort", sz: "春季批次名额五名，学分转换细则同步更新。", se: "Five spring places; credit-transfer rules updated in step." },
+      { category: "admin", topics: ["admin"], sourceKey: "official-focus", zh: "期末考试教室安排查询上线", en: "Final-exam room allocation lookup goes live", sz: "查询页按课程检索座位号与考场平面图。", se: "Search by course for seat numbers and venue maps." }
+    ]
+  },
+  {
+    // 中等展示期：8 条 · 5 类目
+    date: "2026-09-22",
+    items: [
+      { category: "research", topics: ["eng", "city"], sourceKey: "official-media-release", zh: "理大团队研发声学超材料降噪窗", en: "Acoustic-metamaterial window cuts noise while ventilating", sz: "窗体在通风状态下降噪八分贝，适合临街住宅。", se: "The window cuts noise by 8 dB while staying ventilated." },
+      { category: "campus", topics: ["campus"], sourceKey: "youtube-main", zh: "理大壁球校队蝉联大专锦标赛冠军", en: "PolyU squash team retains varsity championship", sz: "队伍在决赛以三比一胜出，实现两连冠。", se: "A 3-1 final win seals back-to-back titles." },
+      { category: "research", topics: ["ce", "city"], sourceKey: "official-media-release", zh: "理大绘制城市暴雨内涝风险图", en: "Urban flash-flood risk map released", sz: "风险图融合排水模型与历史淹没记录，分辨率到街区。", se: "The map blends drainage models with flood records at block resolution." },
+      { category: "event", topics: ["event"], sourceKey: "official-events", zh: "理大交响乐团慈善音乐会售票开启", en: "PolyU orchestra charity concert tickets on sale", sz: "曲目涵盖德沃夏克与当代委约新作。", se: "Programme spans Dvořák and a newly commissioned work." },
+      { category: "admission", topics: ["admission", "exchange"], sourceKey: "official-focus", zh: "理大参与国际教育展，介绍联合学位项目", en: "PolyU to present joint-degree programmes at education fair", sz: "招生团队将现场解答学分互认问题。", se: "Admissions staff will answer credit-recognition questions on site." },
+      { category: "career", topics: ["career"], sourceKey: "official-media-release", zh: "毕业生就业调查显示起薪中位数上升", en: "Graduate employment survey shows rising median starting pay", sz: "受访率创新高，数据经独立机构核验。", se: "A record response rate, verified by an independent body." },
+      { category: "campus", topics: ["campus"], sourceKey: "official-focus", zh: "学生活动中心延长周末开放时间", en: "Student hub extends weekend hours", sz: "周末闭馆时间由六时延至十时。", se: "Weekend closing moves from 6 pm to 10 pm." },
+      { category: "admin", topics: ["admin", "campus"], sourceKey: "official-focus", zh: "校车服务时刻表新学期起调整", en: "Campus shuttle timetable adjusts from the new term", sz: "高峰班次加密，末班车延后半小时。", se: "Peak-hour frequency rises; last bus runs 30 minutes later." }
+    ]
+  },
+  {
+    // 衔接真实 mock 资讯的展示期：钙钛矿头条
+    date: "2026-09-10",
+    items: [
+      { category: "research", topics: ["energy", "materials", "eng"], sourceKey: "official-media-release", zh: "理大团队破解钙钛矿太阳能电池稳定性难题，成果刊于《自然·能源》", en: "PolyU team cracks perovskite solar-cell stability problem, published in Nature Energy", sz: "理大应用物理系团队提出新型界面钝化策略，将钙钛矿太阳能电池在高温高湿下的运行寿命显著延长，转换效率同时获得提升，为产业化落地扫清关键障碍。", se: "A new interfacial passivation strategy extends lifetime under heat and humidity while raising efficiency, clearing a key barrier to commercialisation." },
+      { category: "admission", topics: ["admission"], sourceKey: "official-focus", zh: "2026/27学年春季入学补充录取开启", en: "Spring 2027 supplementary admissions open", sz: "少量名额面向转专业申请人开放。", se: "A small number of places open to transfer applicants." },
+      { category: "event", topics: ["event", "campus"], sourceKey: "official-events", zh: "理大科学节周末开幕，免费向公众开放", en: "PolyU Science Festival opens this weekend, free to the public", sz: "设四十余项互动展项与科普讲座。", se: "Forty-plus interactive exhibits and popular-science talks." },
+      { category: "admin", topics: ["admin", "campus"], sourceKey: "official-focus", zh: "邵逸夫体育馆维护，暂停开放两周", en: "Shaw Sports Complex closes two weeks for maintenance", sz: "改造期间课程调整至邻馆进行。", se: "Classes relocate to the neighbouring hall during works." }
+    ]
+  }
+];
+
+/** 休刊日（窗口内零可见条目；读侧弱化呈现） */
+const EMPTY_DATES = ["2026-10-03", "2026-09-27", "2026-09-26", "2026-09-19", "2026-09-13", "2026-09-06", "2026-09-05"];
+
+/** 池游标：每类目独立推进，30 天内零重复取用 */
+const poolCursor: Partial<Record<NewsCategory, number>> = {};
+function takeFromPool(cat: NewsCategory): PoolEntry {
+  const pool = SIM_POOL.filter((entry) => entry.cat === cat);
+  const used = poolCursor[cat] ?? 0;
+  poolCursor[cat] = used + 1;
+  return pool[used % pool.length];
+}
+
+/** 快照序时间梯：i=0（头条）最晚，逐条递减；跨零点后落到 D 日凌晨 */
+function ladderTime(i: number): { dayOffset: 0 | 1; hh: number; mm: number } {
+  const raw = 1360 - i * 71;
+  const dayOffset: 0 | 1 = raw >= 480 ? 0 : 1;
+  const norm = dayOffset === 0 ? raw : raw + 1440;
+  return { dayOffset, hh: Math.floor(norm / 60), mm: norm % 60 };
+}
+
+function shiftDate(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00+08:00`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+let simItemId = 900001;
+function buildSimDay(date: string, simItems: SimItem[], degraded: boolean): NewsDailyDigest {
+  const prevDate = shiftDate(date, -1);
+  const items: NewsDailyDigestItem[] = simItems.map((sim, i) => {
+    const { dayOffset, hh, mm } = ladderTime(i);
+    const reg = NEWS_SOURCES[sim.sourceKey];
+    return {
+      itemId: simItemId++,
+      seq: i + 1,
+      url: "https://www.polyu.edu.hk/media/media-releases/",
+      titleZh: sim.zh,
+      titleEn: sim.en,
+      summaryZh: sim.sz,
+      summaryEn: sim.se,
+      category: sim.category,
+      topics: sim.topics,
+      publishTime: `${dayOffset === 0 ? prevDate : date}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00+08:00`,
+      source: {
+        sourceKey: reg.sourceKey,
+        platform: reg.platform,
+        official: reg.official,
+        displayName: reg.labelZh,
+        displayNameEn: reg.labelEn
+      }
+    };
+  });
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  return {
+    digestDate: date,
+    windowStart: `${prevDate}T08:00:00+08:00`,
+    windowEnd: `${date}T08:00:00+08:00`,
+    introZh: `本期覆盖 ${month}月${day}日前一日 24 小时内的公开动态，共 ${items.length} 条；头版为发布时间最新的一条，以下按版面归类呈现。`,
+    introEn: `This issue covers the 24 hours to 08:00 HKT on ${date} — ${items.length} items, led by the newest, grouped by section.`,
+    storedIntroSource: "fallback",
+    introDegraded: degraded,
+    itemCount: items.length,
+    visibleCount: items.length,
+    disqualifiedCount: degraded ? 1 : 0,
+    items,
+    buildTime: `${date}T08:40:00+08:00`
+  };
+}
+
+function buildEmptyDay(date: string): NewsDailyDigest {
+  return {
+    digestDate: date,
+    windowStart: `${shiftDate(date, -1)}T08:00:00+08:00`,
+    windowEnd: `${date}T08:00:00+08:00`,
+    introZh: "",
+    introEn: "",
+    storedIntroSource: "empty",
+    introDegraded: false,
+    itemCount: 0,
+    visibleCount: 0,
+    disqualifiedCount: 0,
+    items: [],
+    buildTime: `${date}T08:40:00+08:00`
+  };
+}
+
+function deriveMockDigests(): NewsDailyDigest[] {
+  const byDate = new Map<string, { items: SimItem[]; degraded: boolean }>();
+  for (const day of SHOWCASE_DAYS) {
+    byDate.set(day.date, { items: day.items, degraded: false });
+  }
+  for (const day of LIGHT_DAYS) {
+    byDate.set(day.date, { items: day.cats.map((cat) => {
+      const p = takeFromPool(cat);
+      return { category: p.cat, topics: p.topics, sourceKey: p.sourceKey, zh: p.zh, en: p.en, sz: p.sz, se: p.se };
+    }), degraded: day.degraded ?? false });
+  }
+  const all = [...byDate.entries()].map(([date, plan]) => buildSimDay(date, plan.items, plan.degraded));
+  for (const date of EMPTY_DATES) {
+    all.push(buildEmptyDay(date));
+  }
+  // 日期倒序（最新一期在前），完整覆盖 2026-09-05 → 2026-10-04 共 30 期
+  return all.sort((a, b) => (a.digestDate < b.digestDate ? 1 : -1));
+}
+
+/** 日报 mock fixture（#238 原型 30 天仿真，日期倒序） */
 export const MOCK_DAILY_DIGESTS: NewsDailyDigest[] = deriveMockDigests();
 
-/** 日报目录 mock（由 fixture 派生） */
+/** 日报目录 mock（由 fixture 派生；firstTitle* 为后端只读字段的 mock 等价物） */
 export const MOCK_DAILY_DIGEST_SUMMARIES: NewsDailyDigestSummary[] = MOCK_DAILY_DIGESTS.map((digest) => ({
   digestDate: digest.digestDate,
   itemCount: digest.itemCount,
   introSource: digest.storedIntroSource,
-  buildTime: digest.buildTime
+  buildTime: digest.buildTime,
+  firstTitleZh: digest.items[0]?.titleZh ?? null,
+  firstTitleEn: digest.items[0]?.titleEn ?? null
 }));

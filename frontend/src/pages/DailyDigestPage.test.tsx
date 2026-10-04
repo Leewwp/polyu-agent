@@ -1,33 +1,74 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { DailyDigestPage } from "./DailyDigestPage";
 import { FeedLangProvider } from "@/components/feed/feedLang";
+import { resetPageTitleForTests } from "@/hooks/usePageTitle";
 import { dailyDigestRssUrl, fetchDailyDigest, fetchDailyDigestList } from "@/services/newsService";
-import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
 
 /**
- * 公开日报页（#212）。
- * - 目录→最新刊详情渲染（刊头/生效导语/条目卡）；日期 chip 切换重取详情；
- * - 下架降级口径：introDegraded 时「部分内容已下架」注记+模板导语（无 LLM 导语残留）；
- * - 空刊/目录为空/加载失败三态；
- * - RSS 订阅外链指向 /public/news/daily/{date}/rss；
- * - 匿名渲染零 /auth、零引擎探测、零 LLM 端点（XHR spy：请求只落 /public/news/daily/**）。
+ * 公开日报页（#241 报刊范式，原型 proto/238 转正）：
+ * - 头版：头条放大+今日看点（2-4 名）+本期版面目录+统计条；9 类目固定版序、
+ *   空版消失、每版 >8 溢出快讯 ≤12、头条不在版面内重复；
+ * - 导航：桌面月分组 rail（首条标题两行预览=目录接口 firstTitle 字段）+
+ *   移动日期条+本期目录抽屉+上一期/下一期（30 期目录推导，最新期无 next）；
+ * - 路由：/daily=最新一期（canonical=/daily）、/daily/:date 深链（canonical=自身）、
+ *   key 不合式 404；日期切换=真实路由导航改写地址栏；
+ * - 三态（#234 吸收）：休刊（rail 灰化+0 徽章+说明仅一次+查看热点引导）、
+ *   未出刊、加载失败+页内重试；越界日期（存档外）与失败态可区分；
+ * - 头条与目录 firstTitle 同源一致；document.title 按期（骑 #231 壳 title 机制）；
+ *   透明口径 chips；匿名渲染零 /auth、零引擎探测、零 LLM 端点。
  */
 
 vi.mock("@/services/newsService", () => ({
   fetchDailyDigestList: vi.fn(),
   fetchDailyDigest: vi.fn(),
-  dailyDigestRssUrl: vi.fn((date: string) => `/public/news/daily/${date}/rss`)
+  dailyDigestRssUrl: vi.fn((date: string) => `/public/news/daily/${date}/rss`),
+  DAILY_MISSING_MESSAGE: "日报不存在"
 }));
 
+/** 目录（日期倒序）：最新期 12 条（快讯溢出形态）、10-01 休刊（firstTitle=null） */
 const SUMMARIES: NewsDailyDigestSummary[] = [
-  { digestDate: "2026-10-03", itemCount: 2, introSource: "llm", buildTime: "2026-10-03T08:40:00+08:00" },
-  { digestDate: "2026-10-02", itemCount: 1, introSource: "fallback", buildTime: "2026-10-02T08:40:00+08:00" }
+  { digestDate: "2026-10-03", itemCount: 13, introSource: "llm", buildTime: "2026-10-03T08:40:00+08:00", firstTitleZh: "研究突破甲", firstTitleEn: "Research A" },
+  { digestDate: "2026-10-02", itemCount: 2, introSource: "fallback", buildTime: "2026-10-02T08:40:00+08:00", firstTitleZh: "研究突破乙", firstTitleEn: "Research B" },
+  { digestDate: "2026-10-01", itemCount: 0, introSource: "empty", buildTime: "2026-10-01T08:40:00+08:00", firstTitleZh: null, firstTitleEn: null },
+  { digestDate: "2026-09-30", itemCount: 1, introSource: "llm", buildTime: "2026-09-30T08:40:00+08:00", firstTitleZh: "校园动态丙", firstTitleEn: "Campus C" }
 ];
 
+function item(id: number, seq: number, category: NewsDailyDigestItem["category"], title: string): NewsDailyDigestItem {
+  return {
+    itemId: id,
+    seq,
+    url: "https://www.polyu.edu.hk/a",
+    titleZh: title,
+    titleEn: `Title ${id}`,
+    summaryZh: `摘要${id}`,
+    summaryEn: `Summary ${id}`,
+    category,
+    topics: [],
+    publishTime: `2026-10-02T${String(9 + (seq % 12)).padStart(2, "0")}:00:00+08:00`,
+    source: {
+      sourceKey: "official-media-release",
+      platform: "official",
+      official: true,
+      displayName: "理大官网",
+      displayNameEn: "PolyU official"
+    }
+  };
+}
+
+/**
+ * 2026-10-03 详情：13 条=头条（research）+research 11+campus 1——
+ * research 版面 8 件+快讯 3 条（>8 溢出），campus 版面 1 件。
+ */
 function digestFixture(overrides: Partial<NewsDailyDigest> = {}): NewsDailyDigest {
+  const items: NewsDailyDigestItem[] = [item(11, 1, "research", "研究突破甲")];
+  for (let i = 2; i <= 12; i++) {
+    items.push(item(10 + i, i, "research", `科研条目${i}`));
+  }
+  items.push(item(30, 13, "campus", "校园活动乙"));
   return {
     digestDate: "2026-10-03",
     windowStart: "2026-10-02T08:00:00+08:00",
@@ -36,56 +77,54 @@ function digestFixture(overrides: Partial<NewsDailyDigest> = {}): NewsDailyDiges
     introEn: "Two things worth noting today.",
     storedIntroSource: "llm",
     introDegraded: false,
-    itemCount: 2,
-    visibleCount: 2,
+    itemCount: 13,
+    visibleCount: 13,
     disqualifiedCount: 0,
-    items: [
-      {
-        itemId: 11,
-        seq: 1,
-        url: "https://www.polyu.edu.hk/a",
-        titleZh: "研究突破甲",
-        titleEn: "Research A",
-        summaryZh: "摘要甲",
-        summaryEn: "Summary A",
-        category: "research",
-        topics: ["ai"],
-        publishTime: "2026-10-02T09:00:00+08:00",
-        source: {
-          sourceKey: "news-sitemap",
-          platform: "official",
-          official: true,
-          displayName: "理大官网",
-          displayNameEn: "PolyU official"
-        }
-      },
-      {
-        itemId: 12,
-        seq: 2,
-        url: "https://www.polyu.edu.hk/b",
-        titleZh: "校园活动乙",
-        titleEn: "Campus B",
-        summaryZh: "摘要乙",
-        summaryEn: "Summary B",
-        category: "campus",
-        topics: [],
-        publishTime: "2026-10-02T10:00:00+08:00",
-        source: null
-      }
-    ],
+    items,
     buildTime: "2026-10-03T08:40:00+08:00",
     ...overrides
   };
 }
 
-function renderPage() {
+function recessFixture(date: string): NewsDailyDigest {
+  return {
+    digestDate: date,
+    windowStart: "2026-09-30T08:00:00+08:00",
+    windowEnd: "2026-10-01T08:00:00+08:00",
+    introZh: "",
+    introEn: "",
+    storedIntroSource: "empty",
+    introDegraded: false,
+    itemCount: 0,
+    visibleCount: 0,
+    disqualifiedCount: 0,
+    items: [],
+    buildTime: `${date}T08:40:00+08:00`
+  };
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-probe">{location.pathname}</div>;
+}
+
+function renderPage(initial = "/daily") {
   return render(
-    <MemoryRouter initialEntries={["/daily"]}>
+    <MemoryRouter initialEntries={[initial]}>
       <FeedLangProvider>
-        <DailyDigestPage />
+        <LocationProbe />
+        <Routes>
+          <Route path="/daily" element={<DailyDigestPage />} />
+          <Route path="/daily/:date" element={<DailyDigestPage />} />
+          <Route path="*" element={<div>route-not-found</div>} />
+        </Routes>
       </FeedLangProvider>
     </MemoryRouter>
   );
+}
+
+function canonicalHref(): string | null {
+  return document.querySelector("link[rel='canonical']")?.getAttribute("href") ?? null;
 }
 
 function instrumentNetwork(): { requestedUrls: string[] } {
@@ -101,6 +140,7 @@ describe("DailyDigestPage", () => {
     vi.mocked(fetchDailyDigestList).mockReset();
     vi.mocked(fetchDailyDigest).mockReset();
     vi.mocked(dailyDigestRssUrl).mockClear();
+    resetPageTitleForTests();
   });
 
   afterEach(() => {
@@ -108,55 +148,115 @@ describe("DailyDigestPage", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders latest digest head, intro and snapshot item cards", async () => {
+  it("renders the latest issue front page: headline, highlights, sections, flash overflow and stats", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
 
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
-    expect(screen.getByText(/理大资讯日报 · 2026-10-03/)).toBeTruthy();
-    expect(screen.getByText("本期两件事值得留意。")).toBeTruthy();
-    expect(screen.getByText("校园活动乙")).toBeTruthy();
-    // 刊头只请求目录+详情，默认选中最新一期
+    // 头条放大档：头条徽标+来源徽标（每卡一枚，取多枚）+摘要
+    expect(screen.getByText("头条")).toBeTruthy();
+    expect(screen.getAllByText("理大官网").length).toBeGreaterThan(0);
+    // 今日看点=排序 2-4 名；看点条目同时留在版面内（仅头条不重复）→ 条目3 双现
+    expect(screen.getByText("今日看点")).toBeTruthy();
+    expect(screen.getAllByText("科研条目3").length).toBe(2);
+    // 统计条（全客户端推导）：13 条动态（rail 徽标同为 13）
+    expect(screen.getAllByText("13").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("条动态")).toBeTruthy();
+    expect(screen.getByText("分钟读完")).toBeTruthy();
+    // 版面：research 8 件（>8 溢出，分节头+目录行双现）、campus 1 件；快讯承接溢出 3 条
+    expect(screen.getAllByText("8 件").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("1 件").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("3 条 · 版面溢出")).toBeTruthy();
+    // 头条不在版面内重复：全页「研究突破甲」只出现在头条卡与 rail 预览（目录 firstTitle 同源）
+    expect(screen.getAllByText("研究突破甲").length).toBe(2);
     expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-03");
   });
 
-  it("switches to another date chip and refetches the detail", async () => {
+  it("drives document.title per issue through the FeedShell title mechanism and sets canonical=/daily", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
-    vi.mocked(fetchDailyDigest).mockImplementation(async (date: string) =>
-      digestFixture({ digestDate: date, items: [], visibleCount: 0, itemCount: date === "2026-10-02" ? 1 : 0 })
-    );
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
-    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-03"));
 
-    fireEvent.click(screen.getByRole("button", { name: "10-02" }));
-    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-02"));
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    expect(document.title).toBe("理大资讯日报 · 2026-10-03 · PolyUGuide");
+    expect(canonicalHref()?.endsWith("/daily")).toBe(true);
   });
 
-  it("marks degraded digest with removal note and drops LLM intro residue", async () => {
+  it("renders the deep-linked issue with canonical pointing to itself", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(
       digestFixture({
-        introZh: "本期日报覆盖 2026-10-02 至 2026-10-03 的公开动态，共 1 条，以下按发布时间倒序排列。",
-        introDegraded: true,
-        disqualifiedCount: 1,
-        visibleCount: 1,
-        items: [digestFixture().items[0]]
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙"), item(42, 2, "campus", "校园活动丁")],
+        itemCount: 2,
+        visibleCount: 2
       })
     );
-    renderPage();
-    await waitFor(() => expect(screen.getByText("部分内容已下架")).toBeTruthy());
-    expect(screen.getByText(/共 1 条，以下按发布时间倒序排列/)).toBeTruthy();
-    expect(screen.queryByText("本期两件事值得留意。")).toBeNull();
+    renderPage("/daily/2026-10-02");
+
+    // 深链期头条（rail 预览同文本出现两次：头条卡+目录 firstTitle 预览）
+    await waitFor(() => expect(screen.getAllByText("研究突破乙").length).toBeGreaterThan(0));
+    expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-02");
+    expect(document.title).toBe("理大资讯日报 · 2026-10-02 · PolyUGuide");
+    expect(canonicalHref()?.endsWith("/daily/2026-10-02")).toBe(true);
+    // 深链期不是最新一期：不出现「最新一期」徽标，翻期格有 next
+    expect(screen.queryByText("最新一期")).toBeNull();
+    expect(screen.getByText("下一期")).toBeTruthy();
   });
 
-  it("shows empty-digest state when the digest has no visible items", async () => {
+  it("renders 404 for a malformed date key without fetching", () => {
+    renderPage("/daily/1000");
+    expect(screen.getByText("页面不存在")).toBeTruthy();
+    expect(screen.queryByText("理大资讯日报")).toBeNull();
+    expect(fetchDailyDigestList).not.toHaveBeenCalled();
+    expect(canonicalHref()).toBeNull();
+  });
+
+  it("distinguishes an out-of-archive date from a load failure", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
-    vi.mocked(fetchDailyDigest).mockResolvedValue(
-      digestFixture({ introZh: "本期日报（2026-10-03 覆盖窗口）内暂无公开动态。", items: [], visibleCount: 0 })
-    );
+    vi.mocked(fetchDailyDigest).mockRejectedValue(new Error("日报不存在"));
+    renderPage("/daily/2026-08-01");
+
+    await waitFor(() => expect(screen.getByText("该日期暂无刊期存档")).toBeTruthy());
+    expect(screen.getByText(/线上存档自 2026-09-30 起/)).toBeTruthy();
+    // 与失败态可区分：不出现失败文案/重试钮
+    expect(screen.queryByText("日报加载失败")).toBeNull();
+    expect(screen.queryByText("重试")).toBeNull();
+  });
+
+  it("recovers from a load failure via in-page retry (no full reload)", async () => {
+    vi.mocked(fetchDailyDigestList).mockRejectedValueOnce(new Error("boom")).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
-    await waitFor(() => expect(screen.getByText("本期窗口内暂无公开动态")).toBeTruthy());
+
+    await waitFor(() => expect(screen.getByText("日报加载失败")).toBeTruthy());
+    expect(screen.getByText("重试")).toBeTruthy();
+    expect(fetchDailyDigestList).toHaveBeenCalledTimes(1);
+
+    // 页内重试=状态复位重取（同一挂载内 refetch，非整页刷新）
+    fireEvent.click(screen.getByText("重试"));
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    expect(fetchDailyDigestList).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders the recess state: 0 badge rail, explanation exactly once, hot-rank guide", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(recessFixture("2026-10-01"));
+    renderPage("/daily/2026-10-01");
+
+    await waitFor(() => expect(screen.getByText("本日休刊")).toBeTruthy());
+    // 报头「休刊」徽标+说明全页仅一次（rail/翻期格只留短标签）
+    expect(screen.getByText("休刊")).toBeTruthy();
+    expect(screen.getAllByText(/不是生成故障/).length).toBe(1);
+    // 「查看热点」引导跳热点榜+回到最新一期
+    expect(screen.getByText("查看热点 →").closest("a")?.getAttribute("href")).toBe("/hot");
+    expect(screen.getByText("查看最新一期 →").closest("a")?.getAttribute("href")).toBe("/daily");
+    // rail：休刊行 0 徽章+firstTitle 空期回落文案
+    expect(screen.getByText("本日休刊，窗口内无公开发布")).toBeTruthy();
+    // 翻期格：上一期/下一期均从目录推导（firstTitle 预览，rail 内同文本再现）
+    expect(screen.getAllByText("研究突破乙").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("校园动态丙").length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows not-yet-generated state when the catalog is empty", async () => {
@@ -166,18 +266,74 @@ describe("DailyDigestPage", () => {
     expect(fetchDailyDigest).not.toHaveBeenCalled();
   });
 
-  it("shows error state when loading fails", async () => {
-    vi.mocked(fetchDailyDigestList).mockRejectedValue(new Error("boom"));
+  it("navigates to the real /daily/:date route when a rail date is picked", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockImplementation(async (date: string) =>
+      digestFixture({
+        digestDate: date,
+        items: [item(51, 1, "research", "研究突破乙"), item(52, 2, "campus", "校园活动丁")],
+        itemCount: 2,
+        visibleCount: 2
+      })
+    );
     renderPage();
-    await waitFor(() => expect(screen.getByText("日报加载失败，请稍后刷新重试")).toBeTruthy());
+
+    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-03"));
+    const probe = screen.getByTestId("location-probe");
+    expect(probe.textContent).toBe("/daily");
+
+    // rail 里 10-02 那行（首条标题两行预览=目录 firstTitle 字段）
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === "/daily/2026-10-02");
+    expect(link).toBeTruthy();
+    fireEvent.click(link!);
+    await waitFor(() => expect(probe.textContent).toBe("/daily/2026-10-02"));
+    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-02"));
   });
 
-  it("exposes the RSS subscribe link for the selected date", async () => {
+  it("opens the contents drawer with issue TOC and prev/next entries", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
+
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
-    const rss = screen.getByText("RSS ↗").closest("a");
+    fireEvent.click(screen.getByRole("button", { name: /本期目录/ }));
+    expect(screen.getByText("本期目录 · 2026-10-03")).toBeTruthy();
+    // 抽屉目录行=版面锚点（科研版+快讯版均入目录）
+    expect(document.querySelectorAll('a[href="#sec-research"]').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('a[href="#sec-flash"]').length).toBeGreaterThan(0);
+    // 抽屉内上一期/下一期（最新期无 next → 占位；正文翻期格同名并存）
+    expect(screen.getAllByText("上一期").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("已是最新一期")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByText("本期目录 · 2026-10-03")).toBeNull());
+  });
+
+  it("keeps transparent chips for template intro and degraded issues", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(
+      digestFixture({
+        introZh: "本期日报覆盖 2026-10-02 至 2026-10-03 的公开动态，共 12 条，以下按发布时间倒序排列。",
+        storedIntroSource: "fallback",
+        introDegraded: true,
+        disqualifiedCount: 1
+      })
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("部分内容已下架")).toBeTruthy());
+    expect(screen.getByText("模板导语")).toBeTruthy();
+    expect(screen.getByText(/共 12 条，以下按发布时间倒序排列/)).toBeTruthy();
+    expect(screen.queryByText("本期两件事值得留意。")).toBeNull();
+  });
+
+  it("exposes the issue RSS link for the selected date", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    const rss = screen.getByText("本期 RSS ↗").closest("a");
     expect(rss?.getAttribute("href")).toBe("/public/news/daily/2026-10-03/rss");
   });
 
@@ -186,6 +342,7 @@ describe("DailyDigestPage", () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
+
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
     // 页面数据全走 service mock（USE_MOCK 分支），XHR 只可能出现于组件内部的
     // 引擎/会话探测——断言这些探测一个都没发生（公开页红线：零 /auth、零 /rag、零 LLM）

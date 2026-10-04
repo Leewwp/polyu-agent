@@ -121,6 +121,14 @@ export const router = createBrowserRouter([
     element: <DailyDigestPage />
   },
   {
+    // #241 按日深链 /daily/:date（YYYY-MM-DD，key 不合式页内 404）——
+    // 对齐已提交 IndexNow/sitemap 的 URL 面；canonical 指向自身
+    // （/daily 的 canonical=/daily）。与 /daily 同组件：无参=最新一期渲染；
+    // 日期切换=真实路由导航改写地址栏（rail/日期条/翻期格全走本路由）。
+    path: "/daily/:date",
+    element: <DailyDigestPage />
+  },
+  {
     // 公开主题地图：三维分组目录卡，裸路由无守卫（FeedPage 范式）
     path: "/topics",
     element: <TopicsPage />

@@ -150,4 +150,11 @@ export interface NewsDailyDigestSummary {
   itemCount: number;
   introSource: string;
   buildTime: string;
+  /**
+   * #240 目录首条标题字段（每期第一个可见条目的双语标题快照，空期=null）：
+   * #241 消费面=日报报刊 rail/翻期格的标题预览。与详情头条（items[0]）
+   * 同源（同一快照列），保证「头条与目录 firstTitle 同源一致」。
+   */
+  firstTitleZh?: string | null;
+  firstTitleEn?: string | null;
 }

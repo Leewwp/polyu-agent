@@ -1,42 +1,229 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
-import { NewsCard } from "@/components/feed/NewsCard";
 import { useFeedLang } from "@/components/feed/feedLang";
-import { digestItemToNewsItem } from "@/services/newsMapping";
-import { dailyDigestRssUrl, fetchDailyDigest, fetchDailyDigestList } from "@/services/newsService";
-import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
+import { useHeadElement } from "@/hooks/useHeadElement";
+import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
+import {
+  DAILY_MISSING_MESSAGE,
+  dailyDigestRssUrl,
+  fetchDailyDigest,
+  fetchDailyDigestList
+} from "@/services/newsService";
+import type { NewsCategory, NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
+import { isSafeUrl } from "@/utils/urlSafety";
+import { NotFoundPage } from "@/pages/NotFoundPage";
 import { cn } from "@/lib/utils";
 
 /**
- * 公开日报页（#212，/daily；FeedPage 范式：裸路由无守卫、匿名直读
- * /public/news/daily、零引擎探测）。读取面零 LLM——后端只读快照表
- * （结构保证），导语在生成期一次性产出；页面渲染不触发任何模型调用。
- *
- * 数据形态：目录（近 N 期，日期倒序）→ 选中日期详情（刊头+生效导语+
- * 读取期下架复检后的可见条目）。有失格条目时后端已把导语回退为模板
- * （introDegraded=true），本页加「部分内容已下架」注记——透明口径。
- * RSS：/public/news/daily/{date}/rss 外链订阅（RSS 2.0 原文 feed）。
+ * 公开日报页（#241 报刊范式，原型 proto/238-daily-newspaper 转正）：
+ * - 头条=快照序第一条（#237 Q6），头版放大、版面内不重复；
+ * - 版面=9 类目固定版序（Q7，沿用 feed chips 序），空版消失；每版 >8 溢出快讯 ≤12；
+ * - 导航两层（Q8）：桌面月分组 rail（首条标题两行预览=目录接口 firstTitle 字段，
+ *   #240 已上线）+ 移动横向日期条（「今天」标记）+「本期目录」抽屉；
+ * - 路由（Q5+默认采纳）：/daily=最新一期渲染（canonical=/daily）、
+ *   /daily/:date 深链（canonical=自身）；日期切换=真实路由导航改写地址栏
+ *   （对齐已提交 IndexNow/sitemap 的 URL 面）；key 不合式 404；
+ * - 三态+页内重试（吸收 #234）：未出刊/休刊（rail 灰化+0 徽章+「本日休刊」
+ *   说明全页仅一次+「查看热点」引导）/加载失败重试不整页刷新；越界日期
+ *   （存档外）与失败态文案可区分（#238 复核点）；
+ * - 透明口径：模板导语/部分内容已下架 chips 保留；统计条全客户端推导；
+ *   document.title 按期设置——骑 #231 FeedShell title 单源机制（title prop
+ *   传期标题，不另写 effect）；报眼月历归 #242，本页不含。
  */
 
-/** 目录日期 chips 展示上限（避免长尾日期挤爆头部；目录接口本身 30 期） */
-const DATE_CHIPS_MAX = 14;
+/** 版序 = feed 类目 chips 序（#237 Q7：版序沿用 feed 类目序；other 兜底最后） */
+const CATEGORY_ORDER: NewsCategory[] = [
+  "admission",
+  "research",
+  "campus",
+  "event",
+  "career",
+  "exchange",
+  "scholarship",
+  "admin",
+  "other"
+];
 
-function DigestHead({ digest }: { digest: NewsDailyDigest }) {
+/** 每版容量上限，溢出进快讯（Q7：每版 >8 溢出快讯 ≤12） */
+const SECTION_CAPACITY = 8;
+const FLASH_CAP = 12;
+
+const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function dateParts(ds: string) {
+  const d = new Date(`${ds}T12:00:00+08:00`);
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, day: d.getUTCDate(), wd: d.getUTCDay() };
+}
+const zhDate = (ds: string) => {
+  const p = dateParts(ds);
+  return `${p.m}月${p.day}日`;
+};
+const zhWeekday = (ds: string) => `周${WEEKDAYS_ZH[dateParts(ds).wd]}`;
+const enDate = (ds: string) => {
+  const p = dateParts(ds);
+  return `${p.day} ${MONTHS_EN[p.m - 1]}`;
+};
+const enWeekday = (ds: string) => WEEKDAYS_EN[dateParts(ds).wd];
+const monthKey = (ds: string) => {
+  const p = dateParts(ds);
+  return `${p.y}-${String(p.m).padStart(2, "0")}`;
+};
+const monthLabel = (key: string, zh: boolean) => {
+  const [y, m] = key.split("-");
+  return zh ? `${y}年${Number(m)}月` : `${MONTHS_EN[Number(m) - 1]} ${y}`;
+};
+function hktTodayKey(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Hong_Kong" });
+}
+
+interface DerivedIssue {
+  lead: NewsDailyDigestItem | null;
+  highlights: NewsDailyDigestItem[];
+  sections: { cat: NewsCategory; items: NewsDailyDigestItem[] }[];
+  flashes: NewsDailyDigestItem[];
+  stats: { count: number; sources: number; official: number; minutes: number };
+}
+
+function deriveIssue(digest: NewsDailyDigest): DerivedIssue {
+  const lead = digest.items[0] ?? null;
+  const highlights = digest.items.slice(1, 4);
+  const rest = digest.items.slice(1);
+  const sections: DerivedIssue["sections"] = [];
+  const flashes: NewsDailyDigestItem[] = [];
+  for (const cat of CATEGORY_ORDER) {
+    const bucket = rest.filter((item) => item.category === cat);
+    if (bucket.length === 0) {
+      continue;
+    }
+    sections.push({ cat, items: bucket.slice(0, SECTION_CAPACITY) });
+    flashes.push(...bucket.slice(SECTION_CAPACITY));
+  }
+  const sourceKeys = new Set(digest.items.map((item) => item.source?.sourceKey).filter(Boolean));
+  const chars = digest.items.reduce((acc, item) => acc + (item.titleZh?.length ?? 0) + (item.summaryZh?.length ?? 0), 0);
+  return {
+    lead,
+    highlights,
+    sections,
+    flashes: flashes.slice(0, FLASH_CAP),
+    stats: {
+      count: digest.items.length,
+      sources: sourceKeys.size,
+      official: digest.items.filter((item) => item.source?.official).length,
+      minutes: Math.max(1, Math.ceil(chars / 450))
+    }
+  };
+}
+
+function SourceDot({ item }: { item: NewsDailyDigestItem }) {
+  const label = item.source?.displayName ?? item.source?.displayNameEn ?? "";
+  if (!item.source) {
+    return <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">未知来源</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--feed-text-secondary)]">
+      <i
+        className="h-[7px] w-[7px] flex-none rounded-full"
+        style={{ backgroundColor: item.source.platform === "youtube" ? "#FF0000" : item.source.platform === "events" ? "#7C3AED" : item.source.platform === "prn" ? "#0F766E" : "#A6192E" }}
+      />
+      {label}
+    </span>
+  );
+}
+
+function EntryCard({ item, headline = false }: { item: NewsDailyDigestItem; headline?: boolean }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
+  const title = (zh ? item.titleZh : item.titleEn) || (zh ? item.titleEn : item.titleZh) || "";
+  const summary = (zh ? item.summaryZh : item.summaryEn) || (zh ? item.summaryEn : item.summaryZh) || "";
+  const time = item.publishTime ? item.publishTime.slice(11, 16) : "";
   return (
-    <div className="mb-4 rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-4 py-3.5">
-      <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <b className="text-[15px] font-bold text-[var(--feed-text-primary)]">
-          {zh ? `理大资讯日报 · ${digest.digestDate}` : `PolyU Daily Digest · ${digest.digestDate}`}
-        </b>
-        <span className="rounded-full bg-[var(--feed-bg)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-secondary)]">
-          {zh ? `${digest.visibleCount} 条动态` : `${digest.visibleCount} updates`}
+    <article
+      className={cn(
+        "rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm transition-colors hover:border-[#D8B7BC]",
+        headline ? "h-full p-5 md:p-6" : "p-3.5 md:p-4"
+      )}
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-2.5">
+        {headline && (
+          <span className="rounded-full bg-[var(--polyu-red)] px-2.5 py-0.5 text-[11px] font-bold text-white">
+            {zh ? "头条" : "LEAD"}
+          </span>
+        )}
+        <span className="text-xs tabular-nums text-[var(--feed-text-tertiary)]">{time}</span>
+        <SourceDot item={item} />
+        <span className="rounded-full bg-[var(--polyu-red-50)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--polyu-red-dark)]">
+          {zh ? NEWS_CATEGORY_LABELS_ZH[item.category] : NEWS_CATEGORY_LABELS_EN[item.category]}
         </span>
+      </div>
+      <h4 className={cn("font-bold leading-[1.42] text-[var(--feed-text-primary)]", headline ? "text-[22px] md:text-[26px] md:leading-[1.38]" : "text-[15px] md:text-[15.5px]")}>
+        <Link to={`/news/${item.itemId}`}>{title}</Link>
+      </h4>
+      <p className={cn("mt-2 text-[var(--feed-text-secondary)] leading-[1.7]", headline ? "line-clamp-5 text-[13.5px] md:text-[14px]" : "line-clamp-2 text-[12.5px]")}>
+        {summary}
+      </p>
+      {isSafeUrl(item.url) && (
+        <div className="mt-2.5">
+          <a
+            className="inline-flex items-center gap-1 py-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {zh ? "查看原文 ↗" : "Source ↗"}
+          </a>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Masthead({ digest, latest }: { digest: NewsDailyDigest; latest: boolean }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const date = digest.digestDate;
+  const ws = digest.windowStart.slice(5, 16).replace("T", " ");
+  const we = digest.windowEnd.slice(5, 16).replace("T", " ");
+  const empty = digest.items.length === 0;
+  return (
+    <header className="mb-4">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2.5">
+        <div className="min-w-0">
+          <h1 className="text-[23px] font-black leading-none tracking-tight text-[var(--feed-text-primary)] min-[861px]:text-[27px]">
+            {zh ? "理大资讯日报" : "PolyU Daily Digest"}
+          </h1>
+          <div className="mt-1.5 text-[10px] font-semibold tracking-[0.22em] text-[var(--feed-text-tertiary)]">
+            POLYU DAILY DIGEST
+          </div>
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            {latest && (
+              <span className="rounded-full bg-[var(--polyu-red)] px-2 py-0.5 text-[10.5px] font-bold text-white">
+                {zh ? "最新一期" : "LATEST"}
+              </span>
+            )}
+            {empty && (
+              <span className="rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--feed-text-tertiary)]">
+                {zh ? "休刊" : "RECESS"}
+              </span>
+            )}
+            <span className="text-[14px] font-bold tabular-nums text-[var(--feed-text-primary)]">
+              {zh ? `${date} · ${zhWeekday(date)}` : `${enWeekday(date)} · ${enDate(date)} ${date.slice(0, 4)}`}
+            </span>
+          </div>
+          <div className="text-[10.5px] tabular-nums text-[var(--feed-text-tertiary)]">
+            {zh ? `覆盖窗口 ${ws} → ${we} HKT · 出刊 ${digest.buildTime.slice(11, 16)}` : `Window ${ws} → ${we} HKT · Published ${digest.buildTime.slice(11, 16)}`}
+          </div>
+        </div>
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {(digest.storedIntroSource === "fallback" || digest.storedIntroSource === "empty") && (
-          <span className="rounded-full border border-[var(--feed-line)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--feed-text-tertiary)]">
+          <span className="rounded-full border border-[var(--feed-line)] bg-[var(--feed-card)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--feed-text-tertiary)]">
             {zh ? "模板导语" : "Template intro"}
           </span>
         )}
@@ -46,118 +233,659 @@ function DigestHead({ digest }: { digest: NewsDailyDigest }) {
           </span>
         )}
       </div>
-      <p className="text-[12.5px] text-[var(--feed-text-tertiary)]">
-        {zh
-          ? "覆盖窗口：发布时间介于前一日 08:00 与本日 08:00（HKT）之间的公开动态，按发布时间倒序排列。"
-          : "Window: public updates published between 08:00 HKT the previous day and 08:00 HKT today, newest first."}
-      </p>
-      {(zh ? digest.introZh : digest.introEn) && (
-        <p className="mt-2 text-[13.5px] leading-[1.7] text-[var(--feed-text-secondary)]">
-          {zh ? digest.introZh : digest.introEn}
-        </p>
+      <div className="mt-2.5 border-b-[3px] border-double border-[var(--feed-text-primary)]" />
+    </header>
+  );
+}
+
+function StatsBand({ stats }: { stats: DerivedIssue["stats"] }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const cells = [
+    { n: String(stats.count), pre: "", zh: "条动态", en: "updates" },
+    { n: String(stats.sources), pre: "", zh: "个来源", en: "sources" },
+    { n: String(stats.official), pre: "", zh: "条官方发布", en: "official" },
+    { n: String(stats.minutes), pre: zh ? "约 " : "~", zh: "分钟读完", en: "min read" }
+  ];
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-1 gap-y-1 rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-5 py-3 text-[13px] text-[var(--feed-text-secondary)] shadow-sm">
+      {cells.map((cell, i) => (
+        <span key={cell.en} className="flex items-center">
+          {i > 0 && <span className="mx-2 text-[var(--feed-line)]">·</span>}
+          {cell.pre && <span className="mr-0.5">{cell.pre}</span>}
+          <b className="tabular-nums text-[15px] font-black text-[var(--polyu-red)]">{cell.n}</b>
+          <span className="ml-1">{zh ? cell.zh : cell.en}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function IssueToc({ derived, spacious = false }: { derived: DerivedIssue; spacious?: boolean }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const rows = derived.sections.map((section, i) => ({
+    key: section.cat,
+    num: String(i + 1).padStart(2, "0"),
+    label: zh ? NEWS_CATEGORY_LABELS_ZH[section.cat] : NEWS_CATEGORY_LABELS_EN[section.cat],
+    count: zh ? `${section.items.length} 件` : `${section.items.length}`,
+    href: `#sec-${section.cat}`
+  }));
+  if (derived.flashes.length > 0) {
+    rows.push({
+      key: "flash",
+      num: String(rows.length + 1).padStart(2, "0"),
+      label: zh ? "快讯" : "In brief",
+      count: zh ? `${derived.flashes.length} 条` : `${derived.flashes.length}`,
+      href: "#sec-flash"
+    });
+  }
+  return (
+    <nav aria-label={zh ? "本期版面目录" : "Issue contents"} className="space-y-0.5">
+      {rows.map((row) => (
+        // 抽屉档 spacious=触控目标 ≥44px（#232）；头版右栏为桌面鼠标档保持紧凑
+        <a
+          key={row.key}
+          href={row.href}
+          className={cn(
+            "flex items-baseline gap-2 rounded-lg px-1.5 hover:bg-[var(--feed-bg)]",
+            spacious ? "min-h-[44px] py-2" : "py-[3px]"
+          )}
+        >
+          <span className="w-[18px] flex-none text-right text-[11px] font-black tabular-nums text-[var(--polyu-red)]">{row.num}</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[var(--feed-text-primary)]">{row.label}</span>
+          <span className="text-[10.5px] tabular-nums text-[var(--feed-text-tertiary)]">{row.count}</span>
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function FrontPage({ digest, derived }: { digest: NewsDailyDigest; derived: DerivedIssue }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const intro = (zh ? digest.introZh : digest.introEn) || "";
+  return (
+    <section className="mb-5">
+      {intro && (
+        <p className="mb-3 text-[12.5px] leading-[1.7] text-[var(--feed-text-tertiary)]">{intro}</p>
       )}
+      <StatsBand stats={derived.stats} />
+      <div className="grid items-stretch gap-3.5 min-[861px]:grid-cols-[minmax(0,1fr)_252px]">
+        <div className="min-w-0 space-y-3.5">
+          {derived.lead && <EntryCard item={derived.lead} headline />}
+        </div>
+        <aside className="min-w-0">
+          <div className="rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] p-3.5 shadow-sm">
+            <div className="mb-1.5 text-[10px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
+              {zh ? "今日看点" : "HIGHLIGHTS"}
+            </div>
+            {derived.highlights.map((item, i) => {
+              const title = (zh ? item.titleZh : item.titleEn) || "";
+              return (
+                <div key={item.itemId} className="flex gap-2 border-b border-[var(--feed-line-soft)] py-1.5 last:border-0">
+                  <span className="text-[11.5px] font-black tabular-nums leading-[1.45] text-[var(--polyu-red)]">
+                    {String(i + 2).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0">
+                    <Link to={`/news/${item.itemId}`} className="line-clamp-2 text-[12px] font-semibold leading-[1.45] text-[var(--feed-text-primary)] hover:text-[var(--polyu-red)]">
+                      {title}
+                    </Link>
+                    <div className="mt-px flex items-center gap-1.5">
+                      <span className="text-[10px] tabular-nums text-[var(--feed-text-tertiary)]">{item.publishTime?.slice(11, 16)}</span>
+                      <span className="text-[10px] text-[var(--feed-text-tertiary)]">
+                        {zh ? NEWS_CATEGORY_LABELS_ZH[item.category] : NEWS_CATEGORY_LABELS_EN[item.category]}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {derived.highlights.length === 0 && (
+              <div className="py-1.5 text-[11.5px] text-[var(--feed-text-tertiary)]">{zh ? "本期看点不足三条" : "—"}</div>
+            )}
+            <div className="my-2.5 border-t border-[var(--feed-line-soft)]" />
+            <div className="mb-1 text-[10px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
+              {zh ? "本期版面" : "SECTIONS"}
+            </div>
+            <IssueToc derived={derived} />
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function SectionBlocks({ derived }: { derived: DerivedIssue }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  return (
+    <>
+      {derived.sections.map((section, i) => (
+        <section key={section.cat} id={`sec-${section.cat}`} className="mb-6 scroll-mt-[76px]">
+          <div className="mb-3 flex items-baseline gap-2.5">
+            <span className="text-[15px] font-black tabular-nums text-[var(--polyu-red)]">{String(i + 1).padStart(2, "0")}</span>
+            <h2 className="text-[17.5px] font-bold text-[var(--feed-text-primary)]">
+              {zh ? NEWS_CATEGORY_LABELS_ZH[section.cat] : NEWS_CATEGORY_LABELS_EN[section.cat]}
+            </h2>
+            <span className="text-[11.5px] tabular-nums text-[var(--feed-text-tertiary)]">
+              {zh ? `${section.items.length} 件` : `${section.items.length} items`}
+            </span>
+            <span className="mx-1 flex-1 border-b border-[var(--feed-line-soft)]" />
+          </div>
+          <div className="grid gap-3 min-[861px]:grid-cols-2">
+            {section.items.map((item) => (
+              <EntryCard key={item.itemId} item={item} />
+            ))}
+          </div>
+        </section>
+      ))}
+      {derived.flashes.length > 0 && (
+        <section id="sec-flash" className="mb-6 scroll-mt-[76px]">
+          <div className="mb-3 flex items-baseline gap-2.5">
+            <span className="text-[15px] font-black tabular-nums text-[var(--polyu-red)]">
+              {String(derived.sections.length + 1).padStart(2, "0")}
+            </span>
+            <h2 className="text-[17.5px] font-bold text-[var(--feed-text-primary)]">{zh ? "快讯" : "In brief"}</h2>
+            <span className="text-[11.5px] tabular-nums text-[var(--feed-text-tertiary)]">
+              {zh ? `${derived.flashes.length} 条 · 版面溢出` : `${derived.flashes.length} overflow items`}
+            </span>
+            <span className="mx-1 flex-1 border-b border-[var(--feed-line-soft)]" />
+          </div>
+          <div className="grid gap-2 min-[861px]:grid-cols-2">
+            {derived.flashes.map((item) => (
+              <div key={item.itemId} className="flex items-center gap-2.5 rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-3.5 py-2 shadow-sm">
+                <span className="text-[var(--feed-line)]">·</span>
+                <Link to={`/news/${item.itemId}`} className="line-clamp-1 min-w-0 flex-1 text-[13px] font-medium text-[var(--feed-text-primary)] hover:text-[var(--polyu-red)]">
+                  {(zh ? item.titleZh : item.titleEn) || ""}
+                </Link>
+                <SourceDot item={item} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
+function PrevNext({ summaries, selectedDate }: { summaries: NewsDailyDigestSummary[]; selectedDate: string }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const idx = summaries.findIndex((s) => s.digestDate === selectedDate);
+  // summaries 日期倒序：上一期（更旧）= idx+1，下一期（更新）= idx-1；
+  // 相邻期从 30 期目录推导（最新一期无 next）
+  const prev = idx >= 0 ? summaries[idx + 1] ?? null : null;
+  const next = idx > 0 ? summaries[idx - 1] ?? null : null;
+  const cell = (issue: NewsDailyDigestSummary | null, dir: "prev" | "next") => {
+    const label = dir === "prev" ? (zh ? "上一期" : "Previous") : zh ? "下一期" : "Next";
+    if (!issue) {
+      return (
+        <div className="flex items-center justify-center rounded-2xl border border-dashed border-[var(--feed-line)] bg-transparent px-4 py-4 text-[12.5px] text-[var(--feed-text-tertiary)]">
+          {dir === "prev" ? (zh ? "已是最早一期" : "First issue") : zh ? "已是最新一期" : "Latest issue"}
+        </div>
+      );
+    }
+    const preview = (zh ? issue.firstTitleZh : issue.firstTitleEn) || (zh ? "本日休刊" : "In recess");
+    return (
+      <Link
+        to={`/daily/${issue.digestDate}`}
+        className="block rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-4 py-3.5 shadow-sm transition-colors hover:border-[#D8B7BC]"
+      >
+        <div className="mb-1 flex items-center gap-2">
+          <span className="text-[11.5px] font-bold text-[var(--feed-text-tertiary)]">{label}</span>
+          <span className="text-[13px] font-bold tabular-nums text-[var(--feed-text-primary)]">
+            {zh ? `${zhDate(issue.digestDate)} ${zhWeekday(issue.digestDate)}` : `${enWeekday(issue.digestDate)} ${enDate(issue.digestDate)}`}
+          </span>
+          <span className={cn("ml-auto rounded-full px-2 py-0.5 text-[10.5px] font-bold tabular-nums", issue.itemCount === 0 ? "bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)]" : "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]")}>
+            {zh ? `${issue.itemCount} 条` : issue.itemCount}
+          </span>
+        </div>
+        <p className="line-clamp-1 text-[12px] text-[var(--feed-text-secondary)]">{preview}</p>
+      </Link>
+    );
+  };
+  return (
+    <nav aria-label={zh ? "上下一期导航" : "Issue navigation"} className="mt-7 grid grid-cols-2 gap-3">
+      {cell(prev, "prev")}
+      {cell(next, "next")}
+    </nav>
+  );
+}
+
+function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSummary[]; selectedDate: string }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const groups = useMemo(() => {
+    const out: { key: string; list: NewsDailyDigestSummary[] }[] = [];
+    for (const s of summaries) {
+      const key = monthKey(s.digestDate);
+      if (out.length === 0 || out[out.length - 1].key !== key) {
+        out.push({ key, list: [] });
+      }
+      out[out.length - 1].list.push(s);
+    }
+    return out;
+  }, [summaries]);
+  return (
+    <aside className="hidden min-[861px]:block" aria-label={zh ? "往期日报" : "Past issues"}>
+      <div className="sticky top-[76px] max-h-[calc(100vh-96px)] overflow-y-auto pb-4 pr-1">
+        <div className="mb-2 px-1 text-[11px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
+          {zh ? "往期 · 30 期" : "PAST 30 ISSUES"}
+        </div>
+        {groups.map((group) => (
+          <details key={group.key} open className="mb-2">
+            <summary className="mb-1.5 cursor-pointer list-none rounded-lg bg-[var(--feed-card)] px-2.5 py-1.5 text-[12px] font-bold text-[var(--feed-text-secondary)] shadow-sm">
+              {monthLabel(group.key, zh)}
+              <span className="ml-1.5 text-[10.5px] font-normal text-[var(--feed-text-tertiary)]">
+                {zh ? `${group.list.length} 期` : `${group.list.length}`}
+              </span>
+            </summary>
+            {group.list.map((s) => {
+              const p = dateParts(s.digestDate);
+              const selected = s.digestDate === selectedDate;
+              const empty = s.itemCount === 0;
+              const preview = (zh ? s.firstTitleZh : s.firstTitleEn) || (zh ? "本日休刊，窗口内无公开发布" : "In recess — nothing published in window");
+              return (
+                <Link
+                  key={s.digestDate}
+                  to={`/daily/${s.digestDate}`}
+                  aria-current={selected ? "date" : undefined}
+                  className={cn(
+                    "mb-1 block rounded-xl border px-2.5 py-2 transition-colors",
+                    selected
+                      ? "border-[var(--polyu-red)] bg-[var(--polyu-red-50)]"
+                      : "border-transparent hover:bg-[var(--feed-card)]",
+                    empty && !selected && "opacity-55"
+                  )}
+                >
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[15px] font-black tabular-nums text-[var(--feed-text-primary)]">{p.day}</span>
+                    <span className="text-[10.5px] text-[var(--feed-text-tertiary)]">{zh ? zhWeekday(s.digestDate) : enWeekday(s.digestDate)}</span>
+                    <span
+                      className={cn(
+                        "ml-auto rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums",
+                        empty ? "bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)]" : "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]"
+                      )}
+                    >
+                      {empty ? (zh ? "0" : "0") : s.itemCount}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-[1.45] text-[var(--feed-text-secondary)]">{preview}</p>
+                </Link>
+              );
+            })}
+          </details>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function MobileDateBar({ summaries, selectedDate }: { summaries: NewsDailyDigestSummary[]; selectedDate: string }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const barRef = useRef<HTMLDivElement>(null);
+  const todayKey = hktTodayKey();
+  useEffect(() => {
+    const el = barRef.current?.querySelector<HTMLElement>("[data-selected='true']");
+    // jsdom 无 scrollIntoView 实现——可选调用防测试环境炸
+    el?.scrollIntoView?.({ inline: "center", block: "nearest" });
+  }, [selectedDate]);
+  return (
+    <div className="-mx-3.5 mb-4 min-[861px]:hidden">
+      <div ref={barRef} className="flex gap-1.5 overflow-x-auto px-3.5 pb-2.5">
+        {summaries.map((s) => {
+          const selected = s.digestDate === selectedDate;
+          const empty = s.itemCount === 0;
+          const isToday = s.digestDate === todayKey;
+          return (
+            <Link
+              key={s.digestDate}
+              to={`/daily/${s.digestDate}`}
+              data-selected={selected}
+              aria-current={selected ? "date" : undefined}
+              className={cn(
+                "flex min-h-[44px] flex-none items-center whitespace-nowrap rounded-full border px-3.5 text-[12px] font-semibold tabular-nums transition-colors",
+                selected
+                  ? "border-[var(--polyu-red)] bg-[var(--polyu-red)] text-white"
+                  : "border-[var(--feed-line)] bg-[var(--feed-card)] text-[var(--feed-text-secondary)] hover:border-[#D8B7BC]",
+                empty && !selected && "opacity-55"
+              )}
+            >
+              {isToday ? (zh ? "今天" : "Today") : zh ? zhDate(s.digestDate) : enDate(s.digestDate)}
+              {empty && <span className="ml-1 text-[10px] font-normal">{zh ? "休" : "·0"}</span>}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MobileTocButton({ onOpen }: { onOpen: () => void }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  return (
+    <div className="mb-4 min-[861px]:hidden">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-h-[44px] w-full rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] py-2.5 text-[13.5px] font-bold text-[var(--feed-text-primary)] shadow-sm transition-colors hover:border-[#D8B7BC]"
+      >
+        {zh ? "本期目录" : "Contents"} ⌄
+      </button>
+    </div>
+  );
+}
+
+function TocDrawer({
+  open,
+  onClose,
+  digest,
+  derived,
+  summaries,
+  selectedDate
+}: {
+  open: boolean;
+  onClose: () => void;
+  digest: NewsDailyDigest;
+  derived: DerivedIssue;
+  summaries: NewsDailyDigestSummary[];
+  selectedDate: string;
+}) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) {
+    return null;
+  }
+  const idx = summaries.findIndex((s) => s.digestDate === selectedDate);
+  const prev = idx >= 0 ? summaries[idx + 1] ?? null : null;
+  const next = idx > 0 ? summaries[idx - 1] ?? null : null;
+  return (
+    <div className="fixed inset-0 z-50 min-[861px]:hidden">
+      <button type="button" aria-label={zh ? "关闭目录" : "Close contents"} className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-x-0 bottom-0 max-h-[74vh] overflow-y-auto rounded-t-2xl bg-[var(--feed-card)] px-5 pb-8 pt-4 shadow-2xl">
+        <div className="mb-3 flex items-center">
+          <b className="text-[14.5px] font-bold text-[var(--feed-text-primary)]">
+            {zh ? `本期目录 · ${digest.digestDate}` : `Contents · ${digest.digestDate}`}
+          </b>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--feed-line)] text-[13px] text-[var(--feed-text-secondary)]"
+            aria-label={zh ? "关闭" : "Close"}
+          >
+            ✕
+          </button>
+        </div>
+        {digest.items.length === 0 ? (
+          <p className="py-4 text-center text-[13px] text-[var(--feed-text-tertiary)]">{zh ? "本日休刊，无版面" : "In recess"}</p>
+        ) : (
+          <IssueToc derived={derived} spacious />
+        )}
+        <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--feed-line-soft)] pt-3.5">
+          <div>
+            <div className="mb-1 text-[10.5px] font-bold text-[var(--feed-text-tertiary)]">{zh ? "上一期" : "PREVIOUS"}</div>
+            {prev ? (
+              <Link
+                to={`/daily/${prev.digestDate}`}
+                onClick={onClose}
+                className="flex min-h-[44px] items-center text-[13px] font-semibold text-[var(--feed-text-primary)]"
+              >
+                {zh ? zhDate(prev.digestDate) : enDate(prev.digestDate)}
+              </Link>
+            ) : (
+              <span className="flex min-h-[44px] items-center text-[12px] text-[var(--feed-text-tertiary)]">—</span>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="mb-1 text-[10.5px] font-bold text-[var(--feed-text-tertiary)]">{zh ? "下一期" : "NEXT"}</div>
+            {next ? (
+              <Link
+                to={`/daily/${next.digestDate}`}
+                onClick={onClose}
+                className="flex min-h-[44px] items-center justify-end text-[13px] font-semibold text-[var(--feed-text-primary)]"
+              >
+                {zh ? zhDate(next.digestDate) : enDate(next.digestDate)}
+              </Link>
+            ) : (
+              <span className="flex min-h-[44px] items-center justify-end text-[12px] text-[var(--feed-text-tertiary)]">—</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyIssueCard({ digest }: { digest: NewsDailyDigest }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const ws = digest.windowStart.slice(5, 16).replace("T", " ");
+  const we = digest.windowEnd.slice(5, 16).replace("T", " ");
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] px-6 py-12 text-center">
+      <div className="mb-2 text-[17px] font-bold text-[var(--feed-text-primary)]">{zh ? "本日休刊" : "In recess"}</div>
+      {/* 休刊说明全页仅此一处（rail/翻期格只留「本日休刊」短标签） */}
+      <p className="mx-auto mb-4 max-w-[460px] text-[12.5px] leading-[1.7] text-[var(--feed-text-tertiary)]">
+        {zh
+          ? `覆盖窗口（${ws} → ${we} HKT）内没有可见的公开发布。休刊照常占住刊位、URL 可预期，不是生成故障，也不触发跳刊或并期。`
+          : `Nothing visible was published in the window (${ws} → ${we} HKT). A recess issue still holds its date and URL — it is not an outage, and no issue is skipped or merged.`}
+      </p>
+      <div className="flex items-center justify-center gap-5">
+        <Link to="/hot" className="inline-flex min-h-[44px] items-center text-[13px] font-semibold text-[var(--polyu-red)] hover:underline">
+          {zh ? "查看热点 →" : "Browse the hot rank →"}
+        </Link>
+        <Link to="/daily" className="inline-flex min-h-[44px] items-center text-[13px] font-semibold text-[var(--feed-text-secondary)] hover:underline">
+          {zh ? "查看最新一期 →" : "Read the latest issue →"}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/** 加载失败+页内重试（#234 吸收）：重试=页内状态复位重取，不整页刷新 */
+function FailureCard({ onRetry }: { onRetry: () => void }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center">
+      <div className="mb-1.5 text-[15px] font-bold text-[var(--feed-text-primary)]">
+        {zh ? "日报加载失败" : "Failed to load the daily digest"}
+      </div>
+      <p className="mb-4 text-[12.5px] text-[var(--feed-text-tertiary)]">
+        {zh ? "网络或服务暂时不可用，请稍后重试。" : "The network or service is temporarily unavailable. Please retry."}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="min-h-[44px] rounded-xl bg-[var(--polyu-red)] px-6 text-[13.5px] font-bold text-white transition-opacity hover:opacity-90"
+      >
+        {zh ? "重试" : "Retry"}
+      </button>
+    </div>
+  );
+}
+
+/** 越界日期（存档外）：与加载失败文案可区分（#238 复核点） */
+function MissingIssueCard({ summaries }: { summaries: NewsDailyDigestSummary[] }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const earliest = summaries[summaries.length - 1]?.digestDate;
+  return (
+    <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center">
+      <div className="mb-1.5 text-[15px] font-bold text-[var(--feed-text-primary)]">
+        {zh ? "该日期暂无刊期存档" : "No archived issue on this date"}
+      </div>
+      <p className="mb-4 text-[12.5px] text-[var(--feed-text-tertiary)]">
+        {earliest
+          ? zh
+            ? `线上存档自 ${earliest} 起。可从往期目录选择日期，或`
+            : `The online archive starts on ${earliest}. Pick a date from past issues, or `
+          : zh
+            ? "可从往期目录选择日期，或"
+            : "Pick a date from past issues, or "}
+      </p>
+      <Link to="/daily" className="inline-flex min-h-[44px] items-center text-[13px] font-semibold text-[var(--polyu-red)] hover:underline">
+        {zh ? "查看最新一期 →" : "Read the latest issue →"}
+      </Link>
     </div>
   );
 }
 
 export function DailyDigestPage() {
+  const { date: routeDate } = useParams();
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
   const [summaries, setSummaries] = useState<NewsDailyDigestSummary[] | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [digest, setDigest] = useState<NewsDailyDigest | null>(null);
   const [failed, setFailed] = useState(false);
+  const [missing, setMissing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [tocOpen, setTocOpen] = useState(false);
+
+  const malformed = routeDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(routeDate);
+  const selectedDate = routeDate ?? summaries?.[0]?.digestDate ?? null;
 
   useEffect(() => {
+    if (malformed) {
+      return;
+    }
     let alive = true;
     fetchDailyDigestList()
-      .then((list) => {
-        if (!alive) {
-          return;
-        }
-        setSummaries(list);
-        if (list.length > 0) {
-          setSelectedDate(list[0].digestDate);
-        }
-      })
+      .then((list) => alive && setSummaries(list))
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey, malformed]);
 
   useEffect(() => {
-    if (!selectedDate) {
+    if (!selectedDate || malformed) {
       return;
     }
     let alive = true;
     setDigest(null);
+    setMissing(false);
+    setFailed(false);
     fetchDailyDigest(selectedDate)
       .then((detail) => alive && setDigest(detail))
-      .catch(() => alive && setFailed(true));
+      .catch((error) => {
+        if (!alive) {
+          return;
+        }
+        setDigest(null);
+        // 「日报不存在」= 日期在存档之外（含未来日期）；其余才是加载失败
+        if (error instanceof Error && error.message.includes(DAILY_MISSING_MESSAGE)) {
+          setMissing(true);
+        } else {
+          setFailed(true);
+        }
+      });
     return () => {
       alive = false;
     };
-  }, [selectedDate]);
+  }, [selectedDate, malformed, reloadKey]);
+
+  // 按期 document.title：骑 #231 FeedShell title 单源机制（title prop 进壳，
+  // 壳内 usePageTitle 统一汇聚「页面名 · PolyUGuide」，不另写 effect）
+  const pageTitle = useMemo(() => {
+    const date = digest?.digestDate ?? selectedDate;
+    return date
+      ? { zh: `理大资讯日报 · ${date}`, en: `PolyU Daily Digest · ${date}` }
+      : { zh: "日报", en: "Daily digest" };
+  }, [digest, selectedDate]);
+
+  // canonical（对齐已提交 IndexNow/sitemap 的 URL 面）：/daily 指向 /daily、
+  // 深链指向自身；不合式 key 走 404（noindex），不注入 canonical
+  const canonicalHref =
+    typeof window !== "undefined" && !malformed
+      ? `${window.location.origin}${routeDate ? `/daily/${routeDate}` : "/daily"}`
+      : null;
+  useHeadElement("link", canonicalHref ? { rel: "canonical", href: canonicalHref } : null);
+
+  const derived = useMemo(() => (digest ? deriveIssue(digest) : null), [digest]);
+
+  if (malformed) {
+    return <NotFoundPage />;
+  }
+
+  const retry = () => {
+    setFailed(false);
+    setReloadKey((key) => key + 1);
+  };
 
   return (
-    // pageHeading（#231）：日报页无页面级内容头，h1 由壳渲染（#241 整页替换时自动继承）
-    <FeedShell title={{ zh: "日报", en: "Daily digest" }} pageHeading>
+    // 报头 Masthead 自带 h1——pageHeading 不开（#231：正文有内容头的页面由正文出 h1）
+    <FeedShell title={pageTitle}>
       {failed ? (
+        <FailureCard onRetry={retry} />
+      ) : summaries === null ? null : summaries.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
-          日报加载失败，请稍后刷新重试
+          {zh ? "日报尚未生成（每日 08:40 HKT 出刊）" : "No issue yet — the digest is published daily at 08:40 HKT"}
         </div>
       ) : (
-        <>
-          {summaries && summaries.length > 0 && (
-            <div className="mb-4 flex flex-wrap items-center gap-1.5">
-              {summaries.slice(0, DATE_CHIPS_MAX).map((summary) => (
-                <button
-                  key={summary.digestDate}
-                  type="button"
-                  aria-pressed={summary.digestDate === selectedDate}
-                  onClick={() => setSelectedDate(summary.digestDate)}
-                  className={cn(
-                    "rounded-full border px-3 py-1 text-[12px] font-semibold tabular-nums transition-colors",
-                    summary.digestDate === selectedDate
-                      ? "border-[var(--polyu-red)] bg-[var(--polyu-red)] text-white"
-                      : "border-[var(--feed-line)] bg-[var(--feed-card)] text-[var(--feed-text-secondary)] hover:border-[#D8B7BC]"
-                  )}
-                >
-                  {summary.digestDate.slice(5)}
-                </button>
-              ))}
-              <a
-                className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--polyu-red)] hover:underline"
-                href={selectedDate ? dailyDigestRssUrl(selectedDate) : "#"}
-                target="_blank"
-                rel="noreferrer"
-              >
-                RSS ↗
-              </a>
-            </div>
-          )}
-
-          {digest ? (
-            <>
-              <DigestHead digest={digest} />
-              {digest.items.length > 0 ? (
-                digest.items.map((item) => (
-                  <NewsCard key={`${item.itemId}-${item.seq}`} item={digestItemToNewsItem(item)} />
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
-                  本期窗口内暂无公开动态
+        <div className="grid gap-6 min-[861px]:grid-cols-[236px_minmax(0,1fr)]">
+          <DesktopRail summaries={summaries} selectedDate={selectedDate ?? summaries[0].digestDate} />
+          <div className="min-w-0">
+            {digest && derived ? (
+              <>
+                <Masthead digest={digest} latest={digest.digestDate === summaries[0].digestDate} />
+                <MobileDateBar summaries={summaries} selectedDate={digest.digestDate} />
+                <MobileTocButton onOpen={() => setTocOpen(true)} />
+                {digest.items.length > 0 ? (
+                  <>
+                    <FrontPage digest={digest} derived={derived} />
+                    <SectionBlocks derived={derived} />
+                  </>
+                ) : (
+                  <EmptyIssueCard digest={digest} />
+                )}
+                <PrevNext summaries={summaries} selectedDate={digest.digestDate} />
+                <div className="mt-6 border-t border-[var(--feed-line-soft)] pt-4 text-center">
+                  <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">
+                    {zh ? "— 本期完 —" : "— End of issue —"}
+                  </span>
+                  <div className="mt-2 flex items-center justify-center gap-4">
+                    <a
+                      href={dailyDigestRssUrl(digest.digestDate)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
+                    >
+                      {zh ? "本期 RSS ↗" : "Issue RSS ↗"}
+                    </a>
+                  </div>
                 </div>
-              )}
-            </>
-          ) : (
-            summaries !== null &&
-            summaries.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
-                日报尚未生成（每日 08:40 HKT 出刊）
-              </div>
-            )
-          )}
-        </>
+              </>
+            ) : missing ? (
+              <MissingIssueCard summaries={summaries} />
+            ) : null}
+            {digest && derived && (
+              <TocDrawer
+                open={tocOpen}
+                onClose={() => setTocOpen(false)}
+                digest={digest}
+                derived={derived}
+                summaries={summaries}
+                selectedDate={selectedDate ?? summaries[0].digestDate}
+              />
+            )}
+          </div>
+        </div>
       )}
       <FeedFooter compact />
     </FeedShell>
