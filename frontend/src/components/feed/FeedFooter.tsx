@@ -56,7 +56,9 @@ export function FeedFooter({ compact = false }: { compact?: boolean }) {
             : "PolyUGuide is an independent student community project, not affiliated with PolyU · AI-generated summaries, always refer to the source"}
         </div>
       )}
-      <div className="text-[11px] text-[#B4B4BC]">{CONTACT_EMAIL} · © 2026 PolyUGuide</div>
+      {/* #235 N4：© 行灰值对实际使用面背景（feed 底 #f6f6f7）收口至 4.63:1（AA ≥4.5）；
+          原值 #B4B4BC 仅 1.91:1 */}
+      <div className="text-[11px] text-[#6f6f74]">{CONTACT_EMAIL} · © 2026 PolyUGuide</div>
       <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </footer>
   );

@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
+import { FeedLangContext } from "@/components/feed/feedLang";
 import { ForgotPasswordPage } from "./ForgotPasswordPage";
 
 /**
@@ -93,6 +94,47 @@ describe("ForgotPasswordPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("重置码不正确或已过期")).toBeTruthy();
+    });
+  });
+
+  describe("accessible names (#235)", () => {
+    it("derives request-step input name from the visible label (zh)", () => {
+      render(
+        <MemoryRouter>
+          <ForgotPasswordPage />
+        </MemoryRouter>
+      );
+      expect(screen.getByLabelText("邮箱")).toBe(screen.getByPlaceholderText("you@example.com"));
+    });
+
+    it("names the reset-step inputs (code + new password) after advancing (zh)", async () => {
+      requestResetMock.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter>
+          <ForgotPasswordPage />
+        </MemoryRouter>
+      );
+      await user.type(screen.getByLabelText("邮箱"), "user@example.com");
+      await user.click(screen.getByRole("button", { name: "发送重置码" }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("重置码")).toBe(screen.getByPlaceholderText("6 位数字"));
+      });
+      expect(screen.getByLabelText("新密码")).toBe(
+        screen.getByPlaceholderText("8–64 位字符")
+      );
+    });
+
+    it("switches the accessible names with the global language (en)", () => {
+      render(
+        <MemoryRouter>
+          <FeedLangContext.Provider value={{ lang: "en", setLang: () => {} }}>
+            <ForgotPasswordPage />
+          </FeedLangContext.Provider>
+        </MemoryRouter>
+      );
+      expect(screen.getByLabelText("Email")).toBe(screen.getByPlaceholderText("you@example.com"));
     });
   });
 });

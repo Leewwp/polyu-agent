@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
+import { FeedLangContext } from "@/components/feed/feedLang";
 import { RegisterPage } from "./RegisterPage";
 
 /**
@@ -23,10 +24,12 @@ vi.mock("@/services/authService", async (importOriginal) => {
   };
 });
 
-function renderPage() {
+function renderPage(lang: "zh" | "en" = "zh") {
   return render(
     <MemoryRouter>
-      <RegisterPage />
+      <FeedLangContext.Provider value={{ lang, setLang: () => {} }}>
+        <RegisterPage />
+      </FeedLangContext.Provider>
     </MemoryRouter>
   );
 }
@@ -163,5 +166,40 @@ describe("RegisterPage", () => {
 
     expect(screen.getByRole("button", { name: "注册" }).hasAttribute("disabled")).toBe(true);
     expect(registerMock).not.toHaveBeenCalled();
+  });
+
+  describe("accessible names (#235)", () => {
+    it("derives form-step input names from visible labels via htmlFor/id (zh)", () => {
+      renderPage();
+      expect(screen.getByLabelText("用户名")).toBe(
+        screen.getByPlaceholderText("3–20 位小写字母、数字、_ 或 -")
+      );
+      expect(screen.getByLabelText("邮箱")).toBe(screen.getByPlaceholderText("you@example.com"));
+      expect(screen.getByLabelText("密码")).toBe(screen.getByPlaceholderText("8–64 位字符"));
+    });
+
+    it("names the verification-code input in the verify step (zh)", async () => {
+      registerMock.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderPage();
+      await fillRegisterForm(user);
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(screen.getByRole("button", { name: "注册" }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("验证码")).toBe(screen.getByPlaceholderText("6 位数字"));
+      });
+    });
+
+    it("switches the accessible names with the global language (en)", () => {
+      renderPage("en");
+      expect(screen.getByLabelText("Username")).toBe(
+        screen.getByPlaceholderText("3–20 chars: lowercase letters, digits, _ or -")
+      );
+      expect(screen.getByLabelText("Email")).toBe(screen.getByPlaceholderText("you@example.com"));
+      expect(screen.getByLabelText("Password")).toBe(
+        screen.getByPlaceholderText("8–64 characters")
+      );
+    });
   });
 });

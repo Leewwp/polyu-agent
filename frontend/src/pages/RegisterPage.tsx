@@ -23,6 +23,7 @@ type Step = "form" | "verify" | "done";
  * 后端 flag（ragent.registration.enabled）默认关，关闭态接口统一回
  * 「注册通道当前未开放」，直接内联展示，前端不做 flag 判断。
  * #227：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。
+ * #235：可见 label 经 htmlFor/id 与输入显式关联（含验证码第二阶段），无可见标签的控件才用 aria-label。
  */
 export function RegisterPage() {
   const { lang } = useOptionalFeedLang();
@@ -120,14 +121,17 @@ export function RegisterPage() {
       {step === "form" ? (
         <form className="space-y-4" onSubmit={handleRegister}>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="register-username"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "用户名" : "Username"}
             </label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="register-username"
                 placeholder={zh ? "3–20 位小写字母、数字、_ 或 -" : "3–20 chars: lowercase letters, digits, _ or -"}
-                aria-label={zh ? "用户名" : "Username"}
                 value={form.username}
                 onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
                 className="pl-10"
@@ -142,15 +146,18 @@ export function RegisterPage() {
             </p>
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="register-email"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "邮箱" : "Email"}
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="register-email"
                 type="email"
                 placeholder="you@example.com"
-                aria-label={zh ? "邮箱" : "Email"}
                 value={form.email}
                 onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                 className="pl-10"
@@ -160,15 +167,18 @@ export function RegisterPage() {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="register-password"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "密码" : "Password"}
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="register-password"
                 type={showPassword ? "text" : "password"}
                 placeholder={zh ? "8–64 位字符" : "8–64 characters"}
-                aria-label={zh ? "密码" : "Password"}
                 value={form.password}
                 onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
                 className="pl-10 pr-10"
@@ -236,12 +246,15 @@ export function RegisterPage() {
             {zh ? "，请输入 6 位验证码完成邮箱验证。" : ". Enter it below to verify your address."}
           </p>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="register-code"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "验证码" : "Code"}
             </label>
             <Input
+              id="register-code"
               placeholder={zh ? "6 位数字" : "6-digit code"}
-              aria-label={zh ? "验证码" : "Verification code"}
               value={code}
               onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
               autoComplete="one-time-code"
