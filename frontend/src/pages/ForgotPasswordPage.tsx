@@ -18,6 +18,7 @@ type Step = "request" | "reset" | "done";
  * 无论邮箱是否已注册都进入下一步——重置码只有邮箱主人可收），再提交
  * 重置码 + 新密码。与注册端点同挂 ragent.registration.enabled flag。
  * #227：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。
+ * #235：可见 label 经 htmlFor/id 与输入显式关联（含重置码+新密码第二阶段），无可见标签的控件才用 aria-label。
  */
 export function ForgotPasswordPage() {
   const { lang } = useOptionalFeedLang();
@@ -87,15 +88,18 @@ export function ForgotPasswordPage() {
               : "Enter your registered email and we will send you a reset code."}
           </p>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="forgot-email"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "邮箱" : "Email"}
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="forgot-email"
                 type="email"
                 placeholder="you@example.com"
-                aria-label={zh ? "邮箱" : "Email"}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="pl-10"
@@ -125,14 +129,17 @@ export function ForgotPasswordPage() {
             {zh ? "（若该邮箱已注册）。请输入验证码与新密码。" : " (if it is registered). Enter the code and a new password below."}
           </p>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="forgot-code"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "重置码" : "Code"}
             </label>
             <div className="relative">
               <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="forgot-code"
                 placeholder={zh ? "6 位数字" : "6-digit code"}
-                aria-label={zh ? "重置码" : "Reset code"}
                 value={form.code}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -147,15 +154,18 @@ export function ForgotPasswordPage() {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <label
+              htmlFor="forgot-new-password"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
               {zh ? "新密码" : "New password"}
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="forgot-new-password"
                 type={showPassword ? "text" : "password"}
                 placeholder={zh ? "8–64 位字符" : "8–64 characters"}
-                aria-label={zh ? "新密码" : "New password"}
                 value={form.newPassword}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, newPassword: event.target.value }))

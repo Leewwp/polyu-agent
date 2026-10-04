@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+import { FeedLangContext } from "@/components/feed/feedLang";
+
 const submitSiteFeedback = vi.fn();
 
 vi.mock("@/services/siteService", () => ({
@@ -70,5 +72,26 @@ describe("FeedbackDialog", () => {
       expect(submitSiteFeedback).toHaveBeenCalled();
     });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  describe("accessible names (#235)", () => {
+    it("公共关闭钮（仅 X 图标）可报名，两个输入的既有 aria-label 保留", () => {
+      render(<FeedbackDialog open onClose={() => null} />);
+      expect(screen.getByRole("button", { name: "关闭" })).toBeTruthy();
+      // 输入既有双语 aria-label 现状合规——保留不动
+      expect(screen.getByLabelText("反馈内容")).toBeTruthy();
+      expect(screen.getByLabelText("联系方式")).toBeTruthy();
+    });
+
+    it("关闭钮名称随全局语言切换（en）", () => {
+      render(
+        <FeedLangContext.Provider value={{ lang: "en", setLang: () => {} }}>
+          <FeedbackDialog open onClose={() => null} />
+        </FeedLangContext.Provider>
+      );
+      expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+      expect(screen.getByLabelText("Feedback content")).toBeTruthy();
+      expect(screen.getByLabelText("Contact")).toBeTruthy();
+    });
   });
 });
