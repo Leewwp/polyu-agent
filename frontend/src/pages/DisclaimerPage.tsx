@@ -8,11 +8,11 @@ export function DisclaimerPage() {
     <LegalShell title="非官方声明" titleEn="Unofficial Service Disclosure">
       <LegalSection heading="与香港理工大学的关系" headingEn="Relationship with PolyU">
         <p lang="zh">
-          PolyU Wayfinder 是一个由个人维护的非官方项目，与香港理工大学（The Hong Kong Polytechnic
+          PolyUGuide 是一个由个人维护的非官方项目，与香港理工大学（The Hong Kong Polytechnic
           University）无隶属、授权或赞助关系。「PolyU」名称及大学标识归其权利人所有，此处仅作说明性引用。
         </p>
         <p lang="en" className="text-muted-foreground">
-          PolyU Wayfinder is an unofficial project maintained by an individual. It is not affiliated
+          PolyUGuide is an unofficial project maintained by an individual. It is not affiliated
           with, endorsed, or sponsored by The Hong Kong Polytechnic University. The name
           &quot;PolyU&quot; and university marks belong to their respective owners and are used here
           for identification only.

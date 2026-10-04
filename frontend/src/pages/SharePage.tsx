@@ -1,9 +1,11 @@
 import * as React from "react";
 import { Link, useParams } from "react-router-dom";
-import { GraduationCap, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { BrandMark } from "@/components/site/BrandMark";
 import { Button } from "@/components/ui/button";
+import { useEnterChat } from "@/hooks/useEnterChat";
 import { useAuthStore } from "@/stores/authStore";
 import { isSafeUrl } from "@/utils/urlSafety";
 import { contentLangOf, useOptionalFeedLang } from "@/components/feed/feedLang";
@@ -20,13 +22,14 @@ import { getPublicShare } from "@/services/shareService";
  * #227：操作钮/加载/无效态随全局语言单语呈现；快照正文不翻译，lang 属性
  * 按实际内容语言标注（全局偏好≠快照内容语言）。
  * #231：标签用稳定页名「答案分享」（Q&A 正文标题不作页面名，加载/无效态同页名）。
+ * #229：头部品牌位换 PolyUGuide（BrandMark）；「继续提问」复用游客直通
+ * （useEnterChat fresh，口径与会话分享页对齐=开新会话，铸号失败降级登录）。
  */
 export function SharePage() {
   const { token } = useParams<{ token: string }>();
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
   usePageTitle({ zh: "答案分享", en: "Shared answer" });
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [share, setShare] = React.useState<PublicShare | null>(null);
   const [invalid, setInvalid] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -65,20 +68,11 @@ export function SharePage() {
     };
   }, [token]);
 
-  const chatHref = isAuthenticated ? "/chat" : "/login";
-
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 py-8 sm:py-12">
       <header className="mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#BFDBFE]">
-            <GraduationCap className="h-5 w-5 text-[#2563EB]" />
-          </div>
-          <span className="text-sm font-medium text-[#1A1A1A]">PolyU Wayfinder</span>
-        </div>
-        <Button asChild variant="ghost" size="sm" className="text-[#666666]">
-          <Link to={chatHref}>{zh ? "继续提问" : "Continue"}</Link>
-        </Button>
+        <BrandMark />
+        <ContinueAskingButton variant="ghost" size="sm" className="text-[#666666]" />
       </header>
 
       {loading ? (
@@ -95,9 +89,7 @@ export function SharePage() {
               ? "This share link is invalid or has been revoked."
               : "分享链接无效或已撤销。"}
           </p>
-          <Button asChild variant="outline" size="sm" className="mt-2">
-            <Link to={chatHref}>{zh ? "继续提问" : "Continue asking"}</Link>
-          </Button>
+          <ContinueAskingButton variant="outline" size="sm" className="mt-2" />
         </div>
       ) : (
         <main className="flex-1 space-y-6">
@@ -165,13 +157,44 @@ export function SharePage() {
                   : `Shared at ${new Date(share.createTime).toLocaleString()}`
                 : null}
             </span>
-            <Button asChild size="sm">
-              <Link to={chatHref}>{zh ? "继续提问" : "Continue asking"}</Link>
-            </Button>
+            <ContinueAskingButton size="sm" />
           </div>
         </main>
       )}
       <SiteFooter className="mt-4" />
     </div>
+  );
+}
+
+/**
+ * 「继续提问」出口（#229）：匿名访客复用游客直通 useEnterChat（fresh=开新会话，
+ * 口径与会话分享页对齐；铸号失败由 hook 降级 /login，业务提示走既有 toast）；
+ * 已登录（含已铸游客）直连 /chat——不裸链受守卫路由给匿名访客落登录墙。
+ */
+function ContinueAskingButton({
+  variant = "default",
+  size = "sm",
+  className = ""
+}: {
+  variant?: "ghost" | "outline" | "default";
+  size?: "sm" | "default";
+  className?: string;
+}) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const enterChat = useEnterChat({ fresh: true });
+  const label = zh ? "继续提问" : "Continue asking";
+  if (isAuthenticated) {
+    return (
+      <Button asChild variant={variant} size={size} className={className}>
+        <Link to="/chat">{label}</Link>
+      </Button>
+    );
+  }
+  return (
+    <Button variant={variant} size={size} className={className} onClick={enterChat}>
+      {label}
+    </Button>
   );
 }

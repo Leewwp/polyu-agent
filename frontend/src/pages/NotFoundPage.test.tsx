@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { act } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { NotFoundPage } from "./NotFoundPage";
 import { FeedLangProvider, useFeedLang } from "@/components/feed/feedLang";
@@ -82,5 +82,46 @@ describe("NotFoundPage title & noindex (#231)", () => {
     });
     expect(document.title).toBe("Page not found · PolyUGuide");
     expect(screen.getByText("Page not found")).toBeTruthy();
+  });
+});
+
+describe("NotFoundPage（#229 回到首页）", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("主操作为回到首页且指到 /（不再返回聊天）", () => {
+    render(
+      <MemoryRouter initialEntries={["/no-such-page"]}>
+        <FeedLangProvider>
+          <Routes>
+            <Route path="*" element={<NotFoundPage />} />
+            <Route path="/" element={<div>HOME_PAGE_MARK</div>} />
+            <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
+          </Routes>
+        </FeedLangProvider>
+      </MemoryRouter>
+    );
+
+    const home = screen.getByRole("link", { name: "回到首页" });
+    expect(home.getAttribute("href")).toBe("/");
+    expect(screen.queryByText("返回聊天")).toBeNull();
+  });
+
+  it("轻量布局保留：提示卡片与页脚三法务链接在场", () => {
+    render(
+      <MemoryRouter initialEntries={["/no-such-page"]}>
+        <FeedLangProvider>
+          <Routes>
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </FeedLangProvider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("页面不存在")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "隐私声明" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "服务条款" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "非官方声明" }).getAttribute("href")).toBe("/disclaimer");
   });
 });
