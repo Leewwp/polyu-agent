@@ -59,7 +59,8 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
           "whitespace-nowrap rounded-full border border-[var(--polyu-red)] bg-white font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)]",
           variant === "desktop"
             ? "px-[18px] py-1.5 text-[13px]"
-            : "flex-none px-3 py-[5px] text-[12px]"
+            : // #232 触控清单：移动登录钮 min-h 44（63a D「UserMenu 移动登录钮」）
+              "flex min-h-[44px] flex-none items-center justify-center px-3 text-[12px]"
         )}
       >
         {zh ? "登录" : "Sign in"}

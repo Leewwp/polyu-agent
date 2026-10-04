@@ -24,14 +24,14 @@ export function SiteFooter({ className = "" }: SiteFooterProps) {
       className={`flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-4 py-2 text-xs text-muted-foreground ${className}`}
     >
       {legalLinks.map((link) => (
-        <Link key={link.to} to={link.to} className="hover:underline">
+        <Link key={link.to} to={link.to} className="-my-1.5 py-1.5 hover:underline">
           {link.label}
         </Link>
       ))}
-      <Link to="/about" className="hover:underline">
+      <Link to="/about" className="-my-1.5 py-1.5 hover:underline">
         {zh ? "关于" : "About"}
       </Link>
-      <button type="button" className="hover:underline" onClick={() => setFeedbackOpen(true)}>
+      <button type="button" className="-my-1.5 py-1.5 hover:underline" onClick={() => setFeedbackOpen(true)}>
         {zh ? "反馈" : "Feedback"}
       </button>
       <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />

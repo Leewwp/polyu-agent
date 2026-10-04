@@ -6,6 +6,7 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { BrandMark } from "@/components/site/BrandMark";
 import { Button } from "@/components/ui/button";
 import { useEnterChat } from "@/hooks/useEnterChat";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
 import { isSafeUrl } from "@/utils/urlSafety";
 import { contentLangOf, useOptionalFeedLang } from "@/components/feed/feedLang";
@@ -90,7 +91,7 @@ export function SharePage() {
           <p className="text-sm text-[#999999]">
             {zh ? "链接可能已过期或被分享者撤销" : "The link may have expired or been revoked by its owner"}
           </p>
-          <Button asChild variant="outline" size="sm" className="mt-2">
+          <Button asChild variant="outline" size="sm" className="mt-2 min-h-[44px]">
             <Link to="/">{zh ? "回到首页" : "Back to home"}</Link>
           </Button>
         </div>
@@ -190,13 +191,13 @@ function ContinueAskingButton({
   const label = zh ? "继续提问" : "Continue asking";
   if (isAuthenticated) {
     return (
-      <Button asChild variant={variant} size={size} className={className}>
+      <Button asChild variant={variant} size={size} className={cn("min-h-[44px]", className)}>
         <Link to="/chat">{label}</Link>
       </Button>
     );
   }
   return (
-    <Button variant={variant} size={size} className={className} onClick={enterChat}>
+    <Button variant={variant} size={size} className={cn("min-h-[44px]", className)} onClick={enterChat}>
       {label}
     </Button>
   );

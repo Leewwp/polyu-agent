@@ -5217,6 +5217,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 44px;
   padding: 9px 18px;
   border-radius: var(--agent-radius);
   background: var(--agent-orange-ink);
@@ -5232,6 +5233,7 @@ textarea {
 }
 
 .agent-app .agent-share-cta-secondary {
+  min-height: 44px; /* #232 轻量页主要操作 ≥44px */
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5310,6 +5312,14 @@ textarea {
 
 .agent-app .agent-composer-input::placeholder {
   color: var(--agent-faint);
+}
+
+/* #232 iOS 聚焦缩放根治：≤860px 可聚焦输入一律 ≥16px（两档聊天输入之一——
+   agent 档 composer；workflow 档在 ChatInput 组件类上同规则）。不用 maximum-scale 折衷 */
+@media (max-width: 860px) {
+  .agent-app .agent-composer-input {
+    font-size: 16px;
+  }
 }
 
 /* 箭头圆钮：动作画出来就不用写出来 「发送」两个字退给 aria-label 与 hover 提示

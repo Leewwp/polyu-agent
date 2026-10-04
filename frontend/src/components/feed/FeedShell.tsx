@@ -68,12 +68,16 @@ export function FeedShell({ title, children, fluid = false, shareView, pageHeadi
 
 function LangPill() {
   const { lang, setLang } = useFeedLang();
+  // #232 触控清单：中/EN 各为独立导航入口，min-h 44 实高（视觉字号不变）
   return (
     <div className="flex flex-none whitespace-nowrap overflow-hidden rounded-full border border-[var(--feed-line)] bg-white text-[12.5px] font-semibold">
       <button
         type="button"
         aria-pressed={lang === "zh"}
-        className={cn("px-3 py-[5px]", lang === "zh" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]")}
+        className={cn(
+          "flex min-h-[44px] items-center px-3",
+          lang === "zh" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]"
+        )}
         onClick={() => setLang("zh")}
       >
         中
@@ -81,7 +85,10 @@ function LangPill() {
       <button
         type="button"
         aria-pressed={lang === "en"}
-        className={cn("px-3 py-[5px]", lang === "en" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]")}
+        className={cn(
+          "flex min-h-[44px] items-center px-3",
+          lang === "en" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]"
+        )}
         onClick={() => setLang("en")}
       >
         EN
@@ -155,11 +162,12 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.94)] px-3 py-[11px] backdrop-blur min-[861px]:hidden max-[400px]:gap-1.5 max-[400px]:px-2.5">
+    <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.94)] px-3 py-2 backdrop-blur min-[861px]:hidden max-[400px]:gap-1.5 max-[400px]:px-2.5">
+      {/* #232 触控清单：菜单钮 32→44（实高实宽）；顶栏随高 py-[11px]→py-2（54→60px） */}
       <button
         type="button"
         aria-label={zh ? "打开菜单" : "Open menu"}
-        className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-[var(--feed-line)] bg-white text-[var(--feed-text-secondary)]"
+        className="flex h-11 w-11 flex-none items-center justify-center rounded-lg border border-[var(--feed-line)] bg-white text-[var(--feed-text-secondary)]"
         onClick={onOpenMenu}
       >
         ☰

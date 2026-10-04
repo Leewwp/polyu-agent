@@ -45,7 +45,7 @@ const RECENT_SESSION_LIMIT = 3;
 
 function navItemClass(active: boolean): string {
   return cn(
-    "flex cursor-pointer items-center gap-2.5 rounded-[9px] px-2.5 py-[7.5px] text-[13.5px] transition-colors",
+    "flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-[9px] px-2.5 text-[13.5px] transition-colors",
     active
       ? "bg-[var(--polyu-red-50)] font-semibold text-[var(--polyu-red-dark)]"
       : "text-[var(--feed-text-secondary)] hover:bg-[var(--feed-bg)]"
@@ -180,7 +180,7 @@ function RecentChatsSectionInternal({
             selectMode ? (
               <button
                 type="button"
-                className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+                className="rounded-md px-2 py-1.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
                 onClick={exitSelect}
               >
                 {zh ? "取消" : "Cancel"}
@@ -188,7 +188,7 @@ function RecentChatsSectionInternal({
             ) : (
               <button
                 type="button"
-                className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
+                className="rounded-md px-2 py-1.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
                 onClick={() => setSelectMode(true)}
               >
                 {/* #233 用词触点：「选择」→「多选」（批量勾选语义更明确，流程不变） */}

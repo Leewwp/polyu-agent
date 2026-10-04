@@ -104,10 +104,10 @@ export function FeedbackDialog({ open, onClose }: { open: boolean; onClose: () =
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" className="min-h-[44px]" onClick={onClose}>
             {zh ? "取消" : "Cancel"}
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button className="min-h-[44px]" onClick={handleSubmit} disabled={submitting}>
             {submitting ? (zh ? "提交中…" : "Submitting…") : zh ? "提交" : "Submit"}
           </Button>
         </DialogFooter>

@@ -109,7 +109,7 @@ export function ForgotPasswordPage() {
             </div>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={!canRequest}>
+          <Button type="submit" className="min-h-[44px] w-full" disabled={!canRequest}>
             {isSubmitting ? (zh ? "正在提交..." : "Submitting...") : zh ? "发送重置码" : "Send reset code"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
@@ -188,7 +188,7 @@ export function ForgotPasswordPage() {
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={!canReset}>
+          <Button type="submit" className="min-h-[44px] w-full" disabled={!canReset}>
             {isResetting ? (zh ? "正在重置..." : "Resetting...") : zh ? "重置密码" : "Reset password"}
           </Button>
           <button
