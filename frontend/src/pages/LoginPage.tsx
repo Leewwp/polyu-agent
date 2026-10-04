@@ -10,7 +10,8 @@ import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useAuthStore } from "@/stores/authStore";
 
-/** 登录页（#227 消费面）：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。 */
+/** 登录页（#227 消费面）：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。
+ * #235：可见 label 经 htmlFor/id 与输入显式关联（可访问名=可见用途文案），无可见标签的控件才用 aria-label。 */
 export function LoginPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
@@ -53,15 +54,18 @@ export function LoginPage() {
           </div>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {zh ? "用户名或邮箱" : "Username or email"}
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder={zh ? "请输入用户名或邮箱" : "Enter username or email"}
-                  aria-label={zh ? "用户名或邮箱" : "Username or email"}
-                  value={form.username}
+            <label
+              htmlFor="login-username"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {zh ? "用户名或邮箱" : "Username or email"}
+            </label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="login-username"
+                placeholder={zh ? "请输入用户名或邮箱" : "Enter username or email"}
+                value={form.username}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, username: event.target.value }))
                   }
@@ -71,16 +75,19 @@ export function LoginPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {zh ? "密码" : "Password"}
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder={zh ? "请输入密码" : "Enter password"}
-                  aria-label={zh ? "密码" : "Password"}
-                  value={form.password}
+            <label
+              htmlFor="login-password"
+              className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {zh ? "密码" : "Password"}
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                placeholder={zh ? "请输入密码" : "Enter password"}
+                value={form.password}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, password: event.target.value }))
                   }

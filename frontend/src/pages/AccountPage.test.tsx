@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
+import { FeedLangContext } from "@/components/feed/feedLang";
 import { AccountPage } from "./AccountPage";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -53,10 +54,12 @@ vi.mock("@/services/authService", () => ({
   deleteAccount: deleteAccountMock
 }));
 
-function renderPage() {
+function renderPage(lang: "zh" | "en" = "zh") {
   return render(
     <MemoryRouter>
-      <AccountPage />
+      <FeedLangContext.Provider value={{ lang, setLang: () => {} }}>
+        <AccountPage />
+      </FeedLangContext.Provider>
     </MemoryRouter>
   );
 }
@@ -245,6 +248,94 @@ describe("AccountPage", () => {
         currentPassword: "old-pass-123",
         newPassword: "new-pass-456"
       });
+    });
+  });
+
+  describe("accessible names (#235)", () => {
+    it("names every input by its visible purpose in each card (zh, no visible labels → aria-label)", async () => {
+      useAuthStore.setState({
+        user: { userId: "u-1", username: "alice", role: "user", email: null },
+        isAuthenticated: true,
+        isGuest: false
+      });
+      listMyAgentSharesMock.mockResolvedValue([]);
+      listMySharesMock.mockResolvedValue([]);
+      renderPage();
+
+      // 换邮箱第一阶段：新邮箱 + 当前密码（分卡 within——密码卡同名 aria-label 不串场）
+      const emailCard = within(screen.getByRole("region", { name: "更改邮箱" }));
+      expect(emailCard.getByLabelText("新邮箱")).toBe(screen.getByTestId("new-email"));
+      expect(emailCard.getByLabelText("当前密码")).toBe(
+        screen.getByTestId("email-current-password")
+      );
+
+      // 修改密码卡：当前密码 + 新密码
+      const pwCard = within(screen.getByRole("region", { name: "修改密码" }));
+      expect(pwCard.getByLabelText("当前密码")).toBe(screen.getByTestId("pw-current"));
+      expect(pwCard.getByLabelText("新密码")).toBe(screen.getByTestId("pw-new"));
+    });
+
+    it("names the code input in the change-email second step (zh)", async () => {
+      useAuthStore.setState({
+        user: { userId: "u-1", username: "alice", role: "user", email: "old@example.com" },
+        isAuthenticated: true,
+        isGuest: false
+      });
+      listMyAgentSharesMock.mockResolvedValue([]);
+      listMySharesMock.mockResolvedValue([]);
+      requestEmailChangeMock.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderPage();
+
+      // 分卡取控件——「当前密码」在换邮箱卡与修改密码卡各有一枚（aria-label 同名）
+      const emailCard = within(screen.getByRole("region", { name: "更改邮箱" }));
+      await user.type(emailCard.getByLabelText("新邮箱"), "new@example.com");
+      await user.type(emailCard.getByLabelText("当前密码"), "right-pass");
+      await user.click(screen.getByRole("button", { name: "发送验证码" }));
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("验证码")).toBe(screen.getByTestId("email-code"));
+      });
+    });
+
+    it("names the delete-account confirmation dialog inputs and its close button (zh)", async () => {
+      useAuthStore.setState({
+        user: { userId: "u-1", username: "alice", role: "user", email: null },
+        isAuthenticated: true,
+        isGuest: false
+      });
+      listMyAgentSharesMock.mockResolvedValue([]);
+      listMySharesMock.mockResolvedValue([]);
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByTestId("delete-account"));
+      expect(screen.getByLabelText("密码确认")).toBe(screen.getByTestId("delete-password"));
+      // #235：公共关闭钮（仅 X 图标）可报名
+      expect(screen.getByRole("button", { name: "关闭" })).toBeTruthy();
+    });
+
+    it("switches the accessible names with the global language (en)", async () => {
+      useAuthStore.setState({
+        user: { userId: "u-1", username: "alice", role: "user", email: null },
+        isAuthenticated: true,
+        isGuest: false
+      });
+      listMyAgentSharesMock.mockResolvedValue([]);
+      listMySharesMock.mockResolvedValue([]);
+      renderPage("en");
+
+      const emailCard = within(screen.getByRole("region", { name: "Change email" }));
+      expect(emailCard.getByLabelText("New email")).toBe(screen.getByTestId("new-email"));
+      expect(emailCard.getByLabelText("Current password")).toBe(
+        screen.getByTestId("email-current-password")
+      );
+
+      const pwCard = within(screen.getByRole("region", { name: "Change password" }));
+      expect(pwCard.getByLabelText("New password")).toBe(screen.getByTestId("pw-new"));
+
+      await userEvent.click(screen.getByTestId("delete-account"));
+      expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
     });
   });
 });

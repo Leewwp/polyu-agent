@@ -5985,7 +5985,9 @@ textarea {
   --feed-line-soft: #ececef;
   --feed-text-primary: #18181b;
   --feed-text-secondary: #52525b;
-  --feed-text-tertiary: #8e8e96;
+  /* #235 N4：辅助小字对实际使用面背景收口——feed 底 #f6f6f7 上 4.63:1、白卡 #ffffff 上 5.00:1（AA ≥4.5）；
+     原 #8e8e96 对 feed 底仅 3.01:1。次级 #52525b 与主级 #18181b 均更深，层级不塌 */
+  --feed-text-tertiary: #6f6f74;
   --feed-heat: #d2660f;
   --feed-heat-bg: #fdf3e7;
   --feed-cluster: #b45309;
