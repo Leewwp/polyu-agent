@@ -119,6 +119,19 @@ describe("HotRankPage", () => {
     expect(screen.getByText(/数据更新至 \d+月\d+日 \d{2}:\d{2}/)).toBeTruthy();
   });
 
+  it("#233 hides the 🔥 value for zero-heat entries (条目仍展示、排序不变)", async () => {
+    const entries = [...MOCK_HOT_RANK.slice(0, 2), { ...MOCK_HOT_RANK[2], heat: 0 }];
+    vi.mocked(fetchHotRank).mockResolvedValue(entries);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("榜单说明")).toBeTruthy());
+    // 零热度条目仍在榜（第 3 行渲染、名次徽章在），但不显示 🔥0
+    expect(screen.getByText(MOCK_HOT_RANK[2].titleZh)).toBeTruthy();
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByText("🔥 0")).toBeNull();
+    expect(screen.getByText(`🔥 ${MOCK_HOT_RANK[0].heat}`)).toBeTruthy();
+  });
+
   it("makes zero /auth and /rag/settings requests for anonymous visitors", async () => {
     const { requestedUrls } = instrumentNetwork();
     vi.mocked(fetchHotRank).mockResolvedValue(MOCK_HOT_RANK);

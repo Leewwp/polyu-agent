@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -145,5 +145,24 @@ describe("FeedShell fluid topbar session title", () => {
     });
     renderFluidShell();
     expect(topbarTitle()).toBe("图书馆开放时间咨询");
+  });
+
+  it("#233 renders no engine/model badge in the desktop chat topbar (no /agent/v1/meta probe)", () => {
+    // 旧 EngineBadge 挂载即拉 /agent/v1/meta——徽章移除后 fluid agent 档零探测请求
+    const requestedUrls: string[] = [];
+    const openSpy = vi.spyOn(XMLHttpRequest.prototype, "open").mockImplementation(
+      (...args: Parameters<XMLHttpRequest["open"]>) => {
+        requestedUrls.push(String(args[1]));
+      }
+    );
+    useEngineStore.setState({ engineType: "agent" });
+    renderFluidShell();
+
+    expect(topbarTitle()).toBe("智能问答");
+    expect(requestedUrls.filter((url) => url.includes("/agent/v1/meta"))).toEqual([]);
+    // 徽章三态文案（探测中/框架名/离线）不再有渲染面
+    expect(screen.queryByText("探测中")).toBeNull();
+    expect(screen.queryByText("离线")).toBeNull();
+    openSpy.mockRestore();
   });
 });

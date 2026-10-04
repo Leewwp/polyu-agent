@@ -116,4 +116,38 @@ describe("TopicsGrid", () => {
     await user.click(within(aiCard).getByRole("button", { name: "☆ Follow" }));
     expect(within(aiCard).getByRole("button", { name: "★ Following" })).toBeTruthy();
   });
+
+  it("#233 shows 「暂无动态」 for zero-item cards while keeping entry link and follow toggle", () => {
+    // 单卡 0 条：计数位改「暂无动态」（不再出现「查看 0 条 →」），卡主体 Link 与关注钮照常
+    const emptyTopic = { ...NEWS_TOPICS.filter((topic) => topic.group === 1)[0], itemCount: 0 };
+    render(
+      <MemoryRouter>
+        <FeedLangContext.Provider value={{ lang: "zh", setLang: () => {} }}>
+          <TopicsGrid group={NEWS_TOPIC_GROUPS[1]} topics={[emptyTopic]} />
+        </FeedLangContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("暂无动态")).toBeTruthy();
+    expect(screen.queryByText(/查看 0 条/)).toBeNull();
+    // 仍可进入主题详情 + 关注钮在场（保留进入主题与关注）
+    expect(screen.getByRole("link", { name: new RegExp(emptyTopic.nameZh) }).getAttribute("href")).toBe(
+      `/topics/${emptyTopic.slug}`
+    );
+    expect(screen.getByRole("button", { name: "☆ 关注" })).toBeTruthy();
+  });
+
+  it("#233 renders the en zero-item label (No updates yet)", () => {
+    const emptyTopic = { ...NEWS_TOPICS.filter((topic) => topic.group === 1)[0], itemCount: 0 };
+    render(
+      <MemoryRouter>
+        <FeedLangContext.Provider value={{ lang: "en", setLang: () => {} }}>
+          <TopicsGrid group={NEWS_TOPIC_GROUPS[1]} topics={[emptyTopic]} />
+        </FeedLangContext.Provider>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("No updates yet")).toBeTruthy();
+    expect(screen.queryByText(/0 items/)).toBeNull();
+  });
 });

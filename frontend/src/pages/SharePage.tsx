@@ -24,6 +24,7 @@ import { getPublicShare } from "@/services/shareService";
  * #231：标签用稳定页名「答案分享」（Q&A 正文标题不作页面名，加载/无效态同页名）。
  * #229：头部品牌位换 PolyUGuide（BrandMark）；「继续提问」复用游客直通
  * （useEnterChat fresh，口径与会话分享页对齐=开新会话，铸号失败降级登录）。
+ * #233：失效态主操作改「回到首页」（与会话分享失效页/404 同口径）。
  */
 export function SharePage() {
   const { token } = useParams<{ token: string }>();
@@ -80,16 +81,18 @@ export function SharePage() {
           {zh ? "加载中…" : "Loading…"}
         </div>
       ) : invalid || !share ? (
+        // #233 信息精简：失效态只留单个「回到首页」主操作（与 #229 404 同词、
+        // 与会话分享失效页同口径）；说明文案随语言单语，不再 zh/en 硬拼双行。
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p className="text-base font-medium text-[#1A1A1A]">
             {zh ? "分享链接无效或已撤销" : "This share link is invalid or has been revoked"}
           </p>
           <p className="text-sm text-[#999999]">
-            {zh
-              ? "This share link is invalid or has been revoked."
-              : "分享链接无效或已撤销。"}
+            {zh ? "链接可能已过期或被分享者撤销" : "The link may have expired or been revoked by its owner"}
           </p>
-          <ContinueAskingButton variant="outline" size="sm" className="mt-2" />
+          <Button asChild variant="outline" size="sm" className="mt-2">
+            <Link to="/">{zh ? "回到首页" : "Back to home"}</Link>
+          </Button>
         </div>
       ) : (
         <main className="flex-1 space-y-6">

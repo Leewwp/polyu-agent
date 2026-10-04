@@ -47,9 +47,12 @@ export function HotPanel({ entries }: { entries: HotRankEntry[] }) {
               {index + 1}
             </span>
             <span className="min-w-0 flex-1 truncate text-[13.5px]">{zh ? entry.titleZh : entry.titleEn}</span>
-            <span className="flex-none rounded-full bg-[var(--feed-heat-bg)] px-2.5 py-0.5 text-[11.5px] font-bold text-[var(--feed-heat)]">
-              🔥 {entry.heat}
-            </span>
+            {/* #233 零值文案：heat=0 不显示 🔥0（条目与排序不变，仅隐藏数值） */}
+            {entry.heat > 0 && (
+              <span className="flex-none rounded-full bg-[var(--feed-heat-bg)] px-2.5 py-0.5 text-[11.5px] font-bold text-[var(--feed-heat)]">
+                🔥 {entry.heat}
+              </span>
+            )}
           </RankRow>
         ))}
       </ol>

@@ -13,7 +13,8 @@ import { toast } from "sonner";
 
 /**
  * 详情页：
- * - 仅 AI 摘要档：标题/信源/分类/发布时间/热度/主题标签+AI 导读+首尾「查看原文 ↗」；
+ * - 仅 AI 摘要档：标题/信源/分类/发布时间/热度/主题标签+AI 导读+底部一组
+ *   「查看原文 ↗ / 分享」（#233 顶部动作行删除，长文短文同口径）；
  * - 主体不渲染原文全文（后端无 content 列口径的站内对偶）；
  * - 轻量分享：navigator.share 缺席时降级复制链接+toast；
  * - 不存在 id → 同形 not-found 态；语言跟随全局 pill（localStorage 记忆）。
@@ -64,7 +65,7 @@ describe("NewsDetailPage", () => {
     Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
   });
 
-  it("renders the AI-summary-only detail with meta, topics and both source links", async () => {
+  it("renders the AI-summary-only detail with meta, topics and the single bottom action row (#233)", async () => {
     renderDetail();
 
     await waitFor(() => {
@@ -77,16 +78,13 @@ describe("NewsDetailPage", () => {
     expect(screen.getByText(/🔥 138/)).toBeTruthy();
     // 主题标签 → 主题详情路由（mock-001 topics: energy/materials/eng）
     expect(screen.getByRole("link", { name: "# 新能源与可持续" }).getAttribute("href")).toBe("/topics/energy");
-    // 返回链 + 原文外链首尾两处（顶部+尾部各一，新开标签）
+    // 返回链 + 底部一组操作：原文外链与分享钮各仅一处（顶部动作行已删，新开标签）
     expect(screen.getByRole("link", { name: "‹ 返回资讯流" }).getAttribute("href")).toBe("/");
     const sourceLinks = screen.getAllByRole("link", { name: "查看原文 ↗" });
-    expect(sourceLinks).toHaveLength(2);
-    for (const link of sourceLinks) {
-      expect(link.getAttribute("href")).toBe(ITEM.url);
-      expect(link.getAttribute("target")).toBe("_blank");
-    }
-    // 顶部动作行带分享小钮，尾部另有分享主钮
-    expect(screen.getAllByRole("button", { name: "分享" })).toHaveLength(2);
+    expect(sourceLinks).toHaveLength(1);
+    expect(sourceLinks[0].getAttribute("href")).toBe(ITEM.url);
+    expect(sourceLinks[0].getAttribute("target")).toBe("_blank");
+    expect(screen.getAllByRole("button", { name: "分享" })).toHaveLength(1);
   });
 
   it("falls back to copy-link toast when navigator.share is unavailable", async () => {
@@ -127,8 +125,9 @@ describe("NewsDetailPage", () => {
     expect(screen.getByText(ITEM.summaryEn)).toBeTruthy();
     expect(screen.getByText("AI summary")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Share" }).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("link", { name: "View source ↗" })).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "Source ↗" }).length).toBeGreaterThanOrEqual(1);
+    // #233：顶部紧凑档 "Source ↗" 已删——EN 只剩底部 "View source ↗" 一处
+    expect(screen.getAllByRole("link", { name: "View source ↗" })).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: "Source ↗" })).toBeNull();
   });
 
   it("#215 marks the item read on entering the detail page (load success, 写穿 localStorage)", async () => {

@@ -147,6 +147,31 @@ describe("TopicDetailPage", () => {
     expect(requestedUrls.filter((url) => url.includes("/rag/settings"))).toEqual([]);
   });
 
+  it("#233 hides the 🔥 value for zero-heat focus entries (条目仍展示、排序不变)", async () => {
+    // 31 分讲座条目清零：焦点仍两行（63 在前 0 在后=排序不动），仅 🔥0 数值隐藏
+    const records = MOCK_NEWS_ITEMS.filter((item) => item.topics.includes("ai")).map((item) =>
+      item.heat === 31 ? { ...item, heat: 0 } : item
+    );
+    const zeroTitle = records.find((item) => item.heat === 0)?.titleZh;
+    expect(zeroTitle).toBeTruthy();
+    vi.mocked(fetchTopicDetail).mockResolvedValue(
+      topicDetail("ai", { page: { records, total: records.length, hasMore: false } })
+    );
+    renderPage("ai");
+
+    await waitFor(() => {
+      expect(screen.getByText("近期焦点")).toBeTruthy();
+    });
+    // 零热度焦点行照常渲染（标题在焦点行与下方卡片两处在场），但不显示 🔥0
+    expect(screen.getAllByText(zeroTitle as string).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("🔥 0")).toBeNull();
+    const heatRows = screen.getAllByRole("button", { name: /🔥 \d+/ });
+    expect(heatRows).toHaveLength(1);
+    expect(heatRows[0].textContent).toContain("🔥 63");
+    // 最新动态列表条目可达性不变
+    expect(screen.getByText("最新动态")).toBeTruthy();
+  });
+
   it("scrolls to and flashes the matched card when a focus row is clicked (scrollIntoView mock)", async () => {
     renderPage("ai");
     const row = await screen.findByRole("button", { name: /国家自然科学基金/ });

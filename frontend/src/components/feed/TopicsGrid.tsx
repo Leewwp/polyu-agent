@@ -34,8 +34,15 @@ export function TopicsGrid({ group, topics }: { group: NewsTopicGroup; topics: N
                 <span className="text-[12.5px] leading-[1.55] text-[var(--feed-text-secondary)] max-[860px]:hidden">
                   {zh ? topic.descZh : topic.descEn}
                 </span>
+                {/* #233 零值文案：0 条改「暂无动态」（卡片仍可进主题详情、关注钮照常） */}
                 <span className="mt-[3px] text-xs font-semibold text-[var(--polyu-red)]">
-                  {zh ? `查看 ${topic.itemCount} 条 →` : `${topic.itemCount} items →`}
+                  {topic.itemCount > 0
+                    ? zh
+                      ? `查看 ${topic.itemCount} 条 →`
+                      : `${topic.itemCount} items →`
+                    : zh
+                      ? "暂无动态"
+                      : "No updates yet"}
                 </span>
               </Link>
               <div className="absolute right-3 top-3 max-[860px]:right-2.5 max-[860px]:top-2.5">
