@@ -55,6 +55,18 @@ describe("HotPanel", () => {
     expect(screen.getByText(MOCK_HOT_RANK[0].titleEn)).toBeTruthy();
   });
 
+  it("#233 hides the 🔥 value for zero-heat entries but keeps the row (条目可达性/排序不变)", () => {
+    const entries = [{ ...MOCK_HOT_RANK[0], heat: 0 }, ...MOCK_HOT_RANK.slice(1, 3)];
+    const { container } = renderPanel("zh", entries);
+
+    // 行本身照常渲染（名次徽章+标题在），仅 🔥0 数值隐藏
+    expect(screen.getByText(MOCK_HOT_RANK[0].titleZh)).toBeTruthy();
+    expect(screen.queryByText("🔥 0")).toBeNull();
+    expect(screen.getAllByText(/🔥 \d+/)).toHaveLength(2);
+    const badges = container.querySelectorAll("ol > li > a > span:first-child, ol > li > div > span:first-child");
+    expect(badges).toHaveLength(3);
+  });
+
   it("renders nothing for an empty rank list", () => {
     const { container } = renderPanel("zh", []);
     expect(container.firstElementChild).toBeNull();

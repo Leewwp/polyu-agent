@@ -146,7 +146,9 @@ function ShareBanner() {
   );
 }
 
-/** 加载/无效态的居中占位（无效态在壳内呈现统一语义，可探测性同 #82） */
+/** 加载/无效态的居中占位（无效态在壳内呈现统一语义，可探测性同 #82）。
+ *  #233 信息精简：去向同为首页的「逛逛资讯」次入口删除——回首页收敛为
+ *  底部 CTA 条单个主操作（本组件只留文案，不再自带链接）。 */
 function ShareStatus({ loading }: { loading: boolean }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
@@ -165,14 +167,12 @@ function ShareStatus({ loading }: { loading: boolean }) {
       <p className="text-[12.5px] text-[var(--agent-muted)]">
         {zh ? "链接可能已过期或被分享者撤销" : "The link may have expired or been revoked by its owner"}
       </p>
-      <Link className="agent-share-cta-secondary" to="/">
-        {zh ? "逛逛资讯 · Browse news" : "Browse news"}
-      </Link>
     </div>
   );
 }
 
-/** 底部 CTA 条三分支：未登录双钮 / 已登录单钮 / 加载与无效态（#91 拍板形态） */
+/** 底部 CTA 条三分支：未登录双钮 / 已登录单钮 / 加载与无效态（#91 拍板形态）。
+ *  #233：无效态收敛为单个「回到首页」主操作（与 #229 404 同词），文案随语言单语。 */
 function ShareCtaBar({
   state,
   onEnterChat
@@ -187,8 +187,8 @@ function ShareCtaBar({
       {state === "loading" ? (
         <span className="text-[12.5px] text-[var(--agent-faint)]">{zh ? "加载中…" : "Loading…"}</span>
       ) : state === "invalid" ? (
-        <Link className="agent-share-cta-secondary" to="/">
-          {zh ? "去首页 · Home" : "Home"}
+        <Link className="agent-share-cta-primary" to="/">
+          {zh ? "回到首页" : "Back to home"}
         </Link>
       ) : state === "anonymous" ? (
         <>

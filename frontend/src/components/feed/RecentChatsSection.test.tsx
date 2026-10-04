@@ -56,7 +56,7 @@ describe("RecentChatsSection 会话管理（T17）", () => {
     setup(false);
 
     expect(screen.queryByLabelText("搜索对话")).toBeNull();
-    expect(screen.queryByText("选择")).toBeNull();
+    expect(screen.queryByText("多选")).toBeNull();
     expect(screen.queryByLabelText("会话操作")).toBeNull();
     // 只读列表照常渲染
     expect(screen.getByText("奖学金申请")).toBeTruthy();
@@ -77,10 +77,10 @@ describe("RecentChatsSection 会话管理（T17）", () => {
     expect(screen.getByText("无匹配对话")).toBeTruthy();
   });
 
-  it("多选批量删：选择→勾两条→确认弹窗→批删 API+store 同步收敛", async () => {
+  it("多选批量删：多选（#233 由「选择」改名）→勾两条→确认弹窗→批删 API+store 同步收敛", async () => {
     setup();
 
-    fireEvent.click(screen.getByText("选择"));
+    fireEvent.click(screen.getByText("多选"));
     fireEvent.click(screen.getByText("奖学金申请"));
     fireEvent.click(screen.getByText("宿舍申请"));
     fireEvent.click(screen.getByText("删除所选"));

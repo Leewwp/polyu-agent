@@ -17,7 +17,8 @@ import { useNewsLocalStore } from "@/stores/newsLocalStore";
  * 公开资讯详情页（仅 AI 摘要档——后端无正文列，原文全文
  * 另立处理；本页不放原文全文）：
  * - 形态=FeedShell 壳（feed 域同款）：返回链 + 标题/信源/分类/发布时间/热度/主题标签
- *   + AI 导读（summary 跟随全局语言 pill）+ 首尾两处「查看原文 ↗」；
+ *   + AI 导读（summary 跟随全局语言 pill）+ 底部一组「查看原文 ↗ / 分享」
+ *   （#233 信息精简：顶部动作行删除，桌面/移动、长文短文同口径）；
  * - 轻量分享：navigator.share 优先（移动端拉系统面板），降级复制链接+toast；
  * - 不存在/已下架/flag 关（404）同一 not-found 态；裸路由无守卫（FeedPage 范式），
  *   不 import engineStore（公开页红线）。
@@ -107,20 +108,6 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
       <BackLink zh={zh} />
 
       <article className="rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] p-5 shadow-sm md:px-7 md:py-6">
-        {/* 顶部动作行：顶部「查看原文 ↗」+分享钮，右挂与顶栏既有按钮同一节奏；尾部再置一处大钮 */}
-        <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
-          <ShareButton item={item} zh={zh} compact />
-          {isSafeUrl(item.url) ? (
-            <a
-              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {zh ? "查看原文 ↗" : "Source ↗"}
-            </a>
-          ) : null}
-        </div>
         <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--feed-bg)] px-2.5 py-0.5 text-[11.5px] font-medium text-[var(--feed-text-secondary)]">
             <i className="h-[7px] w-[7px] rounded-full" style={{ backgroundColor: item.source.color }} />
@@ -206,9 +193,9 @@ function BackLink({ zh }: { zh: boolean }) {
 /**
  * 轻量分享：navigator.share（移动端系统面板）优先，不支持时降级
  * 复制链接+toast；分享 URL=本详情页直链。用户主动取消 share 不打扰。
- * compact=顶部动作行小钮档；尾部主钮走默认档。
+ * #233：随顶部动作行删除收敛为单档主钮（compact 档随之退役）。
  */
-function ShareButton({ item, zh, compact = false }: { item: NewsItem; zh: boolean; compact?: boolean }) {
+function ShareButton({ item, zh }: { item: NewsItem; zh: boolean }) {
   const onShare = async () => {
     const shareUrl = `${window.location.origin}/news/${item.id}`;
     const title = zh ? item.titleZh : item.titleEn;
@@ -230,11 +217,7 @@ function ShareButton({ item, zh, compact = false }: { item: NewsItem; zh: boolea
   return (
     <button
       type="button"
-      className={
-        compact
-          ? "inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:text-[var(--polyu-red)]"
-          : "inline-flex items-center gap-1 rounded-full border border-[var(--feed-line)] px-[15px] py-1.5 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
-      }
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--feed-line)] px-[15px] py-1.5 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
       onClick={onShare}
     >
       {zh ? "分享" : "Share"}
