@@ -29,6 +29,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { useAdminUiTheme } from "@/hooks/useAdminUiTheme";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -220,6 +221,8 @@ export function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
+  // #228：body 打后台主题标记，覆盖经 Radix Portal 挂 body 的后台弹层（随路由清理）
+  useAdminUiTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);

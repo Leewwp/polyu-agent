@@ -183,7 +183,9 @@ export function WelcomeScreen() {
             className={cn(
               "relative flex flex-col rounded-3xl border border-white/70 bg-white/80 px-5 pt-4 pb-3 shadow-soft backdrop-blur-xl transition-all duration-200",
               isFocused
-                ? "border-[#BFDBFE] shadow-glow"
+                ? // #228：聚焦描边与 shadow-glow 同源主色（原硬编码 #BFDBFE 蓝，
+                  // glow 随主色变红后蓝红打架）；45% 透明度在白底上仍是浅色描边
+                  "border-[hsl(var(--primary)/0.45)] shadow-glow"
                 : "hover:border-[#D4D4D4]"
             )}
           >

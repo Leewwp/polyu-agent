@@ -4,11 +4,15 @@ import { FileText, Loader2 } from "lucide-react";
 
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { getDocument } from "@/services/knowledgeService";
+import { useAdminUiTheme } from "@/hooks/useAdminUiTheme";
 
 type DocMeta = Awaited<ReturnType<typeof getDocument>>;
 
 export function DocPreviewPage() {
   const { docId } = useParams<{ docId: string }>();
+  // #228：独立后台路由、根节点无后台布局类——显式接入后台主题（body 标记覆盖
+  // 本页 DOM 与经 Portal 挂 body 的弹层，不依赖「后台页都在 AdminLayout 根下」）
+  useAdminUiTheme();
   const [doc, setDoc] = React.useState<DocMeta | null>(null);
   const [status, setStatus] = React.useState<"loading" | "done" | "error">("loading");
 

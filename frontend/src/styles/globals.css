@@ -10,7 +10,10 @@
   --card-foreground: 222 47% 11%;
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
-  --primary: 239 84% 67%;
+  /* #228 用户面主色反转为品牌红：精确换算自 --polyu-red #a6192e（hsl(351 73.8% 37.5%)
+     回转 sRGB 即 rgb(166 25 46)）。后台不吃此默认值：.admin-layout 作用域与
+     body[data-ui-theme="admin"]（Radix Portal 弹层轨）把原紫色封回，见 components 层。 */
+  --primary: 351 73.8% 37.5%;
   --primary-foreground: 0 0% 100%;
   --secondary: 210 40% 96%;
   --secondary-foreground: 222 47% 11%;
@@ -22,10 +25,10 @@
   --destructive-foreground: 0 0% 100%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 239 84% 67%;
+  --ring: 351 73.8% 37.5%;
   --chat-user: 239 84% 96%;
   --chat-assistant: 0 0% 100%;
-  --glow: 239 84% 67%;
+  --glow: 351 73.8% 37.5%;
 
   /* ===== 新设计系统 - 背景 ===== */
   --bg-primary: #ffffff;
@@ -287,7 +290,24 @@ html.dark *::-webkit-scrollbar-thumb:hover {
 @layer components {
   .admin-layout {
     @apply bg-[#F3F4F6] text-slate-900;
+    /* #228 后台作用域显式保紫：:root 默认主色已反转为品牌红，原紫色值封进后台 DOM 作用域 */
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --glow: 239 84% 67%;
     --ring: 224 76% 48%;
+  }
+
+  /* #228 Portal 双轨：dialog/alert-dialog/dropdown/select 经 Radix Portal 直挂
+     document.body，不在 .admin-layout 根内、吃不到上面的作用域覆盖。后台路由
+     （/admin/*、/change-logs、/preview/doc）由 useAdminUiTheme 在挂载期给 body 打
+     data-ui-theme="admin"，body 子树（含 Portal 弹层与独立路由根）与后台布局同主题；
+     卸载即清理——用户面弹窗保持 :root 品牌红，往返导航无残留。 */
+  body[data-ui-theme="admin"] {
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+    --glow: 239 84% 67%;
+    /* 弹层焦点环保持原 :root 紫色（后台布局 DOM 内的 224 76% 48% 覆盖不衰减到 body 直挂节点） */
+    --ring: 239 84% 67%;
   }
 
   .admin-layout .text-muted-foreground {
