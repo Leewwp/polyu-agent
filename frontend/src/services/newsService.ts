@@ -290,3 +290,11 @@ export async function fetchDailyDigest(digestDate: string): Promise<NewsDailyDig
 export function dailyDigestRssUrl(digestDate: string): string {
   return `${NEWS_API_BASE_URL}/public/news/daily/${digestDate}/rss`;
 }
+
+/**
+ * 期级日报 feed 公开 URL（#243 订阅出口）：订阅对象是「日报」这份连续刊物，
+ * 网关根路径形态 /daily/feed.xml（#240 反代注册），与单刊 API 路径分流
+ */
+export function dailyIssuesFeedUrl(): string {
+  return "/daily/feed.xml";
+}

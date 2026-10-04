@@ -10,6 +10,7 @@ import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/new
 import {
   DAILY_MISSING_MESSAGE,
   dailyDigestRssUrl,
+  dailyIssuesFeedUrl,
   fetchDailyDigest,
   fetchDailyDigestList
 } from "@/services/newsService";
@@ -827,6 +828,18 @@ export function DailyDigestPage() {
       : null;
   useHeadElement("link", canonicalHref ? { rel: "canonical", href: canonicalHref } : null);
 
+  // 期级 feed autodiscovery（#243 订阅出口默认口径）：阅读器/聚合器可自动发现
+  // 「订阅日报」——复用 #231 同款 head helper，不另起机制；绝对 URL 供阅读器直取
+  useHeadElement("link", {
+    rel: "alternate",
+    type: "application/rss+xml",
+    title: "理大资讯日报 | PolyU Daily Digest",
+    href:
+      typeof window !== "undefined"
+        ? `${window.location.origin}${dailyIssuesFeedUrl()}`
+        : dailyIssuesFeedUrl()
+  });
+
   const derived = useMemo(() => (digest ? deriveIssue(digest) : null), [digest]);
 
   if (malformed) {
@@ -869,7 +882,7 @@ export function DailyDigestPage() {
                   <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">
                     {zh ? "— 本期完 —" : "— End of issue —"}
                   </span>
-                  <div className="mt-2 flex items-center justify-center gap-4">
+                  <div className="mt-2 flex flex-wrap items-center justify-center gap-4">
                     <a
                       href={dailyDigestRssUrl(digest.digestDate)}
                       target="_blank"
@@ -877,6 +890,15 @@ export function DailyDigestPage() {
                       className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
                     >
                       {zh ? "本期 RSS ↗" : "Issue RSS ↗"}
+                    </a>
+                    {/* #243 期级订阅出口（默认口径=刊尾位，维护者可否决改位）：连续刊物 feed */}
+                    <a
+                      href={dailyIssuesFeedUrl()}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
+                    >
+                      {zh ? "订阅日报 ↗" : "Subscribe ↗"}
                     </a>
                   </div>
                 </div>
