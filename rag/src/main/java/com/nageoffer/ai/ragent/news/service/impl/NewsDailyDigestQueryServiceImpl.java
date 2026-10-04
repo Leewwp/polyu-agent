@@ -69,7 +69,9 @@ import java.util.stream.Collectors;
  *
  * <p><b>RSS 渲染</b>：RSS 2.0 文本端点（沿 PublicKeyDateIcsController 的
  * 文本 feed 先例：原文返回+Cache-Control 卫生值），从详情 VO 确定性渲染，
- * XML 转义覆盖全部文本节点，pubDate 用 RFC-822（HKT 偏移）。
+ * XML 转义覆盖全部文本节点，pubDate 用 RFC-822（HKT 偏移）。期级 feed
+ * （#240 renderIssuesRss）同一组装/转义约定，批量复检一次 IN 查询覆盖
+ * 全部期（不逐期 getDetail）。
  */
 @Slf4j
 @Service
@@ -84,6 +86,12 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
      * 目录默认条数
      */
     private static final int DEFAULT_LIST_LIMIT = 30;
+
+    /**
+     * 期级 RSS 收录期数（#240 票面：最近 30 期；固定值不出参——feed 形态对
+     * 订阅者稳定，上限走 SQL LIMIT 与目录同款）
+     */
+    private static final int ISSUES_FEED_LIMIT = 30;
 
     /**
      * RSS pubDate/lastBuildDate 格式（RFC-822，HKT +0800）
@@ -111,16 +119,24 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     @Override
     public List<NewsDailyDigestSummaryVO> listRecent(int limit) {
         int bounded = limit <= 0 ? DEFAULT_LIST_LIMIT : Math.min(limit, MAX_LIST_LIMIT);
-        return digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
-                        .orderByDesc(NewsDailyDigestDO::getDigestDate)
-                        .last("LIMIT " + bounded))
-                .stream()
-                .map(header -> NewsDailyDigestSummaryVO.builder()
-                        .digestDate(header.getDigestDate())
-                        .itemCount(header.getItemCount())
-                        .introSource(header.getIntroSource())
-                        .buildTime(header.getBuildTime())
-                        .build())
+        List<NewsDailyDigestDO> headers = digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
+                .orderByDesc(NewsDailyDigestDO::getDigestDate)
+                .last("LIMIT " + bounded));
+        // firstTitle 批量口径（#240）：一次 IN 查询取各期可见集 seq 首条（与详情页
+        // 头条同源同值——seq=1 恰被下架的期落到下一可见条，空期/全失格=null）
+        Map<Long, VisibleFace> faces = batchVisibleFaces(headers);
+        return headers.stream()
+                .map(header -> {
+                    NewsDailyDigestItemDO first = faces.get(header.getId()).firstVisible();
+                    return NewsDailyDigestSummaryVO.builder()
+                            .digestDate(header.getDigestDate())
+                            .itemCount(header.getItemCount())
+                            .introSource(header.getIntroSource())
+                            .buildTime(header.getBuildTime())
+                            .firstTitleZh(first == null ? null : first.getTitleZh())
+                            .firstTitleEn(first == null ? null : first.getTitleEn())
+                            .build();
+                })
                 .toList();
     }
 
@@ -157,17 +173,8 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
             visible.add(toItemVO(snapshot));
         }
         // 导语失格回退（零调用）：有失格条目即回退模板（可见>0 计数模板 / =0 空刊模板）
-        String introZh = header.getIntroZh();
-        String introEn = header.getIntroEn();
-        boolean degraded = disqualified > 0;
-        if (degraded) {
-            if (visible.isEmpty()) {
-                introZh = NewsDailyDigestTemplates.emptyIntroZh(digestDate);
-                introEn = NewsDailyDigestTemplates.emptyIntroEn(digestDate);
-            } else {
-                introZh = NewsDailyDigestTemplates.fallbackIntroZh(digestDate, visible.size());
-                introEn = NewsDailyDigestTemplates.fallbackIntroEn(digestDate, visible.size());
-            }
+        EffectiveIntro intro = effectiveIntro(header, visible.size(), disqualified);
+        if (disqualified > 0) {
             log.info("[news][daily] 日报 {} 读取期复检：{} 条快照失格（主动下架），导语已回退模板（零调用）",
                     digestDate, disqualified);
         }
@@ -175,10 +182,10 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .digestDate(header.getDigestDate())
                 .windowStart(header.getWindowStart())
                 .windowEnd(header.getWindowEnd())
-                .introZh(introZh)
-                .introEn(introEn)
+                .introZh(intro.zh())
+                .introEn(intro.en())
                 .storedIntroSource(header.getIntroSource())
-                .introDegraded(degraded)
+                .introDegraded(disqualified > 0)
                 .itemCount(header.getItemCount())
                 .visibleCount(visible.size())
                 .disqualifiedCount(disqualified)
@@ -228,6 +235,168 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
         xml.append("  </channel>\n");
         xml.append("</rss>\n");
         return xml.toString();
+    }
+
+    /**
+     * 期级 RSS 渲染（#240，Q10——零 LLM）：订阅对象是「日报」这份连续刊物，
+     * 每期一条 item（最近 30 期、日期倒序）。link=站内 /daily/{date} 绝对
+     * canonical（基准 URL 用站点级 siteBaseUrl——与 sitemap /daily/{date} 条目
+     * 同源，出口一致；单刊 feed 的 digestRssSiteUrl 键是 #212 专有不并键）；
+     * guid=期日期（非 URL，isPermaLink=false）；空期条目保留并附休刊说明文案。
+     * 批量复检（快照与源行各一次 IN 查询）覆盖全部期，不逐期 getDetail。
+     */
+    @Override
+    public String renderIssuesRss() {
+        String siteUrl = properties.effectiveSiteBaseUrl();
+        List<NewsDailyDigestDO> headers = digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
+                .orderByDesc(NewsDailyDigestDO::getDigestDate)
+                .last("LIMIT " + ISSUES_FEED_LIMIT));
+        Map<Long, VisibleFace> faces = batchVisibleFaces(headers);
+        int degradedIssues = 0;
+        for (NewsDailyDigestDO header : headers) {
+            if (faces.get(header.getId()).disqualified() > 0) {
+                degradedIssues++;
+            }
+        }
+        if (degradedIssues > 0) {
+            log.info("[news][daily] 期级 RSS 读取期复检：{}/{} 期存在失格快照（主动下架），相应期导语已回退模板（零调用）",
+                    degradedIssues, headers.size());
+        }
+        StringBuilder xml = new StringBuilder(8192);
+        xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        xml.append("<rss version=\"2.0\">\n");
+        xml.append("  <channel>\n");
+        xml.append("    <title>").append(xmlEscape("理大资讯日报 | PolyU Daily Digest")).append("</title>\n");
+        xml.append("    <link>").append(xmlEscape(siteUrl + "/daily")).append("</link>\n");
+        xml.append("    <description>").append(xmlEscape(
+                        "香港理工大学公开动态日报：每日一期，条目为下架复检后的可见快照。 "
+                                + "One issue per day of aggregated PolyU public updates."))
+                .append("</description>\n");
+        xml.append("    <language>zh-cn</language>\n");
+        xml.append("    <lastBuildDate>").append(rfc822(new Date())).append("</lastBuildDate>\n");
+        for (NewsDailyDigestDO header : headers) {
+            VisibleFace face = faces.get(header.getId());
+            List<NewsDailyDigestItemDO> visible = face.visible();
+            EffectiveIntro intro = effectiveIntro(header, visible.size(), face.disqualified());
+            String date = header.getDigestDate().toString();
+            xml.append("    <item>\n");
+            xml.append("      <title>").append(xmlEscape(issueTitle(date, visible))).append("</title>\n");
+            xml.append("      <link>").append(xmlEscape(siteUrl + "/daily/" + date)).append("</link>\n");
+            xml.append("      <guid isPermaLink=\"false\">").append(xmlEscape(date)).append("</guid>\n");
+            xml.append("      <pubDate>").append(rfc822(header.getBuildTime())).append("</pubDate>\n");
+            xml.append("      <description>").append(
+                    xmlEscape(issueDescription(intro.zh(), visible))).append("</description>\n");
+            xml.append("    </item>\n");
+        }
+        xml.append("  </channel>\n");
+        xml.append("</rss>\n");
+        return xml.toString();
+    }
+
+    /**
+     * 期条目标题：理大资讯日报 · 日期 + 头条标题（可见集 seq 首条，中文优先英文
+     * 兜底）；空期只有日期前缀——头条后缀缺位由 description 的休刊文案补义
+     */
+    private static String issueTitle(String date, List<NewsDailyDigestItemDO> visible) {
+        if (visible.isEmpty()) {
+            return "理大资讯日报 · " + date;
+        }
+        NewsDailyDigestItemDO headline = visible.get(0);
+        return "理大资讯日报 · " + date + "：" + firstNonBlank(headline.getTitleZh(), headline.getTitleEn());
+    }
+
+    /**
+     * 期条目描述：生效导语（zh 口径）+可见条目标题简表；空期=导语+休刊说明
+     * （每日 URL 可预期是特性，空期保留条目不跳期）
+     */
+    private static String issueDescription(String introZh, List<NewsDailyDigestItemDO> visible) {
+        StringBuilder text = new StringBuilder(introZh);
+        if (visible.isEmpty()) {
+            return text.append("\n本期休刊——该日无可见公开动态。").toString();
+        }
+        for (NewsDailyDigestItemDO item : visible) {
+            text.append("\n· ").append(firstNonBlank(item.getTitleZh(), item.getTitleEn()));
+        }
+        return text.toString();
+    }
+
+    /**
+     * 批量读取期复检（#240）：一次 IN 查询取全部期的快照+一次 IN 查询回查源行
+     * status，逐期得出可见集（seq 升序，首条=详情页头条）与失格数——判据与
+     * {@link #getDetail} 完全一致（源行仍存在且 status!=published → 失格；
+     * 源行已清理 → 保留），保证目录 firstTitle 与详情页头条同值
+     */
+    private Map<Long, VisibleFace> batchVisibleFaces(List<NewsDailyDigestDO> headers) {
+        if (headers.isEmpty()) {
+            return Map.of();
+        }
+        Set<Long> digestIds = headers.stream()
+                .map(NewsDailyDigestDO::getId).collect(Collectors.toSet());
+        List<NewsDailyDigestItemDO> snapshots = digestItemMapper.selectList(
+                new LambdaQueryWrapper<NewsDailyDigestItemDO>()
+                        .in(NewsDailyDigestItemDO::getDigestId, digestIds)
+                        .orderByAsc(NewsDailyDigestItemDO::getSeq));
+        Set<Long> sourceItemIds = snapshots.stream()
+                .map(NewsDailyDigestItemDO::getItemId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> liveStatus = new HashMap<>();
+        if (!sourceItemIds.isEmpty()) {
+            for (NewsItemDO live : itemMapper.selectList(new LambdaQueryWrapper<NewsItemDO>()
+                    .in(NewsItemDO::getId, sourceItemIds))) {
+                liveStatus.put(live.getId(), live.getStatus());
+            }
+        }
+        Map<Long, List<NewsDailyDigestItemDO>> visibleByDigest = new HashMap<>();
+        Map<Long, Integer> totalByDigest = new HashMap<>();
+        for (NewsDailyDigestItemDO snapshot : snapshots) {
+            totalByDigest.merge(snapshot.getDigestId(), 1, Integer::sum);
+            String status = liveStatus.get(snapshot.getItemId());
+            if (status != null && !"published".equals(status)) {
+                continue;
+            }
+            visibleByDigest.computeIfAbsent(snapshot.getDigestId(), key -> new ArrayList<>()).add(snapshot);
+        }
+        Map<Long, VisibleFace> faces = new HashMap<>();
+        for (NewsDailyDigestDO header : headers) {
+            List<NewsDailyDigestItemDO> visible = visibleByDigest.getOrDefault(header.getId(), List.of());
+            faces.put(header.getId(), new VisibleFace(visible,
+                    totalByDigest.getOrDefault(header.getId(), 0) - visible.size()));
+        }
+        return faces;
+    }
+
+    /**
+     * 生效导语（getDetail 与期级 RSS 共用口径）：无失格=刊头原导语；
+     * 有失格=固定模板（可见&gt;0 计数模板 / =0 空刊模板），零模型调用
+     */
+    private static EffectiveIntro effectiveIntro(NewsDailyDigestDO header, int visibleCount, int disqualified) {
+        String zh = header.getIntroZh();
+        String en = header.getIntroEn();
+        if (disqualified > 0) {
+            if (visibleCount == 0) {
+                zh = NewsDailyDigestTemplates.emptyIntroZh(header.getDigestDate());
+                en = NewsDailyDigestTemplates.emptyIntroEn(header.getDigestDate());
+            } else {
+                zh = NewsDailyDigestTemplates.fallbackIntroZh(header.getDigestDate(), visibleCount);
+                en = NewsDailyDigestTemplates.fallbackIntroEn(header.getDigestDate(), visibleCount);
+            }
+        }
+        return new EffectiveIntro(zh, en);
+    }
+
+    /**
+     * 一期读取期复检结果：可见快照集（seq 升序）+失格条数
+     */
+    private record VisibleFace(List<NewsDailyDigestItemDO> visible, int disqualified) {
+
+        NewsDailyDigestItemDO firstVisible() {
+            return visible.isEmpty() ? null : visible.get(0);
+        }
+    }
+
+    /**
+     * 生效导语双语对（读取期零调用口径，见 effectiveIntro）
+     */
+    private record EffectiveIntro(String zh, String en) {
     }
 
     private NewsDailyDigestItemVO toItemVO(NewsDailyDigestItemDO snapshot) {

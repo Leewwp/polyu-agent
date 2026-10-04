@@ -46,7 +46,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 日报公开读取面测试（#212 验收面）：hide 失格过滤/导语失格回退/快照独立性
- * （删源行后日报可读）/RSS 格式合法性/目录排序/<b>零 LLM 结构证明</b>。
+ * （删源行后日报可读）/RSS 格式合法性/目录排序/<b>零 LLM 结构证明</b>；
+ * #240 增目录 firstTitle 映射（批量可见集 seq 首条）与期级 RSS 三态组装。
  */
 class NewsDailyDigestQueryServiceTests {
 
@@ -113,6 +114,20 @@ class NewsDailyDigestQueryServiceTests {
                 .urlHash("hash-" + id).titleZh("条目" + id).titleEn("Item " + id)
                 .category("campus")
                 .publishTime(Date.from(LocalDateTime.of(2026, 10, 2, 9, 0).atZone(HKT).toInstant()))
+                .build());
+    }
+
+    /** 指定日期的休刊期（零快照、empty 模板导语——生成期空刊形态） */
+    private void seedEmptyDigest(LocalDate date) {
+        digestStore.digestMapper.insert(NewsDailyDigestDO.builder()
+                .digestDate(date)
+                .windowStart(Date.from(date.minusDays(1).atTime(8, 0).atZone(HKT).toInstant()))
+                .windowEnd(Date.from(date.atTime(8, 0).atZone(HKT).toInstant()))
+                .introZh(NewsDailyDigestTemplates.emptyIntroZh(date))
+                .introEn(NewsDailyDigestTemplates.emptyIntroEn(date))
+                .introSource(NewsDailyDigestDO.INTRO_SOURCE_EMPTY)
+                .itemCount(0).status(NewsDailyDigestDO.STATUS_PUBLISHED)
+                .buildTime(Date.from(date.atTime(8, 40).atZone(HKT).toInstant()))
                 .build());
     }
 
@@ -217,6 +232,43 @@ class NewsDailyDigestQueryServiceTests {
         assertEquals(DATE, list.get(1).getDigestDate());
     }
 
+    // ==================== 目录 firstTitle（#240） ====================
+
+    /**
+     * #240 验收：seq=1 恰被下架的期，firstTitle 落到 published 可见集中 seq 最小条
+     * （不是「seq=1 且 published 才返回」），且与详情页头条同值（含「部分内容已下架」期）
+     */
+    @Test
+    void listRecentFirstTitleFallsToNextVisibleWhenSeqOneHidden() {
+        seedDigest("导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 21L, 22L, 23L);
+        seedLiveItem(21L, "hidden");      // seq=1 恰被人工下架
+        seedLiveItem(22L, "published");   // seq=2 → 可见集 seq 首条
+        // 23 无 live 行=保留清理常态，保留展示
+        List<NewsDailyDigestSummaryVO> list = service.listRecent(10);
+        assertEquals(1, list.size());
+        assertEquals("条目22", list.get(0).getFirstTitleZh(), "seq=1 失格→落到 seq 最小可见条");
+        assertEquals("Item 22", list.get(0).getFirstTitleEn());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        assertEquals(detail.getItems().get(0).getTitleZh(), list.get(0).getFirstTitleZh(),
+                "与详情页头条一致（验收口径）");
+        assertEquals(detail.getItems().get(0).getTitleEn(), list.get(0).getFirstTitleEn());
+    }
+
+    @Test
+    void listRecentEmptyOrFullyDisqualifiedDigestHasNullFirstTitles() {
+        seedDigest("LLM 导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 31L, 32L);
+        seedLiveItem(31L, "hidden");
+        seedLiveItem(32L, "expired");     // 全失格=读取期空可见集
+        seedEmptyDigest(DATE.plusDays(1)); // 生成期休刊
+        List<NewsDailyDigestSummaryVO> list = service.listRecent(10);
+        assertEquals(2, list.size());
+        assertEquals(DATE.plusDays(1), list.get(0).getDigestDate());
+        assertNull(list.get(0).getFirstTitleZh(), "休刊期两字段 null");
+        assertNull(list.get(0).getFirstTitleEn());
+        assertNull(list.get(1).getFirstTitleZh(), "全失格期可见集为空→null");
+        assertNull(list.get(1).getFirstTitleEn());
+    }
+
     // ==================== RSS 合法性 ====================
 
     @Test
@@ -282,5 +334,96 @@ class NewsDailyDigestQueryServiceTests {
                 item.getElementsByTagName("title").item(0).getTextContent(), "特殊字符经实体转义后还原");
         assertEquals("https://example.com/a?x=1&y=2",
                 item.getElementsByTagName("link").item(0).getTextContent());
+    }
+
+    // ==================== 期级 RSS（#240） ====================
+
+    /**
+     * #240 三态组装（正常期/空期）+结构面：每期一条 item、日期倒序、
+     * title=理大资讯日报 · 日期+头条、link=站内 canonical、guid=期日期、
+     * 空期条目保留并附休刊说明文案
+     */
+    @Test
+    void issuesRssOneItemPerIssueWithEmptyState() throws Exception {
+        seedDigest("正常导语 <测试>", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L, 2L);
+        seedLiveItem(1L, "published");
+        seedLiveItem(2L, "published");
+        seedEmptyDigest(DATE.plusDays(1)); // 更近的休刊期——倒序应排在前
+        String rss = service.renderIssuesRss();
+        Document doc = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(new ByteArrayInputStream(rss.getBytes(StandardCharsets.UTF_8)));
+        assertEquals("rss", doc.getDocumentElement().getTagName());
+        assertEquals("2.0", doc.getDocumentElement().getAttribute("version"));
+        Element channel = (Element) doc.getElementsByTagName("channel").item(0);
+        assertNotNull(channel.getElementsByTagName("title").item(0), "channel 必需 title");
+        assertNotNull(channel.getElementsByTagName("link").item(0), "channel 必需 link");
+        assertNotNull(channel.getElementsByTagName("description").item(0), "channel 必需 description");
+        NodeList items = channel.getElementsByTagName("item");
+        assertEquals(2, items.getLength(), "每期一条 item（空期也保留）");
+        // 日期倒序：更近的休刊期在前
+        Element emptyIssue = (Element) items.item(0);
+        assertEquals("理大资讯日报 · " + DATE.plusDays(1),
+                emptyIssue.getElementsByTagName("title").item(0).getTextContent(), "空期无头条后缀");
+        assertEquals("https://polyuguide.com/daily/" + DATE.plusDays(1),
+                emptyIssue.getElementsByTagName("link").item(0).getTextContent(), "link=站内 canonical");
+        Element emptyGuid = (Element) emptyIssue.getElementsByTagName("guid").item(0);
+        assertEquals(DATE.plusDays(1).toString(), emptyGuid.getTextContent(), "guid=期日期");
+        assertEquals("false", emptyGuid.getAttribute("isPermaLink"), "非 URL guid 须显式 isPermaLink=false");
+        String emptyDesc = emptyIssue.getElementsByTagName("description").item(0).getTextContent();
+        assertTrue(emptyDesc.contains("休刊"), "空期条目附休刊说明文案，实际=" + emptyDesc);
+        assertTrue(emptyIssue.getElementsByTagName("pubDate").item(0).getTextContent()
+                .matches("[A-Za-z]{3}, \\d{2} [A-Za-z]{3} \\d{4} \\d{2}:\\d{2}:\\d{2} \\+0800"),
+                "pubDate=生成时刻 RFC-822 HKT");
+        // 正常期：头条入题、导语+条目简表入描述、转义还原
+        Element normalIssue = (Element) items.item(1);
+        assertEquals("理大资讯日报 · " + DATE + "：条目1",
+                normalIssue.getElementsByTagName("title").item(0).getTextContent());
+        assertEquals("https://polyuguide.com/daily/" + DATE,
+                normalIssue.getElementsByTagName("link").item(0).getTextContent());
+        assertEquals(DATE.toString(),
+                normalIssue.getElementsByTagName("guid").item(0).getTextContent());
+        String desc = normalIssue.getElementsByTagName("description").item(0).getTextContent();
+        assertTrue(desc.contains("正常导语 <测试>"), "生效导语（zh 口径）入描述，实际=" + desc);
+        assertTrue(desc.contains("条目1") && desc.contains("条目2"), "可见条目标题简表，实际=" + desc);
+    }
+
+    /** 下架复检期：头条落到下一可见条、导语回退模板（与单刊 feed 同口径） */
+    @Test
+    void issuesRssDegradedIssueFallsToNextHeadlineAndTemplateIntro() throws Exception {
+        seedDigest("导语提及条目1", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L, 2L);
+        seedLiveItem(1L, "hidden");
+        seedLiveItem(2L, "published");
+        String rss = service.renderIssuesRss();
+        Document doc = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(new ByteArrayInputStream(rss.getBytes(StandardCharsets.UTF_8)));
+        Element item = (Element) doc.getElementsByTagName("item").item(0);
+        String title = item.getElementsByTagName("title").item(0).getTextContent();
+        assertEquals("理大资讯日报 · " + DATE + "：条目2", title, "seq=1 失格→头条=seq 最小可见条");
+        String desc = item.getElementsByTagName("description").item(0).getTextContent();
+        assertTrue(desc.contains("1 条"), "导语回退计数模板（零调用），实际=" + desc);
+        assertTrue(desc.contains("条目2"), "可见条目入简表，实际=" + desc);
+        assertFalse(desc.contains("导语提及条目1"), "被下架内容不得残留于导语，实际=" + desc);
+        assertFalse(desc.contains("条目1"), "失格条目不入简表，实际=" + desc);
+    }
+
+    /** 最近 30 期封顶：第 31 期（最旧）被 LIMIT 截掉 */
+    @Test
+    void issuesRssCapsAtThirtyMostRecentIssues() throws Exception {
+        for (int i = 0; i < 31; i++) {
+            seedEmptyDigest(DATE.plusDays(i));
+        }
+        String rss = service.renderIssuesRss();
+        Document doc = DocumentBuilderFactory.newInstance()
+                .newDocumentBuilder()
+                .parse(new ByteArrayInputStream(rss.getBytes(StandardCharsets.UTF_8)));
+        NodeList items = doc.getElementsByTagName("item");
+        assertEquals(30, items.getLength(), "最近 30 期封顶");
+        assertEquals(DATE.plusDays(30).toString(),
+                ((Element) items.item(0)).getElementsByTagName("guid").item(0).getTextContent(), "最新期在前");
+        assertEquals(DATE.plusDays(1).toString(),
+                ((Element) items.item(29)).getElementsByTagName("guid").item(0).getTextContent(),
+                "最旧一期（DATE 本体）被截掉");
     }
 }

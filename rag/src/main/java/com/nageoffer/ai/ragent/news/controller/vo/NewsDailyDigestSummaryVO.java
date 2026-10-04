@@ -28,6 +28,10 @@ import java.util.Date;
 /**
  * 日报目录行 VO（#212）：日期+统计+导语产出方式——<b>不携带导语正文</b>
  * （列表面不展示导语：隐藏条目不会在目录行留导语残留，同时保持列表轻量）
+ *
+ * <p>#240 增 firstTitleZh/firstTitleEn：每期第一个<b>可见</b>条目的双语标题
+ * （批量口径=各期 published 可见集中 seq 最小条，与详情页头条同源同值——
+ * seq=1 恰被下架的期落到下一可见条，空期/全失格期为 null）。
  */
 @Data
 @Builder
@@ -54,4 +58,16 @@ public class NewsDailyDigestSummaryVO {
      * 生成时刻
      */
     private Date buildTime;
+
+    /**
+     * 每期第一个可见条目标题（中文）：读取期下架复检后的可见集 seq 首条
+     * （#240，批量 IN 查询口径）；空期（休刊）/全部失格=null
+     */
+    private String firstTitleZh;
+
+    /**
+     * 每期第一个可见条目标题（英文）：同 {@link #firstTitleZh} 的条目快照列，
+     * 该语言列缺失时为 null（快照两列独立可空）
+     */
+    private String firstTitleEn;
 }
