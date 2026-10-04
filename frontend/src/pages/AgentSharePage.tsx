@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { groupTurns } from "@/components/agent/AgentMessageList";
 import { AgentTurnItem } from "@/components/agent/AgentTurn";
 import { FeedShell } from "@/components/feed/FeedShell";
-import { useFeedLang } from "@/components/feed/feedLang";
+import { contentLangOf, useFeedLang } from "@/components/feed/feedLang";
 import { useEnterChat } from "@/hooks/useEnterChat";
 import { toBlockHms } from "@/lib/agentTimeline";
 import { getPublicAgentShare } from "@/services/agentShareService";
@@ -64,6 +64,11 @@ export function AgentSharePage() {
   }, [token]);
 
   const turns = React.useMemo(() => (share ? groupTurns(toTimelineMessages(share.messages)) : []), [share]);
+  // 快照正文不随 UI 语言翻译（#227）：lang 按实际内容语言标注（全局偏好≠内容语言）
+  const snapshotLang = React.useMemo(
+    () => (share ? contentLangOf(share.messages.map((message) => message.content).join(" ")) : "zh"),
+    [share]
+  );
   const ready = !loading && !invalid && share !== null;
 
   return (
@@ -76,7 +81,7 @@ export function AgentSharePage() {
         <div className="agent-main agent-share-main h-full">
           {ready ? <ShareBanner /> : null}
           {ready ? (
-            <div className="agent-share-stream" data-testid="agent-share-stream">
+            <div className="agent-share-stream" data-testid="agent-share-stream" lang={snapshotLang}>
               <div className="agent-stream-rows agent-share-rows">
                 {turns.map((turn) => (
                   <div key={turn.id} className="pb-4">

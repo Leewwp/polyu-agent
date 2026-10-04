@@ -5,6 +5,7 @@ import { MemoryRouter, RouterProvider } from "react-router-dom";
 
 import { router } from "@/router";
 import { FeedPage } from "./FeedPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 
 /**
  * 首页机检面：
@@ -25,7 +26,9 @@ function instrumentNetwork(): { requestedUrls: string[] } {
 function renderFeed() {
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <FeedPage />
+      <FeedLangProvider>
+        <FeedPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -60,7 +63,7 @@ describe("FeedPage", () => {
     }
 
     // 页脚：三法务链（指向线上既有路由）+ 非官方声明 + 联系邮箱
-    expect(screen.getByRole("link", { name: "隐私政策" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "隐私声明" }).getAttribute("href")).toBe("/privacy");
     expect(screen.getByRole("link", { name: "服务条款" }).getAttribute("href")).toBe("/terms");
     expect(screen.getByRole("link", { name: "非官方声明" }).getAttribute("href")).toBe("/disclaimer");
     expect(screen.getByText(/ppp@polyuguide\.com · © 2026 PolyUGuide/)).toBeTruthy();
@@ -107,7 +110,11 @@ describe("FeedPage", () => {
 
   it("serves `/` as the public feed via the real router (anonymous, no login redirect)", async () => {
     const { requestedUrls } = instrumentNetwork();
-    const { container } = render(<RouterProvider router={router} />);
+    const { container } = render(
+      <FeedLangProvider>
+        <RouterProvider router={router} />
+      </FeedLangProvider>
+    );
 
     await waitFor(() => {
       expect(container.querySelectorAll("article")).toHaveLength(15);
@@ -122,7 +129,9 @@ describe("FeedPage", () => {
   it("hides AI digest strip and hot panel in all-news view (?view=all)", async () => {
     const { container } = render(
       <MemoryRouter initialEntries={["/?view=all"]}>
+      <FeedLangProvider>
         <FeedPage />
+      </FeedLangProvider>
       </MemoryRouter>
     );
 

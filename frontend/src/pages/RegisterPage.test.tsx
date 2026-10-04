@@ -106,8 +106,12 @@ describe("RegisterPage", () => {
 
   it("shows the privacy/terms agreement copy with legal links", () => {
     renderPage();
-    expect(screen.getByRole("link", { name: "隐私声明" }).getAttribute("href")).toBe("/privacy");
-    expect(screen.getByRole("link", { name: "服务条款" }).getAttribute("href")).toBe("/terms");
+    // 勾选区与页脚（#227 随语言页脚）各有一枚同名法务链，href 一致即可
+    const privacyLinks = screen.getAllByRole("link", { name: "隐私声明" });
+    expect(privacyLinks.length).toBeGreaterThanOrEqual(1);
+    expect(privacyLinks.every((link) => link.getAttribute("href") === "/privacy")).toBe(true);
+    const termsLinks = screen.getAllByRole("link", { name: "服务条款" });
+    expect(termsLinks.every((link) => link.getAttribute("href") === "/terms")).toBe(true);
   });
 
   it("moves to verify step after registration and to done after code verification", async () => {

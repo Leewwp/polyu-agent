@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { TopicDetailPage } from "./TopicDetailPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { TOPIC_MISSING_MESSAGE, fetchTopicDetail } from "@/services/newsService";
 import type { TopicDetailData } from "@/services/newsService";
 import { MOCK_NEWS_ITEMS, NEWS_TOPICS } from "@/services/newsMockData";
@@ -56,10 +57,12 @@ function instrumentNetwork(): { requestedUrls: string[] } {
 function renderPage(slug: string) {
   return render(
     <MemoryRouter initialEntries={[`/topics/${slug}`]}>
-      <Routes>
-        <Route path="/topics/:slug" element={<TopicDetailPage />} />
-        <Route path="/topics" element={<div>TOPICS_LANDING</div>} />
-      </Routes>
+      <FeedLangProvider>
+        <Routes>
+          <Route path="/topics/:slug" element={<TopicDetailPage />} />
+          <Route path="/topics" element={<div>TOPICS_LANDING</div>} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

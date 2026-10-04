@@ -44,6 +44,8 @@ describe("feedLang", () => {
   afterEach(() => {
     cleanup();
     Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
+    // html lang 同步用例会改 documentElement.lang，还原默认防同文件后续用例漂移
+    document.documentElement.lang = "zh";
   });
 
   it("defaults to zh for first-time visitors and persists switches", async () => {
@@ -98,5 +100,43 @@ describe("feedLang", () => {
 
   it("exposes the raw context for tests and providers", () => {
     expect(FeedLangContext).toBeTruthy();
+  });
+
+  it("syncs <html lang> to zh on first visit (mount-time, not click-time)", () => {
+    render(
+      <FeedLangProvider>
+        <Probe />
+      </FeedLangProvider>
+    );
+    // 首次直达：挂载即按持久化（无存储=默认 zh）落定，非仅点击切换时
+    expect(document.documentElement.lang).toBe("zh");
+  });
+
+  it("syncs <html lang> to the persisted preference on mount (refresh / direct entry)", () => {
+    // 持久化 EN 后直接打开轻量路由（无任何点击）：刷新/首达即 en
+    mem.set(STORAGE_KEY, "en");
+    render(
+      <FeedLangProvider>
+        <Probe />
+      </FeedLangProvider>
+    );
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  it("updates <html lang> when switching languages at runtime", async () => {
+    render(
+      <FeedLangProvider>
+        <Probe />
+      </FeedLangProvider>
+    );
+    expect(document.documentElement.lang).toBe("zh");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "zh" }));
+
+    expect(document.documentElement.lang).toBe("en");
+
+    await user.click(screen.getByRole("button", { name: "en" }));
+    expect(document.documentElement.lang).toBe("zh");
   });
 });

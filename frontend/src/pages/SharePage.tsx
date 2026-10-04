@@ -6,6 +6,7 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/authStore";
 import { isSafeUrl } from "@/utils/urlSafety";
+import { contentLangOf, useOptionalFeedLang } from "@/components/feed/feedLang";
 
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { PublicShare } from "@/services/shareService";
@@ -15,9 +16,13 @@ import { getPublicShare } from "@/services/shareService";
  * 公开分享页（匿名可访问）：渲染不可变 Q&A 快照 + 结构化官方引用。
  * 首发要求搜索引擎不收录：meta robots noindex（后端另有 X-Robots-Tag 双保险）。
  * 始终显示非官方与时效提示。
+ * #227：操作钮/加载/无效态随全局语言单语呈现；快照正文不翻译，lang 属性
+ * 按实际内容语言标注（全局偏好≠快照内容语言）。
  */
 export function SharePage() {
   const { token } = useParams<{ token: string }>();
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [share, setShare] = React.useState<PublicShare | null>(null);
   const [invalid, setInvalid] = React.useState(false);
@@ -69,31 +74,43 @@ export function SharePage() {
           <span className="text-sm font-medium text-[#1A1A1A]">PolyU Wayfinder</span>
         </div>
         <Button asChild variant="ghost" size="sm" className="text-[#666666]">
-          <Link to={chatHref}>继续提问 · Continue</Link>
+          <Link to={chatHref}>{zh ? "继续提问" : "Continue"}</Link>
         </Button>
       </header>
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-[#999999]">
-          加载中 · Loading…
+          {zh ? "加载中…" : "Loading…"}
         </div>
       ) : invalid || !share ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <p className="text-base font-medium text-[#1A1A1A]">分享链接无效或已撤销</p>
-          <p className="text-sm text-[#999999]">This share link is invalid or has been revoked.</p>
+          <p className="text-base font-medium text-[#1A1A1A]">
+            {zh ? "分享链接无效或已撤销" : "This share link is invalid or has been revoked"}
+          </p>
+          <p className="text-sm text-[#999999]">
+            {zh
+              ? "This share link is invalid or has been revoked."
+              : "分享链接无效或已撤销。"}
+          </p>
           <Button asChild variant="outline" size="sm" className="mt-2">
-            <Link to={chatHref}>继续提问 · Continue asking</Link>
+            <Link to={chatHref}>{zh ? "继续提问" : "Continue asking"}</Link>
           </Button>
         </div>
       ) : (
         <main className="flex-1 space-y-6">
-          <div className="rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] p-4 sm:p-5">
+          <div
+            lang={contentLangOf(share.question)}
+            className="rounded-xl border border-[#E5E5E5] bg-[#FAFAFA] p-4 sm:p-5"
+          >
             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[#1A1A1A]">
               {share.question}
             </p>
           </div>
 
-          <div className="text-sm leading-relaxed text-[#333333]">
+          <div
+            lang={contentLangOf(share.answerMd)}
+            className="text-sm leading-relaxed text-[#333333]"
+          >
             <MarkdownRenderer
               content={share.answerMd}
               messageId={token}
@@ -103,7 +120,9 @@ export function SharePage() {
 
           {share.citations && share.citations.length > 0 ? (
             <section className="space-y-2">
-              <h2 className="text-sm font-medium text-[#1A1A1A]">官方来源 · Official sources</h2>
+              <h2 className="text-sm font-medium text-[#1A1A1A]">
+                {zh ? "官方来源" : "Official sources"}
+              </h2>
               <ol className="space-y-1.5">
                 {share.citations.map((source, index) => (
                   <li key={source.url ?? index} className="text-sm text-[#666666]">
@@ -138,11 +157,13 @@ export function SharePage() {
           <div className="flex items-center justify-between text-xs text-[#999999]">
             <span>
               {share.createTime
-                ? `分享于 · Shared at ${new Date(share.createTime).toLocaleString()}`
+                ? zh
+                  ? `分享于 ${new Date(share.createTime).toLocaleString()}`
+                  : `Shared at ${new Date(share.createTime).toLocaleString()}`
                 : null}
             </span>
             <Button asChild size="sm">
-              <Link to={chatHref}>继续提问 · Continue asking</Link>
+              <Link to={chatHref}>{zh ? "继续提问" : "Continue asking"}</Link>
             </Button>
           </div>
         </main>

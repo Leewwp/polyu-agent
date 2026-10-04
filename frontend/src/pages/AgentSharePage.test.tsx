@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { AgentSharePage } from "@/pages/AgentSharePage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { useAuthStore } from "@/stores/authStore";
 
 const getPublicAgentShareMock = vi.hoisted(() => vi.fn());
@@ -24,11 +25,13 @@ vi.mock("@/services/agentShareService", () => ({
 function setup(token = "TOKEN123") {
   return render(
     <MemoryRouter initialEntries={[`/share/c/${token}`]}>
-      <Routes>
-        <Route path="/share/c/:token" element={<AgentSharePage />} />
-        <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
-        <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
-      </Routes>
+      <FeedLangProvider>
+        <Routes>
+          <Route path="/share/c/:token" element={<AgentSharePage />} />
+          <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
+          <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

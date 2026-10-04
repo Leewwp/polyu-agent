@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 
 import { KeyDatesPage } from "./KeyDatesPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { fetchKeyDateBoard } from "@/services/keyDateService";
 import { MOCK_KEY_DATE_BOARD } from "@/services/keyDateMockData";
 import type { KeyDateBoard } from "@/types/keyDate";
@@ -27,7 +28,9 @@ vi.mock("@/services/keyDateService", async (importOriginal) => {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/key-dates"]}>
-      <KeyDatesPage />
+      <FeedLangProvider>
+        <KeyDatesPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

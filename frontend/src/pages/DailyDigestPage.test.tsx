@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 
 import { DailyDigestPage } from "./DailyDigestPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { dailyDigestRssUrl, fetchDailyDigest, fetchDailyDigestList } from "@/services/newsService";
 import type { NewsDailyDigest, NewsDailyDigestSummary } from "@/types/news";
 
@@ -80,7 +81,9 @@ function digestFixture(overrides: Partial<NewsDailyDigest> = {}): NewsDailyDiges
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/daily"]}>
-      <DailyDigestPage />
+      <FeedLangProvider>
+        <DailyDigestPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

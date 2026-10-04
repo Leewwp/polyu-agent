@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { FeedPage } from "./FeedPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
 
 /**
@@ -13,7 +14,9 @@ import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
 function renderFeed(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
-      <FeedPage />
+      <FeedLangProvider>
+        <FeedPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

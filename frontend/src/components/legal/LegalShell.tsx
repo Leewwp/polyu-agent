@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { useAuthStore } from "@/stores/authStore";
 
 interface LegalShellProps {
@@ -14,8 +15,12 @@ interface LegalShellProps {
 
 /**
  * 法务静态页共用壳：公开无守卫路由，自绘 header（同 SharePage 范式），底部自带三链接页脚。
+ * #227：返回钮随全局语言单语（原「返回 · Back」硬拼拆开）；页脚由 SiteFooter 随语言。
+ * 法务正文保持中英并列（Q7 已确认），段落级 lang 标注由各法务页按段标注。
  */
 export function LegalShell({ title, titleEn, children }: LegalShellProps) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const backHref = isAuthenticated ? "/chat" : "/login";
 
@@ -29,7 +34,7 @@ export function LegalShell({ title, titleEn, children }: LegalShellProps) {
           <span className="text-sm font-medium text-[#1A1A1A]">PolyU Wayfinder</span>
         </div>
         <Button asChild variant="ghost" size="sm" className="text-[#666666]">
-          <Link to={backHref}>返回 · Back</Link>
+          <Link to={backHref}>{zh ? "返回" : "Back"}</Link>
         </Button>
       </header>
       <main className="flex-1">

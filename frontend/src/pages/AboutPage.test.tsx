@@ -49,11 +49,7 @@ describe("AboutPage", () => {
       qrImageUrlAlt: null
     });
 
-    render(
-      <MemoryRouter>
-        <AboutPage />
-      </MemoryRouter>
-    );
+    renderAbout();
 
     await waitFor(() => {
       expect(screen.getByText("关于 PolyUGuide")).toBeTruthy();
@@ -66,11 +62,7 @@ describe("AboutPage", () => {
   it("接口失败或空内容出「内容暂未配置」空态", async () => {
     fetchSiteAbout.mockRejectedValue(new Error("404"));
 
-    render(
-      <MemoryRouter>
-        <AboutPage />
-      </MemoryRouter>
-    );
+    renderAbout();
 
     await waitFor(() => {
       expect(screen.getByText(/内容暂未配置/)).toBeTruthy();
@@ -84,11 +76,7 @@ describe("AboutPage", () => {
       qrImageUrlAlt: null
     });
 
-    render(
-      <MemoryRouter>
-        <AboutPage />
-      </MemoryRouter>
-    );
+    renderAbout();
 
     await waitFor(() => {
       expect(screen.getByText("请作者喝杯咖啡")).toBeTruthy();

@@ -6,6 +6,7 @@ import { AuthShell } from "@/components/common/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { register, resendVerificationCode, verifyEmail } from "@/services/authService";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -20,8 +21,11 @@ type Step = "form" | "verify" | "done";
  * 邮箱验证码（60s 重发冷却对齐后端）→ 完成引导登录。
  * 后端 flag（ragent.registration.enabled）默认关，关闭态接口统一回
  * 「注册通道当前未开放」，直接内联展示，前端不做 flag 判断。
+ * #227：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。
  */
 export function RegisterPage() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const navigate = useNavigate();
   const [step, setStep] = React.useState<Step>("form");
   const [form, setForm] = React.useState({ username: "", email: "", password: "" });
@@ -107,17 +111,21 @@ export function RegisterPage() {
   };
 
   return (
-    <AuthShell title="创建账号" titleEn="Create your account">
+    <AuthShell
+      title={zh ? "创建账号" : "Create your account"}
+      titleEn={zh ? "Create your account" : undefined}
+    >
       {step === "form" ? (
         <form className="space-y-4" onSubmit={handleRegister}>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              用户名 · Username
+              {zh ? "用户名" : "Username"}
             </label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="3–20 位小写字母、数字、_ 或 -"
+                placeholder={zh ? "3–20 位小写字母、数字、_ 或 -" : "3–20 chars: lowercase letters, digits, _ or -"}
+                aria-label={zh ? "用户名" : "Username"}
                 value={form.username}
                 onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
                 className="pl-10"
@@ -126,18 +134,21 @@ export function RegisterPage() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              注册后不可修改 · 不区分大小写 · 用于登录与展示。Cannot be changed after sign-up.
+              {zh
+                ? "注册后不可修改 · 不区分大小写 · 用于登录与展示。Cannot be changed after sign-up."
+                : "Cannot be changed after sign-up · Case-insensitive · Used for sign-in and display."}
             </p>
           </div>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              邮箱 · Email
+              {zh ? "邮箱" : "Email"}
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="email"
                 placeholder="you@example.com"
+                aria-label={zh ? "邮箱" : "Email"}
                 value={form.email}
                 onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                 className="pl-10"
@@ -148,13 +159,14 @@ export function RegisterPage() {
           </div>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              密码 · Password
+              {zh ? "密码" : "Password"}
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type={showPassword ? "text" : "password"}
-                placeholder="8–64 位字符"
+                placeholder={zh ? "8–64 位字符" : "8–64 characters"}
+                aria-label={zh ? "密码" : "Password"}
                 value={form.password}
                 onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
                 className="pl-10 pr-10"
@@ -165,13 +177,13 @@ export function RegisterPage() {
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                aria-label="显示或隐藏密码"
+                aria-label={zh ? "显示或隐藏密码" : "Show or hide password"}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              密码长度 8–64 字符 · Password must be 8–64 characters.
+              {zh ? "密码长度 8–64 字符 · " : ""}Password must be 8–64 characters.
             </p>
           </div>
           <div className="space-y-1">
@@ -179,32 +191,34 @@ export function RegisterPage() {
               <Checkbox
                 checked={agreed}
                 onCheckedChange={(value) => setAgreed(Boolean(value))}
-                aria-label="同意隐私声明与服务条款"
+                aria-label={zh ? "同意隐私声明与服务条款" : "Agree to the Privacy Notice and Terms of Service"}
               />
               <span className="min-w-0 leading-snug">
-                我已阅读并同意
+                {zh ? "我已阅读并同意" : "I have read and agree to the "}
                 <Link to="/privacy" className="underline">
-                  隐私声明
+                  {zh ? "隐私声明" : "Privacy Notice"}
                 </Link>
-                与
+                {zh ? "与" : " and "}
                 <Link to="/terms" className="underline">
-                  服务条款
+                  {zh ? "服务条款" : "Terms of Service"}
                 </Link>
-                。
+                {zh ? "。" : "."}
               </span>
             </label>
-            <p className="pl-7 text-xs text-muted-foreground">
-              I have read and agree to the Privacy Notice and Terms of Service.
-            </p>
+            {zh ? (
+              <p className="pl-7 text-xs text-muted-foreground">
+                I have read and agree to the Privacy Notice and Terms of Service.
+              </p>
+            ) : null}
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={!canSubmit}>
-            {isSubmitting ? "正在提交..." : "注册"}
+            {isSubmitting ? (zh ? "正在提交..." : "Submitting...") : zh ? "注册" : "Sign up"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            已有账号？{" "}
+            {zh ? "已有账号？ " : "Already have an account? "}
             <Link to="/login" className="underline">
-              直接登录
+              {zh ? "直接登录" : "Sign in"}
             </Link>
           </p>
         </form>
@@ -213,19 +227,19 @@ export function RegisterPage() {
       {step === "verify" ? (
         <form className="space-y-4" onSubmit={handleVerify}>
           <p className="text-sm text-muted-foreground">
-            验证码已发送至 <span className="font-medium text-foreground">{form.email.trim()}</span>
-            ，请输入 6 位验证码完成邮箱验证。
-          </p>
-          <p className="text-xs text-muted-foreground">
-            A 6-digit verification code has been sent to your email. Enter it below to verify your
-            address.
+            {zh
+              ? "验证码已发送至 "
+              : "A 6-digit code has been sent to "}
+            <span className="font-medium text-foreground">{form.email.trim()}</span>
+            {zh ? "，请输入 6 位验证码完成邮箱验证。" : ". Enter it below to verify your address."}
           </p>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              验证码 · Code
+              {zh ? "验证码" : "Code"}
             </label>
             <Input
-              placeholder="6 位数字"
+              placeholder={zh ? "6 位数字" : "6-digit code"}
+              aria-label={zh ? "验证码" : "Verification code"}
               value={code}
               onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
               autoComplete="one-time-code"
@@ -237,7 +251,7 @@ export function RegisterPage() {
           {notice ? <p className="text-sm text-emerald-600">{notice}</p> : null}
           <div className="flex items-center gap-2">
             <Button type="submit" className="flex-1" disabled={isVerifying}>
-              {isVerifying ? "正在验证..." : "完成验证"}
+              {isVerifying ? (zh ? "正在验证..." : "Verifying...") : zh ? "完成验证" : "Verify"}
             </Button>
             <Button
               type="button"
@@ -245,7 +259,7 @@ export function RegisterPage() {
               onClick={handleResend}
               disabled={cooldown > 0 || isResending}
             >
-              {cooldown > 0 ? `${cooldown}s` : isResending ? "发送中..." : "重发验证码"}
+              {cooldown > 0 ? `${cooldown}s` : isResending ? (zh ? "发送中..." : "Sending...") : zh ? "重发验证码" : "Resend code"}
             </Button>
           </div>
           <button
@@ -258,19 +272,18 @@ export function RegisterPage() {
               setNotice(null);
             }}
           >
-            返回修改邮箱 · Use a different email
+            {zh ? "返回修改邮箱 · Use a different email" : "Use a different email"}
           </button>
         </form>
       ) : null}
 
       {step === "done" ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">邮箱验证完成，现在可以使用该账号登录了。</p>
-          <p className="text-xs text-muted-foreground">
-            Your email is verified. You can now sign in with your account.
+          <p className="text-sm text-muted-foreground">
+            {zh ? "邮箱验证完成，现在可以使用该账号登录了。" : "Your email is verified. You can now sign in with your account."}
           </p>
           <Button className="w-full" onClick={() => navigate("/login")}>
-            前往登录 · Sign in
+            {zh ? "前往登录 · Sign in" : "Sign in"}
           </Button>
         </div>
       ) : null}

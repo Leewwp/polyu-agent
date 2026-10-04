@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { ChatPage } from "./ChatPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { useChatStore } from "@/stores/chatStore";
 
 /**
@@ -28,7 +29,9 @@ vi.mock("@/components/chat/GuestStatusBadge", () => ({ GuestStatusBadge: () => n
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/chat"]}>
-      <ChatPage />
+      <FeedLangProvider>
+        <ChatPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -85,11 +88,13 @@ function LocationProbe() {
 function renderWithRoutes(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
-      <LocationProbe />
-      <Routes>
-        <Route path="/chat/:sessionId" element={<ChatPage />} />
-        <Route path="/chat" element={<ChatPage />} />
-      </Routes>
+      <FeedLangProvider>
+        <LocationProbe />
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatPage />} />
+          <Route path="/chat" element={<ChatPage />} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

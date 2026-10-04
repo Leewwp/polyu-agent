@@ -13,6 +13,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { useAuthStore } from "@/stores/authStore";
 import {
   changePassword,
@@ -30,8 +31,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * 唯一权威入口：UserMenu「账号设置」；「我的分享」弹窗已迁入本页（MyAgentSharesDialog 删除）。
  * 分享 tab 按 flag 探测：对应 mine 列表 404（flag 关）时隐藏该 tab——沿用分享钮
  * 「后端 404 即功能未开启」的判断模式，不另起前端 flag 面。
+ * #227：操作钮/tab/状态文字随全局语言单语（动态错误与 toast 透传后端文案，不翻）。
  */
 export function AccountPage() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const user = useAuthStore((state) => state.user);
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
@@ -39,9 +43,11 @@ export function AccountPage() {
     <div className="flex min-h-screen flex-col px-4">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 py-8">
         <header>
-          <h1 className="text-2xl font-semibold">账号设置</h1>
+          <h1 className="text-2xl font-semibold">{zh ? "账号设置" : "Account settings"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Account settings · 管理你的登录标识、邮箱、密码与分享
+            {zh
+              ? "Account settings · 管理你的登录标识、邮箱、密码与分享"
+              : "Manage your sign-in identity, email, password and shares"}
           </p>
         </header>
         <ProfileCard email={user?.email ?? null} emailVerified={user?.emailVerified ?? null} />
@@ -56,41 +62,48 @@ export function AccountPage() {
 }
 
 function ProfileCard({ email, emailVerified }: { email: string | null; emailVerified: number | null }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const user = useAuthStore((state) => state.user);
   const createTime = user?.createTime ? new Date(user.createTime).toLocaleDateString() : null;
   return (
-    <section aria-label="账号资料" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
-      <h2 className="text-base font-semibold">账号资料 · Profile</h2>
+    <section
+      aria-label={zh ? "账号资料" : "Profile"}
+      className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft"
+    >
+      <h2 className="text-base font-semibold">{zh ? "账号资料" : "Profile"}</h2>
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-[130px_1fr]">
-        <dt className="text-muted-foreground">用户名</dt>
+        <dt className="text-muted-foreground">{zh ? "用户名" : "Username"}</dt>
         <dd className="font-medium">
           {user?.username || "-"}
-          <span className="ml-2 text-xs text-muted-foreground">注册后不可修改 · Cannot be changed</span>
+          <span className="ml-2 text-xs text-muted-foreground">
+            {zh ? "注册后不可修改 · Cannot be changed" : "Cannot be changed after sign-up"}
+          </span>
         </dd>
-        <dt className="text-muted-foreground">角色</dt>
-        <dd>{user?.role === "admin" ? "管理员" : "用户"}</dd>
-        <dt className="text-muted-foreground">邮箱</dt>
+        <dt className="text-muted-foreground">{zh ? "角色" : "Role"}</dt>
+        <dd>{user?.role === "admin" ? (zh ? "管理员" : "Admin") : zh ? "用户" : "User"}</dd>
+        <dt className="text-muted-foreground">{zh ? "邮箱" : "Email"}</dt>
         <dd data-testid="profile-email">
           {email ? (
             <>
               {email}
               {emailVerified === 1 ? (
                 <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-600">
-                  已验证
+                  {zh ? "已验证" : "Verified"}
                 </span>
               ) : (
                 <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600">
-                  未验证
+                  {zh ? "未验证" : "Unverified"}
                 </span>
               )}
             </>
           ) : (
-            "未设置"
+            zh ? "未设置" : "Not set"
           )}
         </dd>
         {createTime ? (
           <>
-            <dt className="text-muted-foreground">注册时间</dt>
+            <dt className="text-muted-foreground">{zh ? "注册时间" : "Registered"}</dt>
             <dd>{createTime}</dd>
           </>
         ) : null}
@@ -100,6 +113,8 @@ function ProfileCard({ email, emailVerified }: { email: string | null; emailVeri
 }
 
 function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const [step, setStep] = React.useState<"form" | "code">("form");
   const [newEmail, setNewEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -152,16 +167,22 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
   };
 
   return (
-    <section aria-label="更改邮箱" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
-      <h2 className="text-base font-semibold">更改邮箱 · Change email</h2>
+    <section
+      aria-label={zh ? "更改邮箱" : "Change email"}
+      className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft"
+    >
+      <h2 className="text-base font-semibold">{zh ? "更改邮箱" : "Change email"}</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        新邮箱收验证码、原邮箱收通知信；更改后原邮箱立即释放可被再注册。用户名不受影响。
+        {zh
+          ? "新邮箱收验证码、原邮箱收通知信；更改后原邮箱立即释放可被再注册。用户名不受影响。"
+          : "A verification code goes to the new email and a notice to the old one; the old email is released immediately after the change. Your username is unaffected."}
       </p>
       {step === "form" ? (
         <form className="mt-4 space-y-3" onSubmit={handleRequest}>
           <Input
             type="email"
-            placeholder="新邮箱 · new@example.com"
+            placeholder={zh ? "新邮箱 · new@example.com" : "New email · new@example.com"}
+            aria-label={zh ? "新邮箱" : "New email"}
             value={newEmail}
             onChange={(event) => setNewEmail(event.target.value)}
             autoComplete="email"
@@ -169,7 +190,8 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
           />
           <Input
             type="password"
-            placeholder="当前密码"
+            placeholder={zh ? "当前密码" : "Current password"}
+            aria-label={zh ? "当前密码" : "Current password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
@@ -177,16 +199,18 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
           />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" disabled={!emailValid || !password || busy}>
-            {busy ? "发送中..." : "发送验证码"}
+            {busy ? (zh ? "发送中..." : "Sending...") : zh ? "发送验证码" : "Send code"}
           </Button>
         </form>
       ) : (
         <form className="mt-4 space-y-3" onSubmit={handleConfirm}>
           <p className="text-sm text-muted-foreground">
-            验证码已发送至 <span className="font-medium text-foreground">{newEmail.trim()}</span>
+            {zh ? "验证码已发送至 " : "Code sent to "}
+            <span className="font-medium text-foreground">{newEmail.trim()}</span>
           </p>
           <Input
-            placeholder="6 位验证码"
+            placeholder={zh ? "6 位验证码" : "6-digit code"}
+            aria-label={zh ? "验证码" : "Verification code"}
             value={code}
             onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             inputMode="numeric"
@@ -195,10 +219,10 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="flex gap-2">
             <Button type="submit" disabled={!code.trim() || busy}>
-              {busy ? "验证中..." : "确认更改"}
+              {busy ? (zh ? "验证中..." : "Verifying...") : zh ? "确认更改" : "Confirm change"}
             </Button>
             <Button type="button" variant="outline" onClick={() => setStep("form")}>
-              返回
+              {zh ? "返回" : "Back"}
             </Button>
           </div>
         </form>
@@ -208,6 +232,8 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
 }
 
 function PasswordCard() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const [current, setCurrent] = React.useState("");
   const [next, setNext] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -235,12 +261,16 @@ function PasswordCard() {
   };
 
   return (
-    <section aria-label="修改密码" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
-      <h2 className="text-base font-semibold">修改密码 · Change password</h2>
+    <section
+      aria-label={zh ? "修改密码" : "Change password"}
+      className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft"
+    >
+      <h2 className="text-base font-semibold">{zh ? "修改密码" : "Change password"}</h2>
       <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
         <Input
           type="password"
-          placeholder="当前密码"
+          placeholder={zh ? "当前密码" : "Current password"}
+          aria-label={zh ? "当前密码" : "Current password"}
           value={current}
           onChange={(event) => setCurrent(event.target.value)}
           autoComplete="current-password"
@@ -248,7 +278,8 @@ function PasswordCard() {
         />
         <Input
           type="password"
-          placeholder="新密码（8–64 位）"
+          placeholder={zh ? "新密码（8–64 位）" : "New password (8–64 chars)"}
+          aria-label={zh ? "新密码" : "New password"}
           value={next}
           onChange={(event) => setNext(event.target.value)}
           autoComplete="new-password"
@@ -256,7 +287,7 @@ function PasswordCard() {
         />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <Button type="submit" disabled={!current || !valid || busy}>
-          {busy ? "修改中..." : "修改密码"}
+          {busy ? (zh ? "修改中..." : "Updating...") : zh ? "修改密码" : "Change password"}
         </Button>
       </form>
     </section>
@@ -266,6 +297,8 @@ function PasswordCard() {
 type ShareTab = "agent" | "answer";
 
 function SharesCard() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   // flag 探测：mine 列表 404（flag 关）隐藏对应 tab——沿用分享钮「404 即未开启」模式
   const [tabs, setTabs] = React.useState<ShareTab[]>([]);
   const [active, setActive] = React.useState<ShareTab>("agent");
@@ -325,19 +358,29 @@ function SharesCard() {
 
   if (tabs.length === 0) {
     return (
-      <section aria-label="我的分享" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
-        <h2 className="text-base font-semibold">我的分享 · My shares</h2>
-        <p className="mt-2 text-sm text-muted-foreground">分享功能未开启。</p>
+      <section
+        aria-label={zh ? "我的分享" : "My shares"}
+        className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft"
+      >
+        <h2 className="text-base font-semibold">{zh ? "我的分享" : "My shares"}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {zh ? "分享功能未开启。" : "Sharing is not enabled."}
+        </p>
       </section>
     );
   }
 
   return (
-    <section aria-label="我的分享" className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft">
-      <h2 className="text-base font-semibold">我的分享 · My shares</h2>
+    <section
+      aria-label={zh ? "我的分享" : "My shares"}
+      className="rounded-2xl border border-border/70 bg-background/80 p-6 shadow-soft"
+    >
+      <h2 className="text-base font-semibold">{zh ? "我的分享" : "My shares"}</h2>
       <p className="mt-1 text-xs text-muted-foreground">
         {/* #139：不写死保留天数——有效期是配置值（默认 90 天，可调），以每条记录显示的到期时间为准 */}
-        你分享出去的只读快照；分享链接的到期时间以每条记录显示为准；撤销后链接立即失效。
+        {zh
+          ? "你分享出去的只读快照；分享链接的到期时间以每条记录显示为准；撤销后链接立即失效。"
+          : "Read-only snapshots you have shared; expiry is shown per link and takes effect as displayed; revoked links stop working immediately."}
       </p>
       <div className="mt-4 flex gap-2" role="tablist">
         {tabs.includes("agent") ? (
@@ -353,7 +396,7 @@ function SharesCard() {
                 : "border border-border text-muted-foreground hover:text-foreground")
             }
           >
-            会话分享
+            {zh ? "会话分享" : "Chats"}
           </button>
         ) : null}
         {tabs.includes("answer") ? (
@@ -369,7 +412,7 @@ function SharesCard() {
                 : "border border-border text-muted-foreground hover:text-foreground")
             }
           >
-            答案分享
+            {zh ? "答案分享" : "Answers"}
           </button>
         ) : null}
       </div>
@@ -383,7 +426,7 @@ function SharesCard() {
               status: item.status
             }))}
             loading={agentShares === null}
-            emptyText="还没有分享过会话"
+            emptyText={zh ? "还没有分享过会话" : "No shared chats yet"}
             onRevoke={(token) => handleRevoke("agent", token)}
           />
         ) : (
@@ -395,7 +438,7 @@ function SharesCard() {
               status: item.status
             }))}
             loading={answerShares === null}
-            emptyText="还没有分享过问答"
+            emptyText={zh ? "还没有分享过问答" : "No shared answers yet"}
             onRevoke={(token) => handleRevoke("answer", token)}
           />
         )}
@@ -422,8 +465,14 @@ function ShareRows({
   emptyText: string;
   onRevoke: (token: string) => void;
 }) {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   if (loading) {
-    return <div className="py-6 text-center text-[12.5px] text-muted-foreground">加载中…</div>;
+    return (
+      <div className="py-6 text-center text-[12.5px] text-muted-foreground">
+        {zh ? "加载中…" : "Loading…"}
+      </div>
+    );
   }
   if (items.length === 0) {
     return <div className="py-6 text-center text-[12.5px] text-muted-foreground">{emptyText}</div>;
@@ -441,10 +490,12 @@ function ShareRows({
               <div className="truncate text-[13px] font-medium">{item.preview}</div>
               <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                 {revoked
-                  ? "已撤销"
+                  ? zh ? "已撤销" : "Revoked"
                   : item.expireTime
-                    ? `过期于 ${new Date(item.expireTime).toLocaleDateString()}`
-                    : "永不过期"}
+                    ? zh
+                      ? `过期于 ${new Date(item.expireTime).toLocaleDateString()}`
+                      : `Expires ${new Date(item.expireTime).toLocaleDateString()}`
+                    : zh ? "永不过期" : "Never expires"}
               </div>
             </div>
             <Button
@@ -454,7 +505,7 @@ function ShareRows({
               onClick={() => onRevoke(item.token)}
               className="h-7 px-2.5 text-[12px]"
             >
-              {revoked ? "已撤销" : "撤销"}
+              {revoked ? (zh ? "已撤销" : "Revoked") : zh ? "撤销" : "Revoke"}
             </Button>
           </div>
         );
@@ -464,6 +515,8 @@ function ShareRows({
 }
 
 function DangerZoneCard() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
   const user = useAuthStore((state) => state.user);
@@ -494,35 +547,50 @@ function DangerZoneCard() {
 
   return (
     <section
-      aria-label="注销账号"
+      aria-label={zh ? "注销账号" : "Delete account"}
       className="rounded-2xl border border-destructive/40 bg-background/80 p-6 shadow-soft"
     >
-      <h2 className="text-base font-semibold text-destructive">注销账号 · Delete account</h2>
+      <h2 className="text-base font-semibold text-destructive">
+        {zh ? "注销账号" : "Delete account"}
+      </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        注销后你的对话记录、分享链接与个人数据将按
-        <a href="/privacy" className="underline">隐私声明</a>
-        级联清理；申请起 30 天冷静期内可凭账号与密码撤销恢复，到期后不可恢复。
+        {zh ? (
+          <>
+            注销后你的对话记录、分享链接与个人数据将按
+            <a href="/privacy" className="underline">隐私声明</a>
+            级联清理；申请起 30 天冷静期内可凭账号与密码撤销恢复，到期后不可恢复。
+          </>
+        ) : (
+          <>
+            After deletion, your conversations, share links and personal data are cleaned up per the{" "}
+            <a href="/privacy" className="underline">Privacy Notice</a>
+            ; within a 30-day grace period you can sign in to cancel, after which recovery is impossible.
+          </>
+        )}
       </p>
       {isAdmin ? (
         <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-          管理员账号不支持自助注销。
+          {zh ? "管理员账号不支持自助注销。" : "Admin accounts cannot be self-deleted."}
         </p>
       ) : (
         <Button variant="destructive" className="mt-3" onClick={() => setOpen(true)} data-testid="delete-account">
-          注销账号
+          {zh ? "注销账号" : "Delete account"}
         </Button>
       )}
       <Dialog open={open} onOpenChange={(next) => (!next ? setOpen(false) : undefined)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认注销账号？</DialogTitle>
+            <DialogTitle>{zh ? "确认注销账号？" : "Delete this account?"}</DialogTitle>
             <DialogDescription>
-              此操作进入 30 天冷静期；期间可凭账号与密码在登录页恢复。到期后数据将被永久删除。
+              {zh
+                ? "此操作进入 30 天冷静期；期间可凭账号与密码在登录页恢复。到期后数据将被永久删除。"
+                : "This starts a 30-day grace period, during which you can recover the account from the sign-in page. After it expires, all data is permanently deleted."}
             </DialogDescription>
           </DialogHeader>
           <Input
             type="password"
-            placeholder="输入密码确认"
+            placeholder={zh ? "输入密码确认" : "Enter password to confirm"}
+            aria-label={zh ? "密码确认" : "Password confirmation"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
@@ -531,10 +599,10 @@ function DangerZoneCard() {
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
-              取消
+              {zh ? "取消" : "Cancel"}
             </Button>
             <Button variant="destructive" onClick={handleDelete} disabled={!password || busy} data-testid="delete-confirm">
-              {busy ? "提交中..." : "确认注销"}
+              {busy ? (zh ? "提交中..." : "Submitting...") : zh ? "确认注销" : "Confirm deletion"}
             </Button>
           </DialogFooter>
         </DialogContent>

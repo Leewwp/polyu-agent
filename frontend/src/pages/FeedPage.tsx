@@ -68,7 +68,7 @@ function AiDigestStrip() {
  * 检索态状态条：范围提示条+排序切换（按时间/按相关度）。
  * T21：同键再点翻转方向（时间键双向，默认 desc=最新在前；相关度单向不翻转）；
  * 提示条文案随范围动态（全部/分类 X）；sort+order 进 URL 由调用方承接。
- * 必须作为 FeedShell 子组件渲染（useFeedLang 依赖壳顶 Provider——FeedPage 自身是壳的父层）。
+ * 必须作为 FeedShell 子组件渲染（useFeedLang 消费应用根 Provider，#227 提根后仍以壳内子组件装配）。
  */
 function SearchStateBar({
   q,
@@ -170,7 +170,7 @@ function SearchStatusCard({ kind, q }: { kind: "failed" | "empty"; q: string }) 
 /**
  * 「只看关注」开关（#215 调整，2026-10-04 维护者设计）：搜索行旁常驻切换钮，
  * 激活后列表仅显示已关注主题的资讯（服务端 topics 过滤）；检索态禁用（叠加过滤
- * 暂不支持）。必须作为 FeedShell 子组件渲染（useFeedLang 依赖壳顶 Provider）。
+ * 暂不支持）。必须作为 FeedShell 子组件渲染（useFeedLang 消费应用根 Provider，#227 提根）。
  */
 function FollowedOnlyToggle({
   active,
