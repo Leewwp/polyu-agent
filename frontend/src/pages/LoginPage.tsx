@@ -6,9 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { useAuthStore } from "@/stores/authStore";
 
+/** 登录页（#227 消费面）：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。 */
 export function LoginPage() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const navigate = useNavigate();
   const { login, isLoading } = useAuthStore();
   const [showPassword, setShowPassword] = React.useState(false);
@@ -40,18 +44,21 @@ export function LoginPage() {
       <div className="relative z-10 flex flex-1 items-center justify-center py-8">
         <div className="w-full max-w-md rounded-3xl border border-border/70 bg-background/80 p-8 shadow-soft backdrop-blur">
           <div className="mb-6">
-            <p className="font-display text-2xl font-semibold">欢迎回来</p>
-            <p className="mt-1 text-sm text-muted-foreground">登录后继续你的检索增强对话。</p>
+            <p className="font-display text-2xl font-semibold">{zh ? "欢迎回来" : "Welcome back"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {zh ? "登录后继续你的检索增强对话。" : "Sign in to continue your retrieval-augmented chats."}
+            </p>
           </div>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                用户名或邮箱
+                {zh ? "用户名或邮箱" : "Username or email"}
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="请输入用户名或邮箱"
+                  placeholder={zh ? "请输入用户名或邮箱" : "Enter username or email"}
+                  aria-label={zh ? "用户名或邮箱" : "Username or email"}
                   value={form.username}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, username: event.target.value }))
@@ -63,13 +70,14 @@ export function LoginPage() {
             </div>
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                密码
+                {zh ? "密码" : "Password"}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type={showPassword ? "text" : "password"}
-                  placeholder="请输入密码"
+                  placeholder={zh ? "请输入密码" : "Enter password"}
+                  aria-label={zh ? "密码" : "Password"}
                   value={form.password}
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, password: event.target.value }))
@@ -81,7 +89,7 @@ export function LoginPage() {
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  aria-label="显示或隐藏密码"
+                  aria-label={zh ? "显示或隐藏密码" : "Show or hide password"}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -92,24 +100,25 @@ export function LoginPage() {
                 <Checkbox
                   checked={remember}
                   onCheckedChange={(value) => setRemember(Boolean(value))}
+                  aria-label={zh ? "记住我" : "Remember me"}
                 />
-                记住我
+                {zh ? "记住我" : "Remember me"}
               </label>
               <Link
                 to="/forgot-password"
                 className="text-xs text-muted-foreground hover:underline"
               >
-                忘记密码？
+                {zh ? "忘记密码？" : "Forgot password?"}
               </Link>
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "正在登录..." : "登录"}
+              {isLoading ? (zh ? "正在登录..." : "Signing in...") : zh ? "登录" : "Sign in"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">
-              还没有账号？{" "}
+              {zh ? "还没有账号？ " : "No account yet? "}
               <Link to="/register" className="underline">
-                注册
+                {zh ? "注册" : "Sign up"}
               </Link>
             </p>
           </form>

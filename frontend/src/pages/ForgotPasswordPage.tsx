@@ -5,6 +5,7 @@ import { Eye, EyeOff, KeyRound, Lock, Mail } from "lucide-react";
 import { AuthShell } from "@/components/common/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { requestPasswordReset, resetPassword } from "@/services/authService";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -15,8 +16,11 @@ type Step = "request" | "reset" | "done";
  * 忘记密码 / 密码重置页：先提交邮箱（受理口径统一，
  * 无论邮箱是否已注册都进入下一步——重置码只有邮箱主人可收），再提交
  * 重置码 + 新密码。与注册端点同挂 ragent.registration.enabled flag。
+ * #227：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。
  */
 export function ForgotPasswordPage() {
+  const { lang } = useOptionalFeedLang();
+  const zh = lang === "zh";
   const navigate = useNavigate();
   const [step, setStep] = React.useState<Step>("request");
   const [email, setEmail] = React.useState("");
@@ -69,24 +73,27 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <AuthShell title="找回密码" titleEn="Reset your password">
+    <AuthShell
+      title={zh ? "找回密码" : "Reset your password"}
+      titleEn={zh ? "Reset your password" : undefined}
+    >
       {step === "request" ? (
         <form className="space-y-4" onSubmit={handleRequest}>
           <p className="text-sm text-muted-foreground">
-            输入注册邮箱，我们会发送密码重置验证码。
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Enter your registered email and we will send you a reset code.
+            {zh
+              ? "输入注册邮箱，我们会发送密码重置验证码。"
+              : "Enter your registered email and we will send you a reset code."}
           </p>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              邮箱 · Email
+              {zh ? "邮箱" : "Email"}
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="email"
                 placeholder="you@example.com"
+                aria-label={zh ? "邮箱" : "Email"}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="pl-10"
@@ -97,12 +104,12 @@ export function ForgotPasswordPage() {
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={!canRequest}>
-            {isSubmitting ? "正在提交..." : "发送重置码"}
+            {isSubmitting ? (zh ? "正在提交..." : "Submitting...") : zh ? "发送重置码" : "Send reset code"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            想起密码了？{" "}
+            {zh ? "想起密码了？ " : "Remembered it? "}
             <Link to="/login" className="underline">
-              返回登录
+              {zh ? "返回登录" : "Back to sign in"}
             </Link>
           </p>
         </form>
@@ -111,21 +118,19 @@ export function ForgotPasswordPage() {
       {step === "reset" ? (
         <form className="space-y-4" onSubmit={handleReset}>
           <p className="text-sm text-muted-foreground">
-            重置码已发送至 <span className="font-medium text-foreground">{email.trim()}</span>
-            （若该邮箱已注册）。请输入验证码与新密码。
-          </p>
-          <p className="text-xs text-muted-foreground">
-            A reset code has been sent to your email if it is registered. Enter the code and a new
-            password below.
+            {zh ? "重置码已发送至 " : "A reset code has been sent to "}
+            <span className="font-medium text-foreground">{email.trim()}</span>
+            {zh ? "（若该邮箱已注册）。请输入验证码与新密码。" : " (if it is registered). Enter the code and a new password below."}
           </p>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              重置码 · Code
+              {zh ? "重置码" : "Code"}
             </label>
             <div className="relative">
               <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="6 位数字"
+                placeholder={zh ? "6 位数字" : "6-digit code"}
+                aria-label={zh ? "重置码" : "Reset code"}
                 value={form.code}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -141,13 +146,14 @@ export function ForgotPasswordPage() {
           </div>
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              新密码 · New password
+              {zh ? "新密码" : "New password"}
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type={showPassword ? "text" : "password"}
-                placeholder="8–64 位字符"
+                placeholder={zh ? "8–64 位字符" : "8–64 characters"}
+                aria-label={zh ? "新密码" : "New password"}
                 value={form.newPassword}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, newPassword: event.target.value }))
@@ -160,18 +166,18 @@ export function ForgotPasswordPage() {
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                aria-label="显示或隐藏密码"
+                aria-label={zh ? "显示或隐藏密码" : "Show or hide password"}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              密码长度 8–64 字符 · Password must be 8–64 characters.
+              {zh ? "密码长度 8–64 字符 · " : ""}Password must be 8–64 characters.
             </p>
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={!canReset}>
-            {isResetting ? "正在重置..." : "重置密码"}
+            {isResetting ? (zh ? "正在重置..." : "Resetting...") : zh ? "重置密码" : "Reset password"}
           </Button>
           <button
             type="button"
@@ -182,19 +188,18 @@ export function ForgotPasswordPage() {
               setError(null);
             }}
           >
-            返回修改邮箱 · Use a different email
+            {zh ? "返回修改邮箱 · Use a different email" : "Use a different email"}
           </button>
         </form>
       ) : null}
 
       {step === "done" ? (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">密码已重置，请使用新密码登录。</p>
-          <p className="text-xs text-muted-foreground">
-            Your password has been reset. Please sign in with your new password.
+          <p className="text-sm text-muted-foreground">
+            {zh ? "密码已重置，请使用新密码登录。" : "Your password has been reset. Please sign in with your new password."}
           </p>
           <Button className="w-full" onClick={() => navigate("/login")}>
-            前往登录 · Sign in
+            {zh ? "前往登录 · Sign in" : "Sign in"}
           </Button>
         </div>
       ) : null}

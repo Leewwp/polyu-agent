@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
 import { FeedShell } from "./FeedShell";
+import { FeedLangProvider } from "./feedLang";
 import { feedDateLabels } from "@/services/newsMapping";
 import { useAgentChatStore } from "@/stores/agentChatStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -36,9 +37,11 @@ function installLocalStorageStub(): Map<string, string> {
 function renderShell() {
   return render(
     <MemoryRouter>
-      <FeedShell title={{ zh: "精选", en: "Featured" }}>
-        <p>shell-content</p>
-      </FeedShell>
+      <FeedLangProvider>
+        <FeedShell title={{ zh: "精选", en: "Featured" }}>
+          <p>shell-content</p>
+        </FeedShell>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -110,9 +113,11 @@ describe("FeedShell fluid topbar session title", () => {
   function renderFluidShell() {
     return render(
       <MemoryRouter>
-        <FeedShell title={{ zh: "智能问答", en: "Smart Q&A" }} fluid>
-          <p>chat-body</p>
-        </FeedShell>
+        <FeedLangProvider>
+          <FeedShell title={{ zh: "智能问答", en: "Smart Q&A" }} fluid>
+            <p>chat-body</p>
+          </FeedShell>
+        </FeedLangProvider>
       </MemoryRouter>
     );
   }

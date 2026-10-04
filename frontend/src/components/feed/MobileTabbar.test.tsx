@@ -87,7 +87,7 @@ describe("MobileTabbar", () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: /更多/ }));
-    expect(screen.getByRole("link", { name: "🔒 隐私政策" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "🔒 隐私声明" }).getAttribute("href")).toBe("/privacy");
     expect(screen.getByRole("link", { name: "📄 服务条款" }).getAttribute("href")).toBe("/terms");
     expect(screen.getByRole("link", { name: "ℹ️ 非官方声明" }).getAttribute("href")).toBe("/disclaimer");
   });

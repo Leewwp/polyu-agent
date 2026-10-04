@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { NewsDetailPage } from "./NewsDetailPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
 import { NEWS_READ_ITEMS_KEY, useNewsLocalStore } from "@/stores/newsLocalStore";
 
@@ -37,9 +38,11 @@ function installLocalStorageStub(): Map<string, string> {
 function renderDetail(id = ITEM.id) {
   return render(
     <MemoryRouter initialEntries={[`/news/${id}`]}>
-      <Routes>
-        <Route path="/news/:id" element={<NewsDetailPage />} />
-      </Routes>
+      <FeedLangProvider>
+        <Routes>
+          <Route path="/news/:id" element={<NewsDetailPage />} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter } from "react-router-dom";
 
 import { HotRankPage } from "./HotRankPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { fetchHotRank } from "@/services/newsService";
 import { MOCK_HOT_RANK } from "@/services/newsMockData";
 
@@ -32,7 +33,9 @@ function instrumentNetwork(): { requestedUrls: string[] } {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/hot"]}>
-      <HotRankPage />
+      <FeedLangProvider>
+        <HotRankPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
