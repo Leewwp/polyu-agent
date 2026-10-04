@@ -3,11 +3,20 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { NOINDEX_ATTRS, useHeadElement } from "@/hooks/useHeadElement";
+import { usePageTitle } from "@/hooks/usePageTitle";
 
-/** 404 页（#227 消费面）：主操作与页脚随全局语言单语呈现（正文提示为尽力项一并跟随）。 */
+/**
+ * 404 页（#227 消费面）：主操作与页脚随全局语言单语呈现（正文提示为尽力项一并跟随）。
+ * #231：补页面标题「页面不存在 · PolyUGuide」与 noindex meta（N6——SPA 软 404
+ * 对搜索引擎是 200 带错误文案；离开 404 后 meta 即移除，head 注入走可复用
+ * useHeadElement helper，#243 订阅出口 autodiscovery 复用同款）。
+ */
 export function NotFoundPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "页面不存在", en: "Page not found" });
+  useHeadElement("meta", NOINDEX_ATTRS);
   return (
     <div className="flex min-h-screen flex-col px-4">
       <div className="flex flex-1 items-center justify-center">

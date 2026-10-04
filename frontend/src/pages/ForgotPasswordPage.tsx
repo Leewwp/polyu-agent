@@ -6,6 +6,7 @@ import { AuthShell } from "@/components/common/AuthShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { requestPasswordReset, resetPassword } from "@/services/authService";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -21,6 +22,7 @@ type Step = "request" | "reset" | "done";
 export function ForgotPasswordPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "找回密码", en: "Reset password" });
   const navigate = useNavigate();
   const [step, setStep] = React.useState<Step>("request");
   const [email, setEmail] = React.useState("");

@@ -131,13 +131,17 @@ describe("HotRankPage", () => {
     expect(requestedUrls.filter((url) => url.includes("/rag/settings"))).toEqual([]);
   });
 
-  it("keeps a single page title: no in-page 热点榜 heading, topbar carries it", async () => {
+  it("keeps a single visual page title: shell h1 is sr-only on desktop, topbar carries the visible name", async () => {
     vi.mocked(fetchHotRank).mockResolvedValue(MOCK_HOT_RANK);
     renderPage();
 
     await waitFor(() => expect(screen.getByText("榜单说明")).toBeTruthy());
-    // 页级标题由 FeedShell 顶栏（非 heading 标签）承载；页内不再出现「热点榜」heading
-    expect(screen.queryByRole("heading", { name: "热点榜" })).toBeNull();
+    // #231：页面级 h1 由壳渲染（读屏/检查器可验证）——桌面 sr-only（clip 法）
+    // 去与顶栏重复的视觉页名，页内唯一 heading 即页名本身
+    const heading = screen.getByRole("heading", { level: 1, name: "热点榜" });
+    expect(heading.className).toContain("min-[861px]:sr-only");
+    expect(heading.className).not.toContain("hidden");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     // 副标题行（数据时点说明=全页唯一）保留（实时值形状）
     expect(screen.getByText(/今日理大资讯热度排行 · 数据更新至 \d+月\d+日 \d{2}:\d{2}/)).toBeTruthy();
   });

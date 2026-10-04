@@ -7,12 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useAuthStore } from "@/stores/authStore";
 
 /** 登录页（#227 消费面）：按钮/表单用途名称/提示随全局语言；动态错误透传后端文案不翻。 */
 export function LoginPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "登录", en: "Sign in" });
   const navigate = useNavigate();
   const { login, isLoading } = useAuthStore();
   const [showPassword, setShowPassword] = React.useState(false);

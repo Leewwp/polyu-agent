@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/authStore";
 import { isSafeUrl } from "@/utils/urlSafety";
 import { contentLangOf, useOptionalFeedLang } from "@/components/feed/feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import type { PublicShare } from "@/services/shareService";
@@ -18,11 +19,13 @@ import { getPublicShare } from "@/services/shareService";
  * 始终显示非官方与时效提示。
  * #227：操作钮/加载/无效态随全局语言单语呈现；快照正文不翻译，lang 属性
  * 按实际内容语言标注（全局偏好≠快照内容语言）。
+ * #231：标签用稳定页名「答案分享」（Q&A 正文标题不作页面名，加载/无效态同页名）。
  */
 export function SharePage() {
   const { token } = useParams<{ token: string }>();
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "答案分享", en: "Shared answer" });
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [share, setShare] = React.useState<PublicShare | null>(null);
   const [invalid, setInvalid] = React.useState(false);

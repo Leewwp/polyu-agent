@@ -22,13 +22,14 @@ interface TopicsRegistry {
 }
 
 /** 页头（原型 .topics-head）：useFeedLang 须在 FeedShell（FeedLangProvider）内调用；
- * 主题数随目录数据动态（治理转正会扩目录，勿硬编码） */
+ * 主题数随目录数据动态（治理转正会扩目录，勿硬编码）。
+ * #231：内容头 h2 升 h1（视觉不变）——本页有自己的页面级头，不吃壳的 pageHeading */
 function TopicsHead({ count }: { count?: number }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   return (
     <div className="mb-[18px]">
-      <h2 className="mb-1 text-[19px] font-extrabold">{zh ? "主题地图" : "Topics"}</h2>
+      <h1 className="mb-1 text-[19px] font-extrabold">{zh ? "主题地图" : "Topics"}</h1>
       <p className="text-[12.5px] text-[var(--feed-text-tertiary)]">
         {zh
           ? `${count ? `${count} ` : ""}个主题由 AI 标签自动聚合、持续更新 · 点击任一主题查看近期焦点与全部动态`
