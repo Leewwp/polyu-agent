@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
+import { useDetailPageTitle } from "@/hooks/usePageTitle";
 import type { NewsItem } from "@/types/news";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH, NEWS_TOPICS } from "@/services/newsMockData";
 import { fetchNewsDetail, fetchTopics } from "@/services/newsService";
@@ -39,7 +40,9 @@ export function NewsDetailPage() {
   }, [id]);
 
   return (
-    <FeedShell title={{ zh: "资讯详情", en: "News" }}>
+    // #231：item 未就绪（加载/不存在态）时由壳渲染页面级 h1「资讯详情」，
+    // item 就绪后正文新闻标题本身即 h1——不出现双 h1
+    <FeedShell title={{ zh: "资讯详情", en: "News" }} pageHeading={!item}>
       <NewsDetailBody item={item} missing={missing} />
     </FeedShell>
   );
@@ -51,6 +54,10 @@ let topicLabelCache: Record<string, NewsTopic> | null = null;
 function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boolean }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
+  // #231 详情实际标题在同一调用路径作优先值：资讯标题覆写「资讯详情 · PolyUGuide」，
+  // item=null（加载/不存在/已下架）回落父级页面名；慢响应由上层 effect 的 alive
+  // 守卫拦在 setItem 之前——离开或换 id 后不写回旧标题
+  useDetailPageTitle(item ? { zh: item.titleZh, en: item.titleEn } : null);
   // 主题 chip 标签以 /topics 目录（API）为权威——治理转正主题（如 research）不在静态
   // 注册表内，注册表仅兜底；模块级缓存全详情页共享一次拉取（P3：chip 硬编码缺口）
   const [topicLabels, setTopicLabels] = useState<Record<string, NewsTopic>>(topicLabelCache ?? {});

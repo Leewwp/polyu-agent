@@ -64,7 +64,12 @@ export function TopicDetailPage() {
   }
 
   return (
-    <FeedShell title={detail ? { zh: detail.topic.nameZh, en: detail.topic.nameEn } : { zh: "主题地图", en: "Topics" }}>
+    // #231：detail 就绪时正文主题名即页面级 h1（h2 升 h1，视觉不变）；加载/失败
+    // 分支无正文头——由壳按回落页名「主题地图」渲染 h1，各分支均有页面级标题
+    <FeedShell
+      title={detail ? { zh: detail.topic.nameZh, en: detail.topic.nameEn } : { zh: "主题地图", en: "Topics" }}
+      pageHeading={!detail}
+    >
       {detail ? (
         <TopicDetailBody key={detail.topic.slug} detail={detail} />
       ) : failed ? (
@@ -148,7 +153,8 @@ function TopicDetailBody({ detail }: { detail: TopicDetailData }) {
       </Link>
       <div className="mb-1 border-b border-[var(--feed-line-soft)] pb-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <h2 className="text-xl font-extrabold">{zh ? topic.nameZh : topic.nameEn}</h2>
+          {/* #231：内容头 h2 升 h1（视觉不变）——主题名是本页页面级标题 */}
+          <h1 className="text-xl font-extrabold">{zh ? topic.nameZh : topic.nameEn}</h1>
           {/* #215 资讯流侧触点：与主题目录卡共用同一本地关注状态（两触点行为一致） */}
           <TopicFollowButton slug={topic.slug} nameZh={topic.nameZh} nameEn={topic.nameEn} />
         </div>

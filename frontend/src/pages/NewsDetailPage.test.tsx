@@ -155,3 +155,55 @@ describe("NewsDetailPage", () => {
     expect(mem.has(NEWS_READ_ITEMS_KEY)).toBe(false);
   });
 });
+
+describe("NewsDetailPage title & h1 (#231)", () => {
+  let mem: Map<string, string>;
+
+  beforeEach(() => {
+    mem = installLocalStorageStub();
+    useNewsLocalStore.getState().hydrate();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
+  });
+
+  it("covers loading with the stable page name and a shell h1, then overrides with the news title (no double h1)", async () => {
+    const view = renderDetail();
+
+    // 加载分支：稳定页名 + 壳渲染的页面级 h1（读屏/检查器可验证）
+    expect(document.title).toBe("资讯详情 · PolyUGuide");
+    expect(screen.getByRole("heading", { level: 1, name: "资讯详情" })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByText(ITEM.titleZh)).toBeTruthy();
+    });
+    // 就绪分支：资讯标题接管标签；正文新闻标题即唯一 h1（壳 h1 撤下，不出现双 h1）
+    expect(document.title).toBe(`${ITEM.titleZh} · PolyUGuide`);
+    expect(screen.getByRole("heading", { level: 1, name: ITEM.titleZh })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    void view;
+  });
+
+  it("keeps the stable page name and shell h1 in the not-found state (失败/空态回落)", async () => {
+    renderDetail("nonexistent-id");
+
+    await waitFor(() => {
+      expect(screen.getByText("该资讯不存在或已下架")).toBeTruthy();
+    });
+    expect(document.title).toBe("资讯详情 · PolyUGuide");
+    expect(screen.getByRole("heading", { level: 1, name: "资讯详情" })).toBeTruthy();
+  });
+
+  it("follows the stored language for the news-title override (en 标签)", async () => {
+    mem.set("polyu.feed.lang", "en");
+    renderDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(ITEM.titleEn)).toBeTruthy();
+    });
+    expect(document.title).toBe(`${ITEM.titleEn} · PolyUGuide`);
+  });
+});

@@ -402,7 +402,8 @@ export function FeedPage() {
       : { zh: "精选", en: "Featured" };
 
   return (
-    <FeedShell title={title}>
+    // pageHeading（#231）：首页无页面级内容头（精选/全部/检索三视图同）——h1 由壳渲染
+    <FeedShell title={title} pageHeading>
       {/* 搜索行（2026-09-12 修复）：页面顶端独立一行、桌面右对齐（参照
           aihot 形态——图 4 搜索与标题同行）；chips 独占一行横滑不再被挤压。≤860px 全宽。
           #215 调整：行尾常驻「只看关注」切换钮（检索态禁用）。 */}

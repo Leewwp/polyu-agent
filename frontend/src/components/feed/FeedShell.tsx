@@ -6,6 +6,7 @@ import { FeedSidebar } from "./FeedSidebar";
 import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
 import { useFeedLang } from "./feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { feedDateLabels } from "@/services/newsMapping";
 import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
 import { useAgentChatStore } from "@/stores/agentChatStore";
@@ -22,6 +23,9 @@ import { cn } from "@/lib/utils";
  *   外层壳也从 MainLayout/AgentLayout 换成本壳。
  * - 2026-09-13：顶栏日期改 HKT 实时值；登录态身份区/登出
  *   一并补齐；fluid 聊天档标题位显示当前会话标题+引擎徽标。
+ * - #231 标题单源与页面级 h1 均落本壳：document.title 消费 title prop 与
+ *   shareView/fluid 标题优先值（与顶栏同一次序）全局一处驱动；正文无内容头
+ *   的栏目页经 pageHeading 由壳渲染 h1（桌面 sr-only 去重复视觉页名、移动显示）。
  */
 
 export interface FeedShellProps {
@@ -41,13 +45,22 @@ export interface FeedShellProps {
    * 加载中/无效态（无被分享会话可示）。
    */
   shareView?: { title: string | null };
+  /**
+   * 页面级 h1（#231/N2）：页面正文没有自己的内容头时由壳渲染标题为 h1——
+   * 首页/热点/日报/关键日期/关于等；桌面 sr-only（clip 法，不摘出无障碍树）
+   * 去与顶栏重复的视觉页名，移动端显示为正文页名。默认 false：正文已有
+   * 页面级头（主题地图/主题详情的 h1、资讯详情的新闻标题 h1）的页面不开，
+   * 避免双 h1/同屏重复视觉页名。做在壳上而非页面正文——日报页 #241 将整页
+   * 替换，页面正文里的 h1 会被替换丢掉，壳上的机制自动继承。
+   */
+  pageHeading?: boolean;
 }
 
-export function FeedShell({ title, children, fluid = false, shareView }: FeedShellProps) {
+export function FeedShell({ title, children, fluid = false, shareView, pageHeading = false }: FeedShellProps) {
   // 语言由应用根 FeedLangProvider 供给（#227 提根），本壳不再包裹 Provider——
   // 壳外轻量页（404/法务/登录系等）与壳内共享同一全局语言状态。
   return (
-    <FeedShellInner title={title} fluid={fluid} shareView={shareView}>
+    <FeedShellInner title={title} fluid={fluid} shareView={shareView} pageHeading={pageHeading}>
       {children}
     </FeedShellInner>
   );
@@ -165,8 +178,22 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
   );
 }
 
-function FeedShellInner({ title, children, fluid, shareView }: FeedShellProps) {
+function FeedShellInner({ title, children, fluid, shareView, pageHeading }: FeedShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  // #231 标题单源：document.title 与顶栏同一优先值（fluid 会话标题/分享快照
+  // 标题优先，回落双语页面名），由 usePageTitle 统一汇聚成「页面名 · PolyUGuide」
+  // ——随路由/语言/会话标题切换自然更新；详情覆写走 useDetailPageTitle 同一调用路径。
+  const chatTitle = useChatSessionTitle();
+  const fluidTitle = shareView ? shareView.title : chatTitle;
+  usePageTitle((fluid && fluidTitle) || title);
+
+  // 页面级 h1（#231）：正文无内容头的栏目页由壳渲染；桌面 sr-only（clip，
+  // 不摘出无障碍树）去与顶栏重复的视觉页名，移动端（≤860px）显示为正文页名。
+  const heading = pageHeading ? (
+    <h1 className="mb-[18px] text-[19px] font-extrabold min-[861px]:sr-only">{zh ? title.zh : title.en}</h1>
+  ) : null;
 
   if (fluid) {
     // 聊天档：满高外壳，主区无 max-w 限宽，底部 tab 不渲染（页面主体输入条贴底）。
@@ -180,7 +207,10 @@ function FeedShellInner({ title, children, fluid, shareView }: FeedShellProps) {
         <div className="flex min-w-0 flex-1 flex-col">
           <DesktopTopbar title={title} fluid shareView={shareView} />
           <MobileTopbar onOpenMenu={() => setSidebarOpen(true)} shareView={shareView} />
-          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+          <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            {heading}
+            {children}
+          </main>
         </div>
       </div>
     );
@@ -196,6 +226,7 @@ function FeedShellInner({ title, children, fluid, shareView }: FeedShellProps) {
           {/* 2026-09-12 修复：限宽 760→1080——内容占页面更多空间；
               1080 仍守住中文阅读舒适行宽，卡片/热点卡自适应变宽 */}
           <main className="mx-auto w-full max-w-[1080px] px-7 pb-10 pt-[22px] max-[860px]:px-3.5 max-[860px]:pb-[110px] max-[860px]:pt-3">
+            {heading}
             {children}
           </main>
         </div>

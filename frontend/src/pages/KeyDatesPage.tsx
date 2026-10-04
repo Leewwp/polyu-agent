@@ -287,7 +287,8 @@ export function KeyDatesPage() {
   }, []);
 
   return (
-    <FeedShell title={{ zh: "关键日期", en: "Key dates" }}>
+    // pageHeading（#231）：分区标题（即将到来/近期已过…）不充当页名——页面级 h1 由壳渲染
+    <FeedShell title={{ zh: "关键日期", en: "Key dates" }} pageHeading>
       <KeyDatesBody board={board} failed={failed} />
       <FeedFooter />
     </FeedShell>

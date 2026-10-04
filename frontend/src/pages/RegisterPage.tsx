@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { register, resendVerificationCode, verifyEmail } from "@/services/authService";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,6 +27,7 @@ type Step = "form" | "verify" | "done";
 export function RegisterPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "注册", en: "Register" });
   const navigate = useNavigate();
   const [step, setStep] = React.useState<Step>("form");
   const [form, setForm] = React.useState({ username: "", email: "", password: "" });

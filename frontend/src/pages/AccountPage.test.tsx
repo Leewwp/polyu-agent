@@ -90,6 +90,9 @@ describe("AccountPage", () => {
     listMySharesMock.mockResolvedValue([]);
     renderPage();
 
+    // #231 标题单源：账号页标签=「账号设置 · PolyUGuide」（DOM 断言证据——
+    // 真浏览器路径有 HttpOnly cookie 登录墙，见 PR 偏离声明）
+    expect(document.title).toBe("账号设置 · PolyUGuide");
     expect(screen.getByText("alice")).toBeTruthy();
     expect(screen.getByTestId("profile-email").textContent).toContain("alice@example.com");
     expect(screen.getByTestId("profile-email").textContent).toContain("已验证");

@@ -15,7 +15,8 @@ import { fetchSiteAbout, type SiteAboutContent } from "@/services/siteService";
  */
 export function AboutPage() {
   return (
-    <FeedShell title={{ zh: "关于本站", en: "About" }}>
+    // pageHeading（#231）：关于页正文无内容头（卡片直起），页面级 h1 由壳渲染
+    <FeedShell title={{ zh: "关于本站", en: "About" }} pageHeading>
       <AboutBody />
       <FeedFooter compact />
     </FeedShell>

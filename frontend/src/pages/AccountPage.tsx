@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
+import { usePageTitle } from "@/hooks/usePageTitle";
 import { useAuthStore } from "@/stores/authStore";
 import {
   changePassword,
@@ -36,6 +37,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function AccountPage() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
+  usePageTitle({ zh: "账号设置", en: "Account settings" });
   const user = useAuthStore((state) => state.user);
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser);
 
