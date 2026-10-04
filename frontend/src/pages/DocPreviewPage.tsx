@@ -5,6 +5,7 @@ import { FileText, Loader2 } from "lucide-react";
 import { DocumentPreview } from "@/components/document/DocumentPreview";
 import { getDocument } from "@/services/knowledgeService";
 import { useAdminUiTheme } from "@/hooks/useAdminUiTheme";
+import { useDetailPageTitle, usePageTitle } from "@/hooks/usePageTitle";
 
 type DocMeta = Awaited<ReturnType<typeof getDocument>>;
 
@@ -15,6 +16,12 @@ export function DocPreviewPage() {
   useAdminUiTheme();
   const [doc, setDoc] = React.useState<DocMeta | null>(null);
   const [status, setStatus] = React.useState<"loading" | "done" | "error">("loading");
+
+  // #231 标题单源：迁出直写 document.title 旧法——加载/失败回落稳定页名
+  // 「文档预览 · PolyUGuide」，加载成功以文档名作优先值覆写，卸载回落
+  // （原直写法离开预览后残留旧标题，本轮点名收敛）
+  usePageTitle({ zh: "文档预览", en: "Document preview" });
+  useDetailPageTitle(status === "done" && doc ? doc.docName || null : null);
 
   React.useEffect(() => {
     if (!docId) {
@@ -28,7 +35,6 @@ export function DocPreviewPage() {
         if (cancelled) return;
         setDoc(data);
         setStatus("done");
-        document.title = `${data.docName || "文档"} - 来源预览`;
       })
       .catch(() => {
         if (!cancelled) setStatus("error");

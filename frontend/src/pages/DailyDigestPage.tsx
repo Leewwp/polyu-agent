@@ -99,7 +99,8 @@ export function DailyDigestPage() {
   }, [selectedDate]);
 
   return (
-    <FeedShell title={{ zh: "日报", en: "Daily digest" }}>
+    // pageHeading（#231）：日报页无页面级内容头，h1 由壳渲染（#241 整页替换时自动继承）
+    <FeedShell title={{ zh: "日报", en: "Daily digest" }} pageHeading>
       {failed ? (
         <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
           日报加载失败，请稍后刷新重试

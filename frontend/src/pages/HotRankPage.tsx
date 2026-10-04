@@ -123,7 +123,8 @@ export function HotRankPage() {
   }, []);
 
   return (
-    <FeedShell title={{ zh: "热点榜", en: "Trending" }}>
+    // pageHeading（#231）：热点榜头部有意收敛为无标题——页面级 h1 由壳渲染
+    <FeedShell title={{ zh: "热点榜", en: "Trending" }} pageHeading>
       {failed ? (
         <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
           热点榜加载失败，请稍后刷新重试
