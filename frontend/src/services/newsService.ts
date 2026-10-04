@@ -261,19 +261,26 @@ export async function fetchDailyDigestList(limit = 30): Promise<NewsDailyDigestS
   return (data ?? []).map(mapDailyDigestSummary);
 }
 
+/** 后端「日报不存在」业务文案（跨栈契约：存档外日期同形不泄漏存在性；PublicNewsController 同文案） */
+export const DAILY_MISSING_MESSAGE = "日报不存在";
+
 /**
  * 日报详情（刊头+生效导语+读取期复检后的可见条目）。不存在/已清理后端
- * 同形报「日报不存在」——本层原样 reject，页面落空态。
+ * 同形报「日报不存在」（#241 实测：真数据分支存档外日期回 code:"0"+data:null，
+ * 本层归一为同一 rejection），页面据此落「越界/存档外」态（与网络失败可区分）。
  */
 export async function fetchDailyDigest(digestDate: string): Promise<NewsDailyDigest> {
   if (USE_MOCK) {
     const found = MOCK_DAILY_DIGESTS.find((digest) => digest.digestDate === digestDate);
     if (!found) {
-      throw new Error("日报不存在");
+      throw new Error(DAILY_MISSING_MESSAGE);
     }
     return found;
   }
   const data = await newsApi.get<NewsDailyDigestVO, NewsDailyDigestVO>(`/public/news/daily/${digestDate}`);
+  if (!data) {
+    throw new Error(DAILY_MISSING_MESSAGE);
+  }
   return mapDailyDigest(data);
 }
 
