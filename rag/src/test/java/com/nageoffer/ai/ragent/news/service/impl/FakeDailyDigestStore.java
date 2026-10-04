@@ -31,24 +31,30 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 日报两表内存 fake（#212 测试）：真实模拟本服务面固定发出的形状——
- * 刊头 insert（回填 id）/delete(digest_date=)/selectCount/selectOne/selectList；
- * 快照 insert/selectList(digest_id=, ORDER BY seq)；刊头删除<b>模拟外键
- * ON DELETE CASCADE</b>带走快照行（幂等重建不留残行）。
+ * 日报两表内存 fake（#212 测试，#240 增 digest_id IN 批查与刊头 LIMIT 形状）：
+ * 真实模拟本服务面固定发出的形状——刊头 insert（回填 id）/delete(digest_date=)/
+ * selectCount/selectOne/selectList（digest_date 倒序+LIMIT n=取最近 n 期）；
+ * 快照 insert/selectList(digest_id= 或 digest_id IN (…)，ORDER BY seq)；
+ * 刊头删除<b>模拟外键 ON DELETE CASCADE</b>带走快照行（幂等重建不留残行）。
  * 真实 SQL 口径（唯一约束/级联）由 PG 环境保障，本 fake 只驱动行为断言。
  */
 final class FakeDailyDigestStore {
 
     private static final Pattern EQ = Pattern.compile("(\\w+)\\s*=\\s*#\\{ew\\.paramNameValuePairs\\.(MPGENVAL\\d+)\\}");
+    /** digest_id IN (…) 批查形状（#240 目录 firstTitle/期级 RSS 的批量复检） */
+    private static final Pattern DIGEST_ID_IN = Pattern.compile("digest_id\\s+IN\\s*\\(([^)]+)\\)");
+    private static final Pattern LIMIT = Pattern.compile("LIMIT\\s+(\\d+)");
 
     private final List<NewsDailyDigestDO> headers = new ArrayList<>();
     private final List<NewsDailyDigestItemDO> items = new ArrayList<>();
@@ -113,20 +119,29 @@ final class FakeDailyDigestStore {
         String sql = wrapper.getSqlSegment();
         Long digestId = eqLong(sql, params, "id");
         Object digestDate = eqValue(sql, params, "digest_date");
-        return headers.stream()
+        List<NewsDailyDigestDO> matched = headers.stream()
                 .filter(h -> (digestId == null || digestId.equals(h.getId()))
                         && (digestDate == null || digestDate.equals(h.getDigestDate())))
                 .sorted(Comparator.comparing(NewsDailyDigestDO::getDigestDate).reversed())
                 .toList();
+        // LIMIT n（目录/期级 feed 的固定 LIMIT 形状；已按 digest_date 倒序=取最近 n 期）
+        Matcher limit = LIMIT.matcher(sql);
+        if (limit.find()) {
+            int cap = Integer.parseInt(limit.group(1));
+            return matched.size() <= cap ? matched : matched.subList(0, cap);
+        }
+        return matched;
     }
 
     private List<NewsDailyDigestItemDO> matchItems(Wrapper<NewsDailyDigestItemDO> wrapper) {
         Map<String, Object> params = params(wrapper);
         String sql = wrapper.getSqlSegment();
         Long digestId = eqLong(sql, params, "digest_id");
+        Set<Long> digestIdIn = inDigestIds(sql, params);
         boolean seqAsc = sql != null && sql.contains("seq ASC");
         return items.stream()
                 .filter(item -> digestId == null || digestId.equals(item.getDigestId()))
+                .filter(item -> digestIdIn == null || digestIdIn.contains(item.getDigestId()))
                 .sorted(seqAsc ? Comparator.comparing(NewsDailyDigestItemDO::getSeq)
                         : Comparator.comparing(NewsDailyDigestItemDO::getId))
                 .map(FakeDailyDigestStore::copyItem)
@@ -136,6 +151,22 @@ final class FakeDailyDigestStore {
     private static Long eqLong(String sql, Map<String, Object> params, String column) {
         Object value = eqValue(sql, params, column);
         return value == null ? null : ((Number) value).longValue();
+    }
+
+    /** digest_id IN (#{…}, #{…}) 参数集解析（无该形状时 null=不过滤） */
+    private static Set<Long> inDigestIds(String sql, Map<String, Object> params) {
+        if (sql == null) {
+            return null;
+        }
+        Matcher matcher = DIGEST_ID_IN.matcher(sql);
+        if (!matcher.find()) {
+            return null;
+        }
+        return Pattern.compile("#\\{ew\\.paramNameValuePairs\\.(MPGENVAL\\d+)\\}")
+                .matcher(matcher.group(1))
+                .results()
+                .map(result -> ((Number) params.get(result.group(1))).longValue())
+                .collect(Collectors.toSet());
     }
 
     private static Object eqValue(String sql, Map<String, Object> params, String column) {

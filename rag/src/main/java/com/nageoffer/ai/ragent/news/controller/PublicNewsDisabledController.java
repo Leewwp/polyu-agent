@@ -124,6 +124,15 @@ public class PublicNewsDisabledController {
     }
 
     /**
+     * 与启用态同形的期级日报 RSS 端点 404 兜底（#240 后增路径；literal 路由
+     * 优先于上方 /daily/{date} 路径变量，启用态同款路由形状）
+     */
+    @GetMapping("/daily/rss")
+    public ResponseEntity<Void> dailyIssuesRss() {
+        return notFound();
+    }
+
+    /**
      * 与启用态同形的站点级 news feed 端点 404 兜底（#213 后增路径，/feed.xml）
      */
     @GetMapping("/feed.xml")
