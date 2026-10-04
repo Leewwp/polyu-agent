@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { TopicDetailPage } from "./TopicDetailPage";
 import { TopicsPage } from "./TopicsPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { fetchTopicDetail, fetchTopics } from "@/services/newsService";
 import type { TopicDetailData } from "@/services/newsService";
 import { MOCK_NEWS_ITEMS, NEWS_TOPICS, NEWS_TOPIC_GROUPS } from "@/services/newsMockData";
@@ -49,7 +50,9 @@ function installLocalStorageStub(): Map<string, string> {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/topics"]}>
-      <TopicsPage />
+      <FeedLangProvider>
+        <TopicsPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -71,10 +74,12 @@ function aiTopicDetail(): TopicDetailData {
 function renderTopicDetail(slug: string) {
   return render(
     <MemoryRouter initialEntries={[`/topics/${slug}`]}>
-      <Routes>
-        <Route path="/topics/:slug" element={<TopicDetailPage />} />
-        <Route path="/topics" element={<div>TOPICS_LANDING</div>} />
-      </Routes>
+      <FeedLangProvider>
+        <Routes>
+          <Route path="/topics/:slug" element={<TopicDetailPage />} />
+          <Route path="/topics" element={<div>TOPICS_LANDING</div>} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -120,7 +125,7 @@ describe("TopicsPage", () => {
     expect(screen.getByRole("link", { name: /校园生活/ }).getAttribute("href")).toBe("/topics/campus");
 
     // compact 页脚：三法务链+邮箱，无中段非官方声明行（原型 topics 视图口径）
-    expect(screen.getByRole("link", { name: "隐私政策" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "隐私声明" }).getAttribute("href")).toBe("/privacy");
     expect(screen.getByRole("link", { name: "服务条款" }).getAttribute("href")).toBe("/terms");
     expect(screen.getByRole("link", { name: "非官方声明" }).getAttribute("href")).toBe("/disclaimer");
     expect(screen.getByText(/ppp@polyuguide\.com · © 2026 PolyUGuide/)).toBeTruthy();

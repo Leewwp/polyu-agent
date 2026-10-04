@@ -80,7 +80,7 @@ export function MobileTabbar() {
                 onClick={closeMore}
                 className="flex-1 rounded-[10px] border border-[var(--feed-line)] bg-white py-2.5 text-[12.5px] text-[var(--feed-text-secondary)] active:bg-[var(--polyu-red-50)]"
               >
-                🔒 {zh ? "隐私政策" : "Privacy"}
+                🔒 {zh ? "隐私声明" : "Privacy Notice"}
               </Link>
               <Link
                 to="/terms"

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 
 import { FeedPage } from "./FeedPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { fetchHotRank, fetchNewsFeed } from "@/services/newsService";
 import { MOCK_NEWS_ITEMS } from "@/services/newsMockData";
 
@@ -21,7 +22,9 @@ vi.mock("@/services/newsService", () => ({
 function renderFeed() {
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <FeedPage />
+      <FeedLangProvider>
+        <FeedPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

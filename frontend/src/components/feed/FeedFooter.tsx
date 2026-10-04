@@ -20,7 +20,7 @@ export function FeedFooter({ compact = false }: { compact?: boolean }) {
     <footer className="mt-7 flex flex-col items-center gap-1 pt-3.5 text-center text-[11.5px] text-[var(--feed-text-tertiary)]">
       <div className="flex gap-3.5">
         <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/privacy">
-          {zh ? "隐私政策" : "Privacy"}
+          {zh ? "隐私声明" : "Privacy Notice"}
         </Link>
         <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/terms">
           {zh ? "服务条款" : "Terms"}

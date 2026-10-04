@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 
 import { FeedPage } from "./FeedPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { MOCK_NEWS_ITEMS, NEWS_CATEGORY_CHIPS } from "@/services/newsMockData";
 import { NEWS_FOLLOWED_TOPICS_KEY, useNewsLocalStore } from "@/stores/newsLocalStore";
 
@@ -23,7 +24,9 @@ function seedFollowed(slugs: string[]) {
 function renderFeed(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
-      <FeedPage />
+      <FeedLangProvider>
+        <FeedPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

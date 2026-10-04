@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { AgentChatPage } from "./AgentChatPage";
+import { FeedLangProvider } from "@/components/feed/feedLang";
 import { useAgentChatStore } from "@/stores/agentChatStore";
 
 /**
@@ -31,7 +32,9 @@ vi.mock("@/components/agent/AgentChatInput", () => ({
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={["/chat"]}>
-      <AgentChatPage />
+      <FeedLangProvider>
+        <AgentChatPage />
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }
@@ -89,11 +92,13 @@ function LocationProbe() {
 function renderAgentDeepLink(entry: string) {
   return render(
     <MemoryRouter initialEntries={[entry]}>
-      <LocationProbe />
-      <Routes>
-        <Route path="/chat/:sessionId" element={<AgentChatPage />} />
-        <Route path="/chat" element={<AgentChatPage />} />
-      </Routes>
+      <FeedLangProvider>
+        <LocationProbe />
+        <Routes>
+          <Route path="/chat/:sessionId" element={<AgentChatPage />} />
+          <Route path="/chat" element={<AgentChatPage />} />
+        </Routes>
+      </FeedLangProvider>
     </MemoryRouter>
   );
 }

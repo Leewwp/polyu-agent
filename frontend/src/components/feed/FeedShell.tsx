@@ -5,7 +5,7 @@ import { EngineBadge } from "./EngineBadge";
 import { FeedSidebar } from "./FeedSidebar";
 import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
-import { FeedLangProvider, useFeedLang } from "./feedLang";
+import { useFeedLang } from "./feedLang";
 import { feedDateLabels } from "@/services/newsMapping";
 import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
 import { useAgentChatStore } from "@/stores/agentChatStore";
@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
  * 资讯流壳（原型 .app：侧栏 + 主区）：
  * - 桌面 = 300px 粘性侧栏 + 主区（顶栏标题/日期/语言 pill/身份区）；
  * - 移动端（860px 断点）= 顶栏换菜单钮形态、侧栏转抽屉、底部 tab + FAB；
- * - 语言 Provider 挂本壳顶层（数据级双语）；ChatPage/AgentChatPage
+ * - 语言 Provider 已提根（#227）：本壳只消费应用根 FeedLangProvider 的全局
+ *   语言，壳内不再挂第二层独立语言状态；ChatPage/AgentChatPage
  *   外层壳也从 MainLayout/AgentLayout 换成本壳。
  * - 2026-09-13：顶栏日期改 HKT 实时值；登录态身份区/登出
  *   一并补齐；fluid 聊天档标题位显示当前会话标题+引擎徽标。
@@ -43,12 +44,12 @@ export interface FeedShellProps {
 }
 
 export function FeedShell({ title, children, fluid = false, shareView }: FeedShellProps) {
+  // 语言由应用根 FeedLangProvider 供给（#227 提根），本壳不再包裹 Provider——
+  // 壳外轻量页（404/法务/登录系等）与壳内共享同一全局语言状态。
   return (
-    <FeedLangProvider>
-      <FeedShellInner title={title} fluid={fluid} shareView={shareView}>
-        {children}
-      </FeedShellInner>
-    </FeedLangProvider>
+    <FeedShellInner title={title} fluid={fluid} shareView={shareView}>
+      {children}
+    </FeedShellInner>
   );
 }
 
