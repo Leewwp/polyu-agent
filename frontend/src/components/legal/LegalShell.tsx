@@ -32,7 +32,7 @@ export function LegalShell({ title, titleEn, children }: LegalShellProps) {
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 py-8 sm:py-12">
       <header className="mb-8 flex items-center justify-between">
         <BrandMark />
-        <Button asChild variant="ghost" size="sm" className="text-[#666666]">
+        <Button asChild variant="ghost" size="sm" className="min-h-[44px] text-[#666666]">
           <Link to={backHref}>{zh ? "返回" : "Back"}</Link>
         </Button>
       </header>

@@ -192,7 +192,7 @@ export function MobileTabbar() {
 
       <button
         type="button"
-        className="fixed bottom-[78px] right-3.5 z-[52] hidden max-[860px]:flex items-center gap-[7px] rounded-full bg-[var(--polyu-red)] px-[18px] py-[11px] text-[13.5px] font-bold text-white shadow-[0_6px_18px_rgba(166,25,46,0.4)] active:scale-95"
+        className="fixed bottom-[78px] right-3.5 z-[52] hidden max-[860px]:flex items-center gap-[7px] rounded-full bg-[var(--polyu-red)] px-[18px] py-[11px] min-h-[44px] text-[13.5px] font-bold text-white shadow-[0_6px_18px_rgba(166,25,46,0.4)] active:scale-95"
         onClick={enterChat}
       >
         💬 <span>{zh ? "问 Agent" : "Ask Agent"}</span>
