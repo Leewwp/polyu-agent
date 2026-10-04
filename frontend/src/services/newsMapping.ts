@@ -271,6 +271,9 @@ export interface NewsDailyDigestSummaryVO {
   itemCount: number;
   introSource: string;
   buildTime: string;
+  /** #240 目录首条标题字段（空期=null） */
+  firstTitleZh?: string | null;
+  firstTitleEn?: string | null;
 }
 
 export function mapDailyDigestSummary(vo: NewsDailyDigestSummaryVO): NewsDailyDigestSummary {
@@ -278,7 +281,9 @@ export function mapDailyDigestSummary(vo: NewsDailyDigestSummaryVO): NewsDailyDi
     digestDate: vo.digestDate,
     itemCount: vo.itemCount ?? 0,
     introSource: vo.introSource,
-    buildTime: vo.buildTime
+    buildTime: vo.buildTime,
+    firstTitleZh: vo.firstTitleZh ?? null,
+    firstTitleEn: vo.firstTitleEn ?? null
   };
 }
 
