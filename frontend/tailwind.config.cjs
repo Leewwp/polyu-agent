@@ -34,7 +34,10 @@ module.exports = {
       },
       boxShadow: {
         soft: "0 24px 60px -30px rgba(10, 10, 15, 0.65)",
-        glow: "0 0 0 1px rgba(59, 130, 246, 0.2), 0 16px 40px rgba(59, 130, 246, 0.25)",
+        // #228：Button 默认变体的 glow 阴影原先硬编码蓝（rgba(59 130 246)），不随主色
+        // 变量联动——改由 --primary 派生，用户面随品牌红、admin 作用域随紫
+        //（neon 无任何引用，保留原值不动）
+        glow: "0 0 0 1px hsl(var(--primary) / 0.2), 0 16px 40px hsl(var(--primary) / 0.25)",
         neon: "0 0 30px rgba(59, 130, 246, 0.35)"
       },
       keyframes: {
