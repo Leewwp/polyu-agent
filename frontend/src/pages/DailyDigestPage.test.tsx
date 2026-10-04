@@ -26,6 +26,7 @@ vi.mock("@/services/newsService", () => ({
   fetchDailyDigestList: vi.fn(),
   fetchDailyDigest: vi.fn(),
   dailyDigestRssUrl: vi.fn((date: string) => `/public/news/daily/${date}/rss`),
+  dailyIssuesFeedUrl: vi.fn(() => "/daily/feed.xml"),
   DAILY_MISSING_MESSAGE: "日报不存在"
 }));
 
@@ -361,6 +362,36 @@ describe("DailyDigestPage", () => {
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
     const rss = screen.getByText("本期 RSS ↗").closest("a");
     expect(rss?.getAttribute("href")).toBe("/public/news/daily/2026-10-03/rss");
+  });
+
+  it("exposes the issues feed subscribe link (#243 刊尾订阅出口默认口径)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    const sub = screen.getByText("订阅日报 ↗").closest("a");
+    expect(sub?.getAttribute("href")).toBe("/daily/feed.xml");
+    // 双出口并存（本期 RSS 不被取代）
+    expect(screen.getByText("本期 RSS ↗")).toBeTruthy();
+  });
+
+  it("mounts the issues feed autodiscovery link in head and removes it on unmount (#243)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    const view = renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    const links = Array.from(
+      document.head.querySelectorAll<HTMLLinkElement>('link[rel="alternate"]')
+    );
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("type")).toBe("application/rss+xml");
+    expect(links[0].getAttribute("href")).toBe("http://localhost:3000/daily/feed.xml");
+    expect(links[0].getAttribute("title")).toContain("理大资讯日报");
+
+    view.unmount();
+    expect(Array.from(document.head.querySelectorAll('link[rel="alternate"]'))).toEqual([]);
   });
 
   it("issues only public digest requests while rendering (no auth, no engine probe, no LLM endpoints)", async () => {
