@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { AgentSharePage } from "@/pages/AgentSharePage";
-import { FeedLangProvider } from "@/components/feed/feedLang";
+import { FeedLangContext, FeedLangProvider } from "@/components/feed/feedLang";
 import { useAuthStore } from "@/stores/authStore";
 
 const getPublicAgentShareMock = vi.hoisted(() => vi.fn());
@@ -22,18 +22,28 @@ vi.mock("@/services/agentShareService", () => ({
  * 匿名零网络请求红线（公开页范式）。隐私门=DOM 不出现身份/思考/工具轨迹。
  * useParams 须经真实 Route 匹配（裸 MemoryRouter 子组件拿不到参数）。
  */
-function setup(token = "TOKEN123") {
+function setup(token = "TOKEN123", lang: "zh" | "en" = "zh") {
+  const routes = (
+    <Routes>
+      <Route path="/share/c/:token" element={<AgentSharePage />} />
+      <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
+      <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
+    </Routes>
+  );
   return render(
     <MemoryRouter initialEntries={[`/share/c/${token}`]}>
-      <FeedLangProvider>
-        <Routes>
-          <Route path="/share/c/:token" element={<AgentSharePage />} />
-          <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
-          <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
-        </Routes>
-      </FeedLangProvider>
+      {lang === "zh" ? (
+        <FeedLangProvider>{routes}</FeedLangProvider>
+      ) : (
+        <FeedLangContext.Provider value={{ lang, setLang: () => {} }}>{routes}</FeedLangContext.Provider>
+      )}
     </MemoryRouter>
   );
+}
+
+/** EN 直供变体（#233 失效态文案随语言断言用） */
+function setupEn(token = "TOKEN123") {
+  return setup(token, "en");
 }
 
 function instrumentNetwork(): { requestedUrls: string[] } {
@@ -174,16 +184,36 @@ describe("AgentSharePage（issue #91 壳化视图）", () => {
     expect(screen.queryByText(/游客身份 · 每日 3 次/)).toBeNull();
   });
 
-  it("无效链接：壳内统一「分享链接无效或已撤销」+ 首页出口", async () => {
+  it("无效链接 #233：壳内统一文案+单个「回到首页」主操作（合并去向相同的首页入口）", async () => {
     getPublicAgentShareMock.mockRejectedValue(new Error("分享链接无效或已撤销"));
     setup("BADTOKEN");
 
     await waitFor(() => {
       expect(screen.getByText("分享链接无效或已撤销")).toBeTruthy();
     });
-    expect(screen.getByRole("link", { name: /去首页 · Home/ }).getAttribute("href")).toBe("/");
+    // CTA 条收敛为单个回首页主操作（与 #229 404 同词），文案随语言单语不硬拼
+    const goHome = screen.getAllByRole("link", { name: "回到首页" });
+    expect(goHome).toHaveLength(1);
+    expect(goHome[0].getAttribute("href")).toBe("/");
+    // 旧双出口清零：居中态「逛逛资讯 · Browse news」与 CTA「去首页 · Home」均不再渲染
+    expect(screen.queryByText(/逛逛资讯/)).toBeNull();
+    expect(screen.queryByText(/去首页/)).toBeNull();
+    expect(screen.queryByText(/Browse news/)).toBeNull();
     // 壳仍在（侧栏导航在场），不退化为外部文档页
     expect(screen.getByRole("button", { name: "新对话" })).toBeTruthy();
+  });
+
+  it("无效链接 #233 EN：主操作随语言单语（Back to home）", async () => {
+    getPublicAgentShareMock.mockRejectedValue(new Error("invalid"));
+    setupEn("BADTOKEN");
+
+    await waitFor(() => {
+      expect(screen.getByText("This share link is invalid or has been revoked")).toBeTruthy();
+    });
+    const goHome = screen.getAllByRole("link", { name: "Back to home" });
+    expect(goHome).toHaveLength(1);
+    expect(goHome[0].getAttribute("href")).toBe("/");
+    expect(screen.queryByRole("link", { name: "回到首页" })).toBeNull();
   });
 
   it("v1 旧快照（无 sources）优雅降级：正常渲染只是没有来源徽章", async () => {

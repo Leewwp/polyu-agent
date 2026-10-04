@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { SharePage } from "@/pages/SharePage";
-import { FeedLangProvider } from "@/components/feed/feedLang";
+import { FeedLangContext, FeedLangProvider } from "@/components/feed/feedLang";
 import { guestLogin } from "@/services/authService";
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
@@ -36,17 +36,18 @@ vi.mock("@/services/authService", () => ({
  * 铸号被拒降级登录）+ 公开面红线（noindex、只读零写操作）。
  * useParams 须经真实 Route 匹配（裸 MemoryRouter 子组件拿不到参数）。
  */
-function setup(token = "TOKEN123") {
+function setup(token = "TOKEN123", lang: "zh" | "en" = "zh") {
+  const routes = (
+    <Routes>
+      <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
+      <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
+      <Route path="/" element={<div>HOME_PAGE_MARK</div>} />
+    </Routes>
+  );
   return render(
     <MemoryRouter initialEntries={[`/share/${token}`]}>
-      <FeedLangProvider>
-        <Routes>
-          <Route path="/share/:token" element={<SharePage />} />
-          <Route path="/login" element={<div>LOGIN_PAGE_MARK</div>} />
-          <Route path="/chat" element={<div>CHAT_PAGE_MARK</div>} />
-          <Route path="/" element={<div>HOME_PAGE_MARK</div>} />
-        </Routes>
-      </FeedLangProvider>
+      {lang === "zh" ? <FeedLangProvider>{routes}</FeedLangProvider> : <FeedLangContext.Provider value={{ lang, setLang: () => {} }}>{routes}</FeedLangContext.Provider>}
     </MemoryRouter>
   );
 }
@@ -166,9 +167,8 @@ describe("SharePage（#229 品牌与出路）", () => {
     expect(console.error).toBeDefined();
   });
 
-  it("无效态：统一文案 + 继续提问出口仍走游客直通；加载/失效态零写操作", async () => {
+  it("无效态 #233：单个「回到首页」主操作+文案单语；加载/失效态零写操作", async () => {
     getPublicShareMock.mockRejectedValue(new Error("not found"));
-    vi.mocked(guestLogin).mockResolvedValue({} as never);
     setup("BADTOKEN");
 
     await waitFor(() => {
@@ -178,12 +178,31 @@ describe("SharePage（#229 品牌与出路）", () => {
     expect(createShareMock).not.toHaveBeenCalled();
     expect(revokeShareMock).not.toHaveBeenCalled();
 
-    const user = userEvent.setup();
-    // 头部与失效态各一枚同名钮，取失效态那枚（零写操作断言后的完整出口流转）
-    await user.click(screen.getAllByRole("button", { name: "继续提问" })[1]);
+    // 失效态主体只留单个「回到首页」主操作（与会话分享失效页/404 同口径）
+    const goHome = screen.getAllByRole("link", { name: "回到首页" });
+    expect(goHome).toHaveLength(1);
+    expect(goHome[0].getAttribute("href")).toBe("/");
+    // 副行不再 zh/en 硬拼双行（旧倒置英文副行清零），改单语失效说明
+    expect(screen.getByText("链接可能已过期或被分享者撤销")).toBeTruthy();
+    expect(screen.queryByText("This share link is invalid or has been revoked.")).toBeNull();
+    // 头部「继续提问」持久出口照常在场（失效态唯一其余操作，非回首页去向）
+    expect(screen.getAllByRole("button", { name: "继续提问" })).toHaveLength(1);
+  });
+
+  it("无效态 #233 EN：主操作与文案随语言单语（Back to home）", async () => {
+    getPublicShareMock.mockRejectedValue(new Error("not found"));
+    setup("BADTOKEN", "en");
+
     await waitFor(() => {
-      expect(screen.getByText("CHAT_PAGE_MARK")).toBeTruthy();
+      expect(screen.getByText("This share link is invalid or has been revoked")).toBeTruthy();
     });
+    const goHome = screen.getAllByRole("link", { name: "Back to home" });
+    expect(goHome).toHaveLength(1);
+    expect(goHome[0].getAttribute("href")).toBe("/");
+    expect(screen.getByText("The link may have expired or been revoked by its owner")).toBeTruthy();
+    // 不硬拼双语：EN 态不出现中文按钮/中文副行
+    expect(screen.queryByRole("link", { name: "回到首页" })).toBeNull();
+    expect(screen.queryByText("链接可能已过期或被分享者撤销")).toBeNull();
   });
 
   it("noindex meta 在场（首发不收录立场不动）", async () => {

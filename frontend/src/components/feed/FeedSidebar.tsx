@@ -191,7 +191,8 @@ function RecentChatsSectionInternal({
                 className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-bg)] hover:text-[var(--feed-text-primary)]"
                 onClick={() => setSelectMode(true)}
               >
-                {zh ? "选择" : "Select"}
+                {/* #233 用词触点：「选择」→「多选」（批量勾选语义更明确，流程不变） */}
+                {zh ? "多选" : "Multi-select"}
               </button>
             )
           ) : null}

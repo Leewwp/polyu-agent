@@ -82,9 +82,12 @@ function HotRankHead({ entries }: { entries: HotRankEntry[] }) {
                     <SourceCountBadge sources={entry.sources} />
                   </div>
                 </div>
-                <span className="flex-none pt-0.5 text-[13px] font-bold text-[var(--feed-heat)]">
-                  🔥 {entry.heat}
-                </span>
+                {/* #233 零值文案：heat=0 不显示 🔥0（条目与排序不变，仅隐藏数值） */}
+                {entry.heat > 0 && (
+                  <span className="flex-none pt-0.5 text-[13px] font-bold text-[var(--feed-heat)]">
+                    🔥 {entry.heat}
+                  </span>
+                )}
               </RankRow>
             );
           })}

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
-import { EngineBadge } from "./EngineBadge";
 import { FeedSidebar } from "./FeedSidebar";
 import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
@@ -22,7 +21,8 @@ import { cn } from "@/lib/utils";
  *   语言，壳内不再挂第二层独立语言状态；ChatPage/AgentChatPage
  *   外层壳也从 MainLayout/AgentLayout 换成本壳。
  * - 2026-09-13：顶栏日期改 HKT 实时值；登录态身份区/登出
- *   一并补齐；fluid 聊天档标题位显示当前会话标题+引擎徽标。
+ *   一并补齐；fluid 聊天档标题位显示当前会话标题（#233 信息精简：
+ *   内部引擎/模型徽章移除——AI 提示与来源证据不受影响）。
  * - #231 标题单源与页面级 h1 均落本壳：document.title 消费 title prop 与
  *   shareView/fluid 标题优先值（与顶栏同一次序）全局一处驱动；正文无内容头
  *   的栏目页经 pageHeading 由壳渲染 h1（桌面 sr-only 去重复视觉页名、移动显示）。
@@ -122,7 +122,6 @@ function DesktopTopbar({
 }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
-  const engineType = useEngineStore((state) => state.engineType);
   // 实时 HKT 日期（渲染时计算；跨零点长驻由下一次渲染自然纠正）
   const dateLabels = useMemo(() => feedDateLabels(new Date(), lang), [lang]);
   const chatTitle = useChatSessionTitle();
@@ -136,7 +135,6 @@ function DesktopTopbar({
         </div>
         <div className="text-[12.5px] text-[var(--feed-text-tertiary)]">{dateLabels.long}</div>
       </div>
-      {fluid && !shareView && engineType === "agent" && <EngineBadge />}
       <div className="ml-auto flex items-center gap-2.5">
         <LangPill />
         {!shareView && <AgentSessionShareButton />}
