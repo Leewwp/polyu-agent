@@ -224,7 +224,7 @@ export function RegisterPage() {
             ) : null}
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" className="w-full" disabled={!canSubmit}>
+          <Button type="submit" className="min-h-[44px] w-full" disabled={!canSubmit}>
             {isSubmitting ? (zh ? "正在提交..." : "Submitting...") : zh ? "注册" : "Sign up"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
@@ -265,7 +265,7 @@ export function RegisterPage() {
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {notice ? <p className="text-sm text-emerald-600">{notice}</p> : null}
           <div className="flex items-center gap-2">
-            <Button type="submit" className="flex-1" disabled={isVerifying}>
+            <Button type="submit" className="min-h-[44px] flex-1" disabled={isVerifying}>
               {isVerifying ? (zh ? "正在验证..." : "Verifying...") : zh ? "完成验证" : "Verify"}
             </Button>
             <Button

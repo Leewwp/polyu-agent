@@ -27,7 +27,7 @@ export function NotFoundPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             {zh ? "你访问的页面不存在。" : "The page you are looking for does not exist."}
           </p>
-          <Button asChild className="mt-6" data-testid="notfound-go-home">
+          <Button asChild className="mt-6 min-h-[44px]" data-testid="notfound-go-home">
             <Link to="/">{zh ? "回到首页" : "Back to home"}</Link>
           </Button>
         </div>

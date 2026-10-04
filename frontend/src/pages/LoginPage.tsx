@@ -121,7 +121,7 @@ export function LoginPage() {
               </Link>
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <Button type="submit" className="w-full" disabled={isLoading}>
+            <Button type="submit" className="min-h-[44px] w-full" disabled={isLoading}>
               {isLoading ? (zh ? "正在登录..." : "Signing in...") : zh ? "登录" : "Sign in"}
             </Button>
             <p className="text-center text-sm text-muted-foreground">

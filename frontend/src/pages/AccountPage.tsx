@@ -206,7 +206,7 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
             data-testid="email-current-password"
           />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Button type="submit" disabled={!emailValid || !password || busy}>
+          <Button type="submit" className="min-h-[44px]" disabled={!emailValid || !password || busy}>
             {busy ? (zh ? "发送中..." : "Sending...") : zh ? "发送验证码" : "Send code"}
           </Button>
         </form>
@@ -226,7 +226,7 @@ function EmailChangeCard({ onChanged }: { onChanged: () => void }) {
           />
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <div className="flex gap-2">
-            <Button type="submit" disabled={!code.trim() || busy}>
+            <Button type="submit" className="min-h-[44px]" disabled={!code.trim() || busy}>
               {busy ? (zh ? "验证中..." : "Verifying...") : zh ? "确认更改" : "Confirm change"}
             </Button>
             <Button type="button" variant="outline" onClick={() => setStep("form")}>
@@ -294,7 +294,7 @@ function PasswordCard() {
           data-testid="pw-new"
         />
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <Button type="submit" disabled={!current || !valid || busy}>
+        <Button type="submit" className="min-h-[44px]" disabled={!current || !valid || busy}>
           {busy ? (zh ? "修改中..." : "Updating...") : zh ? "修改密码" : "Change password"}
         </Button>
       </form>

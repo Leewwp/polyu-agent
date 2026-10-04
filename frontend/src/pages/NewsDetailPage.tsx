@@ -165,7 +165,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
         <div className="flex flex-wrap items-center gap-2.5 border-t border-dashed border-[var(--feed-line-soft)] pt-3.5">
           {isSafeUrl(item.url) ? (
             <a
-              className="inline-flex items-center gap-1 rounded-full border border-[var(--polyu-red)] bg-white px-[15px] py-1.5 text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)]"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--polyu-red)] bg-white min-h-[44px] px-[15px] text-[13px] font-semibold text-[var(--polyu-red)] transition-colors hover:bg-[var(--polyu-red-50)]"
               href={item.url}
               target="_blank"
               rel="noopener noreferrer"
@@ -173,7 +173,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
               {zh ? "查看原文 ↗" : "View source ↗"}
             </a>
           ) : null}
-          <ShareButton item={item} zh={zh} />
+          <ShareButton item={item} zh={zh} className="h-11 w-11" />
         </div>
       </article>
 
@@ -217,7 +217,7 @@ function ShareButton({ item, zh }: { item: NewsItem; zh: boolean }) {
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-1 rounded-full border border-[var(--feed-line)] px-[15px] py-1.5 text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
+      className="inline-flex items-center gap-1 rounded-full border border-[var(--feed-line)] min-h-[44px] px-[15px] text-[13px] font-semibold text-[var(--feed-text-secondary)] transition-colors hover:border-[var(--polyu-red)] hover:text-[var(--polyu-red)]"
       onClick={onShare}
     >
       {zh ? "分享" : "Share"}

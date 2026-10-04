@@ -55,7 +55,7 @@ export function NewsCard({ item }: { item: NewsItem }) {
       <div className="mt-2 flex items-center gap-2.5">
         {isSafeUrl(item.url) ? (
           <a
-            className="ml-auto inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
+            className="ml-auto inline-flex items-center gap-1 py-[6px] text-[12.5px] font-semibold text-[var(--polyu-red)] hover:underline"
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"

@@ -19,21 +19,21 @@ export function FeedFooter({ compact = false }: { compact?: boolean }) {
   return (
     <footer className="mt-7 flex flex-col items-center gap-1 pt-3.5 text-center text-[11.5px] text-[var(--feed-text-tertiary)]">
       <div className="flex gap-3.5">
-        <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/privacy">
+        <Link className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]" to="/privacy">
           {zh ? "隐私声明" : "Privacy Notice"}
         </Link>
-        <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/terms">
+        <Link className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]" to="/terms">
           {zh ? "服务条款" : "Terms"}
         </Link>
-        <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/disclaimer">
+        <Link className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]" to="/disclaimer">
           {zh ? "非官方声明" : "Disclaimer"}
         </Link>
-        <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/about">
+        <Link className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]" to="/about">
           {zh ? "关于" : "About"}
         </Link>
         <button
           type="button"
-          className="font-semibold hover:text-[var(--polyu-red-dark)]"
+          className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]"
           onClick={() => setFeedbackOpen(true)}
         >
           {zh ? "反馈" : "Feedback"}
@@ -41,7 +41,7 @@ export function FeedFooter({ compact = false }: { compact?: boolean }) {
         {/* GitHub 外链（2026-09-11 定「现在挂」；repo 转公开为部署方动作，
             转公开前先清理 backup/*——404 窗口已知情）；full/compact 两口径均显示 */}
         <a
-          className="font-semibold hover:text-[var(--polyu-red-dark)]"
+          className="-my-1.5 py-1.5 font-semibold hover:text-[var(--polyu-red-dark)]"
           href="https://github.com/Leewwp/polyu-agent"
           target="_blank"
           rel="noreferrer"
