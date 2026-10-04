@@ -195,6 +195,22 @@ public class PublicNewsController {
     }
 
     /**
+     * 期级日报 RSS feed（#240，Q10）：订阅对象是「日报」这份连续刊物——每期一条
+     * item（最近 30 期、日期倒序），与上方单刊 /daily/{date}/rss（条目级 feed）
+     * 互补。literal 路由优先于 /daily/{date} 路径变量（Spring 映射行为，路由测试
+     * 钉住防回归）。空期条目保留（每日 URL 可预期）；网关把 /daily/feed.xml 精确
+     * 反代到本端点。缓存沿既有 feed 惯例 Cache-Control 1h public（读侧无 ETag
+     * 基建，不新增）；零 LLM——批量复检+确定性渲染。
+     */
+    @GetMapping(value = "/daily/rss", produces = "application/rss+xml;charset=UTF-8")
+    public ResponseEntity<String> dailyIssuesRss() {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/rss+xml;charset=" + StandardCharsets.UTF_8))
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                .body(dailyDigestQueryService.renderIssuesRss());
+    }
+
+    /**
      * 日报日期解析：YYYY-MM-DD；非法格式同形「日报不存在」（与详情缺失同口径，
      * 不向匿名访问者区分「格式错」与「无此刊」）
      */

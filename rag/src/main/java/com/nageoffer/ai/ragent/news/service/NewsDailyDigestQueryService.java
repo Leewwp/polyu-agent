@@ -31,8 +31,11 @@ import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 public interface NewsDailyDigestQueryService {
 
     /**
-     * 近期日报目录（digest_date 倒序；日期+条数+导语产出方式，不携带导语正文
-     * ——列表面不展示导语，规避隐藏条目残留问题的同时保持列表轻量）
+     * 近期日报目录（digest_date 倒序；日期+条数+导语产出方式+每期首条可见标题
+     * ——不携带导语正文，规避隐藏条目残留问题的同时保持列表轻量）
+     *
+     * <p>firstTitle 口径（#240）：批量一次 IN 查询取各期 published 可见集中
+     * seq 最小条（读取期下架复检同 {@link #getDetail}；空期两字段 null）。
      *
      * @param limit 条数（[1,90] 钳制，默认 30）
      */
@@ -58,4 +61,13 @@ public interface NewsDailyDigestQueryService {
      * @param detail {@link #getDetail} 的非空结果
      */
     String renderRss(NewsDailyDigestVO detail);
+
+    /**
+     * 期级 RSS 渲染（#240，Q10——零 LLM）：订阅对象是「日报」这份<b>连续刊物</b>，
+     * 每期一条 item（最近 30 期、日期倒序）——title=理大资讯日报 · 日期+头条标题、
+     * description=生效导语（zh 口径）+可见条目标题简表、link=站内 /daily/{date}
+     * 绝对 canonical、guid=期日期。空期条目保留并附休刊说明文案（每日 URL
+     * 可预期是特性）；与 {@link #renderRss}（单刊条目 feed）同构组装与转义约定。
+     */
+    String renderIssuesRss();
 }
