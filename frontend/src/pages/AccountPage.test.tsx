@@ -111,6 +111,21 @@ describe("AccountPage", () => {
     expect(screen.getByTestId("profile-email").textContent).toBe("未设置");
   });
 
+  it("#229：头部有「回主站」明确入口指向 /（不依赖浏览器返回键）", async () => {
+    useAuthStore.setState({
+      user: { userId: "u-1", username: "alice", role: "user", email: null },
+      isAuthenticated: true,
+      isGuest: false
+    });
+    listMyAgentSharesMock.mockResolvedValue([]);
+    listMySharesMock.mockResolvedValue([]);
+    renderPage();
+
+    const backToSite = screen.getByTestId("back-to-site");
+    expect(backToSite.getAttribute("href")).toBe("/");
+    expect(backToSite.textContent).toContain("回主站");
+  });
+
   it("admin sees the no-self-delete notice instead of the delete button", async () => {
     useAuthStore.setState({
       user: { userId: "u-3", username: "admin", role: "admin", email: null },

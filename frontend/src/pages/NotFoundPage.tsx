@@ -11,6 +11,8 @@ import { usePageTitle } from "@/hooks/usePageTitle";
  * #231：补页面标题「页面不存在 · PolyUGuide」与 noindex meta（N6——SPA 软 404
  * 对搜索引擎是 200 带错误文案；离开 404 后 meta 即移除，head 注入走可复用
  * useHeadElement helper，#243 订阅出口 autodiscovery 复用同款）。
+ * #229：主操作「返回聊天」→「回到首页」——外链 404 访客的合理落点是主站资讯流
+ * 而非受守卫的 /chat；轻量布局与页脚保持。
  */
 export function NotFoundPage() {
   const { lang } = useOptionalFeedLang();
@@ -25,8 +27,8 @@ export function NotFoundPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             {zh ? "你访问的页面不存在。" : "The page you are looking for does not exist."}
           </p>
-          <Button asChild className="mt-6">
-            <Link to="/chat">{zh ? "返回聊天" : "Back to chat"}</Link>
+          <Button asChild className="mt-6" data-testid="notfound-go-home">
+            <Link to="/">{zh ? "回到首页" : "Back to home"}</Link>
           </Button>
         </div>
       </div>
