@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { PrivacyPage } from "./PrivacyPage";
@@ -41,5 +41,17 @@ describe("PrivacyPage", () => {
     expect(body).toContain("Third-party");
     expect(body).toContain("30 days");
     expect(body).toContain("Right to delete your account");
+  });
+
+  it("#229：头部为 PolyUGuide 品牌，旧品牌名零残留，品牌位链回主站", () => {
+    render(
+      <MemoryRouter>
+        <PrivacyPage />
+      </MemoryRouter>
+    );
+
+    const brand = screen.getByRole("link", { name: "PolyUGuide" });
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(document.body.textContent).not.toContain("PolyU Wayfinder");
   });
 });

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * 分享 tab 按 flag 探测：对应 mine 列表 404（flag 关）时隐藏该 tab——沿用分享钮
  * 「后端 404 即功能未开启」的判断模式，不另起前端 flag 面。
  * #227：操作钮/tab/状态文字随全局语言单语（动态错误与 toast 透传后端文案，不翻）。
+ * #229：头部补「回主站」明确入口——不依赖浏览器返回键可回资讯流（死胡同导航修复）。
  */
 export function AccountPage() {
   const { lang } = useOptionalFeedLang();
@@ -44,13 +45,18 @@ export function AccountPage() {
   return (
     <div className="flex min-h-screen flex-col px-4">
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 py-8">
-        <header>
-          <h1 className="text-2xl font-semibold">{zh ? "账号设置" : "Account settings"}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {zh
-              ? "Account settings · 管理你的登录标识、邮箱、密码与分享"
-              : "Manage your sign-in identity, email, password and shares"}
-          </p>
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold">{zh ? "账号设置" : "Account settings"}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {zh
+                ? "Account settings · 管理你的登录标识、邮箱、密码与分享"
+                : "Manage your sign-in identity, email, password and shares"}
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="mt-1 flex-none" data-testid="back-to-site">
+            <Link to="/">{zh ? "回主站" : "Back to home"}</Link>
+          </Button>
         </header>
         <ProfileCard email={user?.email ?? null} emailVerified={user?.emailVerified ?? null} />
         <EmailChangeCard onChanged={fetchCurrentUser} />
