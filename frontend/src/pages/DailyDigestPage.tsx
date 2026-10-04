@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
+import { IssueCalendar } from "@/components/daily/IssueCalendar";
 import { useHeadElement } from "@/hooks/useHeadElement";
 import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
 import {
@@ -31,7 +32,8 @@ import { cn } from "@/lib/utils";
  *   （存档外）与失败态文案可区分（#238 复核点）；
  * - 透明口径：模板导语/部分内容已下架 chips 保留；统计条全客户端推导；
  *   document.title 按期设置——骑 #231 FeedShell title 单源机制（title prop
- *   传期标题，不另写 effect）；报眼月历归 #242，本页不含。
+ *   传期标题，不另写 effect）；报眼月历（#242）挂 rail 顶与目录抽屉
+ *   （IssueCalendar 独立组件，月切换限存档范围）。
  */
 
 /** 版序 = feed 类目 chips 序（#237 Q7：版序沿用 feed 类目序；other 兜底最后） */
@@ -470,6 +472,10 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
   return (
     <aside className="hidden min-[861px]:block" aria-label={zh ? "往期日报" : "Past issues"}>
       <div className="sticky top-[76px] max-h-[calc(100vh-96px)] overflow-y-auto pb-4 pr-1">
+        {/* 报眼月历（#242）：rail 顶=月历，其下才是往期清单；鼠标档紧凑 */}
+        <div className="mb-3">
+          <IssueCalendar summaries={summaries} selectedDate={selectedDate} />
+        </div>
         <div className="mb-2 px-1 text-[11px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
           {zh ? "往期 · 30 期" : "PAST 30 ISSUES"}
         </div>
@@ -636,6 +642,10 @@ function TocDrawer({
         ) : (
           <IssueToc derived={derived} spacious />
         )}
+        {/* 报眼月历（#242）：抽屉档 spacious=日格/切换钮 ≥44px 触控目标 */}
+        <div className="mt-4 border-t border-[var(--feed-line-soft)] pt-3.5">
+          <IssueCalendar summaries={summaries} selectedDate={selectedDate} spacious />
+        </div>
         <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--feed-line-soft)] pt-3.5">
           <div>
             <div className="mb-1 text-[10.5px] font-bold text-[var(--feed-text-tertiary)]">{zh ? "上一期" : "PREVIOUS"}</div>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import { DailyDigestPage } from "./DailyDigestPage";
@@ -246,8 +246,9 @@ describe("DailyDigestPage", () => {
     renderPage("/daily/2026-10-01");
 
     await waitFor(() => expect(screen.getByText("本日休刊")).toBeTruthy());
-    // 报头「休刊」徽标+说明全页仅一次（rail/翻期格只留短标签）
-    expect(screen.getByText("休刊")).toBeTruthy();
+    // 报头「休刊」徽标+说明全页仅一次（rail/翻期格只留短标签）；
+    // 月历图例的「休刊」灰点说明另计（#242 rail 档常驻）
+    expect(screen.getAllByText("休刊").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText(/不是生成故障/).length).toBe(1);
     // 「查看热点」引导跳热点榜+回到最新一期
     expect(screen.getByText("查看热点 →").closest("a")?.getAttribute("href")).toBe("/hot");
@@ -307,6 +308,31 @@ describe("DailyDigestPage", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText("本期目录 · 2026-10-03")).toBeNull());
+  });
+
+  it("mounts the issue calendar in the desktop rail and the contents drawer (#242)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    // rail 顶=月历（紧凑档），其下才是「往期 · 30 期」清单
+    const railCalendar = screen.getByLabelText("报眼月历");
+    expect(railCalendar.parentElement?.nextElementSibling?.textContent).toContain("往期 · 30 期");
+    // 最新期所在月（2026-10）=存档上限月：下一月禁用、上一月可用（限存档范围）
+    expect(within(railCalendar).getByLabelText("下一月")).toHaveProperty("disabled", true);
+    expect(within(railCalendar).getByLabelText("上一月")).toHaveProperty("disabled", false);
+    // 本期日格=红底（10-03）+休刊灰点（10-01）
+    const states = Array.from(railCalendar.querySelectorAll<HTMLElement>("[data-state]"));
+    expect(states.find((el) => el.textContent === "3")?.getAttribute("data-state")).toBe("current");
+    expect(states.find((el) => el.textContent === "1")?.getAttribute("data-state")).toBe("recess");
+
+    // 目录抽屉内=第二个月历（spacious 档：日格 ≥44px 触控目标）
+    fireEvent.click(screen.getByRole("button", { name: /本期目录/ }));
+    const calendars = screen.getAllByLabelText("报眼月历");
+    expect(calendars.length).toBe(2);
+    const drawerStates = Array.from(calendars[1].querySelectorAll<HTMLElement>("[data-state]"));
+    expect(drawerStates.find((el) => el.textContent === "1")?.className).toContain("min-h-[44px]");
   });
 
   it("keeps transparent chips for template intro and degraded issues", async () => {
