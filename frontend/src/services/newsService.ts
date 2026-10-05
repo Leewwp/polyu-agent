@@ -4,6 +4,7 @@ import type { HotRankEntry, NewsCategory, NewsItem, NewsTopic, NewsTopicGroup } 
 import { mapHotEntry, mapNewsItem, mapTopic } from "@/services/newsMapping";
 import type { NewsHotRankEntryVO, NewsItemVO, NewsPageVO, NewsTopicDetailVO, NewsTopicVO } from "@/services/newsMapping";
 import { MOCK_HOT_RANK, MOCK_NEWS_ITEMS, NEWS_TOPICS, NEWS_TOPIC_GROUPS } from "@/services/newsMockData";
+import { HTTP_RESPONSE_META, type HttpResponseMeta } from "@/services/dailyDigestCache";
 
 const NEWS_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
@@ -12,6 +13,9 @@ const NEWS_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
  * - 不注入 Authorization、不挂 401/会话过期硬跳拦截——匿名访问资讯流不会被拉去登录页；
  * - 公开页数据一律走本实例（api.ts 零改动红线）。
  * 响应拦截只做 Results 信封解包（{code:'0',data}），失败原样 reject，由页面自渲染错误/空态。
+ * #273：解包产物为对象时以不可枚举 symbol 键局部保留 Date/Age/Cache-Control
+ * 新鲜度元数据——既有调用拿到的形状与序列化不变（全站解包契约不动），
+ * 仅 fetchDailyDigest 读取它计算已看期会话缓存的剩余寿命。
  */
 export const newsApi = axios.create({
   baseURL: NEWS_API_BASE_URL,
@@ -25,12 +29,32 @@ newsApi.interceptors.response.use(
       if (payload.code !== "0") {
         return Promise.reject(new Error(payload.message || "资讯加载失败"));
       }
+      attachResponseMeta(payload.data, response);
       return payload.data;
     }
     return payload;
   },
   (error) => Promise.reject(error)
 );
+
+function attachResponseMeta(data: unknown, response: { headers?: Record<string, unknown> }): void {
+  if (!data || typeof data !== "object") {
+    return;
+  }
+  const headers = response.headers ?? {};
+  const dateHeader = typeof headers["date"] === "string" ? headers["date"] : null;
+  const ageHeader = typeof headers["age"] === "string" ? headers["age"] : null;
+  const cacheControl = typeof headers["cache-control"] === "string" ? headers["cache-control"] : null;
+  const parsedDate = dateHeader ? Date.parse(dateHeader) : NaN;
+  const parsedAge = ageHeader ? Number(ageHeader) : NaN;
+  const meta: HttpResponseMeta = {
+    responseTime: Date.now(),
+    dateHeaderMs: Number.isFinite(parsedDate) ? parsedDate : null,
+    ageHeaderSec: Number.isFinite(parsedAge) ? parsedAge : null,
+    cacheControl
+  };
+  Object.defineProperty(data, HTTP_RESPONSE_META, { value: meta, enumerable: false, configurable: true });
+}
 
 /**
  * mock 先行；**真数据接线已切换**：生产/开发一律走 /public/news/**
@@ -246,6 +270,12 @@ import {
   type NewsDailyDigestVO
 } from "@/services/newsMapping";
 import { MOCK_DAILY_DIGESTS, MOCK_DAILY_DIGEST_SUMMARIES } from "@/services/newsMockData";
+import {
+  computeRemainingFreshness,
+  peekCachedDigest,
+  readResponseMeta,
+  storeCachedDigest
+} from "@/services/dailyDigestCache";
 
 /**
  * 日报目录（近 N 期，日期倒序）。读取面零 LLM——后端只读快照表
@@ -268,6 +298,11 @@ export const DAILY_MISSING_MESSAGE = "日报不存在";
  * 日报详情（刊头+生效导语+读取期复检后的可见条目）。不存在/已清理后端
  * 同形报「日报不存在」（#241 实测：真数据分支存档外日期回 code:"0"+data:null，
  * 本层归一为同一 rejection），页面据此落「越界/存档外」态（与网络失败可区分）。
+ * #273：真数据分支挂已看期会话缓存——命中且仍新鲜直接返回（零详情请求，
+ * 命中不续期）；仅新鲜成功详情入 LRU（≤10，离页再进可复用、刷新清空），
+ * 不存在/业务错误/请求失败不缓存；新鲜度按源响应元数据计算（与 C 的
+ * HTTP 缓存同一预算，不给浏览器旧副本再续 300s），无法解释则不建内存项。
+ * mock 分支不经缓存（vitest fixture 直通，页面测试确定性）。
  */
 export async function fetchDailyDigest(digestDate: string): Promise<NewsDailyDigest> {
   if (USE_MOCK) {
@@ -277,11 +312,18 @@ export async function fetchDailyDigest(digestDate: string): Promise<NewsDailyDig
     }
     return found;
   }
+  const cached = peekCachedDigest(digestDate);
+  if (cached) {
+    return cached;
+  }
   const data = await newsApi.get<NewsDailyDigestVO, NewsDailyDigestVO>(`/public/news/daily/${digestDate}`);
   if (!data) {
     throw new Error(DAILY_MISSING_MESSAGE);
   }
-  return mapDailyDigest(data);
+  const mapped = mapDailyDigest(data);
+  const meta = readResponseMeta(data);
+  storeCachedDigest(digestDate, mapped, meta ? computeRemainingFreshness(meta) : null);
+  return mapped;
 }
 
 /**
