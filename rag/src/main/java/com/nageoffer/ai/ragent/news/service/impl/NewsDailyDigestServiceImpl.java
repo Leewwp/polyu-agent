@@ -56,6 +56,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 资讯日报生成服务实现（#212，父票 #182 r3 §日报——P2-a 出口）
@@ -297,6 +298,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                     .sourceDisplayName(source == null ? null : source.getDisplayName())
                     .sourceDisplayNameEn(source == null ? null : source.getDisplayNameEn())
                     .publishTime(item.getPublishTime())
+                    .publishTimePrecision(PublishTimePrecision.orUnknown(item.getPublishTimePrecision()))
                     .build());
         }
         return snapshots;

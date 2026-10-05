@@ -53,6 +53,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 抓取编排两阶段测试（#185）：旧文 48h 归档、确定性首灌限量、全站日准入 60
@@ -107,7 +108,7 @@ class NewsFetchServiceTests {
     private RawNewsItem item(String key, String slug, long ageMillis) {
         String url = "https://example.com/news/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
-                "title-" + slug, null, "en", new Date(now.getTime() - ageMillis), null, key);
+                "title-" + slug, null, "en", new Date(now.getTime() - ageMillis), null, key, PublishTimePrecision.DATETIME);
     }
 
     private List<NewsItemDO> admit(List<NewsFetchService.SourceCandidates> batches) {
@@ -237,7 +238,7 @@ class NewsFetchServiceTests {
                         item("s", "stale-3d", 3 * DAY),
                         new RawNewsItem("https://example.com/news/no-date",
                                 NewsUrlNormalizer.urlHash("https://example.com/news/no-date"),
-                                "no-date", null, "en", null, null, "s")));
+                                "no-date", null, "en", null, null, "s", PublishTimePrecision.UNKNOWN)));
 
         List<NewsItemDO> records = admit(List.of(batch));
 

@@ -72,9 +72,17 @@ public class HtmlListNewsFetcher implements NewsSourceFetcher {
             }
             int accepted = 0;
             for (NewsHtmlListParser.ListEntry entry : entries) {
-                Date publishTime = NewsHtmlListParser.parseDateText(entry.dateText());
-                if (publishTime == null) {
+                // #275：页面日期文本优先（携带精度——纯日期=date 23:59:59 代表值，
+                // lib/PRN 时刻=datetime 真实瞬时）；slug 回退恒为 date 精度
+                NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate(entry.dateText());
+                Date publishTime;
+                String precision;
+                if (parsed != null) {
+                    publishTime = parsed.instant();
+                    precision = parsed.precision();
+                } else {
                     publishTime = entry.slugDate();
+                    precision = PublishTimePrecision.DATE;
                 }
                 if (publishTime == null) {
                     continue;
@@ -82,7 +90,8 @@ public class HtmlListNewsFetcher implements NewsSourceFetcher {
                 String url = NewsUrlNormalizer.normalize(entry.link());
                 accepted += byHash.putIfAbsent(NewsUrlNormalizer.urlHash(url),
                         new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), entry.title(), null,
-                                "en", publishTime, entry.categoryHint(), source.getSourceKey())) == null ? 1 : 0;
+                                "en", publishTime, entry.categoryHint(), source.getSourceKey(),
+                                PublishTimePrecision.orUnknown(precision))) == null ? 1 : 0;
             }
             if (page == 1) {
                 firstPageAccepted = accepted;

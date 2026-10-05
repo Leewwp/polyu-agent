@@ -73,9 +73,14 @@ public class NewsItemVO {
     private String category;
 
     /**
-     * 原文发布时间
+     * 原文发布时间（date 精度时为 D 23:59:59 HKT 归期代表值，#275）
      */
     private Date publishTime;
+
+    /**
+     * 发布时间精度（#275）：date=只显日期 / datetime=真实时刻 / unknown=历史行
+     */
+    private String publishTimePrecision;
 
     /**
      * 热度分（热点榜与主题「近期焦点」共用；热度模型灌值）

@@ -1214,6 +1214,7 @@ CREATE TABLE t_news_item (
   category       VARCHAR(32) NOT NULL DEFAULT 'other',
   lang_raw       VARCHAR(8)  NOT NULL DEFAULT 'en',
   publish_time   TIMESTAMP,
+  publish_time_precision VARCHAR(8) NOT NULL DEFAULT 'unknown',  -- date/datetime/unknown（#275；unknown=历史行不回填）
   fetch_time     TIMESTAMP NOT NULL DEFAULT now(),
   status         VARCHAR(16) NOT NULL DEFAULT 'published',  -- pending/published/archived/expired/hidden
   heat           INT NOT NULL DEFAULT 0,           -- V2 跨源聚类预留
@@ -1236,6 +1237,7 @@ COMMENT ON COLUMN t_news_item.status IS '处理状态五态（#185）：pending=
 COMMENT ON COLUMN t_news_item.eligible_time IS '发布资格就绪时刻（#185）：合格摘要落库或明示零调用回退时间；发布门 180s 从本列起算——统一公开资格=status=published AND (本列 IS NULL OR 本列 <= now-180s)；NULL=#185 前历史行（视同早已开启，不重算）';
 COMMENT ON COLUMN t_news_item.summary_source IS '摘要产出方式（#185）：llm=LLM 富化；fallback=明示零调用回退（标题派生，守卫/回执终态的可解释回退）；NULL=历史行';
 COMMENT ON COLUMN t_news_item.prompt_version IS '产出摘要所用提示词模板版本（#185）：sha256(模板全文) 前 12 位；改词即版本变化只影响新资料，历史不自动重算；fallback 无提示词为 NULL';
+COMMENT ON COLUMN t_news_item.publish_time_precision IS '发布时间精度（#275）：date=只有日期证据（publish_time 为该日 23:59:59 HKT 归期代表值，落 [D 08:00,D+1 08:00) 归 D+1 刊；展示层只显日期）/ datetime=真实瞬时（RSS pubDate、lib HKT HH:mm、PRN HH:mm ET 换算）/ unknown=本列前历史行与非精确化路径（sitemap lastmod、events start-date 含义不改）——不猜测、不历史回填';
 COMMENT ON COLUMN t_news_item.content_hash IS '富化判重内容哈希（#187）：sha256(规范化标题+正文摘录)；同哈希且供体 summary_source=llm 时零调用复用摘要（保留逐源证据行）；NULL=未富化/无正文（YouTube 跳过正文，不复用）';
 
 CREATE TABLE t_news_topic (
@@ -1452,9 +1454,11 @@ CREATE TABLE t_news_daily_digest_item (
   source_display_name  VARCHAR(128),
   source_display_name_en VARCHAR(128),
   publish_time         TIMESTAMP,
+  publish_time_precision VARCHAR(8) NOT NULL DEFAULT 'unknown',  -- date/datetime/unknown（#275；旧快照 unknown 不回填）
   CONSTRAINT uq_news_daily_digest_item UNIQUE (digest_id, item_id)
 );
 CREATE INDEX idx_news_daily_digest_item_digest ON t_news_daily_digest_item(digest_id);
+COMMENT ON COLUMN t_news_daily_digest_item.publish_time_precision IS '发布时间精度快照（#275）：新快照冗余源行精度；旧快照 unknown 不回填；date 精度展示层只显日期';
 COMMENT ON TABLE t_news_daily_digest_item IS '资讯日报条目快照（#212：ID+全展示字段冗余留存，防 90 天保留清理连带；(digest_id,item_id) 唯一=同刊内一源条目一行）';
 COMMENT ON COLUMN t_news_daily_digest_item.item_id IS '溯源 t_news_item.id（快照独立性：无外键，源行被保留清理删除后快照仍完整；读取期仅当源行仍存在且 status 不为 published 时过滤失格）';
 COMMENT ON COLUMN t_news_daily_digest_item.seq IS '刊内序（确定性选材冻结口径：publish_time DESC, id DESC 的全部动态序，非评分排序）';

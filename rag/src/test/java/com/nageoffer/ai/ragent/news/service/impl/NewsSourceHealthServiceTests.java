@@ -51,6 +51,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 源健康服务测试（#186，父票 #181 §2）：defer 零计数豁免、停用原因三分
@@ -403,7 +404,7 @@ class NewsSourceHealthServiceTests {
     private static RawNewsItem rawItem(String key, String slug) {
         String url = "https://example.com/news/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
-                "title-" + slug, null, "en", new Date(), null, key);
+                "title-" + slug, null, "en", new Date(), null, key, PublishTimePrecision.DATETIME);
     }
 
     /**

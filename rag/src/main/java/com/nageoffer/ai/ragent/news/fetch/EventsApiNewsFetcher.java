@@ -81,8 +81,10 @@ public class EventsApiNewsFetcher implements NewsSourceFetcher {
             for (NewsEventsJsonParser.EventEntry entry : NewsEventsJsonParser.parse(json,
                     offset < 0 ? false : !allowEmpty)) {
                 String url = NewsUrlNormalizer.normalize(entry.link());
+                // #275：活动 start 时刻含义不改（非新闻发布时间），精度 unknown
                 byUrl.putIfAbsent(url, new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), entry.title(),
-                        null, "en", entry.start(), entry.typeHint(), source.getSourceKey()));
+                        null, "en", entry.start(), entry.typeHint(), source.getSourceKey(),
+                        PublishTimePrecision.UNKNOWN));
             }
         }
         items.addAll(byUrl.values());

@@ -52,8 +52,12 @@ public class RssNewsFetcher implements NewsSourceFetcher {
         for (NewsRssParser.RssEntry entry : NewsRssParser.parse(xml,
                 !properties.isAllowEmptySource(source.getSourceKey()))) {
             String url = NewsUrlNormalizer.normalize(entry.link());
+            // #275：RSS pubDate 为 RFC1123 精确时刻→datetime；缺失 pubDate 精度 unknown
             items.add(new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), entry.title(), null,
-                    "en", entry.publishTime(), null, source.getSourceKey()));
+                    "en", entry.publishTime(), null, source.getSourceKey(),
+                    entry.publishTime() == null
+                            ? PublishTimePrecision.UNKNOWN
+                            : PublishTimePrecision.DATETIME));
         }
         return items;
     }
