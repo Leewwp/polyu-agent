@@ -309,6 +309,8 @@ class RemoteFileFetcherTest {
         assertEquals("www.polyu.edu.hk", RemoteFileFetcher.deriveFileNameFromUrl("https://www.polyu.edu.hk/"));
         // 同 host+path 不同查询串：query 段保区分度
         assertEquals("example.com-list~id=7", RemoteFileFetcher.deriveFileNameFromUrl("https://example.com/list/?id=7"));
+        // 重复斜杠：两侧裁净、中间压 '-'（索引裁剪实现的多斜杠回归）
+        assertEquals("example.com-a---b", RemoteFileFetcher.deriveFileNameFromUrl("https://example.com//a///b//"));
         // 无 host 的非 URL 形态维持常量回落
         assertEquals("remote-file", RemoteFileFetcher.deriveFileNameFromUrl("not-a-url"));
         // doc_name 列宽预算：截 200 留余量

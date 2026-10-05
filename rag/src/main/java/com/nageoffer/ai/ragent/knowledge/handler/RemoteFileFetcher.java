@@ -118,7 +118,18 @@ public class RemoteFileFetcher {
         if (!StringUtils.hasText(host)) {
             return REMOTE_FILE_FALLBACK_NAME;
         }
-        String collapsed = path == null ? "" : path.replaceAll("^/+|/+$", "");
+        // 两侧斜杠以索引裁剪而非正则去噪（CodeQL ReDoS：^/+|/+$ 对多斜杠 path 存在多项式回溯）
+        int begin = 0;
+        int end = path == null ? 0 : path.length();
+        if (path != null) {
+            while (begin < end && path.charAt(begin) == '/') {
+                begin++;
+            }
+            while (end > begin && path.charAt(end - 1) == '/') {
+                end--;
+            }
+        }
+        String collapsed = begin >= end ? "" : path.substring(begin, end);
         String raw = collapsed.isEmpty() ? host : host + "-" + collapsed.replace('/', '-');
         // 同 host+path 不同查询串的页面靠 query 段保区分度
         if (StringUtils.hasText(query)) {
