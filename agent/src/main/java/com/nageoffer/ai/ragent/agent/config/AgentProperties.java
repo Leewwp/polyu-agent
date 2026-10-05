@@ -52,9 +52,10 @@ public class AgentProperties {
     private Integer maxRetries = 1;
 
     /**
-     * SSE 通道超时
+     * SSE 通道超时（0/负值无意义——上游 AgentRunGateTest 以此校验违例路径，属其测试合同的约束面）
      */
     @NotNull
+    @Min(1)
     private Long sseTimeoutMs = 900_000L;
 
     /**
