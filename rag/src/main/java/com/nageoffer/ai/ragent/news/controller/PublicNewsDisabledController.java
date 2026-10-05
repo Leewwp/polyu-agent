@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.news.controller;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -104,7 +105,7 @@ public class PublicNewsDisabledController {
      */
     @GetMapping("/daily")
     public ResponseEntity<Void> dailyList(@RequestParam(value = "limit", defaultValue = "30") int limit) {
-        return notFound();
+        return notFoundNoStore();
     }
 
     /**
@@ -112,7 +113,7 @@ public class PublicNewsDisabledController {
      */
     @GetMapping("/daily/{date}")
     public ResponseEntity<Void> dailyDetail(@PathVariable String date) {
-        return notFound();
+        return notFoundNoStore();
     }
 
     /**
@@ -142,5 +143,13 @@ public class PublicNewsDisabledController {
 
     private ResponseEntity<Void> notFound() {
         return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * 日报两 JSON 端点的关闭态兜底（#274）：404 之外显式 no-store，
+     * 关闭态响应不进共享缓存（其余端点保持原裸 404 形状不变）
+     */
+    private ResponseEntity<Void> notFoundNoStore() {
+        return ResponseEntity.notFound().cacheControl(CacheControl.noStore()).build();
     }
 }

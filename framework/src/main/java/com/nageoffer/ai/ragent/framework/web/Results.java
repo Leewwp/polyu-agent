@@ -56,8 +56,12 @@ public final class Results {
 
     /**
      * 通过 {@link AbstractException} 构建失败响应
+     *
+     * <p>#274 放宽为 public：公开日报端点在 controller 内联拦截业务异常构造
+     * 与全局处理器同形的错误体（附 no-store 缓存头），复用本工厂方法而非
+     * controller 手抄 code/message 兜底逻辑，避免两处漂移。
      */
-    static Result<Void> failure(AbstractException abstractException) {
+    public static Result<Void> failure(AbstractException abstractException) {
         String errorCode = Optional.ofNullable(abstractException.getErrorCode())
                 .orElse(BaseErrorCode.SERVICE_ERROR.code());
         String errorMessage = Optional.ofNullable(abstractException.getErrorMessage())
