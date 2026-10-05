@@ -38,6 +38,7 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,6 +62,12 @@ public class RemoteFileFetcher {
      */
     static final String NORMALIZED_HASH_PREFIX = "n2:";
 
+    /**
+     * 远程文档兜底名的最终回落常量（#293：URL 可解析出 host 时不再使用——
+     * 目录式 URL 批量摄取曾全部同名 remote-file，列表页无法区分）
+     */
+    static final String REMOTE_FILE_FALLBACK_NAME = "remote-file";
+
     private final HttpClientHelper httpClientHelper;
     private final FileStorageService fileStorageService;
     private final HtmlDocumentParser htmlDocumentParser;
@@ -81,12 +88,43 @@ public class RemoteFileFetcher {
         checkSizeLimit(maxBytes, headContentLength);
 
         try (HttpClientHelper.HttpFetchStream response = httpClientHelper.openStream(url, Map.of(), maxBytes)) {
-            String fileName = firstHasText(response.fileName(), headResponse == null ? null : headResponse.fileName(), "remote-file");
+            String fileName = firstHasText(response.fileName(), headResponse == null ? null : headResponse.fileName(), deriveFileNameFromUrl(url));
             String contentType = firstHasText(response.contentType(), headResponse == null ? null : headResponse.contentType(), null);
             // 部分源站的 Content-Length/HEAD 响应并不可靠，固定长度上传会在字节数不一致时失败
             // 远程导入统一先落临时文件，以实际读取到的字节数作为上传大小
             return uploadViaTemp(bucketName, response.bodyStream(), fileName, contentType, maxBytes);
         }
+    }
+
+    /**
+     * 上传场景的兜底文件名（#293）：响应无 Content-Disposition 且 URL path 末段为空
+     * （目录式 URL，如官网新闻列表页）时按 host+压缩 path 推导，替换旧常量
+     * "remote-file"——目录式批量摄取曾全部落名 remote-file 无法区分。
+     * URL 无法解析出 host 时仍回落常量；长度按 t_knowledge_document.doc_name
+     * VARCHAR(256) 截 200 留余量
+     */
+    static String deriveFileNameFromUrl(String url) {
+        String host = null;
+        String path = null;
+        String query = null;
+        try {
+            URI uri = URI.create(url.trim());
+            host = uri.getHost();
+            path = uri.getPath();
+            query = uri.getQuery();
+        } catch (IllegalArgumentException ignored) {
+            // 非法 URL 回落常量兜底
+        }
+        if (!StringUtils.hasText(host)) {
+            return REMOTE_FILE_FALLBACK_NAME;
+        }
+        String collapsed = path == null ? "" : path.replaceAll("^/+|/+$", "");
+        String raw = collapsed.isEmpty() ? host : host + "-" + collapsed.replace('/', '-');
+        // 同 host+path 不同查询串的页面靠 query 段保区分度
+        if (StringUtils.hasText(query)) {
+            raw = raw + "~" + query;
+        }
+        return raw.length() > 200 ? raw.substring(0, 200) : raw;
     }
 
     /**
