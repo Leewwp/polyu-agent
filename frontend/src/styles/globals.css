@@ -4817,18 +4817,6 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-/* 原始 JSON 退成折叠兜底：中文视图漏掉的参数在这查得到 但不该抢首屏 */
-.agent-app .agent-confirm-raw {
-  margin-top: var(--agent-s3);
-}
-
-/* 入参照抄工具块的 pre：同一种「机器原文」在一屏里只该有一种长相 */
-.agent-app .agent-confirm-raw .agent-pre {
-  margin-top: 4px;
-  border: var(--agent-hair);
-  border-radius: var(--agent-radius);
-}
-
 .agent-app .agent-confirm-actions {
   display: flex;
   gap: var(--agent-s2);
