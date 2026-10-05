@@ -33,7 +33,7 @@ build/
 .vscode/
 
 ### Frontend ###
-node_modules/
+node_modules
 dist/
 .vite/
 .env.local
