@@ -174,7 +174,7 @@ function EntryCard({ item, headline = false }: { item: NewsDailyDigestItem; head
       <h4 className={cn("font-bold leading-[1.42] text-[var(--feed-text-primary)]", headline ? "text-[22px] md:text-[26px] md:leading-[1.38]" : "text-[15px] md:text-[15.5px]")}>
         <Link to={`/news/${item.itemId}`}>{title}</Link>
       </h4>
-      <p className={cn("mt-2 text-[var(--feed-text-secondary)] leading-[1.7]", headline ? "line-clamp-5 text-[13.5px] md:text-[14px]" : "line-clamp-2 text-[12.5px]")}>
+      <p className={cn("mt-2 whitespace-pre-line text-[var(--feed-text-secondary)] leading-[1.7] [text-wrap:pretty]", headline ? "line-clamp-5 text-[13.5px] md:text-[14px]" : "line-clamp-2 text-[12.5px]")}>
         {summary}
       </p>
       {isSafeUrl(item.url) && (

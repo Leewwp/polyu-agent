@@ -68,7 +68,7 @@ function EventRow({ item, dimmed = false }: { item: KeyDateItem; dimmed?: boolea
   const badge = countdownBadge(item, lang);
   return (
     <li
-      className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-dashed border-[var(--feed-line-soft)] py-2.5 last:border-b-0 ${
+      className={`flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-dashed border-[var(--feed-line-soft)] py-2.5 last:border-b-0 ${
         dimmed ? "opacity-70" : ""
       }`}
     >
