@@ -144,6 +144,10 @@ public class MemoryFlushTool implements AgentTool {
             case NOTHING_PENDING -> buildResult(toolCallId, "最近的对话都已整理过，这次没有新内容需要处理", false);
             // 门槛只挡后台批，flush 走到这里说明管道分叉错了
             case BELOW_THRESHOLD -> throw new IllegalStateException("记忆整理工具收到只属于后台抽取的门槛结局");
+            // 同理：待审计划在场时后台只暂缓，flush 领取的是 PLAN_PREPARED
+            case PLAN_PENDING -> throw new IllegalStateException("记忆整理工具收到只属于后台抽取的待审暂缓结局");
+            // 受审计划已冻结：交给执行工具走用户确认，编号必须原样带回
+            case PLAN_PREPARED -> buildResult(toolCallId, planPreparedText(outcome), false);
             case BUSY -> buildResult(toolCallId, "记忆整理进行中，本次未能处理，请稍后再试", true);
             case CAPACITY_REJECTED -> buildResult(toolCallId, "记忆容量已达上限，本次内容未能写入", true);
             case DISABLED -> buildResult(toolCallId, "记忆功能当前未开启，本次内容不会被记住", true);
@@ -151,6 +155,15 @@ public class MemoryFlushTool implements AgentTool {
             case CONFLICT -> buildResult(toolCallId, "记忆刚被另一次整理改动，本次未写入，下次对话时会再试一次", true);
             case FAILED -> buildResult(toolCallId, "记忆整理失败，本次内容未能写入", true);
         };
+    }
+
+    /**
+     * 计划已备好但一行记忆都还没动：文案只交代「待确认」，编号交给执行工具，不许在此宣称已删除/已清空
+     */
+    private String planPreparedText(AgentMemoryOutcome outcome) {
+        return "这批发言里包含撤回或清空长期记忆的请求，已生成具体变更计划等待用户确认，当前尚未改动任何记忆。"
+                + "请调用 apply_memory_change 工具提交该计划，参数 operationId 填「" + outcome.operationId() + "」。"
+                + "在用户确认并看到执行结果之前，不要说已经删除或清空。";
     }
 
     /**

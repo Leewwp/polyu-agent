@@ -551,22 +551,32 @@ CREATE INDEX idx_agent_memory_active ON t_agent_memory (user_id) WHERE invalid_a
 COMMENT ON TABLE t_agent_memory IS 'Agent长期记忆事实表';
 
 CREATE TABLE t_agent_memory_extraction (
-    id              VARCHAR(20) NOT NULL PRIMARY KEY,
-    user_id         VARCHAR(20) NOT NULL,
-    conversation_id VARCHAR(20) NOT NULL,
-    from_message_id VARCHAR(20) NOT NULL,
-    to_message_id   VARCHAR(20) NOT NULL,
-    status          VARCHAR(16) NOT NULL,
-    trigger_type    VARCHAR(16) NOT NULL,
-    decision_count  INTEGER     NOT NULL DEFAULT 0,
-    attempt_count   INTEGER     NOT NULL DEFAULT 1,
-    create_time     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    settle_time     TIMESTAMP
+    id                      VARCHAR(20) NOT NULL PRIMARY KEY,
+    user_id                 VARCHAR(20) NOT NULL,
+    conversation_id         VARCHAR(20) NOT NULL,
+    from_message_id         VARCHAR(20) NOT NULL,
+    to_message_id           VARCHAR(20) NOT NULL,
+    -- VARCHAR(32)：PENDING_APPROVAL 恰 16 字符顶满旧宽，状态机加宽防再犯（261005 迁移同步加宽存量库）
+    status                  VARCHAR(32) NOT NULL,
+    trigger_type            VARCHAR(16) NOT NULL,
+    decision_count          INTEGER     NOT NULL DEFAULT 0,
+    attempt_count           INTEGER     NOT NULL DEFAULT 1,
+    plan_json               TEXT,
+    plan_expires_at         TIMESTAMP,
+    expected_revision       BIGINT,
+    plan_tool_call_id       VARCHAR(64),
+    plan_confirm_message_id VARCHAR(20),
+    plan_result_json        TEXT,
+    create_time             TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    settle_time             TIMESTAMP
 );
 CREATE INDEX idx_agent_memory_extraction_user ON t_agent_memory_extraction (user_id, to_message_id);
 -- 部分唯一索引即分布式 claim：同一用户同时只允许一次在飞抽取，记忆只有一份，消费顺序必须是说话先后
 CREATE UNIQUE INDEX uk_agent_memory_extraction_processing
     ON t_agent_memory_extraction (user_id) WHERE status = 'PROCESSING';
+-- 审批互斥面：同一用户同时至多一个待审（或已批未执行）计划，见 261005_agent_memory_hitl_approval.sql
+CREATE UNIQUE INDEX uk_agent_memory_extraction_plan_pending
+    ON t_agent_memory_extraction (user_id) WHERE status IN ('PENDING_APPROVAL', 'APPROVED');
 COMMENT ON TABLE t_agent_memory_extraction IS 'Agent长期记忆抽取台账';
 
 CREATE TABLE t_agent_memory_control (
@@ -1074,10 +1084,16 @@ COMMENT ON COLUMN t_agent_memory_extraction.user_id IS '用户ID';
 COMMENT ON COLUMN t_agent_memory_extraction.conversation_id IS '触发本批的会话ID';
 COMMENT ON COLUMN t_agent_memory_extraction.from_message_id IS '本批首条用户消息ID';
 COMMENT ON COLUMN t_agent_memory_extraction.to_message_id IS '本批末条用户消息ID';
-COMMENT ON COLUMN t_agent_memory_extraction.status IS '抽取状态：PROCESSING/WRITTEN/NOOP/DROPPED/CONFLICT';
+COMMENT ON COLUMN t_agent_memory_extraction.status IS '抽取状态：PROCESSING/WRITTEN/NOOP/DROPPED/CONFLICT/PENDING_APPROVAL/APPROVED/APPLIED/REJECTED/EXPIRED/INVALIDATED';
 COMMENT ON COLUMN t_agent_memory_extraction.trigger_type IS '触发方：FLUSH/BACKGROUND';
 COMMENT ON COLUMN t_agent_memory_extraction.decision_count IS '实际落库的决策条数';
 COMMENT ON COLUMN t_agent_memory_extraction.attempt_count IS '第几次尝试，达上限记 DROPPED';
+COMMENT ON COLUMN t_agent_memory_extraction.plan_json IS '冻结的记忆变更计划快照（受审批次决策+目标条目内容+消息范围+快照凭证），仅审批链路读写';
+COMMENT ON COLUMN t_agent_memory_extraction.plan_expires_at IS '计划有效期截止（冻结时刻+30 分钟），读取/确认/执行/新请求时按需结算到期';
+COMMENT ON COLUMN t_agent_memory_extraction.expected_revision IS '冻结时刻的记忆版本号，执行时复核，跨会话版本变化即失效';
+COMMENT ON COLUMN t_agent_memory_extraction.plan_tool_call_id IS '批准绑定的 apply_memory_change 工具调用ID，执行时校验';
+COMMENT ON COLUMN t_agent_memory_extraction.plan_confirm_message_id IS '批准所在的确认卡消息ID，审计用';
+COMMENT ON COLUMN t_agent_memory_extraction.plan_result_json IS 'APPLIED 后的执行结果快照，重复执行读原结果不重复提交';
 COMMENT ON COLUMN t_agent_memory_extraction.create_time IS '创建时间';
 COMMENT ON COLUMN t_agent_memory_extraction.settle_time IS '抽取结束时刻，非终态为空';
 

@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.dto.AgentMetaPayload;
 import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.enums.AgentSSEEventType;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.service.AgentChatService;
@@ -34,6 +35,7 @@ import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunHandle;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentStreamEventBridge;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
+import com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
@@ -80,6 +82,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentRunGate runGate;
     private final AgentMemoryProperties memoryProperties;
     private final AgentMemoryPipeline memoryPipeline;
+    private final AgentMemoryApprovalService memoryApprovalService;
 
     @Override
     public void streamChat(String question, String conversationId, SseEmitter emitter) {
@@ -93,7 +96,13 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             if (StrUtil.isNotBlank(conversationId)
                     && conversationService.hasPendingConfirm(actualConversationId, userId)) {
-                throw new ClientException("上一步操作还在等你确认，请先确认或取消");
+                // 记忆确认卡可能已随计划到期走不下去：按需结算并失效死卡再复查，30 分钟有效期不永久阻塞会话
+                for (String deadCard : memoryApprovalService.settleExpiredAndLocateDeadCards(userId, actualConversationId)) {
+                    conversationService.expirePendingConfirm(actualConversationId, userId, deadCard);
+                }
+                if (conversationService.hasPendingConfirm(actualConversationId, userId)) {
+                    throw new ClientException("上一步操作还在等你确认，请先确认或取消");
+                }
             }
             startRun(question, userId, actualConversationId, taskId, emitter, releaseGate);
         } catch (RuntimeException | Error e) {
@@ -197,7 +206,46 @@ public class AgentChatServiceImpl implements AgentChatService {
             conversationService.expirePendingConfirm(conversationId, userId, messageId);
             throw new ClientException("待确认的操作已失效，请重新提问");
         }
+        settleMemoryPlans(asking, userId, conversationId, messageId, approved);
         return asking.stream().map(toolCall -> new ConfirmResult(approved, toolCall)).toList();
+    }
+
+    /**
+     * 记忆变更计划的裁决结算，适配只认 apply_memory_change，其余确认卡一字不动
+     * 批准落 APPROVED 并绑定本次 toolCallId；拒绝终局推水位防旧指令重放
+     * 计划不可确认（过期/已处理/他人计划）时先失效卡片再报错，卡片不能永远挂着
+     */
+    private void settleMemoryPlans(List<ToolUseBlock> asking, String userId, String conversationId,
+                                   String messageId, boolean approved) {
+        for (ToolUseBlock toolCall : asking) {
+            if (!MemoryApplyTool.TOOL_NAME.equals(toolCall.getName())) {
+                continue;
+            }
+            Object operationId = toolCall.getInput() == null ? null : toolCall.getInput().get("operationId");
+            if (!(operationId instanceof String planId) || StrUtil.isBlank(planId)) {
+                conversationService.expirePendingConfirm(conversationId, userId, messageId);
+                throw new ClientException("该记忆变更计划编号缺失，请重新发起");
+            }
+            if (!approved) {
+                memoryApprovalService.reject(planId, userId);
+                continue;
+            }
+            AgentMemoryApprovalService.ApprovalTransition transition =
+                    memoryApprovalService.approve(planId, userId, toolCall.getId(), messageId);
+            switch (transition.outcome()) {
+                case APPROVED -> {
+                    return;
+                }
+                // 已执行过的计划再确认：不重复提交，续跑后执行工具会回放原结果
+                case ALREADY_APPLIED -> {
+                    return;
+                }
+                case NOT_CONFIRMABLE -> {
+                    conversationService.expirePendingConfirm(conversationId, userId, messageId);
+                    throw new ClientException(transition.reason());
+                }
+            }
+        }
     }
 
     /**
@@ -294,6 +342,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .runHandle(runHandle)
                 .conversationService(conversationService)
                 .catalog(activeAgent.catalog())
+                .approvalService(memoryApprovalService)
                 .conversationId(scope.conversationId())
                 .userId(scope.userId())
                 .title(scope.title())

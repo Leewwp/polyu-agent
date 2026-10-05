@@ -100,6 +100,15 @@ public class AgentMemoryProperties {
     private boolean longTermEnabled = true;
 
     /**
+     * 撤回/清空 HITL 审批开关（#278，环境变量映射 AGENT_MEMORY_HITL_APPROVAL_ENABLED）：
+     * 新功能一律 flag 默认关（CLAUDE.md 工程纪律，同 RAG_CALENDAR_ENABLED 先例），启用时点归维护者
+     * 关态=受审批次走既有直接落库路径、不挂载 apply_memory_change、不领取/暂缓待审计划——
+     * 上线出问题时的行为回退面；注意迁移 261005 仍是先决条件（抽取入口无条件查询 plan_* 列），
+     * flag 关态不减部署顺序义务
+     */
+    private boolean hitlApprovalEnabled = false;
+
+    /**
      * 允许清理的工具白名单；默认值须可变，绑定器直接 clear + addAll
      */
     private List<String> evictableTools = new ArrayList<>(List.of("search_knowledge"));

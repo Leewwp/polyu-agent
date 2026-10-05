@@ -20,12 +20,18 @@ package com.nageoffer.ai.ragent.agent.memory;
 /**
  * 一次抽取的结局；mutated 表示记忆集整体有没有变（含合并/淘汰），与 applied 独立
  * cleared 表示执行过清空，clearedItems 是清掉的条数，两者分开是因为「原本就空」也得单独告诉用户
+ * operationId 仅在 PLAN_PREPARED 时非空：受审批次冻结成计划后，靠它把编号带回给模型
  */
 public record AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated,
-                                 boolean cleared, int clearedItems) {
+                                 boolean cleared, int clearedItems, String operationId) {
 
     public AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated) {
-        this(status, applied, pending, mutated, false, 0);
+        this(status, applied, pending, mutated, false, 0, null);
+    }
+
+    public AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated,
+                              boolean cleared, int clearedItems) {
+        this(status, applied, pending, mutated, cleared, clearedItems, null);
     }
 
     public enum Status {
@@ -78,11 +84,25 @@ public record AgentMemoryOutcome(Status status, int applied, int pending, boolea
         /**
          * 只有显式整理会出现：连跑几批都判完了，却还没轮到本次请求那条消息
          */
-        INCOMPLETE
+        INCOMPLETE,
+
+        /**
+         * 本批含撤回/清空：已冻结完整计划进台账，未执行任何变更；operationId 待用户确认
+         */
+        PLAN_PREPARED,
+
+        /**
+         * 后台专属：该用户已有待审计划，暂缓本轮后台抽取；前台 flush 会领取同一计划而非新建
+         */
+        PLAN_PENDING
     }
 
     static AgentMemoryOutcome of(Status status, int pending) {
         return new AgentMemoryOutcome(status, 0, pending, false);
+    }
+
+    static AgentMemoryOutcome planPrepared(String operationId, int pending) {
+        return new AgentMemoryOutcome(Status.PLAN_PREPARED, 0, pending, false, false, 0, operationId);
     }
 
     /**
@@ -112,11 +132,12 @@ public record AgentMemoryOutcome(Status status, int applied, int pending, boolea
     }
 
     /**
-     * 压根没起跑，一次模型都没叫；后台每轮都会撞上这三种，不值得留 INFO
+     * 压根没起跑，一次模型都没叫；后台每轮都会撞上这四种，不值得留 INFO
      */
     public boolean idle() {
         return status == Status.DISABLED
                 || status == Status.NOTHING_PENDING
-                || status == Status.BELOW_THRESHOLD;
+                || status == Status.BELOW_THRESHOLD
+                || status == Status.PLAN_PENDING;
     }
 }
