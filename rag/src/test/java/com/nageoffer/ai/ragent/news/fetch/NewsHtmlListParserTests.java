@@ -141,6 +141,59 @@ class NewsHtmlListParserTests {
         assertEquals(19, hkt.get(Calendar.DAY_OF_MONTH));
     }
 
+    // ================== #276 学院四源（2026-10-05 实采 fixture） ==================
+
+    @Test
+    void speedNewsFixtureYieldsListAnchorsWithoutPinnedLegacy() throws Exception {
+        List<NewsHtmlListParser.ListEntry> entries = NewsHtmlListParser.parse(
+                fixture("speed-news.html"), "https://speed-polyu.edu.hk/news");
+        // 第 5 族：a.news-list-item 列表锚（置顶段 a.news-feature-news 旧文不纳入）
+        assertEquals(5, entries.size());
+        NewsHtmlListParser.ListEntry first = entries.get(0);
+        assertTrue(first.link().startsWith("https://speed-polyu.edu.hk/news/tvet-delegation-from-almaty"));
+        assertTrue(first.title().startsWith("TVET Delegation from Almaty"));
+        assertEquals("30 Sep 2026", first.dateText());
+        // d MMM uuuu 无逗号日期=date-only 证据：23:59:59 HKT 归期代表值（#275/#276）
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate(first.dateText());
+        assertEquals(PublishTimePrecision.DATE, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(2026, hkt.get(Calendar.YEAR));
+        assertEquals(30, hkt.get(Calendar.DAY_OF_MONTH));
+        assertEquals(23, hkt.get(Calendar.HOUR_OF_DAY));
+        // 置顶旧文（2025 置顶段）不在产出里：全部条目日期均 2026
+        for (NewsHtmlListParser.ListEntry entry : entries) {
+            assertNotNull(entry.dateText());
+            assertTrue(entry.dateText().endsWith("2026"), "置顶旧文不得混入: " + entry.dateText());
+        }
+    }
+
+    @Test
+    void sdSftFsCollegeFixturesReuseOfficialListFamily() throws Exception {
+        // sd/sft/fs 三源复用官网列表族（零新增选择器）：真实标题/URL/日期断言
+        List<NewsHtmlListParser.ListEntry> sd = NewsHtmlListParser.parse(
+                fixture("sd-news.html"), "https://www.polyu.edu.hk/sd/news-and-events/news/");
+        assertEquals(10, sd.size());
+        assertTrue(sd.get(0).link().contains("/sd/news-and-events/news/"));
+        assertTrue(sd.get(0).title().contains("哈爾濱工業大學"));
+        assertEquals("30 Sep, 2026", sd.get(0).dateText());
+
+        List<NewsHtmlListParser.ListEntry> sft = NewsHtmlListParser.parse(
+                fixture("sft-news.html"), "https://www.polyu.edu.hk/sft/news-and-events/news/");
+        assertEquals(10, sft.size());
+        assertTrue(sft.get(0).title().startsWith("SFT once again invited"));
+        assertEquals("5 Oct, 2026", sft.get(0).dateText());
+
+        List<NewsHtmlListParser.ListEntry> fs = NewsHtmlListParser.parse(
+                fixture("fs-awards.html"), "https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/");
+        assertEquals(10, fs.size());
+        assertTrue(fs.get(0).title().startsWith("Faculty Awards for Outstanding Achievement 2026"));
+        assertEquals("11 Sep, 2026", fs.get(0).dateText());
+
+        // 官网族 d MMM, uuuu 同为 date-only 证据（#275 代表值口径）
+        assertEquals(PublishTimePrecision.DATE, NewsHtmlListParser.parseDate(sft.get(0).dateText()).precision());
+    }
+
     // ================== #275 精度分流与真实时刻保留 ==================
 
     @Test

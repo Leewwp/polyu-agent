@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -68,6 +69,34 @@ class HtmlListNewsFetcherTests {
                     .append(slug).append("</span></a>");
         }
         return html.append("</body></html>").toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void speedSourceProducesDatePrecisionItems() {
+        // #276 第 5 族端到端：SPEED 无逗号日期=date-only 证据（23:59:59 归期代表值）
+        NewsSourceDO speed = NewsSourceDO.builder()
+                .id(2L).sourceKey("speed-news").platform("official")
+                .fetchEndpoint("https://speed-polyu.edu.hk/news")
+                .fetchStrategy("HTML_LIST").enabled(true).build();
+        when(fetchClient.get("https://speed-polyu.edu.hk/news")).thenReturn(("""
+                <html><body>
+                <a class="news-list-item" href="/news/rgc-funding-record-high">
+                  <span class="news-list-item__title">PolyU SPEED Receives RGC Funding</span>
+                  <span class="news-list-item__date">25 Sep 2026</span>
+                </a>
+                </body></html>
+                """).getBytes(StandardCharsets.UTF_8));
+
+        List<RawNewsItem> items = fetcher.fetch(speed);
+
+        assertEquals(1, items.size());
+        assertEquals(PublishTimePrecision.DATE, items.get(0).publishTimePrecision());
+        java.util.Calendar hkt = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(items.get(0).publishTime());
+        assertEquals(2026, hkt.get(java.util.Calendar.YEAR));
+        assertEquals(25, hkt.get(java.util.Calendar.DAY_OF_MONTH));
+        assertEquals(23, hkt.get(java.util.Calendar.HOUR_OF_DAY));
+        assertTrue(items.get(0).url().startsWith("https://speed-polyu.edu.hk/news/rgc-funding"));
     }
 
     @Test
