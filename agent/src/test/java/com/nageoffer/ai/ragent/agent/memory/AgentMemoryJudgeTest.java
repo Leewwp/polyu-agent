@@ -75,6 +75,47 @@ class AgentMemoryJudgeTest {
     }
 
     /**
+     * 生产实证（2026-10-05 22:12）：只有一条决策时模型裸输出对象不裹数组，不能把整次整理打成失败
+     */
+    @Test
+    void shouldWrapBareSingleDecisionObject() {
+        answer("{\"action\":\"ADD\",\"content\":\"用户是 26 届毕业生\"}");
+
+        List<AgentMemoryDecision> decisions = judge.judge(List.of(), ONE_TURN);
+
+        assertThat(decisions).extracting(AgentMemoryDecision::action).containsExactly(Action.ADD);
+        assertThat(decisions.get(0).content()).isEqualTo("用户是 26 届毕业生");
+    }
+
+    @Test
+    void shouldWrapBareSingleNoopObject() {
+        answer("{\"action\":\"NOOP\"}");
+
+        assertThat(judge.judge(List.of(), ONE_TURN)).isEmpty();
+    }
+
+    /**
+     * 容错只认决策形状：不是 JSON 或缺 action 字段，仍按老规矩整批抛出重试
+     */
+    @Test
+    void shouldStillRejectNonDecisionText() {
+        answer("这批没什么好记的");
+
+        assertThatThrownBy(() -> judge.judge(List.of(), ONE_TURN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不是 JSON 数组");
+    }
+
+    @Test
+    void shouldStillRejectObjectWithoutActionField() {
+        answer("{\"decisions\":[{\"action\":\"NOOP\"}]}");
+
+        assertThatThrownBy(() -> judge.judge(List.of(), ONE_TURN))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("不是 JSON 数组");
+    }
+
+    /**
      * 「清空后只记住我住南京」判成 CLEAR + SUPERSEDE：先清空再让替换指不着目标自然丢弃，南京就被静默吞掉了
      */
     @Test
