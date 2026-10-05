@@ -89,6 +89,8 @@ export function AgentChatPage() {
   // 改读实时 store 值后两效应一次收敛，不再回弹。
   // #140：S4（列表确认不含目标）不回跳——坏深链保持原 URL 由错误卡接手。
   React.useEffect(() => {
+    // S4 坏深链不回跳：保持原 URL 由错误卡接手；URL 同步只认实时 store 值
+    // （上游 1a012e8e 的闭包值分支被本修法覆盖——闭包落后一步会致 A⇄B 乒乓风暴，见 W30 判例）
     if (phase === "not-found") {
       return;
     }

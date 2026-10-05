@@ -11,6 +11,7 @@ import {
   logout as logoutRequest
 } from "@/services/authService";
 import { resetChatStoresForAccountSwitch } from "@/stores/sessionReset";
+import { useAgentChatStore } from "@/stores/agentChatStore";
 import { storage } from "@/utils/storage";
 import { isTransportError, toastErrorUnlessShown } from "@/utils/requestError";
 
@@ -59,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   logout: async () => {
+    useAgentChatStore.getState().reset();
     try {
       // 后端登出同时清 Cookie（sa-token is-read-cookie：以增代删 maxAge=0）
       await logoutRequest();

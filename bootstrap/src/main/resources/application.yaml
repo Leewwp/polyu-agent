@@ -120,6 +120,8 @@ agent:
   max-iters: 10         # ReAct 循环上限，超出后熔断收尾
   max-retries: 1        # 最大尝试次数含首次，1 即不重试
   sse-timeout-ms: 900000
+  # 每用户并发运行位上限（上游 1a012e8e 并发治理默认值；游客日配额是另一维度=IP 3 次/日）
+  max-concurrent-runs-per-user: 5
   memory:
     context-window-chars: 100000
     summary-enabled: true

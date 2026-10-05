@@ -17,9 +17,14 @@
 
 package com.nageoffer.ai.ragent.agent.config;
 
+import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * Agent 执行架构顶级配置（agent: 段，与 rag / ai 平级）
@@ -28,6 +33,7 @@ import org.springframework.context.annotation.Configuration;
 @Data
 @Configuration
 @ConfigurationProperties(prefix = "agent")
+@Validated
 public class AgentProperties {
 
     private Chat chat = new Chat();
@@ -46,9 +52,23 @@ public class AgentProperties {
     private Integer maxRetries = 1;
 
     /**
-     * SSE 通道超时，到点即回收上游运行；一次 Agent 运行最多 max-iters 轮，每轮量级接近 RAG 单问全程
+     * SSE 通道超时（0/负值无意义——上游 AgentRunGateTest 以此校验违例路径，属其测试合同的约束面）
      */
+    @NotNull
+    @Min(1)
     private Long sseTimeoutMs = 900_000L;
+
+    /**
+     * 同一用户同时运行的会话数
+     */
+    @NotNull
+    @Min(1)
+    private Integer maxConcurrentRunsPerUser = 5;
+
+    @AssertTrue(message = "agent.sse-timeout-ms 必须小于本地任务保留时间")
+    public boolean isSseTimeoutWithinTaskRetention() {
+        return sseTimeoutMs == null || sseTimeoutMs < StreamTaskManager.taskRetention().toMillis();
+    }
 
     @Data
     public static class Chat {
