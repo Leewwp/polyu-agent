@@ -15,12 +15,14 @@ describe("agentTimeline sources 透传", () => {
     })();
     const ctx = { allocId, fallbackAt: "12:00:00" };
     const running: AgentToolProgress = {
+      kind: "tool",
       toolCallId: "call-1",
       name: "search_knowledge",
       displayName: "知识库检索",
       status: "running"
     };
     const done: AgentToolProgress = {
+      kind: "tool",
       toolCallId: "call-1",
       name: "search_knowledge",
       displayName: "知识库检索",
