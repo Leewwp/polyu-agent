@@ -49,6 +49,10 @@ services:
       # 校历关键日期管线 flag（#192，2026-09-30 补列——#191 先例同因：不列则只在 env
       # 文件翻转是静默 no-op）：默认关；开启后日级抓取五源写 t_key_date/t_key_date_source
       RAG_CALENDAR_ENABLED: ${RAG_CALENDAR_ENABLED:-false}
+      # 长期记忆 HITL 审批 flag（#278，2026-10-05 复查轮补列——同上判例，不列=env 翻转静默 no-op）：
+      # 默认关=受审批次（撤回/清空）走既有直接落库路径且不挂 apply_memory_change；
+      # 开启=此类请求冻结成计划走确认卡。绑定 agent.memory.hitl-approval-enabled
+      AGENT_MEMORY_HITL_APPROVAL_ENABLED: ${AGENT_MEMORY_HITL_APPROVAL_ENABLED:-false}
       # 站点反馈/关于页 flag（doc 25）：go-live 开闸新增键——2026-09-16 曾漏列致静默 no-op（D18 续）
       RAG_SITE_ENABLED: ${RAG_SITE_ENABLED:-false}
       # 统一分享 flag（issue #124）：答案+会话两粒度共用（原 AGENT_SHARE_* 两键归一为 SHARE_*）
