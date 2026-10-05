@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { useAgentChatStore } from "@/stores/agentChatStore";
 
@@ -138,5 +138,65 @@ describe("RecentChatsSection 会话管理（T17）", () => {
         "id-5-en"
       ]);
     });
+  });
+
+  // #292：删除目标含当前会话时导航回 /chat——聊天页 not-found 态不会自行同步 URL
+  function setupOnRoute(currentSessionId: string | null) {
+    useAgentChatStore.setState({ sessions: SESSIONS as never, currentSessionId });
+    const paths: string[] = [];
+    function PathProbe() {
+      const location = useLocation();
+      paths.push(location.pathname);
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={["/chat/s-1"]}>
+        <PathProbe />
+        <RecentChatsSection sessions={SESSIONS} isAgentEngine manageable zh onNavigate={() => null} />
+      </MemoryRouter>
+    );
+    return paths;
+  }
+
+  it("删除当前会话：成功后导航回 /chat（不留死链）", async () => {
+    const paths = setupOnRoute("s-1");
+
+    fireEvent.pointerDown(screen.getAllByLabelText("会话操作")[0], { button: 0 });
+    fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
+    fireEvent.click(await screen.findByText("删除"));
+    fireEvent.click(screen.getByText("删除", { selector: "button" }));
+
+    await waitFor(() => {
+      expect(paths[paths.length - 1]).toBe("/chat");
+    });
+  });
+
+  it("删除不含当前会话：不导航", async () => {
+    const paths = setupOnRoute("s-3");
+
+    fireEvent.pointerDown(screen.getAllByLabelText("会话操作")[0], { button: 0 });
+    fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
+    fireEvent.click(await screen.findByText("删除"));
+    fireEvent.click(screen.getByText("删除", { selector: "button" }));
+
+    await waitFor(() => {
+      expect(deleteAgentSession).toHaveBeenCalledWith("s-1");
+    });
+    expect(paths.every((p) => p === "/chat/s-1")).toBe(true);
+  });
+
+  it("删除当前会话但 API 失败：不导航（agent 档 reject 需吞掉，停留原页等 toast）", async () => {
+    vi.mocked(deleteAgentSession).mockRejectedValueOnce(new Error("boom"));
+    const paths = setupOnRoute("s-1");
+
+    fireEvent.pointerDown(screen.getAllByLabelText("会话操作")[0], { button: 0 });
+    fireEvent.click(screen.getAllByLabelText("会话操作")[0]);
+    fireEvent.click(await screen.findByText("删除"));
+    fireEvent.click(screen.getByText("删除", { selector: "button" }));
+
+    await waitFor(() => {
+      expect(deleteAgentSession).toHaveBeenCalled();
+    });
+    expect(paths.every((p) => p === "/chat/s-1")).toBe(true);
   });
 });

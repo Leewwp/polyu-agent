@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 
@@ -164,5 +164,23 @@ describe("FeedShell fluid topbar session title", () => {
     expect(screen.queryByText("探测中")).toBeNull();
     expect(screen.queryByText("离线")).toBeNull();
     openSpy.mockRestore();
+  });
+
+  it("#292 Escape closes the mobile session drawer (self-built aside, no radix dialog)", async () => {
+    useEngineStore.setState({ engineType: "agent" });
+    renderFluidShell();
+
+    // 抽屉开=FeedSidebar 在壳根下渲染遮罩 div（aria-hidden）；关=遮罩卸载
+    const shellRoot = screen.getByRole("complementary").parentElement as HTMLElement;
+    const overlay = () =>
+      Array.from(shellRoot.children).find((el) => el.getAttribute("aria-hidden") === "true");
+
+    expect(overlay()).toBeUndefined();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "打开菜单" }));
+    expect(overlay()).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(overlay()).toBeUndefined();
   });
 });

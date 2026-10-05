@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.knowledge.handler;
 
 import com.nageoffer.ai.ragent.core.parser.HtmlDocumentParser;
 import com.nageoffer.ai.ragent.ingestion.util.HttpClientHelper;
+import com.nageoffer.ai.ragent.rag.dto.StoredFileDTO;
 import com.nageoffer.ai.ragent.rag.service.FileStorageService;
 import okhttp3.MediaType;
 import okhttp3.Protocol;
@@ -28,6 +29,7 @@ import okhttp3.ResponseBody;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -41,7 +43,9 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -262,5 +266,54 @@ class RemoteFileFetcherTest {
                 etag,
                 lastModified,
                 (long) content.length);
+    }
+
+    /** 指定 fileName 的流（#293：目录式 URL 无 Content-Disposition 时 fileName=null） */
+    private static HttpClientHelper.HttpFetchStream namedStream(String requestUrl, String fileName, String contentType, byte[] content) {
+        Response response = new Response.Builder()
+                .request(new Request.Builder().url(requestUrl).build())
+                .protocol(Protocol.HTTP_1_1)
+                .code(200)
+                .message("OK")
+                .body(ResponseBody.create(MediaType.get(contentType), content))
+                .build();
+        return new HttpClientHelper.HttpFetchStream(
+                response,
+                new ByteArrayInputStream(content),
+                contentType,
+                fileName,
+                null,
+                null,
+                (long) content.length);
+    }
+
+    @Test
+    void shouldDeriveDistinctNameForDirectoryUrlUploadInsteadOfRemoteFileConstant() throws Exception {
+        // #293：path 末段为空 + GET/HEAD 均无文件名 → 兜底名按 host+压缩 path 推导
+        String dirUrl = "https://www.polyu.edu.hk/media/media-release/";
+        when(httpClientHelper.openStream(eq(dirUrl), eq(Map.of()), anyLong()))
+                .thenAnswer(invocation -> namedStream(dirUrl, null, "text/html",
+                        "<html><body>campus news</body></html>".getBytes()));
+        when(fileStorageService.upload(eq("kb"), any(), anyLong(), anyString(), any()))
+                .thenReturn(new StoredFileDTO("stored-url", null, "text/html", 20L, null));
+
+        fetcher.fetchAndStore("kb", dirUrl);
+
+        ArgumentCaptor<String> nameCaptor = ArgumentCaptor.forClass(String.class);
+        verify(fileStorageService).upload(eq("kb"), any(), anyLong(), nameCaptor.capture(), any());
+        assertEquals("www.polyu.edu.hk-media-media-release", nameCaptor.getValue());
+    }
+
+    @Test
+    void deriveFileNameFromUrlCoversHostOnlyQueryInvalidAndOverlongForms() {
+        assertEquals("www.polyu.edu.hk", RemoteFileFetcher.deriveFileNameFromUrl("https://www.polyu.edu.hk/"));
+        // 同 host+path 不同查询串：query 段保区分度
+        assertEquals("example.com-list~id=7", RemoteFileFetcher.deriveFileNameFromUrl("https://example.com/list/?id=7"));
+        // 重复斜杠：两侧裁净、中间压 '-'（索引裁剪实现的多斜杠回归）
+        assertEquals("example.com-a---b", RemoteFileFetcher.deriveFileNameFromUrl("https://example.com//a///b//"));
+        // 无 host 的非 URL 形态维持常量回落
+        assertEquals("remote-file", RemoteFileFetcher.deriveFileNameFromUrl("not-a-url"));
+        // doc_name 列宽预算：截 200 留余量
+        assertEquals(200, RemoteFileFetcher.deriveFileNameFromUrl("https://example.com/" + "a".repeat(300) + "/").length());
     }
 }
