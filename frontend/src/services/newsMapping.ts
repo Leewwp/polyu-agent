@@ -122,7 +122,9 @@ export const NEWS_PLATFORM_COLORS: Record<string, string> = {
   official: "#A6192E",
   events: "#7C3AED",
   youtube: "#FF0000",
-  prn: "#0F766E"
+  prn: "#0F766E",
+  /** #277 媒体/政府官网自有平台（official=false 的媒体徽章色） */
+  media: "#2563EB"
 };
 export const NEWS_PLATFORM_COLOR_DEFAULT = "#A6192E";
 

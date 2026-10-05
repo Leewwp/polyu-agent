@@ -247,7 +247,15 @@ public class NewsFetchService {
             NewsSourceDO source = batch.source();
             Deque<RawNewsItem> fresh = freshQueues.computeIfAbsent(source.getId(), key -> new ArrayDeque<>());
             List<RawNewsItem> stale = staleQueues.computeIfAbsent(source.getId(), key -> new ArrayList<>());
+            boolean gateEnabled = properties.gateAppliesTo(source.getSourceKey());
             for (RawNewsItem item : sortedByRecency(batch.items())) {
+                // #277 八校确定性门：置于 fresh/stale 队列、名额与去重落库之前——
+                // 非命中项零候选资格（零名额/零落库/零富化 LLM）；有效 feed 全不
+                // 命中属健康零准入（candidateHashes 为空走下方健康返回，非结构失败）
+                if (gateEnabled && !properties.eightUniversityGate()
+                        .mentions(item.title(), item.rawSummary())) {
+                    continue;
+                }
                 if (item.publishTime() == null || item.publishTime().before(windowFloor)) {
                     continue;
                 }

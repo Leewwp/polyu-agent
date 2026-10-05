@@ -295,6 +295,61 @@ rag:
       sd-news: 20
       sft-news: 20
       fs-awards: 20
+      # #277 媒体/政府三源：每源日准入先限 10（票面口径；非命中已被八校门零消耗，
+      # 10 只约束命中面。全站 60/日与富化单批 20 预算护栏不变）
+      scmp-education: 10
+      rthk-local-news: 10
+      gia-news: 10
+    gate-source-keys:              # 八校确定性门生效源（#277）：仅三 source_key，其余源不经门
+      - scmp-education
+      - rthk-local-news
+      - gia-news
+    eight-university-gate:         # 八校白名单词表（#277；可整组覆盖，默认与 EightUniversityGate.withDefaults 同源）
+      unambiguous-terms:           # 无歧义组：全名/明确缩写/特指简称（任意语境命中；英文按 token 边界）
+        - "University of Hong Kong"
+        - "Chinese University of Hong Kong"
+        - "Hong Kong University of Science and Technology"
+        - "Hong Kong Polytechnic University"
+        - "Polytechnic University"
+        - "Hong Kong Baptist University"
+        - "Education University of Hong Kong"
+        - HKU
+        - HKUST
+        - CUHK
+        - HKBU
+        - EdUHK
+        - PolyU
+        - 香港大學
+        - 香港大学
+        - 香港中文大學
+        - 香港中文大学
+        - 香港科技大學
+        - 香港科技大学
+        - 香港理工大學
+        - 香港理工大学
+        - 香港浸會大學
+        - 香港浸会大学
+        - 香港城市大學
+        - 香港城市大学
+        - 香港教育大學
+        - 香港教育大学
+        - 嶺南大學
+        - 岭南大学
+        - 港大
+        - 理大
+        - 浸大
+        - 教大
+      contextual-terms:            # 歧义组：需文本另有 Hong Kong/HK/香港 语境（防境外同名/泛指）
+        - CityU
+        - Lingnan
+        - "City University"
+        - 城市大學
+        - 城市大学
+        - 中大
+        - 科大
+        - 城大
+        - 嶺南
+        - 岭南
     topic-governance:
       promote-threshold: 10          # 主题提案转正（promote）引用阈值（#202，item_refs≥阈值方可转正，服务层机器校验）：
                                      # 默认 10 为 #181 拍板口径，落配置可调不写死；阈值默认值变更属规则框架变更须回维护者裁决。

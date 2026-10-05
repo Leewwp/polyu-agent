@@ -52,13 +52,25 @@ public class RssNewsFetcher implements NewsSourceFetcher {
         for (NewsRssParser.RssEntry entry : NewsRssParser.parse(xml,
                 !properties.isAllowEmptySource(source.getSourceKey()))) {
             String url = NewsUrlNormalizer.normalize(entry.link());
-            // #275：RSS pubDate 为 RFC1123 精确时刻→datetime；缺失 pubDate 精度 unknown
+            // #275：RSS pubDate 为 RFC1123 精确时刻→datetime；缺失 pubDate 精度 unknown。
+            // #277：去 HTML 的 feed 原始摘要随行（八校确定性门的准入证据；langRaw=en=
+            // 三候选媒体/政府 feed 均 language=en/en-UK 实证口径，不造第二套语言解析器）
             items.add(new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), entry.title(), null,
                     "en", entry.publishTime(), null, source.getSourceKey(),
                     entry.publishTime() == null
                             ? PublishTimePrecision.UNKNOWN
-                            : PublishTimePrecision.DATETIME));
+                            : PublishTimePrecision.DATETIME,
+                    stripHtml(entry.description())));
         }
         return items;
+    }
+
+    /** feed description 去 HTML（#277 原始摘要证据；空白归一，空文本→null） */
+    static String stripHtml(String html) {
+        if (html == null || html.isBlank()) {
+            return null;
+        }
+        String text = org.jsoup.Jsoup.parse(html).text().strip();
+        return text.isEmpty() ? null : text;
     }
 }
