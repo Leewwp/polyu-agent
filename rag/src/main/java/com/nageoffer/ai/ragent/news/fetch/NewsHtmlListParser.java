@@ -205,8 +205,9 @@ public final class NewsHtmlListParser {
                     Integer.parseInt(slugDate.group(1)),
                     Integer.parseInt(slugDate.group(2)),
                     Integer.parseInt(slugDate.group(3)));
+            // #275：slug 只有日期证据——23:59:59 HKT 归期代表值（非真实发布时刻）
             entries.add(new ListEntry(link, title, null, null,
-                    Date.from(date.atStartOfDay(SITE_ZONE).toInstant())));
+                    PublishTimePrecision.dateOnlyRepresentative(date)));
         }
         return entries;
     }
@@ -245,30 +246,84 @@ public final class NewsHtmlListParser {
     }
 
     /**
-     * 解析日期文本（"10 Sep, 2026" / "Jul 20, 2026, 00:00 ET" /
-     * "Friday, September 18, 2026 - 08:30"），按 HKT 解释（Drupal 站的 "- HH:mm"
-     * 时刻截到日粒度，与其余源口径一致）
+     * Drupal 站 "Friday, September 18, 2026 - 08:30" 的 "- HH:mm" 尾巴
+     * （站点时区 HKT，#275 起保留真实时刻而非截到日粒度）
      */
-    static java.util.Date parseDateText(String dateText) {
+    private static final Pattern HKT_TIME_SUFFIX =
+            Pattern.compile("-\\s*(\\d{1,2}):(\\d{2})\\s*$");
+
+    /**
+     * PR Newswire "Jul 20, 2026, 00:00 ET" 的 ", HH:mm ET" 尾巴：
+     * ET 按 America/New_York 的该日期夏令时/冬令时换算为真实瞬时（#275——
+     * 旧实现截掉时刻属精度丢失；ET 与 HKT 日期不同日的跨日结果如实保留）
+     */
+    private static final Pattern ET_TIME_SUFFIX =
+            Pattern.compile(",\\s*(\\d{1,2}):(\\d{2})\\s+ET\\s*$");
+
+    private static final ZoneId ET_ZONE = ZoneId.of("America/New_York");
+
+    /**
+     * 日期文本解析结果（#275）：instant=归期代表瞬时；precision=精度标记
+     * （date=只有日期证据→D 23:59:59 HKT 代表值；datetime=真实瞬时证据）
+     */
+    public record ParsedDate(java.util.Date instant, String precision) {
+    }
+
+    /**
+     * 解析日期文本，按输入精度分流（#275）：
+     * <ul>
+     *   <li>"Friday, September 18, 2026 - 08:30"（lib Drupal）→ HKT 真实时刻，datetime；</li>
+     *   <li>"Jul 20, 2026, 00:00 ET"（PRN）→ America/New_York 夏令时/冬令时换算瞬时，datetime；</li>
+     *   <li>"10 Sep, 2026" 等纯日期 → D 23:59:59 HKT 归期代表值，date。</li>
+     * </ul>
+     */
+    static ParsedDate parseDate(String dateText) {
         if (dateText == null || dateText.isBlank()) {
             return null;
         }
         String cleaned = dateText.trim();
-        // 图书馆 Drupal 形态：剥离星期前缀与 "- HH:mm" 尾巴，留裸日期 "September 18, 2026"
         Matcher weekdayPrefixed = WEEKDAY_PREFIXED_DATE.matcher(cleaned);
         if (weekdayPrefixed.find()) {
-            cleaned = weekdayPrefixed.group(1);
+            // 只剥星期前缀、保留裸日期起的全部内容（含 "- HH:mm" 尾巴，#275）
+            cleaned = cleaned.substring(weekdayPrefixed.start(1)).trim();
         }
-        // 去 ", 00:00 ET" 时区后缀（ET 与站点日期不同日风险可忽略：列表给的是发布日）
-        int commaIdx = cleaned.indexOf(',');
-        int secondComma = commaIdx >= 0 ? cleaned.indexOf(',', commaIdx + 1) : -1;
-        if (secondComma > 0) {
-            cleaned = cleaned.substring(0, secondComma);
+        // lib HKT 时刻尾巴（须在剥星期前缀后、且优先于 ET 后缀识别）
+        Matcher hktTime = HKT_TIME_SUFFIX.matcher(cleaned);
+        if (hktTime.find()) {
+            LocalDate date = parseBareDate(cleaned.substring(0, hktTime.start()).trim());
+            if (date != null) {
+                return new ParsedDate(
+                        PublishTimePrecision.hktInstant(date,
+                                Integer.parseInt(hktTime.group(1)), Integer.parseInt(hktTime.group(2))),
+                        PublishTimePrecision.DATETIME);
+            }
+            return null;
         }
+        // PRN ET 时刻尾巴：按该日期在 America/New_York 的实际偏移换算
+        Matcher etTime = ET_TIME_SUFFIX.matcher(cleaned);
+        if (etTime.find()) {
+            LocalDate date = parseBareDate(cleaned.substring(0, etTime.start()).trim());
+            if (date != null) {
+                java.time.ZonedDateTime etInstant = date.atTime(
+                                Integer.parseInt(etTime.group(1)),
+                                Integer.parseInt(etTime.group(2)))
+                        .atZone(ET_ZONE);
+                return new ParsedDate(Date.from(etInstant.toInstant()), PublishTimePrecision.DATETIME);
+            }
+            return null;
+        }
+        LocalDate date = parseBareDate(cleaned);
+        if (date != null) {
+            return new ParsedDate(PublishTimePrecision.dateOnlyRepresentative(date), PublishTimePrecision.DATE);
+        }
+        return null;
+    }
+
+    /** 裸日期解析（三格式轮试）；不含任何时刻/时区尾巴 */
+    private static LocalDate parseBareDate(String text) {
         for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH)) {
             try {
-                LocalDate date = LocalDate.parse(cleaned, formatter);
-                return Date.from(date.atStartOfDay(SITE_ZONE).toInstant());
+                return LocalDate.parse(text, formatter);
             } catch (Exception ignore) {
                 // 换下一格式
             }
@@ -277,7 +332,16 @@ public final class NewsHtmlListParser {
     }
 
     /**
-     * 详情 URL slug 日期回退（/2026/0910_slug/）
+     * 兼容旧调用面的瞬时视图（精度由调用面另行判定）
+     */
+    static java.util.Date parseDateText(String dateText) {
+        ParsedDate parsed = parseDate(dateText);
+        return parsed == null ? null : parsed.instant();
+    }
+
+    /**
+     * 详情 URL slug 日期回退（/2026/0910_slug/）：只有日期证据——
+     * D 23:59:59 HKT 归期代表值（#275）
      */
     static java.util.Date dateFromSlug(String link) {
         Matcher matcher = SLUG_DATE_WITH_YEAR.matcher(link);
@@ -288,7 +352,7 @@ public final class NewsHtmlListParser {
                 Integer.parseInt(matcher.group(1)),
                 Integer.parseInt(matcher.group(2)),
                 Integer.parseInt(matcher.group(3)));
-        return Date.from(date.atStartOfDay(SITE_ZONE).toInstant());
+        return PublishTimePrecision.dateOnlyRepresentative(date);
     }
 
     private static String textOrNull(Element element) {

@@ -82,9 +82,14 @@ public class NewsDailyDigestItemVO {
     private List<String> topics;
 
     /**
-     * 原文发布时间快照
+     * 原文发布时间快照（date 精度时为 D 23:59:59 HKT 归期代表值，#275）
      */
     private Date publishTime;
+
+    /**
+     * 发布时间精度快照（#275）：date=只显日期 / datetime=真实时刻 / unknown=旧快照
+     */
+    private String publishTimePrecision;
 
     /**
      * 信源元数据快照（sourceKey/platform/official/displayName/displayNameEn）

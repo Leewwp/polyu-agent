@@ -53,6 +53,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 状态机与六口径回放（#185 验收主证据之一）：真实 NewsFetchService +
@@ -140,7 +141,7 @@ class NewsPipelineReplayTest {
         String url = "https://www.polyu.edu.hk/en/media/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
                 slug.replace('-', ' '), null, "en",
-                new Date(clock.millis - ageMillis), null, "campus-x");
+                new Date(clock.millis - ageMillis), null, "campus-x", PublishTimePrecision.DATETIME);
     }
 
     private NewsFetchService.SourceCandidates campusBatch(List<RawNewsItem> items) {

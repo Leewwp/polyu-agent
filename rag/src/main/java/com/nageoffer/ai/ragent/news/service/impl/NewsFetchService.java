@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 抓取编排服务（#185 改两阶段：逐源取候选 → 全局公平准入；#186 源治理改造）
@@ -378,6 +379,7 @@ public class NewsFetchService {
                 .category("other")
                 .langRaw(item.langRaw())
                 .publishTime(item.publishTime())
+                .publishTimePrecision(PublishTimePrecision.orUnknown(item.publishTimePrecision()))
                 .fetchTime(now)
                 .status(status)
                 .heat(0)

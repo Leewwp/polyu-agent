@@ -56,6 +56,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 资源测试（#185 验收口径，#187 扩展事件重归组阶段+内容哈希复用路径测量）：
@@ -270,7 +271,8 @@ class NewsPipelineCapacityReplayTest {
     private RawNewsItem candidate(String key, String slug, long ageMillis) {
         String url = "https://example.com/news/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
-                "research news item", null, "en", new Date(clock.get() - ageMillis), null, key);
+                "research news item", null, "en", new Date(clock.get() - ageMillis), null, key,
+                PublishTimePrecision.DATETIME);
     }
 
     private NewsFetchService.SourceCandidates batch(int index, List<RawNewsItem> items) {

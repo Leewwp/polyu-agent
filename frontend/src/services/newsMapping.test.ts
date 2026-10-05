@@ -89,6 +89,21 @@ describe("mapNewsItem", () => {
     expect(item.source.color).toBe("#A6192E");
   });
 
+  it("#275 date precision blanks the clock display (23:59:59 representative is not a publish moment)", () => {
+    const item = mapNewsItem({ ...baseVo, publishTimePrecision: "date" }, NOW);
+    // 只显日期：时钟字段置空，精度标记传递（卡片/详情不再把人工 23:59:59 当发布时刻）
+    expect(item.publishTime).toBe("");
+    expect(item.publishTimePrecision).toBe("date");
+    expect(item.publishDate).toBe("2026-09-10");
+  });
+
+  it("#275 datetime and legacy (absent) precision keep the clock display", () => {
+    expect(mapNewsItem({ ...baseVo, publishTimePrecision: "datetime" }, NOW).publishTime).toBe("14:22");
+    // 旧行/旧快照（精度缺省）按 unknown：显示行为不变（回归保护）
+    expect(mapNewsItem(baseVo, NOW).publishTime).toBe("14:22");
+    expect(mapNewsItem(baseVo, NOW).publishTimePrecision).toBe("unknown");
+  });
+
   it("falls back on missing bilingual fields, empty topics, and unregistered source", () => {
     const item = mapNewsItem(
       {

@@ -118,7 +118,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
             {zh ? NEWS_CATEGORY_LABELS_ZH[item.category] : NEWS_CATEGORY_LABELS_EN[item.category]}
           </span>
           <span className="text-xs tabular-nums text-[var(--feed-text-tertiary)]">
-            {item.publishDate} {item.publishTime} HKT
+            {item.publishTime ? `${item.publishDate} ${item.publishTime} HKT` : item.publishDate}
           </span>
           {item.heat > 0 && (
             <span className="rounded-full bg-[var(--feed-heat-bg)] px-2.5 py-0.5 text-[11.5px] font-bold text-[var(--feed-heat)]">

@@ -57,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 源治理真库实证（#186）：mock 单测证明不了的部分——
@@ -352,7 +353,7 @@ class NewsSourceGovernancePgIt {
     private static RawNewsItem rawItem(String key, String slug) {
         String url = "https://it-gov.invalid/news/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
-                "it " + slug, null, "en", new Date(), null, key);
+                "it " + slug, null, "en", new Date(), null, key, PublishTimePrecision.DATETIME);
     }
 
     /**

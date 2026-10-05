@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 资讯日报公开读取服务实现（#212）——<b>零 LLM 结构保证</b>
@@ -412,6 +413,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .category(snapshot.getCategory())
                 .topics(topics)
                 .publishTime(snapshot.getPublishTime())
+                .publishTimePrecision(PublishTimePrecision.orUnknown(snapshot.getPublishTimePrecision()))
                 .source(source)
                 .build();
     }
