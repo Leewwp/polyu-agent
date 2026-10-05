@@ -32,9 +32,13 @@ import java.util.Date;
  * @param title        标题英文（或来源唯一标题——RSS/events/HTML_LIST 单语条目）
  * @param titleZh      标题中文（SITEMAP 型取简体变体 news:title，繁体兜底；其余型 null 归 LLM 补译）
  * @param langRaw      原文语言（en/zh-Hant/zh-Hans；列表页默认 en）
- * @param publishTime  原文发布时间（events 型为活动开始时间）
+ * @param publishTime  原文发布时间（events 型为活动开始时间）；date-only 证据为
+ *                     D 23:59:59 HKT 归期代表值（#275，非真实发布时刻）
  * @param categoryHint 来源侧分类原文（如 "Research &amp; Innovation"），仅作 LLM 分类参考，不入固定 8 类
  * @param sourceKey    归属信源标识
+ * @param publishTimePrecision 发布时间精度（#275）：date=只有日期（代表值 23:59:59，
+ *                     展示层只显日期）/datetime=真实瞬时/unknown=历史或非本批精确化路径
+ *                     （sitemap lastmod、events start-date 含义不改）
  */
 public record RawNewsItem(String url,
                           String urlHash,
@@ -43,5 +47,6 @@ public record RawNewsItem(String url,
                           String langRaw,
                           Date publishTime,
                           String categoryHint,
-                          String sourceKey) {
+                          String sourceKey,
+                          String publishTimePrecision) {
 }

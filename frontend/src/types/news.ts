@@ -39,6 +39,8 @@ export interface NewsItem {
   heat: number;
   /** YYYY-MM-DD */
   publishDate: string;
+  /** 发布时间精度（#275）：date=publishTime 为空（只显日期，人工 23:59:59 代表值不冒充发布时刻） */
+  publishTimePrecision?: "date" | "datetime" | "unknown";
   /** HH:mm（HKT） */
   publishTime: string;
   /** 日期分组标签（如「今天 · 9月10日 周四」；真数据接线后按 HKT 生成，mock 为原型原样） */
@@ -112,6 +114,8 @@ export interface NewsDailyDigestItem {
   topics: string[];
   /** ISO 时间串或 null */
   publishTime: string | null;
+  /** 发布时间精度快照（#275）：date=只显日期（不显示 23:59:59 代表值时刻） */
+  publishTimePrecision?: "date" | "datetime" | "unknown";
   /** 信源元数据快照 */
   source: {
     sourceKey: string;

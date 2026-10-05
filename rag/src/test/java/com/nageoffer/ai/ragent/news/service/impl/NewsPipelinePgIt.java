@@ -64,6 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 资讯管线状态合同真库实证（#185）：mock 单测证明不了的部分——日准入计数聚合
@@ -366,7 +367,7 @@ class NewsPipelinePgIt {
     private static RawNewsItem rawItem(String key, String slug, long publishTime) {
         String url = "https://it-pipe.invalid/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url),
-                "it " + slug, null, "en", new Date(publishTime), null, key);
+                "it " + slug, null, "en", new Date(publishTime), null, key, PublishTimePrecision.DATETIME);
     }
 
     private static Long countByStatus(NewsItemMapper mapper, long sourceId, String status) {

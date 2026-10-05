@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -62,13 +63,19 @@ class NewsHtmlListParserTests {
         assertEquals("10 Sep, 2026", first.dateText());
         assertEquals("Research & Innovation", first.categoryHint());
 
-        // 日期文本解析：裸日期按 HKT 零点解释（§13-3）
+        // 日期文本解析（#275）：裸日期=只有日期证据——归期代表值 D 23:59:59 HKT
+        // （落 [D 08:00, D+1 08:00) 归 D+1 刊），精度标记 date
+        NewsHtmlListParser.ParsedDate parsedDate = NewsHtmlListParser.parseDate(first.dateText());
+        assertNotNull(parsedDate);
+        assertEquals(PublishTimePrecision.DATE, parsedDate.precision());
         Calendar parsed = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
-        parsed.setTime(NewsHtmlListParser.parseDateText(first.dateText()));
+        parsed.setTime(parsedDate.instant());
         assertEquals(2026, parsed.get(Calendar.YEAR));
         assertEquals(Calendar.SEPTEMBER, parsed.get(Calendar.MONTH));
         assertEquals(10, parsed.get(Calendar.DAY_OF_MONTH));
-        assertEquals(0, parsed.get(Calendar.HOUR_OF_DAY));
+        assertEquals(23, parsed.get(Calendar.HOUR_OF_DAY));
+        assertEquals(59, parsed.get(Calendar.MINUTE));
+        assertEquals(59, parsed.get(Calendar.SECOND));
     }
 
     @Test
@@ -132,6 +139,102 @@ class NewsHtmlListParserTests {
         assertEquals(2026, hkt.get(Calendar.YEAR));
         assertEquals(Calendar.AUGUST, hkt.get(Calendar.MONTH));
         assertEquals(19, hkt.get(Calendar.DAY_OF_MONTH));
+    }
+
+    // ================== #275 精度分流与真实时刻保留 ==================
+
+    @Test
+    void prnEtTimeSuffixConvertsWithDstSummer() {
+        // Jul=EDT（UTC-4）：00:00 ET → 12:00 HKT 同日，真实瞬时 datetime
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate("Jul 20, 2026, 00:00 ET");
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATETIME, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(2026, hkt.get(Calendar.YEAR));
+        assertEquals(Calendar.JULY, hkt.get(Calendar.MONTH));
+        assertEquals(20, hkt.get(Calendar.DAY_OF_MONTH));
+        assertEquals(12, hkt.get(Calendar.HOUR_OF_DAY));
+    }
+
+    @Test
+    void prnEtTimeSuffixConvertsWithStandardTimeWinter() {
+        // Jan=EST（UTC-5）：00:00 ET → 13:00 HKT 同日
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate("Jan 15, 2026, 00:00 ET");
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATETIME, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(13, hkt.get(Calendar.HOUR_OF_DAY));
+        assertEquals(15, hkt.get(Calendar.DAY_OF_MONTH));
+    }
+
+    @Test
+    void prnEtLateEveningCrossesHktDate() {
+        // 冬令时 20:00 ET → 次日 09:00 HKT：跨 HKT 日期如实保留（旧实现截掉时刻会丢这天信息）
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate("Jan 15, 2026, 20:00 ET");
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATETIME, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(Calendar.JANUARY, hkt.get(Calendar.MONTH));
+        assertEquals(16, hkt.get(Calendar.DAY_OF_MONTH));
+        assertEquals(9, hkt.get(Calendar.HOUR_OF_DAY));
+    }
+
+    @Test
+    void libHktTimeSuffixKeepsRealInstant() {
+        // lib Drupal "Friday, September 18, 2026 - 08:30"：HKT 真实时刻（旧实现截到日初）
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate("Friday, September 18, 2026 - 08:30");
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATETIME, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(2026, hkt.get(Calendar.YEAR));
+        assertEquals(18, hkt.get(Calendar.DAY_OF_MONTH));
+        assertEquals(8, hkt.get(Calendar.HOUR_OF_DAY));
+        assertEquals(30, hkt.get(Calendar.MINUTE));
+    }
+
+    @Test
+    void dateOnlyRepresentativeFallsIntoNextDayWindow() {
+        // 边界表（左闭右开保持）：D 07:59:59.999 属 D 刊；D 08:00:00 属 D+1 刊；
+        // date-only 代表值 23:59:59 属 [D 08:00, D+1 08:00) → D+1 刊
+        java.time.LocalDate d = java.time.LocalDate.of(2026, 10, 2);
+        java.util.Date rep = PublishTimePrecision.dateOnlyRepresentative(d);
+        java.util.Date windowStart = java.util.Date.from(
+                d.minusDays(1).atTime(8, 0).atZone(java.time.ZoneId.of("Asia/Hong_Kong")).toInstant());
+        java.util.Date windowEnd = java.util.Date.from(
+                d.atTime(8, 0).atZone(java.time.ZoneId.of("Asia/Hong_Kong")).toInstant());
+        assertFalse(rep.after(windowStart) && rep.before(windowEnd),
+                "代表值 23:59:59 不落 D 刊窗口 [D-1 08:00, D 08:00)");
+        // 对应票面表述：日期 D 的代表值归 D+1 刊
+        java.util.Date dPlusOneWindowStart = windowEnd;
+        java.util.Date dPlusOneWindowEnd = java.util.Date.from(
+                d.plusDays(1).atTime(8, 0).atZone(java.time.ZoneId.of("Asia/Hong_Kong")).toInstant());
+        assertTrue(rep.after(dPlusOneWindowStart) || rep.equals(dPlusOneWindowStart));
+        assertTrue(rep.before(dPlusOneWindowEnd));
+    }
+
+    @Test
+    void slugFallbackKeepsDateOnlyRepresentative() {
+        // slug 只有日期证据 → 23:59:59 HKT（#275，原日初）
+        java.util.Date date = NewsHtmlListParser.dateFromSlug(
+                "https://www.polyu.edu.hk/media/media-releases/2026/0904_polyu-and-diagens-tech/");
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(date);
+        assertEquals(23, hkt.get(Calendar.HOUR_OF_DAY));
+        assertEquals(59, hkt.get(Calendar.MINUTE));
+        assertEquals(59, hkt.get(Calendar.SECOND));
+    }
+
+    @Test
+    void precisionNormalizesGarbageToUnknown() {
+        assertEquals(PublishTimePrecision.UNKNOWN, PublishTimePrecision.orUnknown(null));
+        assertEquals(PublishTimePrecision.UNKNOWN, PublishTimePrecision.orUnknown(""));
+        assertEquals(PublishTimePrecision.UNKNOWN, PublishTimePrecision.orUnknown("weekly"));
+        assertEquals(PublishTimePrecision.DATE, PublishTimePrecision.orUnknown("DATE"));
+        assertEquals(PublishTimePrecision.DATETIME, PublishTimePrecision.orUnknown("DateTime"));
     }
 
     @Test

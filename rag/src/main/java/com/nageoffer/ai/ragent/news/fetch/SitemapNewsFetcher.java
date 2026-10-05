@@ -83,7 +83,9 @@ public class SitemapNewsFetcher implements NewsSourceFetcher {
                     ? canonical.publishTime()
                     : firstNonNullDate(byLanguage);
             items.add(new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), canonical.title(), titleZh,
-                    "en", publishTime, null, source.getSourceKey()));
+                    "en", publishTime, null, source.getSourceKey(),
+                    // #275：sitemap lastmod 语义保持，不冒充首发时间 → unknown
+                    PublishTimePrecision.UNKNOWN));
         }
         return items;
     }

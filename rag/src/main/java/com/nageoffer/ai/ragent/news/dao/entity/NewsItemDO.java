@@ -99,6 +99,12 @@ public class NewsItemDO {
     private Date publishTime;
 
     /**
+     * 发布时间精度（#275）：date=只有日期证据（publish_time 为 D 23:59:59 HKT 归期代表值，
+     * 展示层只显日期）/ datetime=真实瞬时 / unknown=历史行或非精确化路径（不回填不猜测）
+     */
+    private String publishTimePrecision;
+
+    /**
      * 抓取入库时间
      */
     private Date fetchTime;

@@ -67,6 +67,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
 
 /**
  * 公开资讯查询服务实现（接热度真值与故事线聚簇）
@@ -606,6 +607,7 @@ public class NewsQueryServiceImpl implements NewsQueryService {
                 .summaryEn(item.getSummaryEn())
                 .category(item.getCategory())
                 .publishTime(item.getPublishTime())
+                .publishTimePrecision(PublishTimePrecision.orUnknown(item.getPublishTimePrecision()))
                 .heat(item.getHeat())
                 .topics(topics)
                 .source(toSourceMetaVO(source))

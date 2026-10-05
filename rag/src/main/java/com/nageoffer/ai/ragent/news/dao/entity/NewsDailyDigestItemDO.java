@@ -138,4 +138,10 @@ public class NewsDailyDigestItemDO {
      * 原文发布时间快照（窗口归属判定的锚）
      */
     private Date publishTime;
+
+    /**
+     * 发布时间精度冗余（#275）：date=快照时刻为归期代表值（只显日期）/
+     * datetime=真实瞬时 / unknown=旧快照（不回填）
+     */
+    private String publishTimePrecision;
 }

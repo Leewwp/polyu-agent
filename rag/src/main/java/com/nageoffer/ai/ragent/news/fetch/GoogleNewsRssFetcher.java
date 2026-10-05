@@ -62,7 +62,10 @@ public class GoogleNewsRssFetcher implements NewsSourceFetcher {
             String url = NewsUrlNormalizer.normalize(articleUrl);
             String title = cleanTitle(entry.title(), fragment, entry.sourcePublisher());
             items.add(new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), title, null,
-                    detectLangRaw(title), entry.publishTime(), null, source.getSourceKey()));
+                    detectLangRaw(title), entry.publishTime(), null, source.getSourceKey(),
+                    entry.publishTime() == null
+                            ? PublishTimePrecision.UNKNOWN
+                            : PublishTimePrecision.DATETIME));
         }
         return items;
     }

@@ -20,6 +20,8 @@ export interface NewsItemVO {
   summaryEn: string | null;
   category: string;
   publishTime: string | null;
+  /** #275：date/datetime/unknown（后端同名列）；date=publishTime 为 23:59:59 归期代表值 */
+  publishTimePrecision?: string | null;
   heat: number | null;
   clusterSourceCount?: number | null;
   topics?: string[] | null;
@@ -226,6 +228,8 @@ export function mapNewsItem(vo: NewsItemVO, now: Date = new Date()): NewsItem {
   const publish = vo.publishTime ? new Date(vo.publishTime) : now;
   const publishDateKey = hktDateKey(publish);
   const labels = dayLabels(publishDateKey, hktDateKey(now));
+  // #275：date 精度=publish_time 是 23:59:59 归期代表值——时钟显示置空，只显日期
+  const precision = (vo.publishTimePrecision ?? "unknown") as NewsItem["publishTimePrecision"];
   return {
     id: String(vo.id),
     url: vo.url,
@@ -233,7 +237,8 @@ export function mapNewsItem(vo: NewsItemVO, now: Date = new Date()): NewsItem {
     topics: vo.topics ?? [],
     heat: vo.heat ?? 0,
     publishDate: publishDateKey,
-    publishTime: hktClockSafe(publish),
+    publishTimePrecision: precision,
+    publishTime: precision === "date" ? "" : hktClockSafe(publish),
     dayLabelZh: labels.zh,
     dayLabelEn: labels.en,
     source: mapSource(vo.source),
@@ -300,6 +305,7 @@ export interface NewsDailyDigestItemVO {
   category: string;
   topics?: string[] | null;
   publishTime: string | null;
+  publishTimePrecision?: string | null;
   source: NewsItemVO["source"];
 }
 
@@ -354,6 +360,7 @@ export function mapDailyDigestItem(vo: NewsDailyDigestItemVO): NewsDailyDigestIt
     category: (vo.category as NewsDailyDigestItem["category"]) || "other",
     topics: vo.topics ?? [],
     publishTime: vo.publishTime,
+    publishTimePrecision: (vo.publishTimePrecision ?? "unknown") as NewsDailyDigestItem["publishTimePrecision"],
     source: vo.source ?? null
   };
 }
@@ -384,6 +391,8 @@ export function digestItemToNewsItem(item: NewsDailyDigestItem, now: Date = new 
   const publish = item.publishTime ? new Date(item.publishTime) : now;
   const publishDateKey = hktDateKey(publish);
   const labels = dayLabels(publishDateKey, hktDateKey(now));
+  // #275：date 精度=快照时刻是归期代表值——时钟显示置空
+  const precision = item.publishTimePrecision ?? "unknown";
   const sourceVo: NewsItemVO["source"] = item.source
     ? {
         sourceKey: item.source.sourceKey,
@@ -400,7 +409,8 @@ export function digestItemToNewsItem(item: NewsDailyDigestItem, now: Date = new 
     topics: item.topics,
     heat: 0,
     publishDate: publishDateKey,
-    publishTime: hktClockSafe(publish),
+    publishTimePrecision: precision,
+    publishTime: precision === "date" ? "" : hktClockSafe(publish),
     dayLabelZh: labels.zh,
     dayLabelEn: labels.en,
     source: mapSource(sourceVo),
