@@ -119,9 +119,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     @Override
     public List<NewsDailyDigestSummaryVO> listRecent(int limit) {
         int bounded = limit <= 0 ? DEFAULT_LIST_LIMIT : Math.min(limit, MAX_LIST_LIMIT);
-        List<NewsDailyDigestDO> headers = digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
-                .orderByDesc(NewsDailyDigestDO::getDigestDate)
-                .last("LIMIT " + bounded));
+        List<NewsDailyDigestDO> headers = recentHeaders(bounded);
         // firstTitle 批量口径（#240）：一次 IN 查询取各期可见集 seq 首条（与详情页
         // 头条同源同值——seq=1 恰被下架的期落到下一可见条，空期/全失格=null）
         Map<Long, VisibleFace> faces = batchVisibleFaces(headers);
@@ -148,30 +146,11 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
         if (header == null) {
             return null;
         }
-        List<NewsDailyDigestItemDO> snapshots = digestItemMapper.selectList(
-                new LambdaQueryWrapper<NewsDailyDigestItemDO>()
-                        .eq(NewsDailyDigestItemDO::getDigestId, header.getId())
-                        .orderByAsc(NewsDailyDigestItemDO::getSeq));
-        // 主动下架复检：源行仍存在且 status!=published → 失格；源行已清理 → 保留
-        Set<Long> sourceItemIds = snapshots.stream()
-                .map(NewsDailyDigestItemDO::getItemId).filter(Objects::nonNull).collect(Collectors.toSet());
-        Map<Long, String> liveStatus = new HashMap<>();
-        if (!sourceItemIds.isEmpty()) {
-            for (NewsItemDO live : itemMapper.selectList(new LambdaQueryWrapper<NewsItemDO>()
-                    .in(NewsItemDO::getId, sourceItemIds))) {
-                liveStatus.put(live.getId(), live.getStatus());
-            }
-        }
-        List<NewsDailyDigestItemVO> visible = new ArrayList<>(snapshots.size());
-        int disqualified = 0;
-        for (NewsDailyDigestItemDO snapshot : snapshots) {
-            String status = liveStatus.get(snapshot.getItemId());
-            if (status != null && !"published".equals(status)) {
-                disqualified++;
-                continue;
-            }
-            visible.add(toItemVO(snapshot));
-        }
+        // 主动下架复检走 batchVisibleFaces 单期路径（#259 判据单源：源行仍存在且
+        // status!=published → 失格；源行已清理 → 保留——与目录/期级 RSS 同一实现）
+        VisibleFace face = batchVisibleFaces(List.of(header)).get(header.getId());
+        List<NewsDailyDigestItemVO> visible = face.visible().stream().map(this::toItemVO).toList();
+        int disqualified = face.disqualified();
         // 导语失格回退（零调用）：有失格条目即回退模板（可见>0 计数模板 / =0 空刊模板）
         EffectiveIntro intro = effectiveIntro(header, visible.size(), disqualified);
         if (disqualified > 0) {
@@ -248,9 +227,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     @Override
     public String renderIssuesRss() {
         String siteUrl = properties.effectiveSiteBaseUrl();
-        List<NewsDailyDigestDO> headers = digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
-                .orderByDesc(NewsDailyDigestDO::getDigestDate)
-                .last("LIMIT " + ISSUES_FEED_LIMIT));
+        List<NewsDailyDigestDO> headers = recentHeaders(ISSUES_FEED_LIMIT);
         Map<Long, VisibleFace> faces = batchVisibleFaces(headers);
         int degradedIssues = 0;
         for (NewsDailyDigestDO header : headers) {
@@ -321,10 +298,20 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     }
 
     /**
+     * 最近 N 期表头（日期倒序，SQL LIMIT 钳制）——目录与期级 feed 共用（#259 去双写）
+     */
+    private List<NewsDailyDigestDO> recentHeaders(int limit) {
+        return digestMapper.selectList(new LambdaQueryWrapper<NewsDailyDigestDO>()
+                .orderByDesc(NewsDailyDigestDO::getDigestDate)
+                .last("LIMIT " + limit));
+    }
+
+    /**
      * 批量读取期复检（#240）：一次 IN 查询取全部期的快照+一次 IN 查询回查源行
-     * status，逐期得出可见集（seq 升序，首条=详情页头条）与失格数——判据与
-     * {@link #getDetail} 完全一致（源行仍存在且 status!=published → 失格；
-     * 源行已清理 → 保留），保证目录 firstTitle 与详情页头条同值
+     * status，逐期得出可见集（seq 升序，首条=详情页头条）与失格数——判据单源
+     * （#259）：getDetail 单期路径与目录 firstTitle/期级 RSS 均走本方法（源行
+     * 仍存在且 status!=published → 失格；源行已清理 → 保留），同一实现保证
+     * 目录 firstTitle 与详情页头条同值
      */
     private Map<Long, VisibleFace> batchVisibleFaces(List<NewsDailyDigestDO> headers) {
         if (headers.isEmpty()) {
