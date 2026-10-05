@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.news.controller.vo;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -45,13 +46,16 @@ public class NewsDailyDigestVO {
     private LocalDate digestDate;
 
     /**
-     * 窗口起点（D-1 08:00 HKT，含）
+     * 窗口起点（D-1 08:00 HKT，含）——序列化为 HKT 墙钟：前端直取字符串拼「…HKT」
+     * 窗口标签（DailyDigestPage slice(5,16)），默认 UTC 序列化会把 08:00 显示成 00:00
      */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm", timezone = "Asia/Hong_Kong")
     private Date windowStart;
 
     /**
-     * 窗口闭端（D 08:00 HKT，不含）
+     * 窗口闭端（D 08:00 HKT，不含）——同 {@link #windowStart}，序列化为 HKT 墙钟
      */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm", timezone = "Asia/Hong_Kong")
     private Date windowEnd;
 
     /**
