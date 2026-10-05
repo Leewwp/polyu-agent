@@ -57,6 +57,7 @@ class AgentMemoryPipelineTest {
     private AgentMemoryJudge memoryJudge;
     private AgentMemoryConsolidator memoryConsolidator;
     private AgentMemoryProperties memoryProperties;
+    private AgentMemoryApprovalService approvalService;
     private AgentMemoryPipeline pipeline;
 
     @BeforeEach
@@ -65,7 +66,8 @@ class AgentMemoryPipelineTest {
         memoryJudge = mock(AgentMemoryJudge.class);
         memoryConsolidator = mock(AgentMemoryConsolidator.class);
         memoryProperties = new AgentMemoryProperties();
-        pipeline = new AgentMemoryPipeline(memoryRepository, memoryJudge, memoryConsolidator, memoryProperties);
+        approvalService = mock(AgentMemoryApprovalService.class);
+        pipeline = new AgentMemoryPipeline(memoryRepository, memoryJudge, memoryConsolidator, memoryProperties, approvalService);
     }
 
     @Test
@@ -203,10 +205,10 @@ class AgentMemoryPipelineTest {
     }
 
     /**
-     * 待处理按用户取、不带会话；清空批哪怕新增顶到上限也不叫合并模型——旧条目马上整片失效
+     * 待处理按用户取、不带会话；清空批自 HITL（#278）起不再直提——整批冻结待审，合并模型一次都不叫
      */
     @Test
-    void extractShouldReadPerUserAndSkipConsolidationForClear() {
+    void extractShouldReadPerUserAndFreezeClearBatch() {
         Date since = new Date();
         AgentMemoryControlDO control = new AgentMemoryControlDO();
         control.setUserId(USER_ID);
@@ -225,17 +227,14 @@ class AgentMemoryPipelineTest {
             decisions.add(AgentMemoryDecision.add(i + "条".repeat(399)));
         }
         when(memoryJudge.judge(anyList(), eq(pending))).thenReturn(decisions);
-        when(memoryRepository.commit(any())).thenReturn(new AgentMemoryCommitResult(
-                AgentMemoryExtractionStatus.WRITTEN, 16, true, true, 4));
+        when(approvalService.freeze(any(), any())).thenReturn(true);
 
         AgentMemoryOutcome outcome = pipeline.extract(USER_ID, CONVERSATION_ID, AgentMemoryTriggerType.FLUSH);
 
-        assertThat(outcome.cleared()).isTrue();
-        assertThat(outcome.clearedItems()).isEqualTo(4);
+        assertThat(outcome.status()).isEqualTo(Status.PLAN_PREPARED);
+        assertThat(outcome.operationId()).isEqualTo("e-1");
         verify(memoryConsolidator, never()).plan(anyList());
-        ArgumentCaptor<AgentMemoryCommit> commit = ArgumentCaptor.forClass(AgentMemoryCommit.class);
-        verify(memoryRepository).commit(commit.capture());
-        assertThat(commit.getValue().merges()).isEmpty();
+        verify(memoryRepository, never()).commit(any());
     }
 
     private AgentMemoryPipeline stubBatches(AgentMemoryOutcome first, AgentMemoryOutcome... rest) {

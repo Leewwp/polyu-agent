@@ -23,12 +23,14 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryOutcome;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpMeta;
+import com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool;
 import io.agentscope.core.tool.mcp.McpMeta;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
@@ -103,6 +105,7 @@ class AgentChatServiceImplTest {
     private AgentRunGate runGate;
     private AgentMemoryProperties memoryProperties;
     private AgentMemoryPipeline memoryPipeline;
+    private AgentMemoryApprovalService memoryApprovalService;
     private AtomicInteger gateReleased;
     private ReActAgent agent;
     private AgentChatServiceImpl service;
@@ -117,8 +120,9 @@ class AgentChatServiceImplTest {
         memoryProperties = new AgentMemoryProperties();
         memoryProperties.setLongTermEnabled(false);
         memoryPipeline = mock(AgentMemoryPipeline.class);
+        memoryApprovalService = mock(AgentMemoryApprovalService.class);
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
-                memoryProperties, memoryPipeline);
+                memoryProperties, memoryPipeline, memoryApprovalService);
 
         gateReleased = new AtomicInteger();
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(gateReleased::incrementAndGet);
@@ -318,6 +322,67 @@ class AgentChatServiceImplTest {
         RuntimeContext captured = runtimeContext.getValue();
         assertThat(contextId(captured, AgentTraceContextKeys.CONFIRM_MESSAGE_ID)).isEqualTo("m-4004");
         assertThat(contextId(captured, AgentTraceContextKeys.REPLY_TO_MESSAGE_ID)).isEqualTo("m-3003");
+    }
+
+    /**
+     * 记忆计划确认（#278）：同意先把台账行迁到 APPROVED 并绑定本次 toolCallId，续跑照常
+     */
+    @Test
+    void shouldApproveMemoryPlanBeforeResuming() {
+        prepareMemoryPlanConfirmation();
+        when(memoryApprovalService.approve("e-7001", USER_ID, "call-9", "m-4004"))
+                .thenReturn(AgentMemoryApprovalService.ApprovalTransition.approved());
+
+        service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter());
+
+        verify(memoryApprovalService).approve("e-7001", USER_ID, "call-9", "m-4004");
+        verify(agent).streamEvents(any(Msg.class), any(RuntimeContext.class));
+    }
+
+    /**
+     * 记忆计划拒绝：台账终局结算推水位，续跑交给拒绝中间件解释，报错路径不拦
+     */
+    @Test
+    void shouldRejectMemoryPlanOnDeny() {
+        prepareMemoryPlanConfirmation();
+
+        service.confirmPendingTool(CONVERSATION_ID, "m-4004", false, new SseEmitter());
+
+        verify(memoryApprovalService).reject("e-7001", USER_ID);
+        verify(agent).streamEvents(any(Msg.class), any(RuntimeContext.class));
+    }
+
+    /**
+     * 计划已过期再点同意：卡片先失效再报错，会话不卡死，也不启动续跑
+     */
+    @Test
+    void shouldExpireCardWhenMemoryPlanNotConfirmable() {
+        prepareMemoryPlanConfirmation();
+        when(memoryApprovalService.approve(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(AgentMemoryApprovalService.ApprovalTransition.notFound("该计划已超过 30 分钟有效期，请重新发起"));
+
+        assertThatThrownBy(() -> service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter()))
+                .isInstanceOf(ClientException.class)
+                .hasMessageContaining("30 分钟");
+        InOrder order = inOrder(conversationService);
+        order.verify(conversationService).expirePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004");
+        verify(agent, never()).streamEvents(any(Msg.class), any(RuntimeContext.class));
+    }
+
+    private void prepareMemoryPlanConfirmation() {
+        ToolUseBlock asking = ToolUseBlock.builder()
+                .id("call-9")
+                .name(MemoryApplyTool.TOOL_NAME)
+                .input(Map.of("operationId", "e-7001"))
+                .state(ToolCallState.ASKING)
+                .build();
+        when(agent.getAgentState(USER_ID, CONVERSATION_ID)).thenReturn(AgentState.builder()
+                .userId(USER_ID).sessionId(CONVERSATION_ID)
+                .addMessage(AssistantMessage.builder().content(asking).build())
+                .build());
+        when(conversationService.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004"))
+                .thenReturn(new AgentConfirmSettlement("会话标题", "m-3003"));
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
     }
 
     @ParameterizedTest
