@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.news.controller;
 
 import com.nageoffer.ai.ragent.framework.convention.Result;
+import com.nageoffer.ai.ragent.framework.exception.AbstractException;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.Results;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
@@ -32,6 +33,7 @@ import com.nageoffer.ai.ragent.news.service.NewsSeoService;
 import com.nageoffer.ai.ragent.news.service.NewsQueryService;
 import cn.hutool.core.lang.Assert;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
@@ -55,6 +57,7 @@ import java.util.List;
  * <p>路径在 SaTokenConfig 登录拦截白名单（/public/news/**）；资讯浏览永久免登录，
  * 与游客 Agent 对话配额（3 次/日）互不占用。孪生兜底见 PublicNewsDisabledController。
  */
+@Slf4j
 @RestController
 @RequestMapping("/public/news")
 @RequiredArgsConstructor
@@ -162,21 +165,63 @@ public class PublicNewsController {
 
     /**
      * 日报目录：近 N 期（digest_date 倒序，日期+条数+导语产出方式；不携带导语
-     * 正文）。零 LLM——读取面只见快照表（页面请求不触发模型调用的结构保证）
+     * 正文）。零 LLM——读取面只见快照表（页面请求不触发模型调用的结构保证）。
+     * #274：公开 JSON 目录加 public/max-age=60；业务错误/异常按本端点范围
+     * no-store（错误体与全局处理器同形），不给成功 TTL。
      */
     @GetMapping("/daily")
-    public Result<List<NewsDailyDigestSummaryVO>> dailyList(
+    public ResponseEntity<Result<List<NewsDailyDigestSummaryVO>>> dailyList(
             @RequestParam(value = "limit", defaultValue = "30") int limit) {
-        return Results.success(dailyDigestQueryService.listRecent(limit));
+        try {
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.maxAge(Duration.ofSeconds(60)).cachePublic())
+                    .body(Results.success(dailyDigestQueryService.listRecent(limit)));
+        } catch (RuntimeException ex) {
+            return dailyError("/public/news/daily", ex);
+        }
     }
 
     /**
      * 日报详情：刊头+生效导语+快照条目（读取期主动下架复检后）。零 LLM；
-     * 不存在/已清理同形「日报不存在」（不泄漏存在性）
+     * 不存在/已清理同形「日报不存在」（不泄漏存在性）。#274：成功详情
+     * public/max-age=300；成功信封 data=null（缺失详情）与业务错误/异常
+     * 一律 no-store——缺失/错误态不占用成功 TTL。
      */
     @GetMapping("/daily/{date}")
-    public Result<NewsDailyDigestVO> dailyDetail(@PathVariable String date) {
-        return Results.success(dailyDigestQueryService.getDetail(parseDigestDate(date)));
+    public ResponseEntity<Result<NewsDailyDigestVO>> dailyDetail(@PathVariable String date) {
+        NewsDailyDigestVO detail;
+        try {
+            detail = dailyDigestQueryService.getDetail(parseDigestDate(date));
+        } catch (RuntimeException ex) {
+            return dailyError("/public/news/daily/" + date, ex);
+        }
+        if (detail == null) {
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.noStore())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Results.success(null));
+        }
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(Duration.ofSeconds(300)).cachePublic())
+                .body(Results.success(detail));
+    }
+
+    /**
+     * 日报两 JSON 端点的错误出口（#274）：body 与全局处理器同形
+     * （HTTP 200 + Result 错误码；AbstractException 属 RuntimeException 子类，
+     * 单捕 RuntimeException 即覆盖业务错误与未受检异常），仅追加 no-store
+     * 防共享缓存误存错误态。
+     */
+    @SuppressWarnings("unchecked")
+    private <T> ResponseEntity<Result<T>> dailyError(String path, RuntimeException ex) {
+        log.error("[GET] {} [ex] {}", path, ex.getMessage(), ex);
+        Result<?> body = ex instanceof AbstractException abstractException
+                ? Results.failure(abstractException)
+                : Results.failure();
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body((Result<T>) body);
     }
 
     /**
