@@ -846,13 +846,11 @@ function IssueBody({
   digest,
   derived,
   summaries,
-  selectedDate,
   onOpenToc
 }: {
   digest: NewsDailyDigest;
   derived: DerivedIssue;
   summaries: NewsDailyDigestSummary[];
-  selectedDate: string;
   onOpenToc: () => void;
 }) {
   const { lang } = useFeedLang();
@@ -1017,7 +1015,6 @@ export function DailyDigestPage() {
           digest={digest}
           derived={derived}
           summaries={catalog}
-          selectedDate={selectedDate ?? digest.digestDate}
           onOpenToc={() => setTocOpen(true)}
         />
       );
