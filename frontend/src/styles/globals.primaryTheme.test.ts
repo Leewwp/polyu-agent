@@ -76,20 +76,26 @@ describe("#228 主色 token 合同（globals.css / tailwind.config.cjs）", () =
     expect(decl(root, "primary-foreground")).toBe("0 0% 100%");
   });
 
-  it(".admin-layout 作用域显式保紫（后台 DOM 轨）", () => {
+  it(".admin-layout 作用域显式保紫（后台 DOM 轨；#259 起三值引 :root --admin-* 单源）", () => {
     const admin = cssBlock(".admin-layout");
-    expect(decl(admin, "primary")).toBe(PURPLE);
-    expect(decl(admin, "primary-foreground")).toBe("0 0% 100%");
+    const root = cssBlock(":root");
+    // 单源值钉在 :root（改值只动一处），两作用域引用同一变量
+    expect(decl(root, "admin-primary")).toBe(PURPLE);
+    expect(decl(root, "admin-primary-foreground")).toBe("0 0% 100%");
+    expect(decl(root, "admin-glow")).toBe(PURPLE);
+    expect(decl(admin, "primary")).toBe("var(--admin-primary)");
+    expect(decl(admin, "primary-foreground")).toBe("var(--admin-primary-foreground)");
+    expect(decl(admin, "glow")).toBe("var(--admin-glow)");
     // 后台布局自身的 224 焦点环为现状，保留不动
     expect(decl(admin, "ring")).toBe("224 76% 48%");
   });
 
-  it("body[data-ui-theme=\"admin\"] 作用域保紫（Radix Portal 弹层轨，挂 body 的弹层继承）", () => {
+  it("body[data-ui-theme=\"admin\"] 作用域保紫（Radix Portal 弹层轨，挂 body 的弹层继承；同引 --admin-* 单源）", () => {
     const portal = cssBlock('body[data-ui-theme="admin"]');
-    expect(decl(portal, "primary")).toBe(PURPLE);
+    expect(decl(portal, "primary")).toBe("var(--admin-primary)");
+    expect(decl(portal, "primary-foreground")).toBe("var(--admin-primary-foreground)");
+    expect(decl(portal, "glow")).toBe("var(--admin-glow)");
     expect(decl(portal, "ring")).toBe(PURPLE);
-    expect(decl(portal, "glow")).toBe(PURPLE);
-    expect(decl(portal, "primary-foreground")).toBe("0 0% 100%");
   });
 
   it("Button 默认变体 shadow-glow 由 --primary 派生，不再硬编码蓝", () => {
