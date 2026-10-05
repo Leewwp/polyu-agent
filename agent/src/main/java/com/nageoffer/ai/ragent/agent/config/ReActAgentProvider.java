@@ -118,6 +118,8 @@ public class ReActAgentProvider {
                 .toolkit(toolCatalog.buildToolkit(catalog))
                 .maxIters(agentProperties.getMaxIters())
                 .maxRetries(agentProperties.getMaxRetries())
+                // 强制停止可能留下无结果的工具调用，下一问先补错误结果再继续
+                .enablePendingToolRecovery(true)
                 .stateStore(agentStateStore);
         // 追踪包在最外层：span 要盖住记忆与压缩才量得到耗时
         otelTracingMiddleware.ifAvailable(builder::middleware);
