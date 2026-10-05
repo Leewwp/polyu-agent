@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useEffect } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Check, MoreHorizontal, Pencil, Search, Trash2 } from "lucide-react";
 
 import { GuestStatusBadge } from "@/components/chat/GuestStatusBadge";
@@ -108,6 +108,7 @@ function RecentChatsSectionInternal({
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [deleteTarget, setDeleteTarget] = React.useState<DeleteTarget | null>(null);
+  const navigate = useNavigate();
 
   // 管理动作随引擎档位走对应 store（两 store 的 delete/rename/batch 均已备齐）
   const agRename = useAgentChatStore((state) => state.renameSession);
@@ -151,17 +152,31 @@ function RecentChatsSectionInternal({
     }
   };
 
-  // 单删与批删都过确认弹窗；删到当前会话时聊天页自身会回落欢迎页（sessionExists→false）
+  // 单删与批删都过确认弹窗；删到当前会话时聊天页只会转 not-found 错误态、
+  // 不会自行同步 URL（AgentChatPage/ChatPage 对 not-found 显式短路），须在此导航回 /chat
   const runDelete = () => {
     if (!deleteTarget) return;
+    const store = isAgentEngine ? useAgentChatStore : useChatStore;
+    const currentId = store.getState().currentSessionId;
+    const hitCurrent =
+      currentId != null &&
+      (deleteTarget.kind === "one"
+        ? deleteTarget.id === currentId
+        : deleteTarget.ids.includes(currentId));
     const task =
       deleteTarget.kind === "one"
         ? deleteSession(deleteTarget.id)
         : batchDeleteSessions(deleteTarget.ids);
     setDeleteTarget(null);
     exitSelect();
-    // L42：失败反馈在 store 层（toast+列表回滚——无乐观更新）；store 永不 reject
-    void task;
+    // L42：失败反馈在 store 层（toast+列表回滚——无乐观更新；agent 档失败 reject、
+    // workflow 档恒 resolve）——导航判据不依赖 promise 形态，统一看结算后当前会话
+    // 是否已被清空（仅成功路径把 currentSessionId 置 null）
+    void task
+      .catch(() => {})
+      .then(() => {
+        if (hitCurrent && store.getState().currentSessionId == null) navigate("/chat");
+      });
   };
 
   const keyword = query.trim().toLowerCase();
