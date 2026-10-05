@@ -76,6 +76,12 @@ public final class NewsHtmlListParser {
             DateTimeFormatter.ofPattern("MMMM d, uuuu", Locale.ENGLISH);
 
     /**
+     * "30 Sep 2026"（SPEED 站 d MMM uuuu 无逗号，#276 第 5 族）
+     */
+    private static final DateTimeFormatter ENGLISH_DATE_NO_COMMA =
+            DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH);
+
+    /**
      * media-releases 详情 URL 内的 /2026/0910_slug/ 日期段
      */
     private static final Pattern SLUG_DATE_WITH_YEAR = Pattern.compile("/(\\d{4})/(\\d{2})(\\d{2})_[^/]+/");
@@ -130,6 +136,9 @@ public final class NewsHtmlListParser {
             return entries;
         }
         entries.addAll(parseLibViewsFamily(document));
+        if (entries.isEmpty()) {
+            entries.addAll(parseSpeedFamily(document));
+        }
         if (failClosed && entries.isEmpty()) {
             throw new NewsFetchStructureException("HTML 列表页解析零条目（模板改版嫌疑，fail-closed）");
         }
@@ -270,6 +279,27 @@ public final class NewsHtmlListParser {
     }
 
     /**
+     * SPEED 专上学院新闻族（#276 第 5 族，#203 已核定）：
+     * {@code a.news-list-item} 锚，标题 {@code .news-list-item__title}、
+     * 日期 {@code .news-list-item__date}（"30 Sep 2026"，d MMM uuuu 无逗号）。
+     * 只取列表锚——置顶段（a.news-feature-news，旧文 2025-2024）不纳入。
+     */
+    private static List<ListEntry> parseSpeedFamily(Document document) {
+        List<ListEntry> entries = new ArrayList<>();
+        for (Element anchor : document.select("a.news-list-item")) {
+            String link = anchor.absUrl("href");
+            if (link.isBlank()) {
+                continue;
+            }
+            entries.add(new ListEntry(link,
+                    textOrNull(anchor.selectFirst(".news-list-item__title")),
+                    textOrNull(anchor.selectFirst(".news-list-item__date")),
+                    null, null));
+        }
+        return entries;
+    }
+
+    /**
      * 解析日期文本，按输入精度分流（#275）：
      * <ul>
      *   <li>"Friday, September 18, 2026 - 08:30"（lib Drupal）→ HKT 真实时刻，datetime；</li>
@@ -321,7 +351,7 @@ public final class NewsHtmlListParser {
 
     /** 裸日期解析（三格式轮试）；不含任何时刻/时区尾巴 */
     private static LocalDate parseBareDate(String text) {
-        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH)) {
+        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH, ENGLISH_DATE_NO_COMMA)) {
             try {
                 return LocalDate.parse(text, formatter);
             } catch (Exception ignore) {

@@ -648,7 +648,12 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   ('alumni-news',   'official', '校友事务处新闻',       'Alumni News',               'https://www.polyu.edu.hk/alumni/news/', 'https://www.polyu.edu.hk/alumni/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
   ('lib-news',      'official', '包玉刚图书馆新闻',     'Pao Yue-kong Library News', 'https://www.lib.polyu.edu.hk/news',     'https://www.lib.polyu.edu.hk/news',     'HTML_LIST', TRUE, FALSE, 'manual'),
   ('fb-news',       'official', '工商管理学院动态',     'FB News',                   'https://www.polyu.edu.hk/fb/news-events/news/', 'https://www.polyu.edu.hk/fb/news-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
-  ('fhss-news',     'official', '医疗及社会科学院动态', 'FHSS News',                 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'HTML_LIST', TRUE, FALSE, 'manual')
+  ('fhss-news',     'official', '医疗及社会科学院动态', 'FHSS News',                 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'https://www.polyu.edu.hk/fhss/news-and-events/news-and-events/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  -- #276 学院四源（2026-10-05 实采 fixture 冻结；seed 停用待获批上线窗逐源技术检查，同上铁律）
+  ('speed-news',    'official', '香港专上学院（SPEED）新闻', 'PolyU SPEED News',      'https://speed-polyu.edu.hk/news', 'https://speed-polyu.edu.hk/news', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('sd-news',       'official', '设计学院动态',             'School of Design News',  'https://www.polyu.edu.hk/sd/news-and-events/news/', 'https://www.polyu.edu.hk/sd/news-and-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('sft-news',      'official', '时装及纺织学院动态',        'SFT News',               'https://www.polyu.edu.hk/sft/news-and-events/news/', 'https://www.polyu.edu.hk/sft/news-and-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  ('fs-awards',     'official', '理学院获奖动态',           'Faculty of Science Awards', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'HTML_LIST', TRUE, FALSE, 'manual')
 ON CONFLICT (source_key) DO NOTHING;
 
 -- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
@@ -659,7 +664,8 @@ WHERE independence_group IS NULL
   AND source_key IN ('news-sitemap', 'media-releases', 'recent-focus', 'events', 'campus-reports',
                      'sao-news', 'ar-notices', 'feng-news', 'comp-news', 'fce-news', 'shtm-news',
                      'youtube-main', 'youtube-feng', 'youtube-comp', 'youtube-fce',
-                     'alumni-news', 'lib-news', 'fb-news', 'fhss-news');
+                     'alumni-news', 'lib-news', 'fb-news', 'fhss-news',
+                     'speed-news', 'sd-news', 'sft-news', 'fs-awards');
 UPDATE t_news_source SET independence_group = 'prn-wire'
 WHERE independence_group IS NULL AND source_key = 'prn';
 UPDATE t_news_source SET independence_group = 'gnews'

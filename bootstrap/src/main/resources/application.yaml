@@ -289,6 +289,12 @@ rag:
       lib-news: 20
       fb-news: 20
       fhss-news: 20
+      # #276 学院四源：speed-news 沿 #203 草案保守 5/日（票面钉死）；sd/sft/fs 沿批 2
+      # 官网子站稳态同口径 20/日（月更级节奏留停摆补抓余量，全站 60/日兜底）
+      speed-news: 5
+      sd-news: 20
+      sft-news: 20
+      fs-awards: 20
     topic-governance:
       promote-threshold: 10          # 主题提案转正（promote）引用阈值（#202，item_refs≥阈值方可转正，服务层机器校验）：
                                      # 默认 10 为 #181 拍板口径，落配置可调不写死；阈值默认值变更属规则框架变更须回维护者裁决。
