@@ -109,6 +109,26 @@ function LocationProbe() {
   return <div data-testid="location-probe">{location.pathname}</div>;
 }
 
+/** 手动决断的 promise：把 fetch 挂起/放行，驱动乱序竞态与等待期断言 */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function railLink(date: string) {
+  const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/daily/${date}`);
+  expect(link).toBeTruthy();
+  return link!;
+}
+
+/** 主栏头条标题集（h4>a；rail 目录预览是 p 标签，不在此列） */
+const mainHeadlines = () => Array.from(document.querySelectorAll("h4 a")).map((a) => a.textContent ?? "");
+
 function renderPage(initial = "/daily") {
   return render(
     <MemoryRouter initialEntries={[initial]}>
@@ -226,12 +246,13 @@ describe("DailyDigestPage", () => {
     expect(screen.queryByText("重试")).toBeNull();
   });
 
-  it("recovers from a load failure via in-page retry (no full reload)", async () => {
+  it("recovers from a catalog load failure via in-page retry (no full reload)", async () => {
     vi.mocked(fetchDailyDigestList).mockRejectedValueOnce(new Error("boom")).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("日报加载失败")).toBeTruthy());
+    // #272：目录失败与详情失败分开表达——目录失败出目录专属文案
+    await waitFor(() => expect(screen.getByText("日报目录加载失败")).toBeTruthy());
     expect(screen.getByText("重试")).toBeTruthy();
     expect(fetchDailyDigestList).toHaveBeenCalledTimes(1);
 
@@ -409,8 +430,7 @@ describe("DailyDigestPage", () => {
     expect(offender).toBeUndefined();
   });
 
-  it("fetches the archive-wide summary list and renders it in full, with no 30-issue display cap (#267 后续)", async () => {
-    // 40 期夹具（10-03 起回溯 39 天，跨 10/09/08 三个月）：月历/前后期导航/存档
+  it("fetches the archive-wide summary list and renders it in full, with no 30-issue display cap (#267 后续)", async () => {    // 40 期夹具（10-03 起回溯 39 天，跨 10/09/08 三个月）：月历/前后期导航/存档
     // 边界与 rail 往期清单、移动日期条全部吃全量（30 期展示截断已解除）
     const archive: NewsDailyDigestSummary[] = Array.from({ length: 40 }, (_, i) => {
       const ds = new Date(Date.UTC(2026, 9, 3 - i)).toISOString().slice(0, 10);
@@ -435,5 +455,197 @@ describe("DailyDigestPage", () => {
     expect(screen.getByText("往期 · 40 期")).toBeTruthy();
     // 月历边界由全量摘要派生：最早期落在 8 月 → 「上一月」可翻（10 月起步）
     expect(screen.getByRole("button", { name: "上一月" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  // ─────────────── #272 加载反馈与竞态 ───────────────
+
+  it("shows the catalog-stage skeleton on first entry while the list is pending (#272)", async () => {
+    const list = deferred<NewsDailyDigestSummary[]>();
+    vi.mocked(fetchDailyDigestList).mockReturnValue(list.promise);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    // 等待期可见（旧实现此分支是空白）：可读加载状态+主区 aria-busy
+    const status = screen.getByRole("status");
+    expect(status.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByText("正在加载日报，请稍候")).toBeTruthy();
+    // 装饰骨架摘出无障碍树；脉动全部走 motion-safe（reduced-motion 下静止）
+    const decorative = status.querySelector('[aria-hidden="true"]');
+    expect(decorative).toBeTruthy();
+    expect(decorative!.querySelectorAll(".motion-safe\\:animate-pulse").length).toBeGreaterThan(0);
+    // 数据未到：不渲染任何期内容（报头 h1 属于成功态）
+    expect(screen.queryByText("理大资讯日报")).toBeNull();
+
+    list.resolve(SUMMARIES);
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    // 成功响应后占位消失
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps the rail interactive behind the detail-stage skeleton on a deep link (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    const detail = deferred<NewsDailyDigest>();
+    vi.mocked(fetchDailyDigest).mockReturnValue(detail.promise);
+    renderPage("/daily/2026-10-02");
+
+    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-02"));
+    // 目录已可用：rail 可操作（可点回 10-03），主栏在等详情
+    expect(screen.getByLabelText("往期日报")).toBeTruthy();
+    expect(railLink("2026-10-03")).toBeTruthy();
+    expect(screen.getByRole("status").getAttribute("aria-busy")).toBe("true");
+
+    detail.resolve(
+      digestFixture({
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙"), item(42, 2, "campus", "校园活动丁")],
+        itemCount: 2,
+        visibleCount: 2
+      })
+    );
+    await waitFor(() => expect(screen.getAllByText("研究突破乙").length).toBeGreaterThan(0));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("never paints the previous issue while switching — skeleton only, then the new issue (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    const slow = deferred<NewsDailyDigest>();
+    vi.mocked(fetchDailyDigest)
+      .mockResolvedValueOnce(digestFixture())
+      .mockReturnValueOnce(slow.promise);
+    renderPage();
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破甲"));
+
+    fireEvent.click(railLink("2026-10-02"));
+    // 切期帧：主栏骨架；旧刊头条不进主栏（rail 目录预览属目录数据，不受切期影响）
+    const status = await screen.findByRole("status");
+    const mainCol = status.parentElement!;
+    expect(within(mainCol).queryByText("研究突破甲")).toBeNull();
+    expect(mainHeadlines()).toEqual([]);
+
+    slow.resolve(
+      digestFixture({
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙")],
+        itemCount: 1,
+        visibleCount: 1
+      })
+    );
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破乙"));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("drops a late success from the previous selection after a quick switch back (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    const stale = deferred<NewsDailyDigest>();
+    vi.mocked(fetchDailyDigest)
+      .mockResolvedValueOnce(digestFixture())
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(digestFixture());
+    renderPage();
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破甲"));
+
+    // 快连点：切到 10-02（挂起）再立刻切回 10-03（快成功）
+    fireEvent.click(railLink("2026-10-02"));
+    await screen.findByRole("status");
+    fireEvent.click(railLink("2026-10-03"));
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破甲"));
+
+    // 旧选择的成功晚到：被丢弃，主栏不覆盖、不再闪骨架
+    stale.resolve(
+      digestFixture({
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙")],
+        itemCount: 1,
+        visibleCount: 1
+      })
+    );
+    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledTimes(3));
+    expect(mainHeadlines()).toContain("研究突破甲");
+    expect(mainHeadlines()).not.toContain("研究突破乙");
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("drops a late failure from the previous selection (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    const stale = deferred<NewsDailyDigest>();
+    vi.mocked(fetchDailyDigest)
+      .mockResolvedValueOnce(digestFixture())
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(digestFixture());
+    renderPage();
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破甲"));
+
+    fireEvent.click(railLink("2026-10-02"));
+    await screen.findByRole("status");
+    fireEvent.click(railLink("2026-10-03"));
+    await waitFor(() => expect(mainHeadlines()).toContain("研究突破甲"));
+
+    // 旧选择的失败晚到：不吞掉当前成功（无失败卡、无骨架）
+    stale.reject(new Error("boom"));
+    await waitFor(() => expect(fetchDailyDigest).toHaveBeenCalledTimes(3));
+    expect(mainHeadlines()).toContain("研究突破甲");
+    expect(screen.queryByText("日报加载失败")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps a catalog failure visible alongside a successful deep-linked issue (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockRejectedValue(new Error("boom"));
+    vi.mocked(fetchDailyDigest).mockResolvedValue(
+      digestFixture({
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙")],
+        itemCount: 1,
+        visibleCount: 1
+      })
+    );
+    renderPage("/daily/2026-10-02");
+
+    // 深链详情成功呈现（目录失败不吞详情成功）
+    await waitFor(() => expect(screen.getAllByText("研究突破乙").length).toBeGreaterThan(0));
+    // 目录失败卡同屏保留（详情成功不抹掉目录失败），重试可及
+    expect(screen.getByText("日报目录加载失败")).toBeTruthy();
+    expect(screen.getByText("重试")).toBeTruthy();
+  });
+
+  it("closes the contents drawer on issue switch and does not reopen it on arrival (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    const next = deferred<NewsDailyDigest>();
+    vi.mocked(fetchDailyDigest).mockResolvedValueOnce(digestFixture()).mockReturnValueOnce(next.promise);
+    renderPage();
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /本期目录/ }));
+    expect(screen.getByText("本期目录 · 2026-10-03")).toBeTruthy();
+
+    // 切期：旧目录抽屉即刻关闭
+    fireEvent.click(railLink("2026-10-02"));
+    await waitFor(() => expect(screen.queryByText("本期目录 · 2026-10-03")).toBeNull());
+
+    next.resolve(
+      digestFixture({
+        digestDate: "2026-10-02",
+        items: [item(41, 1, "research", "研究突破乙")],
+        itemCount: 1,
+        visibleCount: 1
+      })
+    );
+    await waitFor(() => expect(screen.getAllByText("研究突破乙").length).toBeGreaterThan(0));
+    // 新期到达后抽屉不被重新弹出
+    expect(screen.queryByText(/本期目录 · 2026-10-02/)).toBeNull();
+  });
+
+  it("recovers from a detail failure via retry while the catalog stays usable (#272)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockRejectedValueOnce(new Error("boom")).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("日报加载失败")).toBeTruthy());
+    // 详情失败不吞目录：rail 仍在，且与目录失败文案可区分
+    expect(screen.queryByText("日报目录加载失败")).toBeNull();
+    expect(screen.getByLabelText("往期日报")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("重试"));
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
