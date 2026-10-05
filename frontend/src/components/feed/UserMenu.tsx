@@ -87,7 +87,10 @@ export function UserMenu({ variant = "desktop" }: { variant?: "desktop" | "mobil
         onClick={() => setOpen((value) => !value)}
         className={cn(
           "flex items-center gap-2 rounded-full border border-[var(--feed-line)] bg-white transition-colors hover:border-[var(--feed-text-secondary)]",
-          variant === "desktop" ? "py-1 pl-1 pr-3.5" : "p-[3px]"
+          variant === "desktop"
+            ? "py-1 pl-1 pr-3.5"
+            : // #232 触控清单补齐：移动头像钮 min-h 44 实高，与顶栏语言钮/菜单钮/登录钮同高
+              "min-h-[44px] p-[3px]"
         )}
       >
         {isSafeUrl(avatar) ? (

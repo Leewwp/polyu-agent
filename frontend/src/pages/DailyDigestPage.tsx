@@ -64,15 +64,11 @@ const SECTION_CAPACITY = 8;
 const FLASH_CAP = 12;
 
 /**
- * 目录拉取条数：吃满后端 MAX_LIST_LIMIT=400（约 13 个月存档），月历/前后期
- * 导航/「存档自 X 起」提示由全量摘要驱动；rail 往期清单与移动日期条另行截 30
+ * 目录拉取条数：吃满后端 MAX_LIST_LIMIT=400（约 13 个月存档）——月历/前后期
+ * 导航/「存档自 X 起」提示与 rail 往期清单、移动日期条全部由同一份全量摘要
+ * 驱动（展示面不再截 30，清单标签如实显示存档期数）
  */
 const ARCHIVE_SUMMARY_LIMIT = 400;
-
-/**
- * rail 往期清单与移动日期条的展示条数（近期导航面，不承担全存档可达性）
- */
-const RECENT_ISSUE_COUNT = 30;
 
 const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -469,8 +465,8 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
   const zh = lang === "zh";
   const groups = useMemo(() => {
     const out: { key: string; list: NewsDailyDigestSummary[] }[] = [];
-    // 清单只列近 30 期（标签「往期 · 30 期」如实）；全量摘要只喂月历与前后期导航
-    for (const s of summaries.slice(0, RECENT_ISSUE_COUNT)) {
+    // 全量清单（不截近期 30）：按月分组折叠，rail 自身滚动承载长清单
+    for (const s of summaries) {
       const key = dailyMonthKey(s.digestDate);
       if (out.length === 0 || out[out.length - 1].key !== key) {
         out.push({ key, list: [] });
@@ -487,7 +483,7 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
           <IssueCalendar summaries={summaries} selectedDate={selectedDate} />
         </div>
         <div className="mb-2 px-1 text-[11px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
-          {zh ? "往期 · 30 期" : "PAST 30 ISSUES"}
+          {zh ? `往期 · ${summaries.length} 期` : `PAST ${summaries.length} ISSUES`}
         </div>
         {groups.map((group) => (
           <details key={group.key} open className="mb-2">
@@ -551,7 +547,7 @@ function MobileDateBar({ summaries, selectedDate }: { summaries: NewsDailyDigest
   return (
     <div className="-mx-3.5 mb-4 min-[861px]:hidden">
       <div ref={barRef} className="flex gap-1.5 overflow-x-auto px-3.5 pb-2.5">
-        {summaries.slice(0, RECENT_ISSUE_COUNT).map((s) => {
+        {summaries.map((s) => {
           const selected = s.digestDate === selectedDate;
           const empty = s.itemCount === 0;
           const isToday = s.digestDate === todayKey;
