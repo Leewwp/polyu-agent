@@ -338,6 +338,7 @@ function FieldList({ fields, className }: { fields: AgentConfirmCall["fields"]; 
  * 写操作确认卡：列出这一步要动的工具与入参 整卡一次裁决 不逐条勾选
  * 裁决后按钮撤走只留结论 —— 已经发生的事不该再摆一副能改的样子
  * 只报中文名：这里问的是「要不要办这件事」 工具 ID 属于实现 要查看下面的 tool 行一直都在
+ * call.arguments 不做展示：原始入参 JSON 面向用户属于信息泄露面，只渲染服务端结构化的 fields
  */
 function ConfirmBox({
   block,
@@ -349,7 +350,6 @@ function ConfirmBox({
   outcomes?: (AgentBlockUI | undefined)[];
 }) {
   const confirmPendingTool = useAgentChatStore((state) => state.confirmPendingTool);
-  const toggleBlockOpen = useAgentChatStore((state) => state.toggleBlockOpen);
   const isStreaming = useAgentChatStore((state) => state.isStreaming);
   const calls = block.calls ?? [];
   const pending = block.status === "pending";
@@ -359,7 +359,6 @@ function ConfirmBox({
   const { common, items } = splitCommonFields(calls);
   // 有共同项即说明各项同工具 工具名跟着提到卡头 不必每项重复一遍
   const head = common.length > 0 ? calls[0] : undefined;
-  const raw = calls.map((call) => call.arguments).filter(Boolean);
 
   return (
     <div className="agent-confirm">
@@ -391,22 +390,6 @@ function ConfirmBox({
           );
         })}
       </ul>
-      {raw.length > 0 ? (
-        <div className="agent-confirm-raw">
-          <button
-            type="button"
-            className="agent-tool-summary"
-            onClick={() => {
-              if (messageId) toggleBlockOpen(messageId, block.id);
-            }}
-            aria-expanded={Boolean(block.open)}
-          >
-            <span className="agent-caret">{block.open ? "▾" : "▸"}</span>
-            <span className="agent-tool-preview">原始参数</span>
-          </button>
-          {block.open ? raw.map((text, i) => <pre key={i} className="agent-pre">{text}</pre>) : null}
-        </div>
-      ) : null}
       {pending ? (
         <div className="agent-confirm-actions">
           <button
