@@ -11,8 +11,11 @@ import { MOCK_DAILY_DIGESTS, MOCK_DAILY_DIGEST_SUMMARIES } from "./src/services/
  * （newsMockData 的 vitest fixture 同源）。存档外日期回 code:"0"+data:null
  * ——与生产后端同形（PublicNewsController 口径），越界态可被真实演练。
  * 其余请求原样放行（next → 代理到本地后端）。
+ * #272：VITE_DAILY_SIM_DELAY_MS 可注入响应延迟——真实浏览器在慢请求下
+ * 验证骨架加载反馈用；不设置即零延迟。
  */
 function dailySimPlugin(): Plugin {
+  const simDelayMs = Number(process.env.VITE_DAILY_SIM_DELAY_MS ?? "0") || 0;
   return {
     name: "daily-sim-dev-middleware",
     configureServer(server) {
@@ -28,7 +31,9 @@ function dailySimPlugin(): Plugin {
         const respond = (data: unknown) => {
           res.statusCode = 200;
           res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify({ code: "0", data, message: null, requestId: null, success: true }));
+          setTimeout(() => {
+            res.end(JSON.stringify({ code: "0", data, message: null, requestId: null, success: true }));
+          }, simDelayMs);
         };
         if (tail === "" || tail === "/") {
           respond(MOCK_DAILY_DIGEST_SUMMARIES);

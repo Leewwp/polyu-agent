@@ -43,7 +43,11 @@ import { cn } from "@/lib/utils";
  * - 透明口径：模板导语/部分内容已下架 chips 保留；统计条全客户端推导；
  *   document.title 按期设置——骑 #231 FeedShell title 单源机制（title prop
  *   传期标题，不另写 effect）；报眼月历（#242）挂 rail 顶与目录抽屉
- *   （IssueCalendar 独立组件，月切换限存档范围）。
+ *   （IssueCalendar 独立组件，月切换限存档范围）；
+ * - 加载反馈与竞态（#272）：目录/详情等待均出稳定骨架（aria-busy+
+ *   装饰 aria-hidden+motion-safe 脉动），目录失败与详情失败分开表达，
+ *   详情成功不抹目录失败；渲染守卫保证切期帧不把新日期配旧刊；
+ *   切期关闭旧目录抽屉。
  */
 
 /** 版序 = feed 类目 chips 序（#237 Q7：版序沿用 feed 类目序；other 兜底最后） */
@@ -713,14 +717,22 @@ function EmptyIssueCard({ digest }: { digest: NewsDailyDigest }) {
   );
 }
 
-/** 加载失败+页内重试（#234 吸收）：重试=页内状态复位重取，不整页刷新 */
-function FailureCard({ onRetry }: { onRetry: () => void }) {
+/** 加载失败+页内重试（#234 吸收）：重试=页内状态复位重取，不整页刷新。
+ *  #272：目录失败与详情失败分开表达——title 区分（目录=清单拉不到，
+ *  详情=单期拉不到），其余复用同一张卡。 */
+function FailureCard({
+  onRetry,
+  title
+}: {
+  onRetry: () => void;
+  title?: { zh: string; en: string };
+}) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   return (
     <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center">
       <div className="mb-1.5 text-[15px] font-bold text-[var(--feed-text-primary)]">
-        {zh ? "日报加载失败" : "Failed to load the daily digest"}
+        {title ? (zh ? title.zh : title.en) : zh ? "日报加载失败" : "Failed to load the daily digest"}
       </div>
       <p className="mb-4 text-[12.5px] text-[var(--feed-text-tertiary)]">
         {zh ? "网络或服务暂时不可用，请稍后重试。" : "The network or service is temporarily unavailable. Please retry."}
@@ -733,6 +745,70 @@ function FailureCard({ onRetry }: { onRetry: () => void }) {
         {zh ? "重试" : "Retry"}
       </button>
     </div>
+  );
+}
+
+const LIST_FAILURE_TITLE = { zh: "日报目录加载失败", en: "Failed to load the issue list" };
+
+/**
+ * 主栏等待骨架（#272）：刊头/统计条/头条+看点/版面块的稳定布局占位。
+ * 可访问性：容器 role=status + aria-busy 播报加载状态；全部装饰块
+ * aria-hidden；脉动动画走 motion-safe:（prefers-reduced-motion 下静止不闪）。
+ */
+function DigestSkeleton() {
+  return (
+    <div role="status" aria-busy="true">
+      <span className="sr-only">正在加载日报，请稍候</span>
+      <div aria-hidden="true">
+        {/* 刊头行：题字+日期块 */}
+        <div className="mb-4">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2.5">
+            <div className="min-w-0">
+              <div className="h-[27px] w-52 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+              <div className="mt-2 h-2.5 w-40 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+            </div>
+            <div className="ml-auto flex flex-col items-end gap-1.5">
+              <div className="h-[19px] w-36 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+              <div className="h-2.5 w-44 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+            </div>
+          </div>
+          <div className="mt-2.5 border-b-[3px] border-double border-[var(--feed-line-soft)]" />
+        </div>
+        {/* 统计条 */}
+        <div className="mb-4 h-[46px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+        {/* 头条大卡+今日看点栏 */}
+        <div className="grid items-stretch gap-3.5 min-[861px]:grid-cols-[minmax(0,1fr)_252px]">
+          <div className="h-[216px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+          <div className="h-[216px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+        </div>
+        {/* 版面块标题+两枚条目卡 */}
+        <div className="mt-6 h-5 w-32 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+        <div className="mt-3 grid gap-3 min-[861px]:grid-cols-2">
+          <div className="h-[104px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+          <div className="h-[104px] rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 目录等待时的 rail 位占位（#272）：月历块+往期清单数行，纯装饰 */
+function RailSkeleton() {
+  return (
+    <aside className="hidden min-[861px]:block" aria-hidden="true">
+      <div className="sticky top-[76px] pb-4 pr-1">
+        <div className="mb-3 h-[164px] rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse" />
+        <div className="mb-2 h-4 w-24 rounded bg-[var(--feed-line-soft)] motion-safe:animate-pulse" />
+        <div className="space-y-1.5">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div
+              key={i}
+              className="h-[58px] rounded-xl border border-transparent bg-[var(--feed-card)] shadow-sm motion-safe:animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -762,13 +838,76 @@ function MissingIssueCard({ summaries }: { summaries: NewsDailyDigestSummary[] }
   );
 }
 
+/**
+ * 一期正文的完整主栏（#272 抽出）：summaries 为空数组（目录失败但深链详情
+ * 并行成功的场景）时省略依赖目录的导航件（日期条/翻期格），latest 无从判定。
+ */
+function IssueBody({
+  digest,
+  derived,
+  summaries,
+  onOpenToc
+}: {
+  digest: NewsDailyDigest;
+  derived: DerivedIssue;
+  summaries: NewsDailyDigestSummary[];
+  onOpenToc: () => void;
+}) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const hasCatalog = summaries.length > 0;
+  return (
+    <>
+      <Masthead digest={digest} latest={hasCatalog && digest.digestDate === summaries[0].digestDate} />
+      {hasCatalog && <MobileDateBar summaries={summaries} selectedDate={digest.digestDate} />}
+      <MobileTocButton onOpen={onOpenToc} />
+      {digest.items.length > 0 ? (
+        <>
+          <FrontPage digest={digest} derived={derived} />
+          <SectionBlocks derived={derived} />
+        </>
+      ) : (
+        <EmptyIssueCard digest={digest} />
+      )}
+      {hasCatalog && <PrevNext summaries={summaries} selectedDate={digest.digestDate} />}
+      <div className="mt-6 border-t border-[var(--feed-line-soft)] pt-4 text-center">
+        <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">
+          {zh ? "— 本期完 —" : "— End of issue —"}
+        </span>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-4">
+          <a
+            href={dailyDigestRssUrl(digest.digestDate)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
+          >
+            {zh ? "本期 RSS ↗" : "Issue RSS ↗"}
+          </a>
+          {/* #243 期级订阅出口（默认口径=刊尾位，维护者可否决改位）：连续刊物 feed */}
+          <a
+            href={dailyIssuesFeedUrl()}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
+          >
+            {zh ? "订阅日报 ↗" : "Subscribe ↗"}
+          </a>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function DailyDigestPage() {
   const { date: routeDate } = useParams();
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   const [summaries, setSummaries] = useState<NewsDailyDigestSummary[] | null>(null);
   const [digest, setDigest] = useState<NewsDailyDigest | null>(null);
-  const [failed, setFailed] = useState(false);
+  // #272：目录失败与详情失败分开表达——详情成功不能抹掉目录失败，
+  // 目录失败也不能吞掉深链并行到达的详情成功。
+  const [listFailed, setListFailed] = useState(false);
+  const [detailFailed, setDetailFailed] = useState(false);
   const [missing, setMissing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [tocOpen, setTocOpen] = useState(false);
@@ -782,8 +921,14 @@ export function DailyDigestPage() {
     }
     let alive = true;
     fetchDailyDigestList(ARCHIVE_SUMMARY_LIMIT)
-      .then((list) => alive && setSummaries(list))
-      .catch(() => alive && setFailed(true));
+      .then((list) => {
+        if (!alive) {
+          return;
+        }
+        setSummaries(list);
+        setListFailed(false);
+      })
+      .catch(() => alive && setListFailed(true));
     return () => {
       alive = false;
     };
@@ -796,7 +941,10 @@ export function DailyDigestPage() {
     let alive = true;
     setDigest(null);
     setMissing(false);
-    setFailed(false);
+    setDetailFailed(false);
+    // 切期关闭旧目录抽屉：抽屉内容（版面目录/上下期）全部期绑定，
+    // 不能带进新等待期，更不能在新期到达后自动重新弹出
+    setTocOpen(false);
     fetchDailyDigest(selectedDate)
       .then((detail) => alive && setDigest(detail))
       .catch((error) => {
@@ -808,7 +956,7 @@ export function DailyDigestPage() {
         if (error instanceof Error && error.message.includes(DAILY_MISSING_MESSAGE)) {
           setMissing(true);
         } else {
-          setFailed(true);
+          setDetailFailed(true);
         }
       });
     return () => {
@@ -852,16 +1000,58 @@ export function DailyDigestPage() {
   }
 
   const retry = () => {
-    setFailed(false);
+    setListFailed(false);
+    setDetailFailed(false);
     setReloadKey((key) => key + 1);
+  };
+
+  // 主栏状态机（#272）：成功=正文（digest 属当前所选日期才渲染——切期后
+  // effect 执行前的帧里旧 digest 一律按等待处理，不与所选新日期混配）；
+  // 其余=缺期/详情失败/等待骨架。目录三态在壳层分支表达。
+  const renderMainColumn = (catalog: NewsDailyDigestSummary[]) => {
+    if (digest && derived && digest.digestDate === selectedDate) {
+      return (
+        <IssueBody
+          digest={digest}
+          derived={derived}
+          summaries={catalog}
+          onOpenToc={() => setTocOpen(true)}
+        />
+      );
+    }
+    if (missing) {
+      return <MissingIssueCard summaries={catalog} />;
+    }
+    if (detailFailed) {
+      return <FailureCard onRetry={retry} />;
+    }
+    return <DigestSkeleton />;
   };
 
   return (
     // 报头 Masthead 自带 h1——pageHeading 不开（#231：正文有内容头的页面由正文出 h1）
     <FeedShell title={pageTitle}>
-      {failed ? (
-        <FailureCard onRetry={retry} />
-      ) : summaries === null ? null : summaries.length === 0 ? (
+      {summaries === null && listFailed ? (
+        // 目录失败（#272 分开表达）：非深链没有详情流可等，整页一张目录失败卡；
+        // 深链详情请求仍在飞——目录位失败卡+主栏照常状态机，互不吞错
+        selectedDate === null ? (
+          <FailureCard onRetry={retry} title={LIST_FAILURE_TITLE} />
+        ) : (
+          <div className="grid gap-6 min-[861px]:grid-cols-[236px_minmax(0,1fr)]">
+            <FailureCard onRetry={retry} title={LIST_FAILURE_TITLE} />
+            <div className="min-w-0">{renderMainColumn([])}</div>
+          </div>
+        )
+      ) : summaries === null ? (
+        // 目录等待（首进/深链首帧，#272）：rail 位+主栏骨架，等待期可见；
+        // 目录到达后 rail 保持可操作，切期只重挂主栏
+        <div className="grid gap-6 min-[861px]:grid-cols-[236px_minmax(0,1fr)]">
+          <RailSkeleton />
+          <div className="min-w-0">
+            <DigestSkeleton />
+          </div>
+        </div>
+      ) : summaries.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
           {zh ? "日报尚未生成（每日 08:40 HKT 出刊）" : "No issue yet — the digest is published daily at 08:40 HKT"}
         </div>
@@ -869,49 +1059,8 @@ export function DailyDigestPage() {
         <div className="grid gap-6 min-[861px]:grid-cols-[236px_minmax(0,1fr)]">
           <DesktopRail summaries={summaries} selectedDate={selectedDate ?? summaries[0].digestDate} />
           <div className="min-w-0">
-            {digest && derived ? (
-              <>
-                <Masthead digest={digest} latest={digest.digestDate === summaries[0].digestDate} />
-                <MobileDateBar summaries={summaries} selectedDate={digest.digestDate} />
-                <MobileTocButton onOpen={() => setTocOpen(true)} />
-                {digest.items.length > 0 ? (
-                  <>
-                    <FrontPage digest={digest} derived={derived} />
-                    <SectionBlocks derived={derived} />
-                  </>
-                ) : (
-                  <EmptyIssueCard digest={digest} />
-                )}
-                <PrevNext summaries={summaries} selectedDate={digest.digestDate} />
-                <div className="mt-6 border-t border-[var(--feed-line-soft)] pt-4 text-center">
-                  <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">
-                    {zh ? "— 本期完 —" : "— End of issue —"}
-                  </span>
-                  <div className="mt-2 flex flex-wrap items-center justify-center gap-4">
-                    <a
-                      href={dailyDigestRssUrl(digest.digestDate)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
-                    >
-                      {zh ? "本期 RSS ↗" : "Issue RSS ↗"}
-                    </a>
-                    {/* #243 期级订阅出口（默认口径=刊尾位，维护者可否决改位）：连续刊物 feed */}
-                    <a
-                      href={dailyIssuesFeedUrl()}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex min-h-[44px] items-center text-[12px] font-semibold text-[var(--feed-text-secondary)] hover:underline"
-                    >
-                      {zh ? "订阅日报 ↗" : "Subscribe ↗"}
-                    </a>
-                  </div>
-                </div>
-              </>
-            ) : missing ? (
-              <MissingIssueCard summaries={summaries} />
-            ) : null}
-            {digest && derived && (
+            {renderMainColumn(summaries)}
+            {digest && derived && digest.digestDate === selectedDate && (
               <TocDrawer
                 open={tocOpen}
                 onClose={() => setTocOpen(false)}
