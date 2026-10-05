@@ -408,4 +408,32 @@ describe("DailyDigestPage", () => {
     );
     expect(offender).toBeUndefined();
   });
+
+  it("fetches the archive-wide summary list and bounds the rail/mobile strip to 30 (#264 存档可达性)", async () => {
+    // 40 期夹具（10-03 起回溯 39 天，跨 10/09/08 三个月）：月历/前后期导航/存档
+    // 边界吃全量，rail 往期清单与移动日期条只列近 30 期
+    const archive: NewsDailyDigestSummary[] = Array.from({ length: 40 }, (_, i) => {
+      const ds = new Date(Date.UTC(2026, 9, 3 - i)).toISOString().slice(0, 10);
+      return {
+        digestDate: ds,
+        itemCount: 1,
+        introSource: "fallback",
+        buildTime: `${ds}T08:40:00+08:00`,
+        firstTitleZh: `存档${40 - i}`,
+        firstTitleEn: `Archive ${40 - i}`
+      };
+    });
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(archive);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
+    // 拉取走存档上限（后端 MAX_LIST_LIMIT=400），不再默认 30 截断存档
+    expect(vi.mocked(fetchDailyDigestList)).toHaveBeenCalledWith(400);
+    // rail 清单截 30：第 30 期（存档11）在、第 31 期（存档10）不在
+    expect(screen.getByText("存档11")).toBeTruthy();
+    expect(screen.queryByText("存档10")).toBeNull();
+    // 月历边界由全量摘要派生：最早期落在 8 月 → 「上一月」可翻（10 月起步）
+    expect(screen.getByRole("button", { name: "上一月" }).hasAttribute("disabled")).toBe(false);
+  });
 });

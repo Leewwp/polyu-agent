@@ -63,6 +63,17 @@ const CATEGORY_ORDER: NewsCategory[] = [
 const SECTION_CAPACITY = 8;
 const FLASH_CAP = 12;
 
+/**
+ * 目录拉取条数：吃满后端 MAX_LIST_LIMIT=400（约 13 个月存档），月历/前后期
+ * 导航/「存档自 X 起」提示由全量摘要驱动；rail 往期清单与移动日期条另行截 30
+ */
+const ARCHIVE_SUMMARY_LIMIT = 400;
+
+/**
+ * rail 往期清单与移动日期条的展示条数（近期导航面，不承担全存档可达性）
+ */
+const RECENT_ISSUE_COUNT = 30;
+
 const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -458,7 +469,8 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
   const zh = lang === "zh";
   const groups = useMemo(() => {
     const out: { key: string; list: NewsDailyDigestSummary[] }[] = [];
-    for (const s of summaries) {
+    // 清单只列近 30 期（标签「往期 · 30 期」如实）；全量摘要只喂月历与前后期导航
+    for (const s of summaries.slice(0, RECENT_ISSUE_COUNT)) {
       const key = dailyMonthKey(s.digestDate);
       if (out.length === 0 || out[out.length - 1].key !== key) {
         out.push({ key, list: [] });
@@ -539,7 +551,7 @@ function MobileDateBar({ summaries, selectedDate }: { summaries: NewsDailyDigest
   return (
     <div className="-mx-3.5 mb-4 min-[861px]:hidden">
       <div ref={barRef} className="flex gap-1.5 overflow-x-auto px-3.5 pb-2.5">
-        {summaries.map((s) => {
+        {summaries.slice(0, RECENT_ISSUE_COUNT).map((s) => {
           const selected = s.digestDate === selectedDate;
           const empty = s.itemCount === 0;
           const isToday = s.digestDate === todayKey;
@@ -773,7 +785,7 @@ export function DailyDigestPage() {
       return;
     }
     let alive = true;
-    fetchDailyDigestList()
+    fetchDailyDigestList(ARCHIVE_SUMMARY_LIMIT)
       .then((list) => alive && setSummaries(list))
       .catch(() => alive && setFailed(true));
     return () => {
