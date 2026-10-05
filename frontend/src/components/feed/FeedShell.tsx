@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { FeedSidebar } from "./FeedSidebar";
@@ -196,6 +196,17 @@ function FeedShellInner({ title, children, fluid, shareView, pageHeading }: Feed
   const chatTitle = useChatSessionTitle();
   const fluidTitle = shareView ? shareView.title : chatTitle;
   usePageTitle((fluid && fluidTitle) || title);
+
+  // #292：移动端会话抽屉（≤860px）为自研 aside+遮罩，无内建 Escape——这里补键盘
+  // 关闭；桌面档（≥861px）菜单钮隐藏、sidebarOpen 恒 false，监听不会生效
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarOpen]);
 
   // 页面级 h1（#231）：正文无内容头的栏目页由壳渲染；桌面 sr-only（clip，
   // 不摘出无障碍树）去与顶栏重复的视觉页名，移动端（≤860px）显示为正文页名。

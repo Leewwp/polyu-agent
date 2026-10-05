@@ -659,7 +659,9 @@ html.dark *::-webkit-scrollbar-thumb:hover {
   }
 
   .admin-layout .admin-sidebar {
-    @apply flex w-64 flex-col bg-gradient-to-b from-[#1a1f2e] to-[#252d3d] text-white/70 transition-[width] duration-200;
+    /* #292：侧栏高度=父级 h-screen 拉伸，菜单超出视口时自身可滚
+       （此前 overflow visible 只能靠整页溢出副作用、悬停主区时滚轮被 .admin-main 先消化） */
+    @apply flex w-64 flex-col overflow-y-auto bg-gradient-to-b from-[#1a1f2e] to-[#252d3d] text-white/70 transition-[width] duration-200;
   }
 
   .admin-layout .admin-sidebar--collapsed {

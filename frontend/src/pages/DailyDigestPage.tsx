@@ -291,6 +291,9 @@ function IssueToc({ derived, spacious = false }: { derived: DerivedIssue; spacio
       href: "#sec-flash"
     });
   }
+  // #292：单条期（仅头条）版面行为空——按页面「空版消失」设计隐藏目录，
+  // 不再渲染空 nav（头版「本期版面」标题由调用侧同条件隐藏）
+  if (rows.length === 0) return null;
   return (
     <nav aria-label={zh ? "本期版面目录" : "Issue contents"} className="space-y-0.5">
       {rows.map((row) => (
@@ -355,11 +358,17 @@ function FrontPage({ digest, derived }: { digest: NewsDailyDigest; derived: Deri
             {derived.highlights.length === 0 && (
               <div className="py-1.5 text-[11.5px] text-[var(--feed-text-tertiary)]">{zh ? "本期看点不足三条" : "—"}</div>
             )}
-            <div className="my-2.5 border-t border-[var(--feed-line-soft)]" />
-            <div className="mb-1 text-[10px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
-              {zh ? "本期版面" : "SECTIONS"}
-            </div>
-            <IssueToc derived={derived} />
+            {/* #292：单条期（仅头条）版面行为空——「本期版面」整块随空版消失，
+                与 IssueToc 空态同条件（sections+快讯均空） */}
+            {(derived.sections.length > 0 || derived.flashes.length > 0) && (
+              <>
+                <div className="my-2.5 border-t border-[var(--feed-line-soft)]" />
+                <div className="mb-1 text-[10px] font-bold tracking-[0.14em] text-[var(--feed-text-tertiary)]">
+                  {zh ? "本期版面" : "SECTIONS"}
+                </div>
+                <IssueToc derived={derived} />
+              </>
+            )}
           </div>
         </aside>
       </div>

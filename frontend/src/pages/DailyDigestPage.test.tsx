@@ -194,6 +194,27 @@ describe("DailyDigestPage", () => {
     expect(fetchDailyDigest).toHaveBeenCalledWith("2026-10-03");
   });
 
+  it("#292 single-item issue hides the empty SECTIONS block (lead only, no sections/flash)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(
+      digestFixture({
+        digestDate: "2026-09-30",
+        items: [item(51, 1, "research", "唯一条目甲")],
+        itemCount: 1,
+        visibleCount: 1
+      })
+    );
+    renderPage("/daily/2026-09-30");
+
+    await waitFor(() => expect(screen.getAllByText("唯一条目甲").length).toBeGreaterThan(0));
+    // 单条期：版面行（sections+快讯）为空——「本期版面」标题与目录整块消失（空版消失）
+    expect(screen.queryByText("本期版面")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "本期版面目录" })).toBeNull();
+    // 看点区独立于版面区：标题仍在，条目不足三条走回退文案
+    expect(screen.getByText("今日看点")).toBeTruthy();
+    expect(screen.getByText("本期看点不足三条")).toBeTruthy();
+  });
+
   it("drives document.title per issue through the FeedShell title mechanism and sets canonical=/daily", async () => {
     vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
