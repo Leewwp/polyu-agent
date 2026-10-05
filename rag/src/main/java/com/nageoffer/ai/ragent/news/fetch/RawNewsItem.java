@@ -39,6 +39,9 @@ import java.util.Date;
  * @param publishTimePrecision 发布时间精度（#275）：date=只有日期（代表值 23:59:59，
  *                     展示层只显日期）/datetime=真实瞬时/unknown=历史或非本批精确化路径
  *                     （sitemap lastmod、events start-date 含义不改）
+ * @param rawSummary  去 HTML 的 feed 原始摘要（#277：八校确定性门的准入证据之一；
+ *                     仅 RSS 族携带，其余型 null——不得用富化后 LLM 摘要或网页
+ *                     导航/footer 文本当准入证据）
  */
 public record RawNewsItem(String url,
                           String urlHash,
@@ -48,5 +51,13 @@ public record RawNewsItem(String url,
                           Date publishTime,
                           String categoryHint,
                           String sourceKey,
-                          String publishTimePrecision) {
+                          String publishTimePrecision,
+                          String rawSummary) {
+
+    /** 兼容构造（无原始摘要）：rawSummary=null */
+    public RawNewsItem(String url, String urlHash, String title, String titleZh, String langRaw,
+                       Date publishTime, String categoryHint, String sourceKey, String publishTimePrecision) {
+        this(url, urlHash, title, titleZh, langRaw, publishTime, categoryHint, sourceKey,
+                publishTimePrecision, null);
+    }
 }

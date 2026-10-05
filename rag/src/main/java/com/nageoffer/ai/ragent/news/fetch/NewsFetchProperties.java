@@ -107,6 +107,60 @@ public class NewsFetchProperties {
     private Map<String, Integer> admissionSourceDailyCaps = new LinkedHashMap<>();
 
     /**
+     * 八校确定性门生效的 source_key 集（#277）：仅指定源走原始标题/原摘要白名单，
+     * 其余源（含全部官网源）不经门——「只对指定新 source_key 生效」红线。
+     */
+    private java.util.Set<String> gateSourceKeys = java.util.Set.of(
+            "scmp-education", "rthk-local-news", "gia-news");
+
+    /**
+     * 八校白名单·无歧义组（#277）：任意语境可命中的全名/明确缩写/特指简称
+     * （配置可整组覆盖；默认与 EightUniversityGate.withDefaults 一致）
+     */
+    private java.util.List<String> unambiguousTerms = java.util.List.of(
+            "University of Hong Kong", "Chinese University of Hong Kong",
+            "Hong Kong University of Science and Technology",
+            "Hong Kong Polytechnic University", "Polytechnic University",
+            "Hong Kong Baptist University", "Education University of Hong Kong",
+            "HKU", "HKUST", "CUHK", "HKBU", "EdUHK", "PolyU",
+            "香港大學", "香港大学", "香港中文大學", "香港中文大学",
+            "香港科技大學", "香港科技大学", "香港理工大學", "香港理工大学",
+            "香港浸會大學", "香港浸会大学", "香港城市大學", "香港城市大学",
+            "香港教育大學", "香港教育大学", "嶺南大學", "岭南大学",
+            "港大", "理大", "浸大", "教大");
+
+    /**
+     * 八校白名单·歧义组（#277）：需文本另有 Hong Kong/HK/香港 语境才命中
+     * （CityU/Lingnan/城市大学/中大/科大/城大/岭南——防境外同名与泛指误命中）
+     */
+    private java.util.List<String> contextualTerms = java.util.List.of(
+            "CityU", "Lingnan", "City University", "城市大學", "城市大学",
+            "中大", "科大", "城大", "嶺南", "岭南");
+
+    /** 八校门单例（词表配置解析后构造） */
+    private transient volatile com.nageoffer.ai.ragent.news.gate.EightUniversityGate eightUniversityGate;
+
+    /** 门是否对该 sourceKey 生效（#277） */
+    public boolean gateAppliesTo(String sourceKey) {
+        return sourceKey != null && gateSourceKeys.contains(sourceKey);
+    }
+
+    /** 惰性构造门（词表配置可 yaml 覆盖；线程安全 double-checked 足够——只读） */
+    public com.nageoffer.ai.ragent.news.gate.EightUniversityGate eightUniversityGate() {
+        com.nageoffer.ai.ragent.news.gate.EightUniversityGate gate = eightUniversityGate;
+        if (gate == null) {
+            synchronized (this) {
+                gate = eightUniversityGate;
+                if (gate == null) {
+                    gate = new com.nageoffer.ai.ragent.news.gate.EightUniversityGate(unambiguousTerms, contextualTerms);
+                    eightUniversityGate = gate;
+                }
+            }
+        }
+        return gate;
+    }
+
+    /**
      * 旧文归档阈值（小时，#185）：发现时原文发布时间早于 now-本值 → archived
      * 终态（不进「今天」、跳过付费富化、不计日准入）。lastmod=修改时间不得
      * 冒充首发时间（解析侧空发布时间已过滤，服务侧 null 一律不入库）

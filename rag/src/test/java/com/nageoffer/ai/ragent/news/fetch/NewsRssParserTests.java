@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 
 /**
  * RSS（YouTube Atom）型解析测试
@@ -41,6 +42,69 @@ class NewsRssParserTests {
         try (InputStream in = getClass().getResourceAsStream("/fixtures/news/youtube-rss.xml")) {
             assertNotNull(in, "fixture 缺失：/fixtures/news/youtube-rss.xml");
             return in.readAllBytes();
+        }
+    }
+
+    // ================== #277 三媒体/政府源实采 fixture（部署出口 2026-10-05） ==================
+
+    private static byte[] feedFixture(String name) throws Exception {
+        try (InputStream in = NewsRssParserTests.class.getResourceAsStream("/fixtures/news/" + name)) {
+            assertNotNull(in, "fixture 缺失：/fixtures/news/" + name);
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void scmpEducationFeedParsesWithDescriptionAndPrecisePubDate() throws Exception {
+        List<NewsRssParser.RssEntry> entries = NewsRssParser.parse(feedFixture("scmp-education-rss.xml"));
+        assertEquals(8, entries.size(), "截取样本 8 条（全量 50）");
+        NewsRssParser.RssEntry first = entries.get(0);
+        assertTrue(first.link().startsWith("https://www.scmp.com/"), "原文链接直指 SCMP 官网");
+        assertNotNull(first.publishTime(), "精确 pubDate（UTC RFC1123）");
+        assertTrue(first.description() != null && first.description().contains("University of Hong Kong"),
+                "description 保留（八校门准入证据）");
+        assertTrue(first.title().startsWith("HKU eyes Northern Metropolis"));
+    }
+
+    @Test
+    void rthkLocalFeedParsesCdataTitlesWithPreciseHktPubDate() throws Exception {
+        List<NewsRssParser.RssEntry> entries = NewsRssParser.parse(feedFixture("rthk-local-rss.xml"));
+        assertEquals(8, entries.size(), "截取样本 8 条（全量 20——驻留 ~2 天，覆盖 13h 采集间隔）");
+        NewsRssParser.RssEntry first = entries.get(0);
+        assertTrue(first.title().contains("owners"), "CDATA 标题正常解出");
+        assertTrue(first.link().contains("news.rthk.hk"));
+        assertNotNull(first.publishTime(), "精确 pubDate（+0800）");
+    }
+
+    @Test
+    void giaFeedParsesWithHtmlEntityDescriptions() throws Exception {
+        List<NewsRssParser.RssEntry> entries = NewsRssParser.parse(feedFixture("gia-general-en-rss.xml"));
+        assertEquals(8, entries.size(), "截取样本 8 条（全量 100）");
+        NewsRssParser.RssEntry first = entries.get(0);
+        assertTrue(first.link().startsWith("https://www.info.gov.hk/gia/"));
+        assertNotNull(first.description(), "含 &nbsp; 实体的 description 保留（fetcher 侧去 HTML）");
+    }
+
+    @Test
+    void rssFetcherCarriesStrippedHtmlSummaryAsGateEvidence() throws Exception {
+        // #277：RssNewsFetcher 随行去 HTML 原始摘要（八校门证据），HTML 标签不残留
+        NewsHttpFetchClient client = org.mockito.Mockito.mock(NewsHttpFetchClient.class);
+        NewsFetchProperties properties = new NewsFetchProperties();
+        NewsSourceDO gia = NewsSourceDO.builder()
+                .id(21L).sourceKey("gia-news").platform("media")
+                .fetchEndpoint("https://www.info.gov.hk/gia/rss/general_en.xml")
+                .fetchStrategy("RSS").enabled(true).build();
+        org.mockito.Mockito.when(client.get(gia.getFetchEndpoint())).thenReturn(feedFixture("gia-general-en-rss.xml"));
+
+        List<RawNewsItem> items = new RssNewsFetcher(client, properties).fetch(gia);
+
+        org.junit.jupiter.api.Assertions.assertFalse(items.isEmpty());
+        for (RawNewsItem item : items) {
+            org.junit.jupiter.api.Assertions.assertNotNull(item.rawSummary(), "原摘要随行");
+            org.junit.jupiter.api.Assertions.assertFalse(item.rawSummary().contains("<") && item.rawSummary().contains(">"),
+                    "HTML 标签已剥离: " + item.rawSummary().substring(0, Math.min(40, item.rawSummary().length())));
+            org.junit.jupiter.api.Assertions.assertEquals("en", item.langRaw());
+            org.junit.jupiter.api.Assertions.assertEquals(PublishTimePrecision.DATETIME, item.publishTimePrecision());
         }
     }
 
