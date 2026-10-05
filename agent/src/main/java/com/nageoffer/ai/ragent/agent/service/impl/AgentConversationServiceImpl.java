@@ -33,6 +33,7 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmCall;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.enums.AgentToolStatus;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
@@ -72,6 +73,7 @@ public class AgentConversationServiceImpl implements AgentConversationService {
     private final AgentMessageMapper messageMapper;
     private final PgAgentStateStore agentStateStore;
     private final AgentRunGate runGate;
+    private final AgentMemoryApprovalService memoryApprovalService;
 
     @Override
     public String touchConversation(String conversationId, String userId, String question) {
@@ -331,6 +333,8 @@ public class AgentConversationServiceImpl implements AgentConversationService {
                     .eq(AgentMessageDO::getUserId, userId));
             // Agent 状态同库，随事务一起删；状态缓存由运行侧放锁前清空，这里不用管
             agentStateStore.delete(userId, conversationId);
+            // 源会话没了，确认卡与待批工具调用随之不可达：未执行的记忆计划整批失效，不留孤立可执行计划
+            memoryApprovalService.invalidateForDeletedConversation(userId, conversationId);
         } finally {
             // 持锁到事务结束，批量删除等整批提交或回滚，期间新运行进不来
             afterCompletion(releaseLock);

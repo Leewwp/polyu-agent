@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.trace;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog;
@@ -205,6 +206,7 @@ class AgentToolBodyTracerCoverageTest {
                 mcpClients,
                 memoryProperties,
                 mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
                 skillRegistry);
         return catalog.buildToolkit(catalog.resolve(prompts));
     }

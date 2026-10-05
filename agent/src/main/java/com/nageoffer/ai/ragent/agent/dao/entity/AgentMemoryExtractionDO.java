@@ -73,6 +73,36 @@ public class AgentMemoryExtractionDO {
      */
     private Integer attemptCount;
 
+    /**
+     * 冻结的记忆变更计划快照，仅审批链路（PENDING_APPROVAL 起）读写，见 AgentMemoryPlan
+     */
+    private String planJson;
+
+    /**
+     * 计划有效期截止（冻结时刻+30 分钟），到期待需结算
+     */
+    private Date planExpiresAt;
+
+    /**
+     * 冻结时刻的记忆版本号，执行时复核
+     */
+    private Long expectedRevision;
+
+    /**
+     * 批准绑定的 apply_memory_change 工具调用ID
+     */
+    private String planToolCallId;
+
+    /**
+     * 批准所在的确认卡消息ID，审计用
+     */
+    private String planConfirmMessageId;
+
+    /**
+     * APPLIED 后的执行结果快照，重复执行读原结果
+     */
+    private String planResultJson;
+
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
 

@@ -127,6 +127,10 @@ agent:
     summary-enabled: true
     long-term-enabled: true
     evictable-tools: [ search_knowledge ]
+    # #278 撤回/清空 HITL 审批开关（新功能默认关，启用时点归维护者，同 RAG_CALENDAR_ENABLED 先例）：
+    # 关态=受审批次走既有直接落库路径、不挂载 apply_memory_change。env=AGENT_MEMORY_HITL_APPROVAL_ENABLED。
+    # 注意：迁移 261005_agent_memory_hitl_approval 仍是部署先决条件（抽取入口无条件查询 plan_* 列），与本开关无关
+    hitl-approval-enabled: false
   trace:
     enabled: false  # 开启前先起 resources/docker/langfuse 那套服务
     capture-content: true  # 记录提示词与工具出入参；纯骨架改 false

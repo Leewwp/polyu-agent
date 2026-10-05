@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.tool;
 
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
@@ -67,6 +68,7 @@ class AgentToolCatalogTest {
                 mcpClients,
                 memoryProperties(false),
                 mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
                 mock(AgentSkillRegistry.class));
 
         AgentToolCatalog.ResolvedCatalog resolved = catalog.resolve(KNOWLEDGE_ONLY);
@@ -130,17 +132,44 @@ class AgentToolCatalogTest {
         Toolkit toolkit = catalog.buildToolkit(resolved);
 
         assertThat(toolkit.getToolNames())
-                .containsExactlyInAnyOrder(KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME);
+                .containsExactlyInAnyOrder(KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME,
+                        MemoryApplyTool.TOOL_NAME);
         assertThat(toolkit.getTool(MemoryFlushTool.TOOL_NAME).getDescription())
                 .isEqualTo(MEMORY_SLOT_CONTENT);
         // 无参：给了参数就等于把内容写入权交给模型
         assertThat(toolkit.getTool(MemoryFlushTool.TOOL_NAME).getParameters())
                 .containsEntry("properties", Map.of());
         assertThat(toolkit.getTool(MemoryFlushTool.TOOL_NAME).isReadOnly()).isFalse();
+        // 执行工具与整理工具成对挂载（#278）：ToolBase 走原生 ASK，入参只有计划编号
+        assertThat(((ToolBase) toolkit.getTool(MemoryApplyTool.TOOL_NAME)).checkPermissions(
+                Map.of("operationId", "e-1"), null).block().getBehavior()).isEqualTo(PermissionBehavior.ASK);
+        assertThat(resolved.displayNameOf(MemoryApplyTool.TOOL_NAME)).isEqualTo(MemoryApplyTool.DISPLAY_NAME);
         assertThat(resolved.displayNameOf(MemoryFlushTool.TOOL_NAME)).isEqualTo(MemoryFlushTool.DISPLAY_NAME);
         assertThat(resolved.fingerprint().memoryToolDescription()).isEqualTo(MEMORY_SLOT_CONTENT);
         assertThat(resolved.fingerprint()).isNotEqualTo(catalogWithMemory(false)
                 .resolve(promptsWithMemory(MEMORY_SLOT_CONTENT)).fingerprint());
+    }
+
+    /**
+     * 审批开关默认关（flag 回退面）：flush 照挂、apply 不挂——开关翻面不重建 Toolkit 也拿不到执行工具
+     */
+    @Test
+    void shouldNotMountApplyToolWhenApprovalDisabled() {
+        IntentNodeRegistry intentNodeRegistry = mock(IntentNodeRegistry.class);
+        when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of());
+        AgentToolCatalog catalog = new AgentToolCatalog(
+                mock(KnowledgeSearchFacade.class),
+                intentNodeRegistry,
+                mock(AgentMcpClients.class),
+                memoryProperties(true, false),
+                mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
+                mock(AgentSkillRegistry.class));
+
+        AgentToolCatalog.ResolvedCatalog resolved = catalog.resolve(promptsWithMemory(MEMORY_SLOT_CONTENT));
+
+        assertThat(catalog.buildToolkit(resolved).getToolNames())
+                .containsExactlyInAnyOrder(KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME);
     }
 
     /**
@@ -309,6 +338,7 @@ class AgentToolCatalogTest {
                 mcpClients,
                 memoryProperties(false),
                 mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
                 mock(AgentSkillRegistry.class));
     }
 
@@ -324,8 +354,10 @@ class AgentToolCatalogTest {
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
                 mcpClients,
-                memoryProperties(longTermEnabled),
+                // 记忆挂载断言面默认连同 HITL 审批一起开：apply 工具的成对挂载在开关开态下断言
+                memoryProperties(longTermEnabled, true),
                 mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
                 mock(AgentSkillRegistry.class));
     }
 
@@ -336,8 +368,13 @@ class AgentToolCatalogTest {
     }
 
     private AgentMemoryProperties memoryProperties(boolean longTermEnabled) {
+        return memoryProperties(longTermEnabled, false);
+    }
+
+    private AgentMemoryProperties memoryProperties(boolean longTermEnabled, boolean hitlApprovalEnabled) {
         AgentMemoryProperties properties = new AgentMemoryProperties();
         properties.setLongTermEnabled(longTermEnabled);
+        properties.setHitlApprovalEnabled(hitlApprovalEnabled);
         return properties;
     }
 

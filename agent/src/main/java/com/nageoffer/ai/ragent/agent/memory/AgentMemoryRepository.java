@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.agent.memory;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
@@ -534,5 +535,198 @@ public class AgentMemoryRepository {
         if (extractionMapper.settle(commit.extractionId(), status.name(), decisionCount, commit.attemptCount()) != 1) {
             throw new IllegalStateException("长期记忆抽取已被结掉, extractionId: " + commit.extractionId());
         }
+    }
+
+    // ---- HITL 审批计划（#278）：extractionId 即 operationId，计划状态机全走条件更新 ----
+
+    /**
+     * 该用户当前待审（或已批未执行）的计划行，没有返回 null；是否过期由调用方按需结算
+     */
+    public AgentMemoryExtractionDO pendingPlan(String userId) {
+        return extractionMapper.selectPendingPlan(userId);
+    }
+
+    /**
+     * 冻结受审批次：claim 到的 PROCESSING 行连同计划快照转入待审，腾出抽取互斥位但不推水位
+     * 冻结失败按普通失败结算，行不能挂在 PROCESSING 上等僵尸回收
+     * 落空原因除旁路裁决外，还包括源会话已被删（会话存在性守卫，judge 在飞期间删会话不产生孤立计划）
+     */
+    public boolean freezePlan(AgentMemoryExtractionDO extraction, AgentMemoryPlan plan, int expiryMinutes) {
+        int frozen = extractionMapper.freezePlan(extraction.getId(), extraction.getUserId(),
+                plan.toJson(), plan.expectedRevision(), expiryMinutes);
+        if (frozen != 1) {
+            log.warn("长期记忆计划冻结落空, 按失败结算, extractionId: {}", extraction.getId());
+            settleFailure(extraction);
+            return false;
+        }
+        log.info("长期记忆变更计划已冻结待审, userId: {}, operationId: {}, 撤回: {}, 清空: {}, 覆盖消息: {}",
+                extraction.getUserId(), extraction.getId(), plan.retractCount(), plan.containsClear(),
+                plan.pendingMessageCount());
+        return true;
+    }
+
+    /**
+     * 批准：仅确认端点调用；待审/已批行幂等改绑，过期或旁路裁决返回 false
+     */
+    public boolean approvePlan(String operationId, String userId, String toolCallId, String confirmMessageId) {
+        return extractionMapper.approvePlan(operationId, userId, toolCallId, confirmMessageId) == 1;
+    }
+
+    /**
+     * 拒绝：用户点取消即终局并推水位，防止同一句「忘记/清空」下一轮重放
+     */
+    public boolean rejectPlan(String operationId, String userId) {
+        return extractionMapper.rejectPlan(operationId, userId) == 1;
+    }
+
+    /**
+     * 按需结算到期计划（读取/确认/执行/新请求检查入口各调一次），返回结算行数
+     */
+    public int expireStalePlans(String userId) {
+        return extractionMapper.expireStalePlans(userId);
+    }
+
+    /**
+     * 失效：执行期版本/水位复核不过，或源会话删除；未批与已批未执行都收
+     */
+    public int invalidatePlans(String userId, String operationId, String conversationId) {
+        return extractionMapper.invalidatePlan(userId, operationId, conversationId);
+    }
+
+    /**
+     * 计划执行短事务：批准后由执行工具调用，变更与结果原子提交，重复执行回放原结果
+     * REFUSED 的每个分支都保证不产生任何记忆变更；除失效结算外不动行状态
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public AgentMemoryPlanExecution executeApprovedPlan(String operationId, String userId, String toolCallId) {
+        AgentMemoryControlDO control = controlMapper.selectForUpdate(userId);
+        AgentMemoryExtractionDO row = extractionMapper.selectById(operationId);
+        if (row == null || !Objects.equals(row.getUserId(), userId)) {
+            return AgentMemoryPlanExecution.refused("该记忆变更计划不存在或不属于当前用户，未执行任何变更");
+        }
+        String status = row.getStatus();
+        if (AgentMemoryExtractionStatus.APPLIED.name().equals(status)) {
+            return AgentMemoryPlanExecution.replayed(row.getPlanResultJson());
+        }
+        if (!AgentMemoryExtractionStatus.APPROVED.name().equals(status)) {
+            return AgentMemoryPlanExecution.refused(refusalOf(status));
+        }
+        if (StrUtil.isNotBlank(toolCallId) && !toolCallId.equals(row.getPlanToolCallId())) {
+            log.warn("记忆计划执行绑定不符, operationId: {}, 绑定: {}, 本次: {}",
+                    operationId, row.getPlanToolCallId(), toolCallId);
+            return AgentMemoryPlanExecution.refused("该计划与本次工具调用不匹配，未执行任何变更");
+        }
+        AgentMemoryPlan plan = AgentMemoryPlan.fromJson(row.getPlanJson());
+        if (plan == null) {
+            extractionMapper.invalidatePlan(userId, operationId, null);
+            return AgentMemoryPlanExecution.refused("计划数据已缺失，计划作废，请重新发起");
+        }
+        String watermark = extractionMapper.selectWatermark(userId);
+        if (control == null || control.getRevision() != plan.expectedRevision()
+                || !Objects.equals(watermark, plan.expectedWatermark())) {
+            extractionMapper.invalidatePlan(userId, operationId, null);
+            log.info("记忆计划因版本变化失效, userId: {}, operationId: {}, 期望版本: {}, 实际: {}",
+                    userId, operationId, plan.expectedRevision(), control == null ? null : control.getRevision());
+            return AgentMemoryPlanExecution.refused("记忆内容在确认后已发生变化，该计划已失效，请重新发起");
+        }
+        AgentMemorySourceType sourceType = AgentMemorySourceType.valueOf(plan.triggerType());
+        if (plan.containsClear()) {
+            return applyClearPlan(userId, operationId, plan, sourceType);
+        }
+        return applyPartialPlan(userId, operationId, plan, sourceType);
+    }
+
+    /**
+     * 清空型计划：与 commitClear 同一套校验，只是超限不再抛异常重试——批准已消费，失效并让用户重新发起
+     */
+    private AgentMemoryPlanExecution applyClearPlan(String userId, String operationId,
+                                                    AgentMemoryPlan plan, AgentMemorySourceType sourceType) {
+        List<AgentMemoryDecision> additions = plan.additions();
+        int maxChars = memoryProperties.resolveMemoryMaxChars();
+        int projected = AgentMemoryBlock.projectedChars(List.of(), additions);
+        boolean unstorable = additions.stream().anyMatch(addition -> !storable(addition.content()));
+        if (unstorable || projected > maxChars) {
+            extractionMapper.invalidatePlan(userId, operationId, null);
+            return AgentMemoryPlanExecution.refused("清空后要新记的内容超出记忆上限，计划已失效，请分步重新发起");
+        }
+        int cleared = memoryMapper.retractAll(userId);
+        int added = apply(userId, sourceType, additions);
+        String summary = cleared > 0
+                ? "已清空全部长期记忆，共清除 " + cleared + " 条"
+                : "长期记忆原本就是空的，当前已无长期记忆";
+        if (added > 0) {
+            summary = summary + "；清空之后的发言又生效了 " + added + " 条记忆变更";
+        }
+        return settleApplied(userId, operationId, added + (cleared > 0 ? 1 : 0), summary,
+                cleared > 0 || added > 0, true, cleared);
+    }
+
+    /**
+     * 非清空型计划：与 commit 同一套过滤——指不着的目标、存不下的正文整条丢弃，剩余照批
+     */
+    private AgentMemoryPlanExecution applyPartialPlan(String userId, String operationId,
+                                                      AgentMemoryPlan plan, AgentMemorySourceType sourceType) {
+        List<AgentMemoryItem> active = listActiveItems(userId);
+        Map<String, String> survivors = new LinkedHashMap<>();
+        for (AgentMemoryItem item : active) {
+            survivors.put(item.id(), item.content());
+        }
+        List<AgentMemoryDecision> effective = new ArrayList<>();
+        for (AgentMemoryDecision decision : plan.decisions()) {
+            if (decision.targetId() != null && !survivors.containsKey(decision.targetId())) {
+                log.info("记忆计划决策指不着目标, 丢弃该条, userId: {}, 动作: {}, 目标: {}",
+                        userId, decision.action(), decision.targetId());
+                continue;
+            }
+            if (decision.introducesContent() && !storable(decision.content())) {
+                log.info("记忆计划决策存不下, 丢弃该条, userId: {}, 动作: {}", userId, decision.action());
+                continue;
+            }
+            effective.add(decision);
+        }
+        int maxChars = memoryProperties.resolveMemoryMaxChars();
+        if (AgentMemoryBlock.projectedChars(active, effective) > maxChars) {
+            extractionMapper.invalidatePlan(userId, operationId, null);
+            return AgentMemoryPlanExecution.refused("执行该计划会超出记忆上限，计划已失效，请先整理后再重新发起");
+        }
+        int applied = apply(userId, sourceType, effective);
+        long retracted = effective.stream()
+                .filter(decision -> decision.action() == AgentMemoryDecision.Action.RETRACT)
+                .count();
+        String summary = applied > 0
+                ? "已按确认的计划生效 " + applied + " 条记忆变更"
+                : "计划里的目标条目都已不在生效记忆中，本次没有产生变更";
+        return settleApplied(userId, operationId, applied, summary, applied > 0, false, 0);
+    }
+
+    /**
+     * 应用完毕的统一收口：结果 JSON、终态结算与（有变更时的）版本号在同一事务落库
+     */
+    private AgentMemoryPlanExecution settleApplied(String userId, String operationId, int appliedCount,
+                                                   String summary, boolean mutated, boolean cleared, int clearedItems) {
+        String resultJson = AgentMemoryPlanExecution.resultJsonOf(summary, appliedCount, cleared, clearedItems);
+        int settled = extractionMapper.settlePlanApplied(operationId, userId, resultJson, appliedCount);
+        if (settled != 1) {
+            // 行已被旁路裁决（重复执行/过期），整个事务回滚，变更与结果同成败
+            throw new IllegalStateException("记忆计划已被旁路结算, extractionId: " + operationId);
+        }
+        if (mutated) {
+            controlMapper.bumpRevision(userId);
+        }
+        log.info("长期记忆计划执行完成, userId: {}, operationId: {}, 变更: {}, 清空: {}",
+                userId, operationId, appliedCount, clearedItems);
+        return AgentMemoryPlanExecution.applied(summary, resultJson);
+    }
+
+    /**
+     * 未执行分支的口径：拒绝/过期/失效如实说，未批准强调「需要用户确认」
+     */
+    private static String refusalOf(String status) {
+        return switch (AgentMemoryExtractionStatus.valueOf(status)) {
+            case REJECTED -> "用户已取消该计划，未执行任何变更";
+            case EXPIRED -> "该计划已超过 30 分钟有效期，未执行任何变更，请重新发起";
+            case INVALIDATED -> "该计划已失效，未执行任何变更，请重新发起";
+            default -> "该计划尚未获得用户确认，未执行任何变更";
+        };
     }
 }

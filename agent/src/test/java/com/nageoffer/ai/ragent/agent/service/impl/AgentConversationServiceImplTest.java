@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmCall;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
@@ -80,6 +81,7 @@ class AgentConversationServiceImplTest {
     private AgentMessageMapper messageMapper;
     private PgAgentStateStore agentStateStore;
     private AgentRunGate runGate;
+    private AgentMemoryApprovalService memoryApprovalService;
     private Runnable releaseLock;
     private AgentConversationServiceImpl service;
 
@@ -93,7 +95,8 @@ class AgentConversationServiceImplTest {
         when(runGate.acquireConversation(anyString(), anyString())).thenReturn(releaseLock);
         when(conversationMapper.delete(any())).thenReturn(1);
         when(messageMapper.delete(any())).thenReturn(1);
-        service = new AgentConversationServiceImpl(conversationMapper, messageMapper, agentStateStore, runGate);
+        memoryApprovalService = mock(AgentMemoryApprovalService.class);
+        service = new AgentConversationServiceImpl(conversationMapper, messageMapper, agentStateStore, runGate, memoryApprovalService);
     }
 
     @Test
