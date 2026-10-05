@@ -120,7 +120,7 @@ public class AgentMemoryJudge {
         try {
             array = JSONUtil.parseArray(stripped);
         } catch (Exception e) {
-            throw new IllegalStateException("长期记忆仲裁输出不是 JSON 数组: " + StrUtil.maxLength(stripped, 200), e);
+            array = wrapSingleObject(stripped, e);
         }
         List<AgentMemoryDecision> decisions = new ArrayList<>(array.size());
         for (Object item : array) {
@@ -133,6 +133,25 @@ public class AgentMemoryJudge {
             }
         }
         return AgentMemoryDecision.containsClear(decisions) ? checkClearBatch(decisions) : decisions;
+    }
+
+    /**
+     * 单对象容错：提示词要的是数组，模型偶发在只有一条决策时裸输出对象不裹数组
+     * （生产实证 2026-10-05），包成单元素数组继续；不是决策形状就带着原始异常整批抛出
+     */
+    private JSONArray wrapSingleObject(String stripped, Exception cause) {
+        JSONObject object;
+        try {
+            object = JSONUtil.parseObj(stripped);
+        } catch (Exception ignored) {
+            throw new IllegalStateException("长期记忆仲裁输出不是 JSON 数组: " + StrUtil.maxLength(stripped, 200), cause);
+        }
+        if (!object.containsKey(FIELD_ACTION)) {
+            throw new IllegalStateException("长期记忆仲裁输出不是 JSON 数组: " + StrUtil.maxLength(stripped, 200), cause);
+        }
+        JSONArray single = new JSONArray();
+        single.add(object);
+        return single;
     }
 
     /**
