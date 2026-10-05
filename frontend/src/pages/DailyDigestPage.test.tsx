@@ -13,7 +13,7 @@ import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } fro
  * - 头版：头条放大+今日看点（2-4 名）+本期版面目录+统计条；9 类目固定版序、
  *   空版消失、每版 >8 溢出快讯 ≤12、头条不在版面内重复；
  * - 导航：桌面月分组 rail（首条标题两行预览=目录接口 firstTitle 字段）+
- *   移动日期条+本期目录抽屉+上一期/下一期（30 期目录推导，最新期无 next）；
+ *   移动日期条+本期目录抽屉+上一期/下一期（全量目录推导，最新期无 next）；
  * - 路由：/daily=最新一期（canonical=/daily）、/daily/:date 深链（canonical=自身）、
  *   key 不合式 404；日期切换=真实路由导航改写地址栏；
  * - 三态（#234 吸收）：休刊（rail 灰化+0 徽章+说明仅一次+查看热点引导）、
@@ -317,9 +317,9 @@ describe("DailyDigestPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
-    // rail 顶=月历（紧凑档），其下才是「往期 · 30 期」清单
+    // rail 顶=月历（紧凑档），其下才是「往期 · N 期」清单（N=摘要实际期数）
     const railCalendar = screen.getByLabelText("报眼月历");
-    expect(railCalendar.parentElement?.nextElementSibling?.textContent).toContain("往期 · 30 期");
+    expect(railCalendar.parentElement?.nextElementSibling?.textContent).toContain("往期 · 4 期");
     // 最新期所在月（2026-10）=存档上限月：下一月禁用、上一月可用（限存档范围）
     expect(within(railCalendar).getByLabelText("下一月")).toHaveProperty("disabled", true);
     expect(within(railCalendar).getByLabelText("上一月")).toHaveProperty("disabled", false);
@@ -409,9 +409,9 @@ describe("DailyDigestPage", () => {
     expect(offender).toBeUndefined();
   });
 
-  it("fetches the archive-wide summary list and bounds the rail/mobile strip to 30 (#264 存档可达性)", async () => {
+  it("fetches the archive-wide summary list and renders it in full, with no 30-issue display cap (#267 后续)", async () => {
     // 40 期夹具（10-03 起回溯 39 天，跨 10/09/08 三个月）：月历/前后期导航/存档
-    // 边界吃全量，rail 往期清单与移动日期条只列近 30 期
+    // 边界与 rail 往期清单、移动日期条全部吃全量（30 期展示截断已解除）
     const archive: NewsDailyDigestSummary[] = Array.from({ length: 40 }, (_, i) => {
       const ds = new Date(Date.UTC(2026, 9, 3 - i)).toISOString().slice(0, 10);
       return {
@@ -430,9 +430,9 @@ describe("DailyDigestPage", () => {
     await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy());
     // 拉取走存档上限（后端 MAX_LIST_LIMIT=400），不再默认 30 截断存档
     expect(vi.mocked(fetchDailyDigestList)).toHaveBeenCalledWith(400);
-    // rail 清单截 30：第 30 期（存档11）在、第 31 期（存档10）不在
-    expect(screen.getByText("存档11")).toBeTruthy();
-    expect(screen.queryByText("存档10")).toBeNull();
+    // rail 清单不截断：最早期（第 40 期，存档1）也在清单里，标签如实显示总期数
+    expect(screen.getByText("存档1")).toBeTruthy();
+    expect(screen.getByText("往期 · 40 期")).toBeTruthy();
     // 月历边界由全量摘要派生：最早期落在 8 月 → 「上一月」可翻（10 月起步）
     expect(screen.getByRole("button", { name: "上一月" }).hasAttribute("disabled")).toBe(false);
   });

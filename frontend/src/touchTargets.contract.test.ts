@@ -23,7 +23,9 @@ const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "ut
 describe("touch targets ≥44px（主清单源锚定）", () => {
   it("FeedShell：语言切换 pill 与移动菜单钮", () => {
     const s = read("src/components/feed/FeedShell.tsx");
-    expect(s).toContain('"flex min-h-[44px] items-center px-3"');
+    // 语言钮移动端 h-11（44px 定高，触控契约）；桌面档 h-[34px]+容器边框=36px
+    // 外高，与旁边 UserMenu 身份 chip 同高（顶栏身份区不被语言钮撑高）
+    expect(s).toContain('"flex h-11 min-[861px]:h-[34px] items-center px-3"');
     expect(s).toContain("h-11 w-11 flex-none items-center justify-center rounded-lg");
   });
 
@@ -36,9 +38,10 @@ describe("touch targets ≥44px（主清单源锚定）", () => {
   });
 
   it("UserMenu：移动登录钮 ≥44", () => {
-    expect(read("src/components/feed/UserMenu.tsx")).toContain(
-      '"flex min-h-[44px] flex-none items-center justify-center px-3 text-[12px]"'
-    );
+    const s = read("src/components/feed/UserMenu.tsx");
+    expect(s).toContain('"flex min-h-[44px] flex-none items-center justify-center px-3 text-[12px]"');
+    // 登录态移动头像钮同 44（与顶栏语言钮/菜单钮同高，#232 清单补齐）
+    expect(s).toContain('"min-h-[44px] p-[3px]"');
   });
 
   it("FeedSidebar：导航条目 ≥44、多选入口 ≥24 档", () => {

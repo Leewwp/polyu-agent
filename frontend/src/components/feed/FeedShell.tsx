@@ -68,14 +68,16 @@ export function FeedShell({ title, children, fluid = false, shareView, pageHeadi
 
 function LangPill() {
   const { lang, setLang } = useFeedLang();
-  // #232 触控清单：中/EN 各为独立导航入口，min-h 44 实高（视觉字号不变）
+  // #232 触控清单：中/EN 各为独立导航入口，移动端保 44 实高（视觉字号不变）；
+  // 桌面与旁边 UserMenu 身份 chip 同高——chip 外高=26px 头像+py-1×2+边框×2=36px，
+  // 内钮 34+容器边框 2 同为 36，顶栏身份区不再被语言钮撑高
   return (
     <div className="flex flex-none whitespace-nowrap overflow-hidden rounded-full border border-[var(--feed-line)] bg-white text-[12.5px] font-semibold">
       <button
         type="button"
         aria-pressed={lang === "zh"}
         className={cn(
-          "flex min-h-[44px] items-center px-3",
+          "flex h-11 min-[861px]:h-[34px] items-center px-3",
           lang === "zh" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]"
         )}
         onClick={() => setLang("zh")}
@@ -86,7 +88,7 @@ function LangPill() {
         type="button"
         aria-pressed={lang === "en"}
         className={cn(
-          "flex min-h-[44px] items-center px-3",
+          "flex h-11 min-[861px]:h-[34px] items-center px-3",
           lang === "en" ? "bg-[var(--polyu-red)] text-white" : "text-[var(--feed-text-tertiary)]"
         )}
         onClick={() => setLang("en")}
