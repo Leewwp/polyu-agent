@@ -98,14 +98,17 @@ public class AgentMemoryPipeline {
         }
         AgentMemoryControlDO control = memoryRepository.ensureControl(userId);
         // 待审计划在场：前台领取同一计划进确认流程，后台暂缓抽取——等待人不等于占住抽取位
-        AgentMemoryExtractionDO pendingPlan = approvalService.settleExpiredAndLoadPending(userId);
-        if (pendingPlan != null) {
-            if (trigger == AgentMemoryTriggerType.FLUSH) {
-                log.info("长期记忆存在待确认变更计划, 前台领取, userId: {}, operationId: {}",
-                        userId, pendingPlan.getId());
-                return AgentMemoryOutcome.planPrepared(pendingPlan.getId(), 0);
+        // 审批开关关闭时整段跳过：不领取也不暂缓，受审批次回到既有直接落库路径（flag 回退面）
+        if (memoryProperties.isHitlApprovalEnabled()) {
+            AgentMemoryExtractionDO pendingPlan = approvalService.settleExpiredAndLoadPending(userId);
+            if (pendingPlan != null) {
+                if (trigger == AgentMemoryTriggerType.FLUSH) {
+                    log.info("长期记忆存在待确认变更计划, 前台领取, userId: {}, operationId: {}",
+                            userId, pendingPlan.getId());
+                    return AgentMemoryOutcome.planPrepared(pendingPlan.getId(), 0);
+                }
+                return AgentMemoryOutcome.of(Status.PLAN_PENDING, 0);
             }
-            return AgentMemoryOutcome.of(Status.PLAN_PENDING, 0);
         }
         String watermark = memoryRepository.currentWatermark(userId);
         List<AgentMessageDO> pending = memoryRepository.loadPending(userId, watermark, control.getCreateTime());
@@ -144,7 +147,8 @@ public class AgentMemoryPipeline {
         }
 
         // 受审批次（含撤回/清空）不落库：整批冻结成计划交用户裁决，前台后台同一条路，后台无从绕过
-        if (AgentMemoryPlan.requiresApproval(decisions)) {
+        // 审批开关关闭时不冻结，沿既有直接落库路径提交（flag 默认关，启用时点归维护者）
+        if (memoryProperties.isHitlApprovalEnabled() && AgentMemoryPlan.requiresApproval(decisions)) {
             AgentMemoryPlan plan = approvalService.buildPlan(extraction.getId(), userId, conversationId,
                     pending, existing, decisions, control.getRevision(), watermark, trigger);
             if (!approvalService.freeze(extraction, plan)) {

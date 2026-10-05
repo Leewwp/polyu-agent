@@ -65,8 +65,11 @@ class AgentMemoryPipelineHitlTest {
         // 用真实审批服务：buildPlan 的快照组装与冻结收口一并被测到，仓储面留给 mock
         AgentMemoryApprovalService approvalService = new AgentMemoryApprovalService(
                 memoryRepository, mock(AgentMemoryExtractionMapper.class), mock(AgentMessageMapper.class));
+        // 审批开关默认关（CLAUDE.md 新功能纪律）：HITL 行为用例显式打开，flag 关态另有专测
+        AgentMemoryProperties properties = new AgentMemoryProperties();
+        properties.setHitlApprovalEnabled(true);
         pipeline = new AgentMemoryPipeline(memoryRepository, memoryJudge,
-                mock(AgentMemoryConsolidator.class), new AgentMemoryProperties(), approvalService);
+                mock(AgentMemoryConsolidator.class), properties, approvalService);
 
         AgentMemoryControlDO control = new AgentMemoryControlDO();
         control.setUserId(USER_ID);
@@ -181,6 +184,34 @@ class AgentMemoryPipelineHitlTest {
         assertThat(outcome.idle()).isTrue();
         verify(memoryRepository, never()).claim(anyString(), anyString(), anyString(), anyString(), any());
         verifyNoInteractions(memoryJudge);
+    }
+
+    /**
+     * 审批开关关闭（默认态，flag 回退面）：受审批次不再冻结，沿既有直接落库路径提交；
+     * 也不领取/暂缓待审计划——开关翻面即回到 #278 之前的行为
+     */
+    @Test
+    void flagOffShouldCommitApprovalBatchesDirectlyAndIgnorePendingPlans() {
+        AgentMemoryProperties flagOff = new AgentMemoryProperties();
+        AgentMemoryPipeline flagOffPipeline = new AgentMemoryPipeline(memoryRepository, memoryJudge,
+                mock(AgentMemoryConsolidator.class), flagOff,
+                new AgentMemoryApprovalService(memoryRepository,
+                        mock(AgentMemoryExtractionMapper.class), mock(AgentMessageMapper.class)));
+        AgentMemoryExtractionDO extraction = claimed("e-9004");
+        when(memoryRepository.claim(anyString(), anyString(), anyString(), anyString(),
+                eq(AgentMemoryTriggerType.FLUSH))).thenReturn(extraction);
+        when(memoryRepository.listActiveItems(USER_ID)).thenReturn(List.of(new AgentMemoryItem("m-8", "用户穿 L 码")));
+        when(memoryJudge.judge(anyList(), anyList())).thenReturn(List.of(AgentMemoryDecision.retract("m-8")));
+        when(memoryRepository.commit(any(AgentMemoryCommit.class))).thenReturn(
+                new AgentMemoryCommitResult(AgentMemoryExtractionStatus.WRITTEN, 1, false, false, 0));
+
+        AgentMemoryOutcome outcome = flagOffPipeline.extract(USER_ID, CONVERSATION_ID, AgentMemoryTriggerType.FLUSH);
+
+        assertThat(outcome.status()).isEqualTo(Status.WRITTEN);
+        verify(memoryRepository).commit(any(AgentMemoryCommit.class));
+        verify(memoryRepository, never()).freezePlan(any(), any(), anyInt());
+        verify(memoryRepository, never()).pendingPlan(anyString());
+        verify(memoryRepository, never()).expireStalePlans(anyString());
     }
 
     private AgentMemoryExtractionDO claimed(String id) {

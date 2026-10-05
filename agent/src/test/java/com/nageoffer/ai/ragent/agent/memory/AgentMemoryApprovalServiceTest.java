@@ -17,7 +17,6 @@
 
 package com.nageoffer.ai.ragent.agent.memory;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMemoryExtractionDO;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMemoryExtractionMapper;
@@ -140,14 +139,16 @@ class AgentMemoryApprovalServiceTest {
     }
 
     /**
-     * 过期计划 + 会话内待批卡：先报过期行，再定位携带该编号的确认卡消息；MCP 卡不受影响
+     * 到期死卡定位·真实卡片形状：编号在服务端注入的 arguments JSON（折叠区）里、fields 是中文标签主视图——
+     * 必须按生产卡形状断言，fields 带编号的合成卡曾经掩盖过这条链路不通的缺陷
      */
     @Test
-    void shouldLocateDeadMemoryCardsOnExpiry() {
-        when(memoryRepository.expiredPlanIds(USER_ID)).thenReturn(List.of(PLAN_ID));
-        AgentMessageDO memoryCard = awaitingMessage("m-5001", confirmCard(PLAN_ID));
-        AgentMessageDO mcpCard = awaitingMessage("m-5002", confirmCard("不相关编号"));
+    void shouldLocateDeadMemoryCardsByArgumentsJson() {
+        AgentMessageDO memoryCard = awaitingMessage("m-5001", memoryConfirmCard(PLAN_ID));
+        AgentMessageDO mcpCard = awaitingMessage("m-5002", mcpConfirmCard());
         when(messageMapper.selectList(any())).thenReturn(List.of(memoryCard, mcpCard));
+        // 行已终局（含后台结算路径先走一步的情况——定位只看行状态，与谁先结算无关）
+        when(extractionMapper.selectById(PLAN_ID)).thenReturn(row(AgentMemoryExtractionStatus.EXPIRED));
 
         List<String> dead = service.settleExpiredAndLocateDeadCards(USER_ID, "c-31");
 
@@ -155,15 +156,47 @@ class AgentMemoryApprovalServiceTest {
         verify(memoryRepository).expireStalePlans(USER_ID);
     }
 
+    /**
+     * 计划仍可确认（待审/已批未执行）：同形状的卡不判死，会话继续等用户
+     */
     @Test
-    void shouldSkipCardLocationWhenNothingExpired() {
-        when(memoryRepository.expiredPlanIds(USER_ID)).thenReturn(List.of());
+    void shouldKeepCardsWhosePlanStillConfirmable() {
+        when(messageMapper.selectList(any())).thenReturn(
+                List.of(awaitingMessage("m-5001", memoryConfirmCard(PLAN_ID))));
+        when(extractionMapper.selectById(PLAN_ID)).thenReturn(row(AgentMemoryExtractionStatus.PENDING_APPROVAL));
 
         List<String> dead = service.settleExpiredAndLocateDeadCards(USER_ID, "c-31");
 
         assertThat(dead).isEmpty();
-        verify(memoryRepository, never()).expireStalePlans(anyString());
-        verify(messageMapper, never()).selectList(any(Wrapper.class));
+    }
+
+    /**
+     * 老形状兜底：编号写在 fields 里的卡（历史遗留/手工构造）也能定位
+     */
+    @Test
+    void shouldLocateDeadCardsForLegacyFieldsShape() {
+        when(messageMapper.selectList(any())).thenReturn(
+                List.of(awaitingMessage("m-5003", legacyFieldsMemoryCard(PLAN_ID))));
+        when(extractionMapper.selectById(PLAN_ID)).thenReturn(row(AgentMemoryExtractionStatus.INVALIDATED));
+
+        List<String> dead = service.settleExpiredAndLocateDeadCards(USER_ID, "c-31");
+
+        assertThat(dead).containsExactly("m-5003");
+    }
+
+    /**
+     * 会话里没有记忆卡（纯 MCP 卡）：不做任何台账行查询，结算照常先走
+     */
+    @Test
+    void shouldSkipCardLocationWhenNoMemoryCards() {
+        when(messageMapper.selectList(any())).thenReturn(
+                List.of(awaitingMessage("m-5002", mcpConfirmCard())));
+
+        List<String> dead = service.settleExpiredAndLocateDeadCards(USER_ID, "c-31");
+
+        assertThat(dead).isEmpty();
+        verify(memoryRepository).expireStalePlans(USER_ID);
+        verify(extractionMapper, never()).selectById(anyString());
     }
 
     /**
@@ -196,6 +229,24 @@ class AgentMemoryApprovalServiceTest {
         when(extractionMapper.selectById(PLAN_ID)).thenReturn(foreign);
 
         assertThat(service.describeForCard(PLAN_ID, USER_ID)).isNull();
+    }
+
+    /**
+     * 终局行不可投影（过期/拒绝/失效/已执行）：不再渲染成可确认的样子，卡片退化为编号展示
+     */
+    @Test
+    void shouldNotProjectTerminalPlansIntoCard() {
+        for (AgentMemoryExtractionStatus status : List.of(AgentMemoryExtractionStatus.EXPIRED,
+                AgentMemoryExtractionStatus.REJECTED, AgentMemoryExtractionStatus.INVALIDATED,
+                AgentMemoryExtractionStatus.APPLIED)) {
+            AgentMemoryExtractionDO terminal = planRow();
+            terminal.setStatus(status.name());
+            when(extractionMapper.selectById(PLAN_ID)).thenReturn(terminal);
+
+            assertThat(service.describeForCard(PLAN_ID, USER_ID))
+                    .as("状态 %s 不应再投影成确认卡", status)
+                    .isNull();
+        }
     }
 
     private static String fieldOf(PlanCardProjection projection, String label) {
@@ -232,17 +283,54 @@ class AgentMemoryApprovalServiceTest {
         return message;
     }
 
-    private AgentBlock confirmCard(String operationId) {
+    /**
+     * 生产形状的记忆确认卡：fields=describeForCard 的中文标签主视图（不带编号），
+     * arguments=服务端注入的折叠区 JSON（编号只在这里）
+     */
+    private AgentBlock memoryConfirmCard(String operationId) {
         return AgentBlock.builder()
                 .kind(AgentBlock.KIND_CONFIRM)
                 .status("pending")
                 .calls(List.of(AgentConfirmCall.builder()
                         .toolCallId("call-" + operationId)
-                        .name(operationId.equals(PLAN_ID)
-                                ? com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool.TOOL_NAME
-                                : "submit_leave")
+                        .name(com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool.TOOL_NAME)
+                        .fields(List.of(
+                                AgentConfirmField.builder().name("变更内容").label("变更内容")
+                                        .value("清空全部长期记忆（现有 3 条）").build(),
+                                AgentConfirmField.builder().name("生效方式").label("生效方式")
+                                        .value("确认后从生效长期记忆中移除；取消则不执行").build()))
+                        .arguments(cn.hutool.json.JSONUtil.toJsonPrettyStr(java.util.Map.of(
+                                "operationId", operationId,
+                                "triggerType", "FLUSH")))
+                        .build()))
+                .build();
+    }
+
+    /**
+     * 老形状兜底用：编号写在 fields 里、无 arguments 的合成卡
+     */
+    private AgentBlock legacyFieldsMemoryCard(String operationId) {
+        return AgentBlock.builder()
+                .kind(AgentBlock.KIND_CONFIRM)
+                .status("pending")
+                .calls(List.of(AgentConfirmCall.builder()
+                        .toolCallId("call-" + operationId)
+                        .name(com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool.TOOL_NAME)
                         .fields(List.of(AgentConfirmField.builder()
                                 .name("operationId").label("计划编号").value(operationId).build()))
+                        .build()))
+                .build();
+    }
+
+    private AgentBlock mcpConfirmCard() {
+        return AgentBlock.builder()
+                .kind(AgentBlock.KIND_CONFIRM)
+                .status("pending")
+                .calls(List.of(AgentConfirmCall.builder()
+                        .toolCallId("call-mcp")
+                        .name("submit_leave")
+                        .fields(List.of(AgentConfirmField.builder()
+                                .name("leave_type").label("假期类型").value("annual").build()))
                         .build()))
                 .build();
     }

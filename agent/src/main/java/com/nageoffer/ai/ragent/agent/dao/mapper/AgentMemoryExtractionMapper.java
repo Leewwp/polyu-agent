@@ -23,7 +23,6 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-import java.util.List;
 
 /**
  * 抽取台账 Mapper，水位是这张表上的聚合查询而不是独立游标行
@@ -118,6 +117,9 @@ public interface AgentMemoryExtractionMapper extends BaseMapper<AgentMemoryExtra
     /**
      * 冻结受审批次：把 claim 到的 PROCESSING 行连同计划快照一起转入待审态，条件更新防止重复冻结
      * 有效期由库时钟统一定（CURRENT_TIMESTAMP + expiryMinutes），应用侧不另持时钟
+     * 会话存在性守卫：后台 judge 在飞期间源会话被删（invalidatePlan 只收已冻结态，会话删除是
+     * @TableLogic 软删），这里按业务键+未删判活——否则会冻结出引用已删会话消息、
+     * 仍可被领取确认执行的孤立计划
      */
     @Update("""
             UPDATE t_agent_memory_extraction
@@ -126,6 +128,10 @@ public interface AgentMemoryExtractionMapper extends BaseMapper<AgentMemoryExtra
                 expected_revision = #{expectedRevision},
                 plan_expires_at = CURRENT_TIMESTAMP + make_interval(mins => #{expiryMinutes})
             WHERE id = #{id} AND user_id = #{userId} AND status = 'PROCESSING'
+              AND EXISTS (SELECT 1 FROM t_agent_conversation c
+                          WHERE c.conversation_id = t_agent_memory_extraction.conversation_id
+                            AND c.user_id = t_agent_memory_extraction.user_id
+                            AND c.deleted = 0)
             """)
     int freezePlan(@Param("id") String id,
                    @Param("userId") String userId,
@@ -135,7 +141,9 @@ public interface AgentMemoryExtractionMapper extends BaseMapper<AgentMemoryExtra
 
     /**
      * 批准：待审/已批行都允许（幂等重批=改绑新 toolCallId），过期行不许批；
-     * 只能由确认端点这一条路写入，行是否可批以库内条件为准
+     * 只能由确认端点这一条路写入，行是否可批以库内条件为准。
+     * 重批是 #278 决议 10 的恢复路径（批准后未执行，用户新卡上再确认即改绑），
+     * 决议 9 的「不能套用旧批准」由 APPLIED 永不进本条件（approve 先行短路成回放）与有效期约束共同保证
      */
     @Update("""
             UPDATE t_agent_memory_extraction
@@ -211,16 +219,4 @@ public interface AgentMemoryExtractionMapper extends BaseMapper<AgentMemoryExtra
               AND plan_expires_at <= CURRENT_TIMESTAMP
             """)
     int expireStalePlans(@Param("userId") String userId);
-
-    /**
-     * 已过期待审计划的 id 清单（在 expireStalePlans 前查，用于定位要一并失效的确认卡）
-     */
-    @Select("""
-            SELECT id
-            FROM t_agent_memory_extraction
-            WHERE user_id = #{userId}
-              AND status IN ('PENDING_APPROVAL', 'APPROVED')
-              AND plan_expires_at <= CURRENT_TIMESTAMP
-            """)
-    List<String> selectExpiredPlanIds(@Param("userId") String userId);
 }

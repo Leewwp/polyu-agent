@@ -66,6 +66,8 @@ class AgentMemoryPipelineTest {
         memoryJudge = mock(AgentMemoryJudge.class);
         memoryConsolidator = mock(AgentMemoryConsolidator.class);
         memoryProperties = new AgentMemoryProperties();
+        // 受审批次冻结用例按审批开关开态断言（flag 默认关，开态行为由 HitlTest 与本用例共同覆盖）
+        memoryProperties.setHitlApprovalEnabled(true);
         approvalService = mock(AgentMemoryApprovalService.class);
         pipeline = new AgentMemoryPipeline(memoryRepository, memoryJudge, memoryConsolidator, memoryProperties, approvalService);
     }

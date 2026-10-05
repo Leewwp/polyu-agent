@@ -151,6 +151,28 @@ class AgentToolCatalogTest {
     }
 
     /**
+     * 审批开关默认关（flag 回退面）：flush 照挂、apply 不挂——开关翻面不重建 Toolkit 也拿不到执行工具
+     */
+    @Test
+    void shouldNotMountApplyToolWhenApprovalDisabled() {
+        IntentNodeRegistry intentNodeRegistry = mock(IntentNodeRegistry.class);
+        when(intentNodeRegistry.listMcpToolNodes()).thenReturn(List.of());
+        AgentToolCatalog catalog = new AgentToolCatalog(
+                mock(KnowledgeSearchFacade.class),
+                intentNodeRegistry,
+                mock(AgentMcpClients.class),
+                memoryProperties(true, false),
+                mock(AgentMemoryPipeline.class),
+                mock(AgentMemoryApprovalService.class),
+                mock(AgentSkillRegistry.class));
+
+        AgentToolCatalog.ResolvedCatalog resolved = catalog.resolve(promptsWithMemory(MEMORY_SLOT_CONTENT));
+
+        assertThat(catalog.buildToolkit(resolved).getToolNames())
+                .containsExactlyInAnyOrder(KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME);
+    }
+
+    /**
      * 槽位缺失只卸掉这把工具，不该把整个对话一起带走
      */
     @Test
@@ -332,7 +354,8 @@ class AgentToolCatalogTest {
                 mock(KnowledgeSearchFacade.class),
                 intentNodeRegistry,
                 mcpClients,
-                memoryProperties(longTermEnabled),
+                // 记忆挂载断言面默认连同 HITL 审批一起开：apply 工具的成对挂载在开关开态下断言
+                memoryProperties(longTermEnabled, true),
                 mock(AgentMemoryPipeline.class),
                 mock(AgentMemoryApprovalService.class),
                 mock(AgentSkillRegistry.class));
@@ -345,8 +368,13 @@ class AgentToolCatalogTest {
     }
 
     private AgentMemoryProperties memoryProperties(boolean longTermEnabled) {
+        return memoryProperties(longTermEnabled, false);
+    }
+
+    private AgentMemoryProperties memoryProperties(boolean longTermEnabled, boolean hitlApprovalEnabled) {
         AgentMemoryProperties properties = new AgentMemoryProperties();
         properties.setLongTermEnabled(longTermEnabled);
+        properties.setHitlApprovalEnabled(hitlApprovalEnabled);
         return properties;
     }
 

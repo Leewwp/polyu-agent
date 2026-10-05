@@ -549,6 +549,7 @@ public class AgentMemoryRepository {
     /**
      * 冻结受审批次：claim 到的 PROCESSING 行连同计划快照转入待审，腾出抽取互斥位但不推水位
      * 冻结失败按普通失败结算，行不能挂在 PROCESSING 上等僵尸回收
+     * 落空原因除旁路裁决外，还包括源会话已被删（会话存在性守卫，judge 在飞期间删会话不产生孤立计划）
      */
     public boolean freezePlan(AgentMemoryExtractionDO extraction, AgentMemoryPlan plan, int expiryMinutes) {
         int frozen = extractionMapper.freezePlan(extraction.getId(), extraction.getUserId(),
@@ -583,13 +584,6 @@ public class AgentMemoryRepository {
      */
     public int expireStalePlans(String userId) {
         return extractionMapper.expireStalePlans(userId);
-    }
-
-    /**
-     * 已过期计划的 id 清单，供定位要一并失效的确认卡
-     */
-    public List<String> expiredPlanIds(String userId) {
-        return extractionMapper.selectExpiredPlanIds(userId);
     }
 
     /**

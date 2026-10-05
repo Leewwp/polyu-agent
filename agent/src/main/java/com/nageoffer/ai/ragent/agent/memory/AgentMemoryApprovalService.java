@@ -107,7 +107,12 @@ public class AgentMemoryApprovalService {
 
     /**
      * 确认端点的批准入口：入参来自服务端状态里的工具调用，前端只递 boolean
-     * 失败原因分三类返回，调用方据此失效卡片并提示重新发起；幂等重批（改绑新调用）返回 APPROVED
+     * 失败原因分三类返回，调用方据此失效卡片并提示重新发起
+     *
+     * <p>APPROVED 行的幂等重批（改绑新 toolCallId/确认消息）是 #278 决议 10 的恢复路径：
+     * 批准后尚未执行时（进程重启、回包丢失），用户在新确认卡上再次点同意即改绑重执行。
+     * 决议 9「不能套用旧批准」指的是不经用户新确认就复用旧批准——重批每次都有新卡新点击，
+     * 且仍受有效期、expectedRevision、水位与执行时 toolCallId 校验约束；APPLIED 行永不重批（只回放结果）。
      */
     public ApprovalTransition approve(String operationId, String userId, String toolCallId, String confirmMessageId) {
         AgentMemoryExtractionDO row = extractionMapper.selectById(operationId);
@@ -151,49 +156,82 @@ public class AgentMemoryApprovalService {
     }
 
     /**
-     * 新请求检查：按需结算到期计划，并找出该会话里因此再也走不下去的确认卡消息号
+     * 新请求检查：先按需结算到期计划（幂等——后台/前台谁先结都收敛到同一状态），
+     * 再扫该会话的待确认消息，找出计划已走不下去（过期/拒绝/失效/已执行/不存在）的死卡消息号
      * 返回的消息号由调用方走既有 expirePendingConfirm 失效，30 分钟到期不永久阻塞原会话
      */
     public List<String> settleExpiredAndLocateDeadCards(String userId, String conversationId) {
-        List<String> expiredIds = memoryRepository.expiredPlanIds(userId);
-        if (expiredIds.isEmpty()) {
-            return List.of();
-        }
         memoryRepository.expireStalePlans(userId);
-        log.warn("长期记忆待审计划到期, 会话内关联确认卡一并失效, userId: {}, conversationId: {}, 计划: {}",
-                userId, conversationId, expiredIds);
         List<AgentMessageDO> awaiting = messageMapper.selectList(Wrappers.lambdaQuery(AgentMessageDO.class)
                 .eq(AgentMessageDO::getConversationId, conversationId)
                 .eq(AgentMessageDO::getUserId, userId)
                 .eq(AgentMessageDO::getMessageStatus, AgentMessageStatus.AWAITING_CONFIRM.name()));
         List<String> deadCards = new ArrayList<>();
+        Map<String, Boolean> confirmableCache = new LinkedHashMap<>();
         for (AgentMessageDO message : awaiting) {
             if (message.getBlocks() == null) {
                 continue;
             }
-            boolean dead = message.getBlocks().stream()
+            List<String> planIds = message.getBlocks().stream()
                     .filter(block -> AgentBlock.KIND_CONFIRM.equals(block.getKind()))
-                    .map(block -> operationIdOf(block.getCalls()))
-                    // 非记忆卡取不到编号，null 不参与匹配（ImmutableList.contains(null) 会抛）
-                    .anyMatch(operationId -> operationId != null && expiredIds.contains(operationId));
+                    .flatMap(block -> block.getCalls() == null ? Stream.<AgentConfirmCall>empty()
+                            : block.getCalls().stream())
+                    .map(AgentMemoryApprovalService::operationIdOf)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList();
+            if (planIds.isEmpty()) {
+                continue;
+            }
+            boolean dead = planIds.stream().anyMatch(planId -> !confirmableCache.computeIfAbsent(planId,
+                    id -> planConfirmable(id, userId)));
             if (dead) {
                 deadCards.add(message.getId());
             }
+        }
+        if (!deadCards.isEmpty()) {
+            log.warn("长期记忆计划已到期/终局, 会话内关联确认卡一并失效, userId: {}, conversationId: {}, 消息: {}",
+                    userId, conversationId, deadCards);
         }
         return deadCards;
     }
 
     /**
-     * 确认卡上的计划编号：只在 apply_memory_change 的调用 fields 里找，MCP 卡片不受影响
+     * 计划此刻是否还能被用户确认：只认结算后仍是待审/已批未执行的行
+     * 刚被结算成 EXPIRED（含后台先结）或早已终局的行都算走不下去
      */
-    private static String operationIdOf(List<AgentConfirmCall> calls) {
-        if (calls == null) {
+    private boolean planConfirmable(String operationId, String userId) {
+        AgentMemoryExtractionDO row = extractionMapper.selectById(operationId);
+        if (row == null || !Objects.equals(row.getUserId(), userId)) {
+            return false;
+        }
+        return AgentMemoryExtractionStatus.PENDING_APPROVAL.name().equals(row.getStatus())
+                || AgentMemoryExtractionStatus.APPROVED.name().equals(row.getStatus());
+    }
+
+    /**
+     * 记忆确认卡上的计划编号：真实卡片的编号在服务端注入的 arguments JSON（describeForCard 折叠区）里，
+     * fields 是中文标签主视图不带编号——两个位置都扫，老形状 fields 兜底；MCP 卡片不受影响
+     */
+    private static String operationIdOf(AgentConfirmCall call) {
+        if (call == null || !MemoryApplyTool.TOOL_NAME.equals(call.getName())) {
             return null;
         }
-        return calls.stream()
-                .filter(call -> MemoryApplyTool.TOOL_NAME.equals(call.getName()))
-                .flatMap(call -> call.getFields() == null ? Stream.<AgentConfirmField>empty()
-                        : call.getFields().stream())
+        String arguments = call.getArguments();
+        if (StrUtil.isNotBlank(arguments)) {
+            try {
+                String candidate = JSONUtil.parseObj(arguments).getStr("operationId");
+                if (StrUtil.isNotBlank(candidate)) {
+                    return candidate;
+                }
+            } catch (Exception ignored) {
+                // arguments 不是 JSON 对象（如纯文本折叠区）→ 落回 fields 扫描
+            }
+        }
+        if (call.getFields() == null) {
+            return null;
+        }
+        return call.getFields().stream()
                 .filter(field -> "operationId".equals(field.getName()))
                 .map(AgentConfirmField::getValue)
                 .filter(StrUtil::isNotBlank)
@@ -203,6 +241,7 @@ public class AgentMemoryApprovalService {
 
     /**
      * 源会话删除：该会话名下的待审/已批未执行计划整批置失效，不留可继续执行的孤立计划
+     * PROCESSING 在飞批由冻结口的会话存在性守卫兜底（judge 结束时源会话已删则冻结落空按失败结算）
      */
     public void invalidateForDeletedConversation(String userId, String conversationId) {
         int invalidated = memoryRepository.invalidatePlans(userId, null, conversationId);
@@ -214,7 +253,8 @@ public class AgentMemoryApprovalService {
 
     /**
      * 确认卡投影：把冻结计划渲染成 fields（主视图）+ 完整计划 JSON（折叠区），复用现有卡片形状
-     * 找不到计划（含他人计划）返回 null，卡片退化为只展示编号，执行侧自会拒绝
+     * 找不到计划（含他人计划）或计划已终局/不在待审面（过期/拒绝/失效/已执行）返回 null，
+     * 卡片退化为只展示编号，确认端点与执行侧自会拒绝——终局计划不允许再渲染成可确认的样子
      */
     public PlanCardProjection describeForCard(String operationId, String userId) {
         if (StrUtil.isBlank(operationId)) {
@@ -222,6 +262,10 @@ public class AgentMemoryApprovalService {
         }
         AgentMemoryExtractionDO row = extractionMapper.selectById(operationId);
         if (row == null || !Objects.equals(row.getUserId(), userId)) {
+            return null;
+        }
+        if (!AgentMemoryExtractionStatus.PENDING_APPROVAL.name().equals(row.getStatus())
+                && !AgentMemoryExtractionStatus.APPROVED.name().equals(row.getStatus())) {
             return null;
         }
         AgentMemoryPlan plan = AgentMemoryPlan.fromJson(row.getPlanJson());

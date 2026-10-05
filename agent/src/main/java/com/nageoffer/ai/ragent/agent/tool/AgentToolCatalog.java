@@ -94,7 +94,10 @@ public class AgentToolCatalog {
         if (catalog.memoryToolDescription != null) {
             toolkit.registerAgentTool(new MemoryFlushTool(catalog.memoryToolDescription, memoryPipeline));
             // 执行工具与整理工具成对挂载：只准备不执行，或只执行没来源，都不成闭环
-            toolkit.registerAgentTool(new MemoryApplyTool(memoryApprovalService));
+            // 审批开关关闭时不挂载（flag 默认关）：flush 不会产出 PLAN_PREPARED，挂了也没有可执行计划
+            if (memoryProperties.isHitlApprovalEnabled()) {
+                toolkit.registerAgentTool(new MemoryApplyTool(memoryApprovalService));
+            }
         } else if (memoryProperties.isLongTermEnabled()) {
             log.warn("AGENT_MEMORY_TOOL_DESCRIPTION 提示词为空, 本次不挂载 {}", MemoryFlushTool.TOOL_NAME);
         }
@@ -256,6 +259,8 @@ public class AgentToolCatalog {
             names.put(KnowledgeSearchTool.TOOL_NAME, KnowledgeSearchTool.DISPLAY_NAME);
             if (memoryToolDescription != null) {
                 names.put(MemoryFlushTool.TOOL_NAME, MemoryFlushTool.DISPLAY_NAME);
+                // 显示名注册表不随 flag 增删（static 无实例配置）：挂载与否由 buildToolkit 按开关决定，
+                // 关态没有 apply 卡片，这里的表项不会被用到
                 names.put(MemoryApplyTool.TOOL_NAME, MemoryApplyTool.DISPLAY_NAME);
             }
             if (hasSkills) {

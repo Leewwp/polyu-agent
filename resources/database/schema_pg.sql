@@ -556,7 +556,8 @@ CREATE TABLE t_agent_memory_extraction (
     conversation_id         VARCHAR(20) NOT NULL,
     from_message_id         VARCHAR(20) NOT NULL,
     to_message_id           VARCHAR(20) NOT NULL,
-    status                  VARCHAR(16) NOT NULL,
+    -- VARCHAR(32)：PENDING_APPROVAL 恰 16 字符顶满旧宽，状态机加宽防再犯（261005 迁移同步加宽存量库）
+    status                  VARCHAR(32) NOT NULL,
     trigger_type            VARCHAR(16) NOT NULL,
     decision_count          INTEGER     NOT NULL DEFAULT 0,
     attempt_count           INTEGER     NOT NULL DEFAULT 1,
