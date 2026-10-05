@@ -653,7 +653,12 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   ('speed-news',    'official', '香港专上学院（SPEED）新闻', 'PolyU SPEED News',      'https://speed-polyu.edu.hk/news', 'https://speed-polyu.edu.hk/news', 'HTML_LIST', TRUE, FALSE, 'manual'),
   ('sd-news',       'official', '设计学院动态',             'School of Design News',  'https://www.polyu.edu.hk/sd/news-and-events/news/', 'https://www.polyu.edu.hk/sd/news-and-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
   ('sft-news',      'official', '时装及纺织学院动态',        'SFT News',               'https://www.polyu.edu.hk/sft/news-and-events/news/', 'https://www.polyu.edu.hk/sft/news-and-events/news/', 'HTML_LIST', TRUE, FALSE, 'manual'),
-  ('fs-awards',     'official', '理学院获奖动态',           'Faculty of Science Awards', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'HTML_LIST', TRUE, FALSE, 'manual')
+  ('fs-awards',     'official', '理学院获奖动态',           'Faculty of Science Awards', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'https://www.polyu.edu.hk/fs/news-and-events/awards-and-achievements/', 'HTML_LIST', TRUE, FALSE, 'manual'),
+  -- #277 媒体/政府官网三源（RSS 族；八校门只对三 source_key 生效；platform=media/official=FALSE
+  -- 不混入官方 RAG 证据；组按发布机构 scmp/rthk/hksar-gia。同 seed 停用铁律）
+  ('scmp-education',  'media', 'SCMP 教育新闻',        'SCMP Education News',        'https://www.scmp.com/rss/318207/feed', 'https://www.scmp.com/rss/318207/feed', 'RSS', FALSE, FALSE, 'manual'),
+  ('rthk-local-news', 'media', 'RTHK 英文本地新闻',    'RTHK Local News (EN)',       'https://www.rthk.hk/rthk/news/rss/e_expressnews_elocal.xml', 'https://www.rthk.hk/rthk/news/rss/e_expressnews_elocal.xml', 'RSS', FALSE, FALSE, 'manual'),
+  ('gia-news',        'media', '政府新闻公报（英文）',  'HKSAR Government Info (EN)', 'https://www.info.gov.hk/gia/rss/general_en.xml', 'https://www.info.gov.hk/gia/rss/general_en.xml', 'RSS', FALSE, FALSE, 'manual')
 ON CONFLICT (source_key) DO NOTHING;
 
 -- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
@@ -668,6 +673,13 @@ WHERE independence_group IS NULL
                      'speed-news', 'sd-news', 'sft-news', 'fs-awards');
 UPDATE t_news_source SET independence_group = 'prn-wire'
 WHERE independence_group IS NULL AND source_key = 'prn';
+-- #277 媒体/政府三源按发布机构独立组（同机构多 feed 不多计独立票）
+UPDATE t_news_source SET independence_group = 'scmp'
+WHERE independence_group IS NULL AND source_key = 'scmp-education';
+UPDATE t_news_source SET independence_group = 'rthk'
+WHERE independence_group IS NULL AND source_key = 'rthk-local-news';
+UPDATE t_news_source SET independence_group = 'hksar-gia'
+WHERE independence_group IS NULL AND source_key = 'gia-news';
 UPDATE t_news_source SET independence_group = 'gnews'
 WHERE independence_group IS NULL AND source_key LIKE 'gnews-%';
 

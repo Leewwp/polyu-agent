@@ -111,6 +111,56 @@ class NewsFetchServiceTests {
                 "title-" + slug, null, "en", new Date(now.getTime() - ageMillis), null, key, PublishTimePrecision.DATETIME);
     }
 
+    // ================== #277 八校确定性门接线 ==================
+
+    /** 门源非命中项：零落库零名额（不进 fresh/stale/去重候选） */
+    @Test
+    void eightUniversityGateDropsNonMentionedItemsForGateSources() {
+        NewsFetchService.SourceCandidates batch =
+                new NewsFetchService.SourceCandidates(source(11, "scmp-education"), List.of(
+                        itemWithSummary("scmp-education", "hku-expansion", HOUR,
+                                "HKU eyes Northern Metropolis expansion",
+                                "The University of Hong Kong looks to secure laboratory space."),
+                        itemWithSummary("scmp-education", "dog-friendly", HOUR,
+                                "To become a dog-friendly city", "Dining premises rules since July."),
+                        itemWithSummary("scmp-education", "mining-belt", HOUR,
+                                "Mining belt housing plan unveiled", "Land use consultation starts.")));
+        NewsFetchService.AdmissionResult result = service.admitAll(List.of(batch));
+
+        assertEquals(1, insertedRecords().size(), "仅命中八校的 1 条落库，另 2 条零落库");
+        assertTrue(insertedRecords().get(0).getUrl().contains("hku-expansion"));
+        assertEquals(1, result.admitted(), "非命中不占日准入名额");
+    }
+
+    /** 原始摘要是第二证据面：标题缺校名+摘要提校名→命中 */
+    @Test
+    void rawSummaryCountsAsGateEvidence() {
+        NewsFetchService.SourceCandidates batch =
+                new NewsFetchService.SourceCandidates(source(12, "gia-news"), List.of(
+                        itemWithSummary("gia-news", "lab-policy", HOUR,
+                                "New laboratory safety code issued",
+                                "The Chinese University of Hong Kong was consulted, the spokesman said.")));
+        service.admitAll(List.of(batch));
+        assertEquals(1, insertedRecords().size(), "标题未命中但原摘要命中→准入");
+    }
+
+    /** 非门源不经八校过滤（原有官网源回归保护） */
+    @Test
+    void nonGateSourcesKeepLegacyAdmissionWithoutFiltering() {
+        NewsFetchService.SourceCandidates batch =
+                new NewsFetchService.SourceCandidates(source(13, "media-releases"), List.of(
+                        item("media-releases", "campus-event-no-university-name", HOUR)));
+        service.admitAll(List.of(batch));
+        assertEquals(1, insertedRecords().size(), "官网源条目不经门，照常准入");
+    }
+
+    /** 带 rawSummary 的条目工厂（#277） */
+    private RawNewsItem itemWithSummary(String key, String slug, long ageMillis, String title, String summary) {
+        String url = "https://example.com/news/" + slug;
+        return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), title, null, "en",
+                new Date(now.getTime() - ageMillis), null, key, PublishTimePrecision.DATETIME, summary);
+    }
+
     private List<NewsItemDO> admit(List<NewsFetchService.SourceCandidates> batches) {
         service.admitAll(batches);
         return insertedRecords();
