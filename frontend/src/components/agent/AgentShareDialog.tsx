@@ -31,7 +31,8 @@ import type { AgentTurn } from "@/types/agent";
  * - 成功态不自动关、不自动复制：URL 展示+[复制分享链接]+[分享给…]（shareUrl
  *   五点合同）+服务端 expireTime（null=不会自动过期）+撤销说明；
  * - 游客=登录引导（不调创建端点）；双形态=桌面居中 modal/≤860 底部 sheet
- *   （Tailwind 变体类+safe-area，ESC/焦点陷阱走 Radix）。
+ *   （容器几何在 globals.css 的 .agent-share-dialog——custom 类无 layer 恒压
+ *   Tailwind 变体，max-height/overflow 防内容出卡片，ESC/焦点陷阱走 Radix）。
  */
 
 const SCOPE_OPTIONS: Array<{
@@ -405,7 +406,7 @@ export function AgentShareDialog() {
         }
       }}
     >
-      <DialogContent className="agent-share-dialog max-w-[480px] gap-3 p-5 max-[860px]:left-0 max-[860px]:right-0 max-[860px]:top-auto max-[860px]:bottom-0 max-[860px]:max-w-full max-[860px]:translate-x-0 max-[860px]:translate-y-0 max-[860px]:rounded-b-none max-[860px]:rounded-t-[18px] max-[860px]:max-h-[80vh] max-[860px]:pb-[max(20px,env(safe-area-inset-bottom))] sm:max-w-[480px]">
+      <DialogContent className="agent-share-dialog max-w-[480px] gap-3 p-5">
         {guest ? (
           <GuestGate zh={zh} onClose={closeShareDialog} />
         ) : isLoading ? (

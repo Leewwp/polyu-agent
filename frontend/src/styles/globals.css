@@ -5877,8 +5877,41 @@ textarea {
   }
 }
 
-/* 分享弹窗（Radix Portal 挂 body，不能落 .agent-app 域内）——桌面居中/≤860
-   底部 sheet 的容器形态由 Dialog className 的 Tailwind 变体承担；此处只管内部件 */
+/* 分享弹窗（Radix Portal 挂 body，不能落 .agent-app 域内）。
+   容器形态也归这里管：本文件自定义规则不带 layer，恒压 Tailwind utilities——
+   曾用 max-[860px]:* 变体类做底部 sheet，编译产物里 sm:max-w-[480px] 排在
+   max-[860px]:max-w-full 之后同特异性取胜，640-860px 区间 sheet 被压成
+   左贴边 480px 畸形态；sheet 几何改落在无 layer 的媒体块里才可控 */
+.agent-share-dialog {
+  max-height: 85vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* grid 行项默认 min-width:auto：预览条目 truncate 的 nowrap 文本会把唯一一条
+   grid 轨道撑到全文宽（回复越长溢出越狠），选项卡与底部按钮组全被推出卡片
+   右缘；行项收拢到 0 后由各自内部件截断/滚动 */
+.agent-share-dialog > * {
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  /* 选择器带元素名提到 (0,1,1)：构建管线会把 min-width 媒体组重排到
+     max-width 组之后，单类特异性会输给 sm:rounded-3xl 这类同特异性后者 */
+  div.agent-share-dialog {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    max-width: 100%;
+    border-radius: 18px 18px 0 0;
+    max-height: 80vh;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+}
+
 .agent-share-body {
   display: flex;
   flex-wrap: wrap;
@@ -5887,13 +5920,16 @@ textarea {
 
 .agent-share-scope {
   display: flex;
-  flex: 1 1 140px;
+  flex: 1 1 120px;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
   border: 1px solid var(--feed-line);
   border-radius: 12px;
   cursor: pointer;
+  /* 隐藏 radio 的 absolute 定位基准收进卡片（否则锚到 fixed 的弹窗容器） */
+  position: relative;
 }
 
 .agent-share-scope[data-active="true"] {
