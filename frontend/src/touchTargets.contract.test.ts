@@ -8,11 +8,13 @@ import { join } from "node:path";
  * 按 staticPublicAssets.test.ts / globals.primaryTheme.test.ts / feedContrast.test.ts
  * 项目先例直接断言样式源）：
  * 1. 44px 主清单（Button 默认 h-10/40px 逐处抬升，不动全局——后台不受连带的票面分工）：
- *    移动菜单钮/语言切换/移动登录钮/FAB/侧栏导航条目/资讯详情底部操作排（含分享钮）/
+ *    移动菜单钮/语言切换/移动登录钮/FAB/底部 tab（#257 审查实测 42.75px 补齐——曾误信
+ *    由 #230 落地）/侧栏导航条目/资讯详情底部操作排（含分享钮）/
  *    用户面主要表单提交钮（登录/注册/找回/账号/反馈）/轻量页主要操作（继续提问/返回/
  *    回到首页/分享失效 CTA/agent 分享 CTA）；
  * 2. 辅助链接 ≥24px 命中面：卡片原文链/页脚两套链接/多选入口（留白外扩不靠装饰容器）；
- * 3. ≤860px 可聚焦输入 ≥16px（两档聊天输入+登录/注册/找回/账号/反馈表单）——
+ * 3. ≤860px 可聚焦输入 ≥16px（两档聊天输入+登录/注册/找回/账号/反馈表单+资讯搜索行/
+ *    侧栏搜索对话两处裸 input，#257 收口枚举外漏项）——
  *    根治 iPhone 聚焦自动页面放大，不用 maximum-scale 折衷（63a D/N1）。
  */
 
@@ -25,10 +27,12 @@ describe("touch targets ≥44px（主清单源锚定）", () => {
     expect(s).toContain("h-11 w-11 flex-none items-center justify-center rounded-lg");
   });
 
-  it("MobileTabbar：FAB ≥44（底部 tab min-h-44 由 #230 落地，此处只增量）", () => {
-    expect(read("src/components/feed/MobileTabbar.tsx")).toContain(
-      "px-[18px] py-[11px] min-h-[44px]"
+  it("MobileTabbar：底部 tab 与 FAB ≥44（tab 实测 42.75px 后由 #257 补齐，不再依赖他票）", () => {
+    const s = read("src/components/feed/MobileTabbar.tsx");
+    expect(s).toContain(
+      '"flex min-h-[44px] flex-1 cursor-pointer flex-col items-center justify-center'
     );
+    expect(s).toContain("px-[18px] py-[11px] min-h-[44px]");
   });
 
   it("UserMenu：移动登录钮 ≥44", () => {
@@ -105,6 +109,15 @@ describe("≤860px 可聚焦输入 ≥16px（iOS 聚焦缩放根治）", () => {
     const css = read("src/styles/globals.css");
     expect(css).toMatch(
       /@media \(max-width: 860px\) \{\s*\.agent-app \.agent-composer-input \{\s*font-size: 16px;\s*\}/
+    );
+  });
+
+  it("检索两处搜索输入（裸 input 漏出 #232 枚举，#257 按标题句「所有可聚焦输入」收口）", () => {
+    expect(read("src/components/feed/NewsSearchBar.tsx")).toContain(
+      "text-[12.5px] max-[860px]:text-[16px]"
+    );
+    expect(read("src/components/feed/FeedSidebar.tsx")).toContain(
+      "w-full bg-transparent text-[12.5px] max-[860px]:text-[16px]"
     );
   });
 
