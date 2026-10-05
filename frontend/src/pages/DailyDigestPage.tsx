@@ -6,7 +6,16 @@ import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
 import { IssueCalendar } from "@/components/daily/IssueCalendar";
 import { useHeadElement } from "@/hooks/useHeadElement";
-import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
+import {
+  NEWS_CATEGORY_LABELS_EN,
+  NEWS_CATEGORY_LABELS_ZH,
+  NEWS_PLATFORM_COLOR_DEFAULT,
+  NEWS_PLATFORM_COLORS,
+  MONTHS_EN,
+  dailyMonthKey,
+  dailyMonthLabel,
+  hktTodayKey
+} from "@/services/newsMapping";
 import {
   DAILY_MISSING_MESSAGE,
   dailyDigestRssUrl,
@@ -56,7 +65,6 @@ const FLASH_CAP = 12;
 
 const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function dateParts(ds: string) {
   const d = new Date(`${ds}T12:00:00+08:00`);
@@ -72,17 +80,6 @@ const enDate = (ds: string) => {
   return `${p.day} ${MONTHS_EN[p.m - 1]}`;
 };
 const enWeekday = (ds: string) => WEEKDAYS_EN[dateParts(ds).wd];
-const monthKey = (ds: string) => {
-  const p = dateParts(ds);
-  return `${p.y}-${String(p.m).padStart(2, "0")}`;
-};
-const monthLabel = (key: string, zh: boolean) => {
-  const [y, m] = key.split("-");
-  return zh ? `${y}年${Number(m)}月` : `${MONTHS_EN[Number(m) - 1]} ${y}`;
-};
-function hktTodayKey(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Hong_Kong" });
-}
 
 interface DerivedIssue {
   lead: NewsDailyDigestItem | null;
@@ -131,7 +128,7 @@ function SourceDot({ item }: { item: NewsDailyDigestItem }) {
     <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--feed-text-secondary)]">
       <i
         className="h-[7px] w-[7px] flex-none rounded-full"
-        style={{ backgroundColor: item.source.platform === "youtube" ? "#FF0000" : item.source.platform === "events" ? "#7C3AED" : item.source.platform === "prn" ? "#0F766E" : "#A6192E" }}
+        style={{ backgroundColor: NEWS_PLATFORM_COLORS[item.source.platform] ?? NEWS_PLATFORM_COLOR_DEFAULT }}
       />
       {label}
     </span>
@@ -462,7 +459,7 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
   const groups = useMemo(() => {
     const out: { key: string; list: NewsDailyDigestSummary[] }[] = [];
     for (const s of summaries) {
-      const key = monthKey(s.digestDate);
+      const key = dailyMonthKey(s.digestDate);
       if (out.length === 0 || out[out.length - 1].key !== key) {
         out.push({ key, list: [] });
       }
@@ -483,7 +480,7 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
         {groups.map((group) => (
           <details key={group.key} open className="mb-2">
             <summary className="mb-1.5 cursor-pointer list-none rounded-lg bg-[var(--feed-card)] px-2.5 py-1.5 text-[12px] font-bold text-[var(--feed-text-secondary)] shadow-sm">
-              {monthLabel(group.key, zh)}
+              {dailyMonthLabel(group.key, zh)}
               <span className="ml-1.5 text-[10.5px] font-normal text-[var(--feed-text-tertiary)]">
                 {zh ? `${group.list.length} 期` : `${group.list.length}`}
               </span>

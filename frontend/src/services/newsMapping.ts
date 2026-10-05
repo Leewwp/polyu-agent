@@ -1,4 +1,4 @@
-import type { HotRankEntry, NewsItem, NewsSource, NewsTopic } from "@/types/news";
+import type { HotRankEntry, NewsCategory, NewsItem, NewsSource, NewsTopic } from "@/types/news";
 import { NEWS_SOURCES, NEWS_TOPICS } from "@/services/newsMockData";
 
 /**
@@ -82,7 +82,61 @@ export function hktClockSafe(date: Date): string {
 
 const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
 const WEEKDAYS_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** 英文月名（feed 日期标签与日报月标签共用；#259 起导出，双组件不再各写一份） */
+export const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** 分类中文短标签（卡片 c-cat 徽章文案；#259 自 newsMockData 迁入——生产词表不再落 mock 模块名下） */
+export const NEWS_CATEGORY_LABELS_ZH: Record<NewsCategory, string> = {
+  admission: "招生",
+  scholarship: "奖学金",
+  research: "科研",
+  campus: "校园",
+  event: "活动",
+  career: "就业",
+  exchange: "交流",
+  admin: "公告",
+  other: "其他"
+};
+
+/** 分类英文短标签（卡片 c-cat 徽章 EN 文案；与 chips labelEn 对齐） */
+export const NEWS_CATEGORY_LABELS_EN: Record<NewsCategory, string> = {
+  admission: "Admissions",
+  scholarship: "Scholarships",
+  research: "Research",
+  campus: "Campus",
+  event: "Events",
+  career: "Careers",
+  exchange: "Exchange",
+  admin: "Notices",
+  other: "Other"
+};
+
+/**
+ * 平台基色（信源徽章单源，#259）：日报 SourceDot 的取色入口——与 mock 注册表
+ * NEWS_SOURCES 同值集（注册表仅剩 mock 语义、该模块计划退役故不反向依赖）；
+ * 新平台接入只改此处；未知平台兜底=品牌红（原 SourceDot 三目链默认支口径）
+ */
+export const NEWS_PLATFORM_COLORS: Record<string, string> = {
+  official: "#A6192E",
+  events: "#7C3AED",
+  youtube: "#FF0000",
+  prn: "#0F766E"
+};
+export const NEWS_PLATFORM_COLOR_DEFAULT = "#A6192E";
+
+/** digestDate（YYYY-MM-DD）→ 日报月键（YYYY-MM）；目录日期均为 HKT 出刊日（#259 两实现合一） */
+export const dailyMonthKey = (ds: string) => ds.slice(0, 7);
+
+/** 日报月标签（「2026年10月」/「Oct 2026」） */
+export const dailyMonthLabel = (key: string, zh: boolean) => {
+  const [y, m] = key.split("-");
+  return zh ? `${y}年${Number(m)}月` : `${MONTHS_EN[Number(m) - 1]} ${y}`;
+};
+
+/** 今天（HKT 口径，与刊期时区一致）：YYYY-MM-DD——hktDateKey 的当日快捷方式 */
+export function hktTodayKey(): string {
+  return hktDateKey(new Date());
+}
 
 /**
  * HKT 日键 → HKT 日历分量（月/日/周/年）。正午 HKT 恒等于 04:00Z 同一历日，

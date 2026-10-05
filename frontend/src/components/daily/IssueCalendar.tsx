@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useFeedLang } from "@/components/feed/feedLang";
 import type { NewsDailyDigestSummary } from "@/types/news";
+import { dailyMonthKey, dailyMonthLabel, hktTodayKey } from "@/services/newsMapping";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,20 +18,8 @@ import { cn } from "@/lib/utils";
  * - 挂载档位（同页 IssueToc 判例）：spacious=移动目录抽屉档，日格与月切换钮
  *   触控目标 ≥44px 高宽（#232 口径）；紧凑档=桌面 rail 鼠标档。
  * 目录数据全客户端推导（GET /api/ragent/public/news/daily），无后端改动。
+ * 日期工具（月键/月标签/HKT 今天）与页面共用 newsMapping 单源（#259 去逐字双份）。
  */
-
-const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** digestDate（YYYY-MM-DD）→ 月键（YYYY-MM）；目录日期均为 HKT 出刊日 */
-const monthKey = (ds: string) => ds.slice(0, 7);
-const monthLabel = (key: string, zh: boolean) => {
-  const [y, m] = key.split("-");
-  return zh ? `${y}年${Number(m)}月` : `${MONTHS_EN[Number(m) - 1]} ${y}`;
-};
-/** 今天（HKT 口径，与刊期时区一致）：YYYY-MM-DD */
-function hktTodayKey(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Hong_Kong" });
-}
 
 type DayCellState = "current" | "published" | "recess" | "none";
 
@@ -51,13 +40,13 @@ export function IssueCalendar({
   const bounds = useMemo(
     () =>
       summaries.length > 0
-        ? { min: monthKey(summaries[summaries.length - 1].digestDate), max: monthKey(summaries[0].digestDate) }
+        ? { min: dailyMonthKey(summaries[summaries.length - 1].digestDate), max: dailyMonthKey(summaries[0].digestDate) }
         : null,
     [summaries]
   );
-  const [month, setMonth] = useState(() => monthKey(selectedDate));
+  const [month, setMonth] = useState(() => dailyMonthKey(selectedDate));
   useEffect(() => {
-    setMonth(monthKey(selectedDate));
+    setMonth(dailyMonthKey(selectedDate));
   }, [selectedDate]);
 
   if (bounds === null) {
@@ -113,7 +102,7 @@ export function IssueCalendar({
           ‹
         </button>
         <b className={cn("flex-1 text-center font-bold text-[var(--feed-text-primary)]", spacious ? "text-[13.5px]" : "text-[12.5px]")}>
-          {monthLabel(month, zh)}
+          {dailyMonthLabel(month, zh)}
         </b>
         <button
           type="button"

@@ -29,6 +29,11 @@
   --chat-user: 239 84% 96%;
   --chat-assistant: 0 0% 100%;
   --glow: 351 73.8% 37.5%;
+  /* #259 后台保紫三值单源：components 层 .admin-layout 与 body[data-ui-theme=admin]
+     引用同值（--ring 两处有意不同，见彼处注释不单源） */
+  --admin-primary: 239 84% 67%;
+  --admin-primary-foreground: 0 0% 100%;
+  --admin-glow: 239 84% 67%;
 
   /* ===== 新设计系统 - 背景 ===== */
   --bg-primary: #ffffff;
@@ -290,10 +295,11 @@ html.dark *::-webkit-scrollbar-thumb:hover {
 @layer components {
   .admin-layout {
     @apply bg-[#F3F4F6] text-slate-900;
-    /* #228 后台作用域显式保紫：:root 默认主色已反转为品牌红，原紫色值封进后台 DOM 作用域 */
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --glow: 239 84% 67%;
+    /* #228 后台作用域显式保紫：:root 默认主色已反转为品牌红，原紫色值封进后台 DOM 作用域
+       （#259 起三值引 :root --admin-* 单源） */
+    --primary: var(--admin-primary);
+    --primary-foreground: var(--admin-primary-foreground);
+    --glow: var(--admin-glow);
     --ring: 224 76% 48%;
   }
 
@@ -303,9 +309,9 @@ html.dark *::-webkit-scrollbar-thumb:hover {
      data-ui-theme="admin"，body 子树（含 Portal 弹层与独立路由根）与后台布局同主题；
      卸载即清理——用户面弹窗保持 :root 品牌红，往返导航无残留。 */
   body[data-ui-theme="admin"] {
-    --primary: 239 84% 67%;
-    --primary-foreground: 0 0% 100%;
-    --glow: 239 84% 67%;
+    --primary: var(--admin-primary);
+    --primary-foreground: var(--admin-primary-foreground);
+    --glow: var(--admin-glow);
     /* 弹层焦点环保持原 :root 紫色（后台布局 DOM 内的 224 76% 48% 覆盖不衰减到 body 直挂节点） */
     --ring: 239 84% 67%;
   }

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 
 import type { NewsItem } from "@/types/news";
-import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMockData";
+import { NEWS_CATEGORY_LABELS_EN, NEWS_CATEGORY_LABELS_ZH } from "@/services/newsMapping";
 import { useNewsLocalStore } from "@/stores/newsLocalStore";
 import { useFeedLang } from "./feedLang";
 import { isSafeUrl } from "@/utils/urlSafety";

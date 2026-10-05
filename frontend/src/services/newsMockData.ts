@@ -64,31 +64,7 @@ export const NEWS_CATEGORY_CHIPS: { key: NewsCategory | "all"; labelZh: string; 
   { key: "admin", labelZh: "公告", labelEn: "Notices" }
 ];
 
-/** 分类中文短标签（卡片 c-cat 徽章文案） */
-export const NEWS_CATEGORY_LABELS_ZH: Record<NewsCategory, string> = {
-  admission: "招生",
-  scholarship: "奖学金",
-  research: "科研",
-  campus: "校园",
-  event: "活动",
-  career: "就业",
-  exchange: "交流",
-  admin: "公告",
-  other: "其他"
-};
-
-/** 分类英文短标签（卡片 c-cat 徽章 EN 文案；与 chips labelEn 对齐） */
-export const NEWS_CATEGORY_LABELS_EN: Record<NewsCategory, string> = {
-  admission: "Admissions",
-  scholarship: "Scholarships",
-  research: "Research",
-  campus: "Campus",
-  event: "Events",
-  career: "Careers",
-  exchange: "Exchange",
-  admin: "Notices",
-  other: "Other"
-};
+/** 分类短标签 NEWS_CATEGORY_LABELS_ZH/EN 已迁 newsMapping.ts（#259：生产词表不落 mock 模块名下） */
 
 /** 顶栏日期/「更新至」常量已删（2026-09-13）：生产消费点改实时值——
  *  顶栏=feedDateLabels()、热点榜副标题=formatUpdatedLabel()（newsMapping.ts，HKT 工具族
