@@ -156,7 +156,8 @@ export function RagTracePage() {
           <div>
             <h1 className="admin-page-title">链路追踪</h1>
             <p className="admin-page-subtitle">
-              独立列表页聚焦运行检索，点击任意运行记录进入详情页分析慢节点与失败节点
+              聚焦运行检索的链路列表，点击任意运行记录进入详情页分析慢节点与失败节点；数据源为
+              workflow 检索引擎（/rag/v3/chat）的对话链路，agent 引擎（/agent/v1/chat）对话暂不落库
             </p>
           </div>
           <div className="admin-page-actions">
@@ -195,6 +196,13 @@ export function RagTracePage() {
             ))}
           </div>
         </section>
+
+        {/* #294：零数据时明示覆盖范围——生产主力 agent 引擎不写此表，0 条≠链路丢失 */}
+        {!loading && total === 0 && (
+          <p className="admin-page-subtitle">
+            暂无链路记录：本页仅收录 workflow 检索引擎（/rag/v3/chat）的对话链路，agent 引擎（/agent/v1/chat）对话暂不在此记录。
+          </p>
+        )}
 
         <RunsTable
           runs={runs}
