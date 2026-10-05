@@ -28,7 +28,7 @@ jobs:
       # 2026-09-17 修（T24 扩面）：原子路径误写 init-action/analyze-action（该仓库实为
       # init/analyze 子目录），且原 SHA 并非注释所标 v4.38.0 的 commit——本文件从未跑成过
       # 一次（历次 PR 全 7–11s 秒挂 Can't find action.yml）。现钉真 v4.38.0 tag commit。
-      - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           languages: java-kotlin
           build-mode: none
