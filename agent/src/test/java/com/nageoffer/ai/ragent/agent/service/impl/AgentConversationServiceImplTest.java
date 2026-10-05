@@ -26,6 +26,8 @@ import com.nageoffer.ai.ragent.agent.dao.mapper.AgentConversationMapper;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentMessageMapper;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmCall;
+import com.nageoffer.ai.ragent.agent.dto.AgentConfirmField;
+import com.nageoffer.ai.ragent.agent.controller.vo.AgentMessageVO;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
@@ -131,6 +133,44 @@ class AgentConversationServiceImplTest {
         verify(agentStateStore, times(1)).delete(USER_ID, CONVERSATION_ID);
         verify(agentStateStore, times(1)).delete(USER_ID, "c-3003");
         assertThat(events).containsExactly("commit", "unlock", "unlock-2");
+    }
+
+    @Test
+    void listMessagesShouldScrubConfirmCallArgumentsButKeepPersistedOriginal() {
+        AgentConfirmCall call = AgentConfirmCall.builder()
+                .toolCallId("call-1")
+                .name("apply_memory_change")
+                .displayName("执行记忆变更")
+                .fields(List.of(AgentConfirmField.builder()
+                        .name("变更内容").label("变更内容").value("清空全部长期记忆").build()))
+                .arguments("{\n  \"operationId\": \"2106957554436759553\"\n}")
+                .build();
+        AgentBlock confirm = AgentBlock.builder()
+                .kind(AgentBlock.KIND_CONFIRM).status("pending").calls(List.of(call)).build();
+        AgentBlock tool = AgentBlock.builder()
+                .kind(AgentBlock.KIND_TOOL).name("search_knowledge").result("命中 3 篇").build();
+        AgentMessageDO message = AgentMessageDO.builder()
+                .id("m-1").conversationId(CONVERSATION_ID).userId(USER_ID)
+                .role("assistant")
+                .messageStatus(AgentMessageStatus.AWAITING_CONFIRM.name())
+                .blocks(new ArrayList<>(List.of(confirm, tool)))
+                .build();
+        when(messageMapper.selectList(any())).thenReturn(List.of(message));
+
+        List<AgentMessageVO> vos = service.listMessages(CONVERSATION_ID, USER_ID);
+
+        // 出参投影：confirm 卡 calls 剥掉 arguments，身份与结构化字段原样
+        AgentBlock voConfirm = vos.get(0).getBlocks().get(0);
+        assertThat(voConfirm.getKind()).isEqualTo(AgentBlock.KIND_CONFIRM);
+        assertThat(voConfirm.getCalls()).hasSize(1);
+        assertThat(voConfirm.getCalls().get(0).getArguments()).isNull();
+        assertThat(voConfirm.getCalls().get(0).getToolCallId()).isEqualTo("call-1");
+        assertThat(voConfirm.getCalls().get(0).getFields()).hasSize(1);
+        // 非 confirm 块原样直通（result 是服务端人话文案，不在收口范围）
+        assertThat(vos.get(0).getBlocks().get(1)).isSameAs(tool);
+        // 剥离的是副本：持久化原件的 arguments 必须原封不动（死卡检测 operationIdOf 回读依赖）
+        assertThat(message.getBlocks().get(0)).isSameAs(confirm);
+        assertThat(call.getArguments()).contains("operationId");
     }
 
     @Test

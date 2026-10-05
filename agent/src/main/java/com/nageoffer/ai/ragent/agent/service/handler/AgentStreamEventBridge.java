@@ -373,7 +373,9 @@ public class AgentStreamEventBridge {
             settleUnpersistedConfirm();
             return true;
         }
-        sendTerminal(AgentSSEEventType.CONFIRM, new AgentConfirmPayload(messageId, title, pending, facts.settleRun()));
+        // pending 与持久化块同源：出参只发剥离副本，arguments 留在库里给死卡检测回读（#300）
+        sendTerminal(AgentSSEEventType.CONFIRM, new AgentConfirmPayload(messageId, title,
+                AgentConfirmCall.scrubbedCopyOf(pending), facts.settleRun()));
         return true;
     }
 
