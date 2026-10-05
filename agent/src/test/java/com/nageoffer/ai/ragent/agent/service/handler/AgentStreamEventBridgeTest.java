@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.agent.service.handler;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.dto.AgentCompletionPayload;
+import com.nageoffer.ai.ragent.agent.dto.AgentConfirmPayload;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmField;
 import com.nageoffer.ai.ragent.agent.dto.AgentMessageDelta;
 import com.nageoffer.ai.ragent.agent.dto.AgentTextBlockSeal;
@@ -380,6 +381,33 @@ class AgentStreamEventBridgeTest {
         verify(sender, never()).sendEvent(eq("confirm"), any());
         verify(sender).sendEvent(eq("finish"), any());
         verify(sender).sendEvent(eq("hint"), any());
+    }
+
+    /**
+     * #300：SSE confirm 载荷剥掉 arguments（入参原文不下面），同一次落库的持久化块保留原文供死卡检测回读
+     */
+    @Test
+    void shouldScrubConfirmArgumentsInSsePayloadButKeepPersistedCopy() {
+        when(conversationService.addAssistantMessage(any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn("m-9001");
+
+        bridge.onEvent(new ToolCallStartEvent("r-1", "call-1", "leave_submit"));
+        bridge.onEvent(new RequireUserConfirmEvent("r-1", List.of(
+                ToolUseBlock.builder().id("call-1").name("leave_submit").input(Map.of("day", "9-14")).build())));
+        bridge.onComplete();
+
+        ArgumentCaptor<Object> payloads = ArgumentCaptor.forClass(Object.class);
+        verify(sender).sendEvent(eq("confirm"), payloads.capture());
+        AgentConfirmPayload payload = (AgentConfirmPayload) payloads.getValue();
+        assertThat(payload.calls()).hasSize(1);
+        assertThat(payload.calls().get(0).getArguments()).isNull();
+        assertThat(payload.calls().get(0).getToolCallId()).isEqualTo("call-1");
+        // 持久化那份没被出参剥离动过：arguments 仍在
+        AgentBlock persisted = capturedBlocks().stream()
+                .filter(block -> AgentBlock.KIND_CONFIRM.equals(block.getKind()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(persisted.getCalls().get(0).getArguments()).contains("day");
     }
 
     /**

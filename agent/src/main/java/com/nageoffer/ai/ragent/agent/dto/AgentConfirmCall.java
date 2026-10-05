@@ -56,7 +56,31 @@ public class AgentConfirmCall {
     private List<AgentConfirmField> fields;
 
     /**
-     * 完整调用参数 JSON，卡片折叠区展示
+     * 完整调用参数 JSON：只作服务端内部载体（死卡检测经 operationIdOf 回读，见 AgentMemoryApprovalService），
+     * 随块落库与 trace 留痕；面向用户的出参一律走 {@link #scrubbedCopy()} 剥离，不随载荷下发
      */
     private String arguments;
+
+    /**
+     * 面向用户的出参副本：剥掉 arguments 原文，其余字段原样引用（fields 本就是展示数据）
+     * 返回新实例不动原件——实时链路里持久化引用与出参载荷同源，改原件会弄断服务端回读
+     */
+    public AgentConfirmCall scrubbedCopy() {
+        return AgentConfirmCall.builder()
+                .toolCallId(toolCallId)
+                .name(name)
+                .displayName(displayName)
+                .fields(fields)
+                .build();
+    }
+
+    /**
+     * 列表级出参投影：null 安全；无可剥内容时原样返回，避免无谓拷贝
+     */
+    public static List<AgentConfirmCall> scrubbedCopyOf(List<AgentConfirmCall> calls) {
+        if (calls == null || calls.isEmpty()) {
+            return calls;
+        }
+        return calls.stream().map(AgentConfirmCall::scrubbedCopy).toList();
+    }
 }

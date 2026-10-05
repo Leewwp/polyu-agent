@@ -131,4 +131,40 @@ public class AgentBlock {
      * tool 块的检索来源（search_knowledge 专属，其余块恒空），随块 JSON 落库与 SSE 透传；老数据无此字段
      */
     private List<AgentBlockSource> sources;
+
+    /**
+     * 用户出参用的块列表投影：只处理 confirm 块——calls 换成剥掉 arguments 的副本（#300），
+     * 其余块与字段原样引用；不动入参原件（持久化引用仍需 arguments 做死卡检测回读）
+     */
+    public static List<AgentBlock> clientViewOf(List<AgentBlock> blocks) {
+        if (blocks == null || blocks.isEmpty()) {
+            return blocks;
+        }
+        return blocks.stream()
+                .map(block -> block != null && KIND_CONFIRM.equals(block.kind)
+                        ? copyWithScrubbedCalls(block)
+                        : block)
+                .toList();
+    }
+
+    private static AgentBlock copyWithScrubbedCalls(AgentBlock block) {
+        return AgentBlock.builder()
+                .kind(block.kind)
+                .at(block.at)
+                .text(block.text)
+                .name(block.name)
+                .displayName(block.displayName)
+                .status(block.status)
+                .result(block.result)
+                .toolCallId(block.toolCallId)
+                .batchId(block.batchId)
+                .callIndex(block.callIndex)
+                .startedAt(block.startedAt)
+                .endedAt(block.endedAt)
+                .durationMs(block.durationMs)
+                .durationSource(block.durationSource)
+                .calls(AgentConfirmCall.scrubbedCopyOf(block.calls))
+                .sources(block.sources)
+                .build();
+    }
 }
