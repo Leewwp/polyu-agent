@@ -377,3 +377,40 @@ describe("Answer Turn footer（#139 capability 门+Copy/Share）", () => {
     expect(buttons).toHaveLength(1);
   });
 });
+
+describe("AgentTurnItem 确认卡不展示原始参数", () => {
+  it("结构化 fields 照常渲染，arguments 原文与「原始参数」入口均不进 DOM", () => {
+    const confirm: AgentBlockUI = {
+      id: 3,
+      kind: "confirm",
+      at: "09:41:06",
+      status: "pending",
+      calls: [
+        {
+          toolCallId: "call-raw-1",
+          name: "apply_memory_change",
+          displayName: "执行记忆变更",
+          fields: [{ name: "scope", label: "影响范围", value: "全部长期记忆" }],
+          arguments: '{\n  "operationId": "RAW-SENTINEL-9d3f"\n}'
+        }
+      ]
+    };
+    render(
+      <AgentTurnItem
+        turn={buildTurn([
+          { id: "a-1", role: "assistant", content: "", status: "done", createdAt: "2026-01-01T09:41:03", blocks: [confirm] }
+        ])}
+      />
+    );
+
+    // 卡本体与结构化视图完好：引导语、字段、裁决按钮都在
+    expect(screen.getByText("以下操作会真实生效，确认后才执行")).toBeTruthy();
+    expect(screen.getByText("影响范围")).toBeTruthy();
+    expect(screen.getByText("全部长期记忆")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "确认执行" })).toBeTruthy();
+    // 原始参数泄漏面已摘：折叠入口与 arguments 原文（哨兵值）都不出现在页面
+    expect(screen.queryByText("原始参数")).toBeNull();
+    expect(document.querySelector(".agent-confirm-raw")).toBeNull();
+    expect(document.body.textContent).not.toContain("RAW-SENTINEL-9d3f");
+  });
+});
