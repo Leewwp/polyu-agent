@@ -36,7 +36,7 @@ function isMoreSection(pathname: string): boolean {
 
 function tabClass(active: boolean): string {
   return cn(
-    "flex flex-1 cursor-pointer flex-col items-center gap-0.5 py-[3px] text-[10.5px] text-[var(--feed-text-tertiary)]",
+    "flex min-h-[44px] flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 py-[3px] text-[10.5px] text-[var(--feed-text-tertiary)]",
     active && "font-bold text-[var(--polyu-red)]"
   );
 }

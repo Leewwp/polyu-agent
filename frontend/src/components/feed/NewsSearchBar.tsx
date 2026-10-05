@@ -35,7 +35,7 @@ export function NewsSearchBar({ value, onSubmit }: { value: string; onSubmit: (q
         value={text}
         aria-label={zh ? "搜索理大资讯" : "Search PolyU news"}
         placeholder={zh ? "搜索标题与摘要…" : "Search titles & summaries…"}
-        className="h-[34px] min-w-0 flex-1 rounded-full border border-[var(--feed-line)] bg-white px-3.5 text-[12.5px] text-[var(--feed-text-primary)] outline-none placeholder:text-[var(--feed-text-tertiary)] focus:border-[var(--polyu-red)]"
+        className="h-[34px] min-w-0 flex-1 rounded-full border border-[var(--feed-line)] bg-white px-3.5 text-[12.5px] max-[860px]:text-[16px] text-[var(--feed-text-primary)] outline-none placeholder:text-[var(--feed-text-tertiary)] focus:border-[var(--polyu-red)]"
         onChange={(event) => setText(event.target.value)}
       />
       <button

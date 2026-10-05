@@ -203,7 +203,7 @@ function RecentChatsSectionInternal({
         <div className="mx-1 mb-1 flex items-center gap-1.5 rounded-lg border border-[var(--feed-line-soft)] bg-[var(--feed-bg)] px-2 py-1.5">
           <Search className="h-3.5 w-3.5 flex-none text-[var(--feed-text-tertiary)]" aria-hidden="true" />
           <input
-            className="w-full bg-transparent text-[12.5px] text-[var(--feed-text-primary)] outline-none placeholder:text-[var(--feed-text-tertiary)]"
+            className="w-full bg-transparent text-[12.5px] max-[860px]:text-[16px] text-[var(--feed-text-primary)] outline-none placeholder:text-[var(--feed-text-tertiary)]"
             value={query}
             placeholder={zh ? "搜索对话" : "Search chats"}
             spellCheck={false}
