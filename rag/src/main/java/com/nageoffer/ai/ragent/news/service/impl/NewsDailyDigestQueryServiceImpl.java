@@ -78,9 +78,11 @@ import java.util.stream.Collectors;
 public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryService {
 
     /**
-     * 目录条数上限（钳制上界：一刊一行，90 天保留面 90 期封顶）
+     * 目录条数上限（钳制上界）：快照行独立于 t_news_item 90 天清理永久留存，
+     * 上限取约 13 个月的存档可达面（历史回填后往期可经月历/翻期浏览；
+     * 一刊一行 + firstVisible 批量装配，400 期量级仍是一次轻量 IN 查询）
      */
-    private static final int MAX_LIST_LIMIT = 90;
+    private static final int MAX_LIST_LIMIT = 400;
 
     /**
      * 目录默认条数
