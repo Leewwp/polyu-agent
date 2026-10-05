@@ -312,7 +312,8 @@ public class AgentConversationServiceImpl implements AgentConversationService {
                         .role(item.getRole())
                         .content(item.getContent())
                         .thinkingContent(item.getThinkingContent())
-                        .blocks(item.getBlocks())
+                        // 回放走用户出参投影：confirm 卡 calls 剥掉 arguments（#300），存量消息一并覆盖
+                        .blocks(AgentBlock.clientViewOf(item.getBlocks()))
                         .messageStatus(item.getMessageStatus())
                         .durationMs(item.getDurationMs())
                         .createTime(item.getCreateTime())
