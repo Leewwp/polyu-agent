@@ -1,5 +1,5 @@
-# 前端质量门（ROADMAP-20260907 第 6 步 CI 骨架）：lint + build。
-# 测试底座（Vitest/E2E）为路线图第 9 步，落地后在此追加 test 步骤。
+# 前端质量门（ROADMAP-20260907 第 6 步 CI 骨架）：typecheck + lint + build。
+# 测试底座（Vitest/E2E）为路线图第 9 步，已追加 test 步骤。
 name: frontend
 
 on:
@@ -30,6 +30,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # #269：vite build（esbuild 剥类型）不查类型，存量类型债曾借道隐匿——
+      # tsc --noEmit 入门防复发。tsconfig.node.json（vite.config.ts）有存量
+      # 配置旧账（缺 @/ 路径别名与 target），暂未入门，留独立票收口。
+      - name: Typecheck
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint

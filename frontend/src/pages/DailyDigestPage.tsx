@@ -275,7 +275,8 @@ function StatsBand({ stats }: { stats: DerivedIssue["stats"] }) {
 function IssueToc({ derived, spacious = false }: { derived: DerivedIssue; spacious?: boolean }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
-  const rows = derived.sections.map((section, i) => ({
+  // 目录行 key：栏目锚点之外还有合成的快讯锚（#sec-flash），只在本目录联合，不扩 NewsCategory
+  const rows: { key: NewsCategory | "flash"; num: string; label: string; count: string; href: string }[] = derived.sections.map((section, i) => ({
     key: section.cat,
     num: String(i + 1).padStart(2, "0"),
     label: zh ? NEWS_CATEGORY_LABELS_ZH[section.cat] : NEWS_CATEGORY_LABELS_EN[section.cat],

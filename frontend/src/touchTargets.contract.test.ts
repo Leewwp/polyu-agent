@@ -53,7 +53,10 @@ describe("touch targets ≥44px（主清单源锚定）", () => {
   it("资讯详情底部操作排：原文钮 + 分享钮 ≥44", () => {
     const s = read("src/pages/NewsDetailPage.tsx");
     expect(s).toContain("min-h-[44px] px-[15px] text-[13px] font-semibold");
-    expect(s).toContain('<ShareButton item={item} zh={zh} className="h-11 w-11" />');
+    // #269：调用面的 className="h-11 w-11" 系 #232 起未被组件接收的死参（tsc
+    // 门落地后显形）——分享钮 44px 契约由上一行其自身 min-h-[44px] 承担，
+    // 死参随类型修复移除，保持线上已验收的药丸形态。
+    expect(s).toContain("<ShareButton item={item} zh={zh} />");
   });
 
   it("用户面主要表单提交钮 ≥44（登录/注册/找回/账号/反馈）", () => {
