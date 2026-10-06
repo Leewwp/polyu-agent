@@ -174,7 +174,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
               {zh ? "查看原文 ↗" : "View source ↗"}
             </a>
           ) : null}
-          <ShareButton item={item} zh={zh} className="h-11 w-11" />
+          <ShareButton item={item} zh={zh} />
         </div>
       </article>
 
