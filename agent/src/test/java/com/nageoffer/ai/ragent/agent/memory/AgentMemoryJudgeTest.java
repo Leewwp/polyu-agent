@@ -95,6 +95,18 @@ class AgentMemoryJudgeTest {
     }
 
     /**
+     * 生产实证（2026-10-05 23:18/23:21）：清空场景三次裸对象失败里两次恰是裸 CLEAR——
+     * 它没有 content 字段，走 wrap 后必须仍能进清空审批链，而不是被整批打成 CONFLICT
+     */
+    @Test
+    void shouldWrapBareSingleClearObject() {
+        answer("{\"action\":\"CLEAR\"}");
+
+        assertThat(judge.judge(List.of(), ONE_TURN)).extracting(AgentMemoryDecision::action)
+                .containsExactly(Action.CLEAR);
+    }
+
+    /**
      * 容错只认决策形状：不是 JSON 或缺 action 字段，仍按老规矩整批抛出重试
      */
     @Test
