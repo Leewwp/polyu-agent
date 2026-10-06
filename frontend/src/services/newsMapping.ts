@@ -403,7 +403,7 @@ export function digestItemToNewsItem(item: NewsDailyDigestItem, now: Date = new 
         displayName: item.source.displayName,
         displayNameEn: item.source.displayNameEn
       }
-    : undefined;
+    : null;
   return {
     id: String(item.itemId),
     url: item.url,

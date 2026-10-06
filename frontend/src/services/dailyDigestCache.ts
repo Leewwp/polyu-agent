@@ -130,11 +130,17 @@ export function clearDailyDigestCache(): void {
   cache.clear();
 }
 
+/**
+ * 带元数据的解包产物形状：symbol 键的值恒为 HttpResponseMeta——唯一写入方
+ * 是 newsService.attachResponseMeta（写前即按该类型构造），此处仅回读。
+ */
+type HttpResponseMetaCarrier = { [HTTP_RESPONSE_META]?: HttpResponseMeta };
+
 /** 读解包产物上的 HTTP 元数据（拦截器仅对对象形 data 挂载） */
 export function readResponseMeta(data: unknown): HttpResponseMeta | null {
   if (!data || typeof data !== "object") {
     return null;
   }
-  const meta = (data as Record<symbol, unknown>)[HTTP_RESPONSE_META];
+  const meta = (data as HttpResponseMetaCarrier)[HTTP_RESPONSE_META];
   return meta ?? null;
 }
