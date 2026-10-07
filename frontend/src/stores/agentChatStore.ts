@@ -70,9 +70,9 @@ interface AgentChatState {
   // AgentChatPage 据此弹 LoginPromptModal（与 workflow 链 ChatQuotaModal 同语义）
   quotaError: string | null;
   dismissQuotaError: () => void;
-  // #139 Scoped Share Dialog：null=关。defaultScope 由入口决定（顶栏=full /
-  // 答案 Turn footer=turn）；anchorAssistantMessageId 答案入口自带（String），
-  // 顶栏 turn/through 在 Dialog 内单选补齐。换会话即关（挂旧会话的分享窗不可留）
+  // #311 分享弹窗两档：null=关。defaultScope 由入口决定（顶栏=full /
+  // 答案 Turn footer=selection）；anchorAssistantMessageId 答案入口自带（String，
+  // 预勾种子——弹窗内可取消可加选）。换会话即关（挂旧会话的分享窗不可留）
   shareDialog: { defaultScope: AgentShareScope; anchorAssistantMessageId?: string } | null;
   openShareDialog: (init: { defaultScope: AgentShareScope; anchorAssistantMessageId?: string }) => void;
   closeShareDialog: () => void;
