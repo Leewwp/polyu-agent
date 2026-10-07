@@ -313,7 +313,7 @@ function ShareForm({
           <legend className="mb-1.5 text-[13px] font-semibold">
             {zh ? "选择要分享的问答" : "Pick turns to share"}
           </legend>
-          <div className="agent-share-pick-list" role="group" aria-label={zh ? "锚点轮" : "Anchor turns"}>
+          <div className="agent-share-pick-list" role="group" aria-label={zh ? "选择要分享的问答" : "Pick turns to share"}>
             {shareable.length === 0 ? (
               <p className="text-[12.5px] text-[var(--feed-text-tertiary)]">
                 {zh ? "还没有可分享的完成回答。" : "No completed answers to share yet."}

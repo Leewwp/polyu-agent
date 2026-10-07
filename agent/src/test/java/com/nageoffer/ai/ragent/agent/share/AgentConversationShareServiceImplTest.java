@@ -71,7 +71,8 @@ import static org.mockito.Mockito.when;
  * #138 增补 scope 矩阵（full 零变更/turn/through）、String anchor 统一拒绝、
  * replyTo 权威+物理 Turn 窗口、fallback 收紧五例、消息查询会话+用户联合过滤；
  * #310 增补 selection 矩阵——单锚对拍旧 turn 逐字段一致、多锚不连续按物理顺序拼接、
- * 乱序归一、重复/同轮锚去重、列表必填非空、非法锚点（含列表脏元素）整单拒绝；
+ * 乱序归一、重复/同轮锚去重、列表必填非空、非法锚点（含列表脏元素）整单拒绝、
+ * 携带旧单值字段互不越界（selection 忽略单值锚、与不带对拍一致）；
  * turn/through 兼容期全部既有用例原样保留全绿（清理门：#312）。
  */
 class AgentConversationShareServiceImplTest {
@@ -559,6 +560,27 @@ class AgentConversationShareServiceImplTest {
         assertEquals("Q2", payload.getMessages().get(0).getContent());
         assertEquals("assistant", payload.getMessages().get(1).getRole());
         assertEquals("A2", payload.getMessages().get(1).getContent());
+    }
+
+    @Test
+    void createShareSelectionIgnoresLegacySingleAnchorField() {
+        // #310 互不越界直接用例：scope=selection 时携带旧单值字段 anchorAssistantMessageId 被完全忽略，
+        // 行为与不带时逐字节一致（单值字段仅供 turn/through 兼容期读取，#312 消亡）——
+        // 此处填本会话合法锚 m6：若被读取即会把轮 2 拉入选段、对拍立败
+        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
+        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
+
+        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2", "m9"));
+        shareService.createShare("c1", "u1", "user", "selection", "m6", List.of("m2", "m9"));
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(shareSnapshotService, times(2)).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
+        List<String> payloads = payloadCaptor.getAllValues();
+        assertEquals(payloads.get(0), payloads.get(1));
+        // 对拍基准=多锚不连续形状（轮 1 含续答+轮 3、轮 2 不入选）：单值字段既未收窄也未放宽选段
+        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloads.get(1));
+        assertEquals(List.of("Q1", "A1-first", "A1-resumed", "Q3", "A3"),
+                payload.getMessages().stream().map(AgentShareSnapshotItem::getContent).toList());
     }
 
     @Test

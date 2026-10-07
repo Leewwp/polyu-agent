@@ -27,7 +27,7 @@ import type { AgentMessage } from "@/types/agent";
  * 所点轮可取消可加选 / 多选不连续预览=时间正序并集（与后端 SELECTION 选段对拍，
  * 含确认续跑形态）/ 请求 scope=selection+anchorAssistantMessageIds 列表（单选同样
  * 发列表）/ 成功态不自动关不自动复制 / expireTime=null 文案 / 游客登录引导不创建 /
- * 双语 zh+en。
+ * 悬空锚点防线（预勾锚点过期禁用创建、混合集合不放行、换合法预勾恢复）/ 双语 zh+en。
  */
 
 function userMsg(id: string, content: string): AgentMessage {
@@ -222,6 +222,39 @@ describe("AgentShareDialog 范围与锚点", () => {
     await user.click(boxes[0]);
     expect(createBtn.disabled).toBe(false);
     await user.click(createBtn);
+    await waitFor(() => {
+      expect(createAgentShareMock).toHaveBeenCalledWith("conv-1", "selection", ["2103590757771956002"]);
+    });
+  });
+
+  it("悬空锚点防线：入口预勾锚点不在当前可分享轮集合（会话已变化/过期）→ 创建禁用；换合法预勾重新入口恢复可用", async () => {
+    createAgentShareMock.mockResolvedValue({ token: "TOK-STALE", expireTime: null });
+    const user = userEvent.setup();
+    // 预勾 2103590757771999999 不在 seedConversation（锚 001/002）中：模拟 footer 入口与当前消息脱钩
+    const { unmount } = setupDialog({
+      defaultScope: "selection",
+      anchorAssistantMessageId: "2103590757771999999"
+    });
+
+    // 悬空种子只存在于勾选集合：列表内无对应 checkbox（预勾不可见），创建按钮禁用
+    const boxes = screen.getAllByRole("checkbox", { name: /TURN/ }) as HTMLInputElement[];
+    expect(boxes).toHaveLength(2);
+    expect(boxes.every((box) => !box.checked)).toBe(true);
+    const createBtn = screen.getByRole("button", { name: /创建分享链接|Create share link/ }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(true);
+
+    // 防线口径=集合内任一锚点不可解析即拒绝：加选合法轮成混合集合仍禁用，不产出部分选段
+    await user.click(boxes[0]);
+    expect(createBtn.disabled).toBe(true);
+    await user.click(createBtn);
+    expect(createAgentShareMock).not.toHaveBeenCalled();
+
+    // 恢复路径=换合法预勾重新入口（ShareForm 以入口键重挂、勾选集合重建为纯合法集合）
+    unmount();
+    setupDialog({ defaultScope: "selection", anchorAssistantMessageId: "2103590757771956002" });
+    const createBtnAgain = screen.getByRole("button", { name: /创建分享链接|Create share link/ }) as HTMLButtonElement;
+    expect(createBtnAgain.disabled).toBe(false);
+    await user.click(createBtnAgain);
     await waitFor(() => {
       expect(createAgentShareMock).toHaveBeenCalledWith("conv-1", "selection", ["2103590757771956002"]);
     });
