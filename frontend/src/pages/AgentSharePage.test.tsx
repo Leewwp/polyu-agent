@@ -151,6 +151,36 @@ describe("AgentSharePage（issue #91 壳化视图）", () => {
     expect(screen.queryByRole("button", { name: /分享这一轮|Share this turn/ })).toBeNull();
   });
 
+  it("#311 多选不连续快照：渲染两张独立轮卡、轮 2 缺席；页面零弹窗域 UI（无选择问答文案、无 checkbox）", async () => {
+    // SELECTION 选段快照形状：仅勾了轮 1+轮 3（轮 2 未勾），messages 序列天然跳过轮 2
+    getPublicAgentShareMock.mockResolvedValue({
+      ...SHARE_FIXTURE,
+      messages: [
+        { role: "user", content: "如何申请宿舍？", createTime: "2026-09-19T00:00:00Z" },
+        { role: "assistant", content: "## 申请步骤\n1. 在线提交申请", createTime: "2026-09-19T00:01:00Z" },
+        { role: "user", content: "退费怎么办理？", createTime: "2026-09-19T00:04:00Z" },
+        { role: "assistant", content: "退费在注册处窗口办理。", createTime: "2026-09-19T00:05:00Z" }
+      ]
+    });
+    setup();
+
+    // (a) 两张独立轮卡（groupTurns 按快照物理顺序重编号 TURN 1/TURN 2）；轮 2 内容缺席、无第三卡
+    await waitFor(() => {
+      expect(screen.getByText("TURN 2")).toBeTruthy();
+    });
+    expect(screen.getAllByText(/^TURN \d+$/)).toHaveLength(2);
+    expect(screen.getByText("如何申请宿舍？")).toBeTruthy();
+    expect(screen.getByText("退费怎么办理？")).toBeTruthy();
+    expect(screen.getByText("退费在注册处窗口办理。")).toBeTruthy();
+    expect(screen.queryByText("学费什么时候截止？")).toBeNull();
+
+    // (b) 公开页零变化：不出现分享弹窗域 UI（两档文案与勾选 legend 不在，无 checkbox/radio 输入）
+    expect(screen.queryByText(/选择问答|Select turns/)).toBeNull();
+    expect(screen.queryByText(/选择要分享的问答|Pick turns to share/)).toBeNull();
+    expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(document.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+  });
+
   it("匿名态零网络请求（公开页红线：不 /auth、不拉会话、不探引擎档位）", async () => {
     const { requestedUrls } = instrumentNetwork();
     getPublicAgentShareMock.mockResolvedValue(SHARE_FIXTURE);

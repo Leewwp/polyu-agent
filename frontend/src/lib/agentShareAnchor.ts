@@ -3,8 +3,9 @@ import type { AgentMessage, AgentTurn } from "@/types/agent";
 /**
  * Shareable Turn Anchor（issue #139，doc44 D-7 统一概念）：
  * Turn 内倒序第一个满足「持久化服务端 assistant ID + done + NORMAL + content 非空」的 assistant。
- * 四处共用同一 selector——Answer Turn footer / Header 三档 radio 单选 / Dialog 预览 /
- * 创建请求的 anchorAssistantMessageId——禁止各写一套判定。
+ * 四处共用同一 selector——Answer Turn footer 入口 / Dialog 两档（full/selection）radio /
+ * selection 档 checkbox 勾选列表与预览 / 创建请求的 anchorAssistantMessageIds 列表——
+ * 禁止各写一套判定。
  *
  * 类型红线：assistant.id 全链 String（t_agent_message.id VARCHAR(20) 雪花，
  * 18–19 位超 JS Number 安全整数；任何 Number/parseInt 转换都会精度丢失）。
@@ -37,7 +38,7 @@ export function findShareableAnchor(turn: AgentTurn): AgentMessage | null {
   return null;
 }
 
-/** 会话内全部有 Shareable Anchor 的 Turn（Header turn/through 单选列表数据源，倒序=最新在前） */
+/** 会话内全部有 Shareable Anchor 的 Turn（#311 selection 档 checkbox 勾选列表数据源，倒序=最新在前） */
 export function listShareableTurns(turns: AgentTurn[]): Array<{ turn: AgentTurn; anchor: AgentMessage }> {
   const out: Array<{ turn: AgentTurn; anchor: AgentMessage }> = [];
   for (let i = turns.length - 1; i >= 0; i -= 1) {

@@ -19,8 +19,11 @@ package com.nageoffer.ai.ragent.agent.share.request;
 
 import lombok.Data;
 
+import java.util.List;
+
 /**
- * 创建会话分享请求体（issue #138 向后兼容扩展 scope/anchor，旧客户端只传 conversationId 仍是完整对话）
+ * 创建会话分享请求体（issue #138 向后兼容扩展 scope/anchor，旧客户端只传 conversationId 仍是完整对话；
+ * #310 增补 selection 档与锚点列表）
  */
 @Data
 public class AgentShareCreateRequest {
@@ -44,4 +47,12 @@ public class AgentShareCreateRequest {
      * （18-19 位超 JS Number 安全整数），禁止 Long/parseLong/parseInt
      */
     private String anchorAssistantMessageId;
+
+    /**
+     * 锚点 assistant 消息 ID 列表（selection 必带非空，#310）：一次勾选多轮问答，
+     * 可跨轮不连续。勾选顺序与结果无关——服务端按会话物理顺序拼接；重复锚点按同轮去重；
+     * 任一锚点非法整单拒绝。**全链 String**——列表元素为字符串（雪花 18-19 位超 JS Number
+     * 安全整数），禁止 Number/long 直传。turn/through 旧档不读本字段（新旧档互不越界）
+     */
+    private List<String> anchorAssistantMessageIds;
 }

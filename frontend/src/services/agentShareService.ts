@@ -8,8 +8,8 @@ export interface AgentShareCreated {
   expireTime?: string | null;
 }
 
-/** Scoped Share 范围（issue #138 后端合同，#139 前端消费）：full=完整对话快照 */
-export type AgentShareScope = "full" | "turn" | "through";
+/** Scoped Share 范围（#310 后端合同，#311 前端两档）：full=完整对话 / selection=勾选轮并集 */
+export type AgentShareScope = "full" | "selection";
 
 /**
  * 快照来源条目（issue #91 v2 可选字段）：SourceRef 等价投影，
@@ -58,20 +58,23 @@ export interface AgentShareMineItem {
 /**
  * 创建会话只读分享快照（flag 默认关，未启用时后端 404）；
  * conversationId 为当前 agent 会话业务 ID。
- * #139 Scoped Share 扩参（#138 已部署的后端合同，向后兼容）：scope 缺省=full
- * （旧客户端形态不变）；turn/through 必带 anchorAssistantMessageId——
+ * #311 两档收敛（#310 契约）：scope 缺省=full；selection 必带
+ * anchorAssistantMessageIds 列表（单选场景同样发列表，统一契约）——
  * **全链 String**（t_agent_message.id VARCHAR(20) 雪花，超 JS Number 安全整数，
- * 禁 Number/parseInt 转换，原样透传）。
+ * 禁 Number/parseInt 转换，原样透传）。旧单值字段 anchorAssistantMessageId
+ * 前端不再发送；后端 TURN/THROUGH 兼容期保留，移除门控见清理票 #312。
  */
 export async function createAgentShare(
   conversationId: string,
   scope?: AgentShareScope,
-  anchorAssistantMessageId?: string
+  anchorAssistantMessageIds?: string[]
 ): Promise<AgentShareCreated> {
   return api.post<AgentShareCreated, AgentShareCreated>("/agent/share", {
     conversationId,
     ...(scope ? { scope } : {}),
-    ...(anchorAssistantMessageId ? { anchorAssistantMessageId } : {})
+    ...(anchorAssistantMessageIds && anchorAssistantMessageIds.length > 0
+      ? { anchorAssistantMessageIds }
+      : {})
   });
 }
 

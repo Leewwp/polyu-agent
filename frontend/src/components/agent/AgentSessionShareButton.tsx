@@ -14,7 +14,7 @@ import { useEngineStore } from "@/stores/engineStore";
  * - 消息加载门（#139）：messages 尚在 loading 时入口可发现、点击提示稍候，
  *   不开弹窗不创建；ready 后恢复；
  * - 稳定态点击→agentChatStore.openShareDialog（默认 full；AgentShareDialog 承载
- *   三档范围/锚点单选/预览/成功态，创建与复制语义全部收进弹窗）。
+ *   两档范围/勾选多选/预览/成功态，创建与复制语义全部收进弹窗）。
  */
 export function AgentSessionShareButton() {
   const { lang } = useFeedLang();

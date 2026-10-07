@@ -51,13 +51,15 @@ public class AgentShareController {
 
     /**
      * 创建会话的只读分享快照（游客身份被服务层硬阻断，issue #91 增补）；
-     * scope/anchor 向后兼容扩展见 issue #138（缺省=full 旧客户端零变化）
+     * scope/anchor 向后兼容扩展见 issue #138（缺省=full 旧客户端零变化）；
+     * #310 增补 selection 档与锚点列表 anchorAssistantMessageIds
      */
     @PostMapping
     public Result<AgentShareCreatedVO> createShare(@RequestBody AgentShareCreateRequest request) {
         return Results.success(shareService.createShare(
                 request.getConversationId(), UserContext.getUserId(), UserContext.getRole(),
-                request.getScope(), request.getAnchorAssistantMessageId()));
+                request.getScope(), request.getAnchorAssistantMessageId(),
+                request.getAnchorAssistantMessageIds()));
     }
 
     /**
