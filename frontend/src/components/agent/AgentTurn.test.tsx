@@ -344,13 +344,13 @@ describe("Answer Turn footer（#139 capability 门+Copy/Share）", () => {
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("回答已复制"));
   });
 
-  it("Share 钮：打开弹窗（默认 turn+anchor 直传，String 链路）", async () => {
+  it("Share 钮：打开弹窗（默认 selection+锚点预勾种子，String 链路）", async () => {
     const user = userEvent.setup();
     seedStore([doneAssistant()]);
     render(<AgentTurnItem turn={buildTurn([doneAssistant()])} showAnswerActions />);
     await user.click(screen.getByRole("button", { name: "分享这一轮问答" }));
     expect(useAgentChatStore.getState().shareDialog).toEqual({
-      defaultScope: "turn",
+      defaultScope: "selection",
       anchorAssistantMessageId: "2103590757771956001"
     });
   });

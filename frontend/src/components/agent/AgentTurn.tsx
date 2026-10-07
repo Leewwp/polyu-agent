@@ -147,7 +147,7 @@ function AnswerTurnFooter({ anchor }: { anchor: AgentMessage }) {
         type="button"
         className="agent-answer-action-btn"
         aria-label={zh ? "分享这一轮问答" : "Share this turn"}
-        onClick={() => openShareDialog({ defaultScope: "turn", anchorAssistantMessageId: anchor.id })}
+        onClick={() => openShareDialog({ defaultScope: "selection", anchorAssistantMessageId: anchor.id })}
       >
         <Share2 className="h-3.5 w-3.5" />
         {zh ? "分享" : "Share"}

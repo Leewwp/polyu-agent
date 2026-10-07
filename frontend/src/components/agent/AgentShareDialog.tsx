@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { groupTurns } from "@/components/agent/AgentMessageList";
-import { listShareableTurns } from "@/lib/agentShareAnchor";
+import { findShareableAnchor, listShareableTurns } from "@/lib/agentShareAnchor";
 import { shareUrl } from "@/lib/shareUrl";
 import { createAgentShare, type AgentShareCreated, type AgentShareScope } from "@/services/agentShareService";
 import { awaitingConfirm, useAgentChatStore } from "@/stores/agentChatStore";
@@ -23,11 +23,13 @@ import { useAuthStore } from "@/stores/authStore";
 import type { AgentTurn } from "@/types/agent";
 
 /**
- * Agent 分享弹窗（issue #139，消费 #138 已部署的 Scoped Share 合同）：
- * - 入口两门：顶栏（默认 full，可切三档；turn/through 须先单选锚点轮）与
- *   答案 Turn footer（自带 anchor，默认 turn）——门态在 agentChatStore.shareDialog；
- * - 创建前=范围选择+轻量预览（groupTurns 公开投影，不渲染完整对话、不展示
- *   reasoning/工具 metadata）+隐私要点（不写死有效期数字）；
+ * Agent 分享弹窗（issue #139 起，#311 三档收敛两档）：
+ * - 入口两门：顶栏（默认 full）与答案 Turn footer（默认 selection+预勾所点轮）——
+ *   门态在 agentChatStore.shareDialog；两档=完整对话 / 选择问答（checkbox 多选，
+ *   可跨轮不连续；「当前问答/直至此轮」下线，前缀分享由 N 次勾选表达）；
+ * - 创建前=范围选择+轻量预览（groupTurns 公开投影，selection=勾选轮按会话时间
+ *   正序的并集；不渲染完整对话、不展示 reasoning/工具 metadata）+隐私要点
+ *   （不写死有效期数字）；
  * - 成功态不自动关、不自动复制：URL 展示+[复制分享链接]+[分享给…]（shareUrl
  *   五点合同）+服务端 expireTime（null=不会自动过期）+撤销说明；
  * - 游客=登录引导（不调创建端点）；双形态=桌面居中 modal/≤860 底部 sheet
@@ -43,8 +45,7 @@ const SCOPE_OPTIONS: Array<{
   descEn: string;
 }> = [
   { value: "full", zh: "完整对话", en: "Full conversation", descZh: "创建时点前的全部问答轮次", descEn: "Every turn up to the moment of sharing" },
-  { value: "turn", zh: "当前问答", en: "This turn", descZh: "所选回答所在的这一轮问答", descEn: "Just the turn the selected answer belongs to" },
-  { value: "through", zh: "直至此轮", en: "Through this turn", descZh: "从第一轮到所选轮（含）", descEn: "From the first turn through the selected one" }
+  { value: "selection", zh: "选择问答", en: "Select turns", descZh: "勾选一轮或多轮问答", descEn: "Pick one or more turns to share" }
 ];
 
 /** 单行短预览：截断到 max 字符 */
@@ -131,43 +132,71 @@ function ShareForm({
   const closeShareDialog = useAgentChatStore((state) => state.closeShareDialog);
 
   const [scope, setScope] = React.useState<AgentShareScope>(defaultScope);
-  const [selectedAnchorId, setSelectedAnchorId] = React.useState<string | null>(null);
+  // #311 多选：底部入口锚点作预勾种子（可取消可加选）；顶栏空勾选起步、创建禁用直至 ≥1
+  const [selectedAnchorIds, setSelectedAnchorIds] = React.useState<ReadonlySet<string>>(
+    () => (entryAnchorId ? new Set([entryAnchorId]) : new Set<string>())
+  );
   const [creating, setCreating] = React.useState(false);
   const [created, setCreated] = React.useState<AgentShareCreated | null>(null);
 
   const turns = React.useMemo(() => groupTurns(messages), [messages]);
   const shareable = React.useMemo(() => listShareableTurns(turns), [turns]);
-  // 答案入口自带 anchor（不出现单选）；顶栏 turn/through 须单选
-  const effectiveAnchorId: string | undefined = entryAnchorId ?? selectedAnchorId ?? undefined;
-  const anchorTurnIndex = turns.findIndex((turn) =>
-    turn.assistants.some((assistant) => assistant.id === effectiveAnchorId)
+
+  const toggleAnchor = (id: string) => {
+    setSelectedAnchorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // 勾选轮按会话时间正序的并集（turns 本身按物理顺序，filter 保序——勾选顺序仅是 UI 态）
+  const selectedTurns = React.useMemo(
+    () =>
+      turns.filter((turn) => {
+        const anchor = findShareableAnchor(turn);
+        return anchor !== null && selectedAnchorIds.has(anchor.id);
+      }),
+    [turns, selectedAnchorIds]
   );
 
-  const previewTurns = React.useMemo(() => {
-    if (scope === "full") {
-      return turns;
-    }
-    if (anchorTurnIndex < 0) {
-      return [];
-    }
-    return scope === "turn" ? [turns[anchorTurnIndex]] : turns.slice(0, anchorTurnIndex + 1);
-  }, [scope, turns, anchorTurnIndex]);
+  const previewTurns = React.useMemo(
+    () => (scope === "full" ? turns : selectedTurns),
+    [scope, turns, selectedTurns]
+  );
 
   const sourceCount = React.useMemo(() => countSources(previewTurns), [previewTurns]);
-  const needsAnchor = scope !== "full" && !entryAnchorId;
+  // 悬空锚点防线：勾选集合含当前消息里解析不到的锚点（如入口种子已过期）时拒绝提交
+  const allSelectedResolvable = React.useMemo(() => {
+    const shareableIds = new Set(shareable.map(({ anchor }) => anchor.id));
+    for (const id of selectedAnchorIds) {
+      if (!shareableIds.has(id)) {
+        return false;
+      }
+    }
+    return true;
+  }, [shareable, selectedAnchorIds]);
   const createDisabled =
     creating ||
     !currentSessionId ||
-    (scope !== "full" && (!effectiveAnchorId || anchorTurnIndex < 0));
+    (scope === "selection" && (selectedAnchorIds.size === 0 || !allSelectedResolvable));
 
   const handleCreate = async () => {
     if (createDisabled) return;
     setCreating(true);
     try {
+      // 锚点列表=勾选轮按会话时间正序（后端对乱序宽容归一，前端以正序发出与预览一致）
+      const anchorIds = selectedTurns
+        .map((turn) => findShareableAnchor(turn)?.id)
+        .filter((id): id is string => typeof id === "string");
       const result = await createAgentShare(
         currentSessionId,
         scope,
-        scope === "full" ? undefined : effectiveAnchorId
+        scope === "full" ? undefined : anchorIds
       );
       // 成功态不自动关、不自动复制（留在弹窗展示链接与有效期）
       setCreated(result);
@@ -279,12 +308,12 @@ function ShareForm({
         })}
       </div>
 
-      {needsAnchor ? (
+      {scope === "selection" ? (
         <fieldset className="agent-share-pick">
           <legend className="mb-1.5 text-[13px] font-semibold">
-            {zh ? "选择一轮对话" : "Pick a turn"}
+            {zh ? "选择要分享的问答" : "Pick turns to share"}
           </legend>
-          <div className="agent-share-pick-list" role="radiogroup" aria-label={zh ? "锚点轮" : "Anchor turn"}>
+          <div className="agent-share-pick-list" role="group" aria-label={zh ? "选择要分享的问答" : "Pick turns to share"}>
             {shareable.length === 0 ? (
               <p className="text-[12.5px] text-[var(--feed-text-tertiary)]">
                 {zh ? "还没有可分享的完成回答。" : "No completed answers to share yet."}
@@ -295,11 +324,11 @@ function ShareForm({
                 return (
                   <label key={anchor.id} className="agent-share-pick-item">
                     <input
-                      type="radio"
+                      type="checkbox"
                       name="agent-share-anchor"
                       value={anchor.id}
-                      checked={selectedAnchorId === anchor.id}
-                      onChange={() => setSelectedAnchorId(anchor.id)}
+                      checked={selectedAnchorIds.has(anchor.id)}
+                      onChange={() => toggleAnchor(anchor.id)}
                     />
                     <span className="min-w-0">
                       <span className="block truncate text-[12.5px] font-semibold">

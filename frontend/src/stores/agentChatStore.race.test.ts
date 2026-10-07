@@ -86,6 +86,18 @@ describe("agentChatStore M17 切会话×在途流竞态（视图架构）", () =
     expect(oldView?.streamAbort).toBe(cancel);
   });
 
+  it("#311 换会话自动关分享窗：挂旧会话的分享上下文不可跨会话存活（沿用门回归）", async () => {
+    useAgentChatStore.setState({
+      currentViewKey: "s-old",
+      currentSessionId: "s-old",
+      shareDialog: { defaultScope: "selection", anchorAssistantMessageId: "2103590757771956001" }
+    });
+    vi.mocked(listAgentMessages).mockResolvedValue([]);
+    await useAgentChatStore.getState().loadMessages("s-new");
+    expect(useAgentChatStore.getState().currentSessionId).toBe("s-new");
+    expect(useAgentChatStore.getState().shareDialog).toBeNull();
+  });
+
   it("在途流的迟到 meta 不把切换后的会话拉回旧会话", async () => {
     const holder: {
       handlers?: { onMeta?: (payload: { conversationId: string; taskId: string }) => void };
