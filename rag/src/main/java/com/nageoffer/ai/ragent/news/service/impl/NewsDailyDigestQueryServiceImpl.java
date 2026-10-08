@@ -19,13 +19,16 @@ package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestItemVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceMetaVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
@@ -105,16 +108,19 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
 
     private final NewsDailyDigestMapper digestMapper;
     private final NewsDailyDigestItemMapper digestItemMapper;
+    private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
     private final NewsItemMapper itemMapper;
     private final NewsFetchProperties properties;
 
     @Autowired
     public NewsDailyDigestQueryServiceImpl(NewsDailyDigestMapper digestMapper,
                                            NewsDailyDigestItemMapper digestItemMapper,
+                                           NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                            NewsItemMapper itemMapper,
                                            NewsFetchProperties properties) {
         this.digestMapper = digestMapper;
         this.digestItemMapper = digestItemMapper;
+        this.digestKeyDateMapper = digestKeyDateMapper;
         this.itemMapper = itemMapper;
         this.properties = properties;
     }
@@ -160,6 +166,13 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
             log.info("[news][daily] 日报 {} 读取期复检：{} 条快照失格（主动下架），导语已回退模板（零调用）",
                     digestDate, disqualified);
         }
+        // 校历关键日期栏目（#316 L1）：快照行直映零 LLM 零回查 t_key_date——
+        // 生成期冻结（as-of=刊日），不随读取时刻漂移；空列表=栏目隐藏
+        List<NewsDailyDigestKeyDateVO> keyDates = digestKeyDateMapper.selectList(
+                        new LambdaQueryWrapper<NewsDailyDigestKeyDateDO>()
+                                .eq(NewsDailyDigestKeyDateDO::getDigestId, header.getId())
+                                .orderByAsc(NewsDailyDigestKeyDateDO::getSeq))
+                .stream().map(this::toKeyDateVO).toList();
         return NewsDailyDigestVO.builder()
                 .digestDate(header.getDigestDate())
                 .windowStart(header.getWindowStart())
@@ -172,6 +185,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .visibleCount(visible.size())
                 .disqualifiedCount(disqualified)
                 .items(visible)
+                .keyDates(keyDates)
                 .buildTime(header.getBuildTime())
                 .build();
     }
@@ -415,6 +429,23 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .publishTime(snapshot.getPublishTime())
                 .publishTimePrecision(PublishTimePrecision.orUnknown(snapshot.getPublishTimePrecision()))
                 .source(source)
+                .build();
+    }
+
+    /** 关键日期栏目快照直映（快照列即展示字段，ongoing/daysUntil 生成期冻结） */
+    private NewsDailyDigestKeyDateVO toKeyDateVO(NewsDailyDigestKeyDateDO snapshot) {
+        return NewsDailyDigestKeyDateVO.builder()
+                .seq(snapshot.getSeq())
+                .uid(snapshot.getUid())
+                .titleZh(snapshot.getTitleZh())
+                .titleEn(snapshot.getTitleEn())
+                .audienceText(snapshot.getAudienceText())
+                .precision(snapshot.getPrecision())
+                .dateStart(snapshot.getDateStart())
+                .dateEnd(snapshot.getDateEnd())
+                .fuzzyHint(snapshot.getFuzzyHint())
+                .ongoing(snapshot.getOngoing())
+                .daysUntil(snapshot.getDaysUntil())
                 .build();
     }
 

@@ -80,11 +80,16 @@ function dayCompact(isoDate: string, zh: boolean): string {
 }
 
 /**
- * 日期呈现（纯函数，卡片/页面/测试共用）：
+ * 日期呈现（纯函数，卡片/页面/测试共用）：keyDateLabel 只取
+ * precision/dateStart/dateEnd/fuzzyHint 结构子集——日报校历栏目快照
+ * （#316）同形直入，不要求 KeyDateItem 全字段：
  * - exact-day：9月30日 周三；exact-range：9月28日 – 10月4日；onwards：10月12日起
  *   （开放起点=官方真实日期，非伪造）；fuzzy：原文窗桶（不伪造具体日）。
  */
-export function keyDateLabel(item: KeyDateItem, lang: "zh" | "en"): string {
+export function keyDateLabel(
+  item: Pick<KeyDateItem, "precision" | "dateStart" | "dateEnd" | "fuzzyHint">,
+  lang: "zh" | "en"
+): string {
   const zh = lang === "zh";
   if (item.precision === "fuzzy" || !item.dateStart) {
     return item.fuzzyHint || (zh ? "日期待公布" : "Date to be announced");
@@ -99,11 +104,15 @@ export function keyDateLabel(item: KeyDateItem, lang: "zh" | "en"): string {
 }
 
 /**
- * 倒计时徽章文案（纯函数）：今日/进行中/明天/N 天后。
+ * 倒计时徽章文案（纯函数）：今日/进行中/明天/N 天后。只取 phase/daysUntil
+ * 结构子集（#316 日报栏目快照按 ongoing/daysUntil 派生 phase 后同入口复用）。
  * 倒计时门（合同§4）——仅 exact-day/exact-range（daysUntil 非 null）进倒计时；
  * onwards/fuzzy 返回 null（不伪造精确截止语义），页面/卡片按普通日期行呈现。
  */
-export function countdownBadge(item: KeyDateItem, lang: "zh" | "en"): string | null {
+export function countdownBadge(
+  item: Pick<KeyDateItem, "phase" | "daysUntil">,
+  lang: "zh" | "en"
+): string | null {
   const zh = lang === "zh";
   if (item.phase === "today") {
     return zh ? "今日" : "Today";

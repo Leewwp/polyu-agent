@@ -203,6 +203,34 @@ public class NewsFetchProperties {
      */
     private String digestRssSiteUrl = "https://polyuguide.com";
 
+    // ================== 日报校历关键日期栏目（#316，总纲 #315 线一 L1） ==================
+
+    /**
+     * 关键日期栏目窗口天数（含刊日当天的历日数）：窗口=[D, D+N-1] 含端，
+     * date_start 或 date_end 落窗的 published 事件入选；纯数据零 LLM，
+     * 供给与资讯量解耦（空刊保底栏目）
+     */
+    private int digestKeyDateWindowDays = 14;
+
+    /**
+     * 关键日期栏目最大条数：超限取最近（date_start 升序截断）；非正回退 8
+     */
+    private int digestKeyDateMaxEntries = 8;
+
+    /**
+     * 关键日期栏目窗口天数有效值（含端历日数，非正回退 14）
+     */
+    public int effectiveDigestKeyDateWindowDays() {
+        return digestKeyDateWindowDays > 0 ? digestKeyDateWindowDays : 14;
+    }
+
+    /**
+     * 关键日期栏目最大条数有效值（非正回退 8）
+     */
+    public int effectiveDigestKeyDateMaxEntries() {
+        return digestKeyDateMaxEntries > 0 ? digestKeyDateMaxEntries : 8;
+    }
+
     /**
      * 日报单刊快照条数硬上界有效值（非正回退 200）
      */
