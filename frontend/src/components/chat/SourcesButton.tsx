@@ -24,10 +24,11 @@ export function SourcesButton({ messageId, sources }: SourcesButtonProps) {
       type="button"
       onClick={() => toggleSourcesPanel(messageId)}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-xs transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full py-1 pl-1.5 pr-2.5 text-xs font-medium transition-colors",
+        // 签名来源徽章（DESIGN.md）：砖红系——核验标记职能，激活/悬停红 wash + 深砖红
         active
-          ? "bg-[#F0F0F1] text-[#1A1A1A]"
-          : "text-[#666666] hover:bg-[#F0F0F1] hover:text-[#1A1A1A]"
+          ? "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]"
+          : "text-[var(--feed-text-secondary)] hover:bg-[var(--polyu-red-50)] hover:text-[var(--polyu-red-dark)]"
       )}
     >
       <span className="flex items-center">
@@ -35,7 +36,7 @@ export function SourcesButton({ messageId, sources }: SourcesButtonProps) {
           <span
             key={`${source.docId}-${idx}`}
             className={cn(
-              "flex h-5 w-5 items-center justify-center rounded-md bg-white ring-1 ring-[#EAEAEA]",
+              "flex h-5 w-5 items-center justify-center rounded-md bg-white ring-1 ring-[var(--feed-line)]",
               idx > 0 && "-ml-1.5"
             )}
           >

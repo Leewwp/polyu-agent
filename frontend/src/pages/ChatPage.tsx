@@ -140,7 +140,7 @@ export function ChatPage() {
                       <GuestStatusBadge />
                     </div>
                     <ChatInput />
-                    <p className="pt-2 text-center text-xs leading-relaxed text-[#9AA0A6]">
+                    <p className="pt-2 text-center text-xs leading-relaxed text-[var(--feed-text-tertiary)]">
                       内容由 AI 生成，仅供参考；本服务非香港理工大学官方服务 · AI-generated for reference; not an official PolyU service
                     </p>
                   </div>

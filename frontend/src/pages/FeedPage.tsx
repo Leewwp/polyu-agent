@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Sparkles } from "lucide-react";
 
 import { CategoryChips } from "@/components/feed/CategoryChips";
 import { FeedFooter } from "@/components/feed/FeedFooter";
@@ -46,7 +47,7 @@ function AiDigestStrip() {
   const zh = lang === "zh";
   return (
     <div className="mb-[18px] flex items-center gap-2 rounded-[10px] border border-[var(--polyu-red-100)] bg-[var(--polyu-red-50)] px-3.5 py-2 text-[12.5px] text-[var(--polyu-red-dark)]">
-      ✨{" "}
+      <Sparkles className="h-3.5 w-3.5 flex-none" aria-hidden="true" />
       <span>
         {zh ? (
           <>
