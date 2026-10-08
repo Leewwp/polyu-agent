@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+import { Github } from "lucide-react";
+
 import { FeedSidebar } from "./FeedSidebar";
 import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
 import { useFeedLang } from "./feedLang";
+import { formatStarCount, useGitHubStars } from "@/hooks/useGitHubStars";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { feedDateLabels } from "@/services/newsMapping";
 import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
@@ -100,6 +103,54 @@ function LangPill() {
 }
 
 /**
+ * GitHub 仓库入口（#337/#335）：顶栏显著位导流开源仓库——访客一键新窗直达源码/README。
+ * - 数据：useGitHubStars（已切 Leewwp/polyu-agent 仓；3h 本地缓存/聚焦刷新/失败
+ *   退避机制原样），API 不可达降级 "--" 不报错；
+ * - 形制（Gazette）：胶囊描边款——1px 发丝线+白底，hover 边框迁移暖红 #D8B7BC
+ *   （NewsCard/ChatInput 等同款 hover token）；砖红只落在星数 chip 的小面积语义，
+ *   不大面积铺红（Ruling Line 规则）；
+ * - 双档：desktop=图标+星数 chip（身份区 LangPill 之左）；mobile=icon-only 紧凑形
+ *   （#136 320px 五元素红线上的第六元素必须 icon-only，44 实高触控契约、无文案防挤占）；
+ * - 色域墙：仅用户面壳（FeedShell）挂载，admin 域不经本壳天然不出现；分享视图同显。
+ */
+const GITHUB_REPO_URL = "https://github.com/Leewwp/polyu-agent";
+
+function GitHubStarLink({ variant }: { variant: "desktop" | "mobile" }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  const starLabel = formatStarCount(useGitHubStars());
+  const ariaLabel = zh ? "打开 GitHub 仓库" : "Open GitHub repository";
+  if (variant === "mobile") {
+    return (
+      <a
+        href={GITHUB_REPO_URL}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={ariaLabel}
+        className="flex h-11 w-11 flex-none items-center justify-center rounded-lg border border-[var(--feed-line)] bg-white text-[var(--feed-text-secondary)] transition-colors hover:border-[#D8B7BC]"
+      >
+        <Github className="h-[18px] w-[18px]" aria-hidden="true" />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={GITHUB_REPO_URL}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      className="flex h-9 flex-none items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--feed-line)] bg-white px-3 text-[var(--feed-text-secondary)] shadow-sm transition-colors hover:border-[#D8B7BC]"
+    >
+      <Github className="h-4 w-4" aria-hidden="true" />
+      <span className="rounded-full bg-[var(--feed-bg)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--polyu-red)]">
+        {starLabel}
+      </span>
+    </a>
+  );
+}
+
+/**
  * fluid 聊天档的当前会话标题：读当前引擎 store 的 currentSession 对应标题，
  * 无会话回落 null（由调用方回落页面名）。上游 Header.tsx:42 同语义（`currentSession?.title
  * || "新对话"`）；两 store 均零请求订阅，公开页读取无副作用。
@@ -146,6 +197,7 @@ function DesktopTopbar({
         <div className="text-[12.5px] text-[var(--feed-text-tertiary)]">{dateLabels.long}</div>
       </div>
       <div className="ml-auto flex items-center gap-2.5">
+        <GitHubStarLink variant="desktop" />
         <LangPill />
         {!shareView && <AgentSessionShareButton />}
         <UserMenu />
@@ -175,7 +227,9 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
       >
         ☰
       </button>
-      <div className="min-w-0 text-[15px] font-extrabold">
+      {/* #337 顶栏落第六元素（GitHub icon-only）后 320px 窄档品牌区按 #136 既定
+          「min-w-0 承担压缩」意图以省略号优雅截断（免字形被身份区白底硬切） */}
+      <div className="min-w-0 truncate text-[15px] font-extrabold">
         PolyU<i className="not-italic text-[var(--polyu-red)]">Guide</i>
       </div>
       <div className="ml-auto flex flex-none items-center gap-2">
@@ -183,6 +237,7 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
         <LangPill />
       </div>
       <UserMenu variant="mobile" />
+      <GitHubStarLink variant="mobile" />
     </div>
   );
 }

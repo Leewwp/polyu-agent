@@ -1,8 +1,9 @@
 import * as React from "react";
 
-const REPOSITORY_API_URL = "https://api.github.com/repos/nageoffer/ragent";
-const STAR_CACHE_KEY = "ragent.github-stars";
-const LEGACY_STAR_CACHE_KEY = "ragent.agent.github-stars";
+// #337 切仓：星数指向本项目仓库；缓存键随仓更名，上游旧键保留 legacy 回退读取
+const REPOSITORY_API_URL = "https://api.github.com/repos/Leewwp/polyu-agent";
+const STAR_CACHE_KEY = "polyu.github-stars";
+const LEGACY_STAR_CACHE_KEY = "ragent.github-stars";
 const STAR_CACHE_TTL = 3 * 60 * 60 * 1000;
 const STAR_RETRY_DELAY = 5 * 60 * 1000;
 
@@ -59,6 +60,17 @@ function requestStarCount(): Promise<StarCache | null> {
     });
 
   return requestInFlight;
+}
+
+/**
+ * 星数展示格式（#337 星钮 chip 共用纯函数）：null→"--"（API 不可达降级态）；
+ * <1000 原样；≥1000→x.k 一位小数去尾零（12345→12.3k、2000→2k）。
+ */
+export function formatStarCount(starCount: number | null): string {
+  if (starCount === null) return "--";
+  if (starCount < 1000) return String(starCount);
+  const rounded = Math.round((starCount / 1000) * 10) / 10;
+  return `${String(rounded).replace(/\.0$/, "")}k`;
 }
 
 /**
