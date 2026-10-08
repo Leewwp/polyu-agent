@@ -17,10 +17,12 @@
 
 package com.nageoffer.ai.ragent.news.service.impl;
 
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,7 +65,8 @@ class NewsDailyDigestQueryServiceTests {
         digestStore = new FakeDailyDigestStore();
         itemStore = new FakeDailyDigestNewsItemStore();
         service = new NewsDailyDigestQueryServiceImpl(digestStore.digestMapper,
-                digestStore.digestItemMapper, itemStore.mapper, new NewsFetchProperties());
+                digestStore.digestItemMapper, digestStore.digestKeyDateMapper,
+                itemStore.mapper, new NewsFetchProperties());
     }
 
     // ==================== 装配（真刊+真快照） ====================
@@ -151,6 +154,45 @@ class NewsDailyDigestQueryServiceTests {
             String type = field.getType().getName();
             assertFalse(forbidden.contains(type), "读取服务不得依赖付费/生成组件，实际字段=" + type);
         }
+    }
+
+    // ==================== 校历关键日期栏目透出（#316 L1） ====================
+
+    @Test
+    void detailCarriesKeyDateSectionSnapshotOrderedBySeq() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        Long digestId = digestStore.headers().get(0).getId();
+        digestStore.digestKeyDateMapper.insert(NewsDailyDigestKeyDateDO.builder()
+                .digestId(digestId).keyDateId(101L).seq(1).uid("uid-101")
+                .titleZh("考试周").titleEn("Examination period").audienceText("全体学生")
+                .precision("exact-range").dateStart(LocalDate.of(2026, 12, 7))
+                .dateEnd(LocalDate.of(2026, 12, 19)).ongoing(true).daysUntil(-2).build());
+        digestStore.digestKeyDateMapper.insert(NewsDailyDigestKeyDateDO.builder()
+                .digestId(digestId).keyDateId(102L).seq(2).uid("uid-102")
+                .titleZh(null).titleEn("Add/drop deadline").precision("exact-day")
+                .dateStart(LocalDate.of(2026, 10, 12)).ongoing(false).daysUntil(9).build());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        List<NewsDailyDigestKeyDateVO> keyDates = detail.getKeyDates();
+        assertEquals(2, keyDates.size());
+        assertEquals(List.of(1, 2), keyDates.stream().map(NewsDailyDigestKeyDateVO::getSeq).toList());
+        NewsDailyDigestKeyDateVO ongoing = keyDates.get(0);
+        assertEquals("uid-101", ongoing.getUid());
+        assertEquals("考试周", ongoing.getTitleZh());
+        assertEquals("全体学生", ongoing.getAudienceText());
+        assertEquals(Boolean.TRUE, ongoing.getOngoing());
+        assertEquals(-2, ongoing.getDaysUntil());
+        assertEquals(LocalDate.of(2026, 10, 12), keyDates.get(1).getDateStart());
+        assertNull(keyDates.get(1).getTitleZh(), "词表缺词 null 直映——前端回退英文");
+    }
+
+    @Test
+    void detailWithoutKeyDateRowsYieldsEmptySectionList() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        assertNotNull(detail.getKeyDates());
+        assertTrue(detail.getKeyDates().isEmpty(), "无栏目快照行=空列表（前端整段隐藏，不渲染空壳）");
     }
 
     // ==================== hide 失格与导语回退 ====================

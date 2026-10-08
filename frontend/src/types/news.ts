@@ -126,6 +126,28 @@ export interface NewsDailyDigestItem {
   } | null;
 }
 
+/** 日报校历关键日期栏目快照（#316 L1：后端 NewsDailyDigestKeyDateVO，生成期冻结 as-of=刊日） */
+export interface NewsDailyDigestKeyDate {
+  /** 栏内序（1 起，date_start 升序） */
+  seq: number;
+  /** t_key_date 语义身份 */
+  uid: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  /** 官方人群限制原文（不得省略） */
+  audienceText: string | null;
+  precision: "exact-day" | "exact-range" | "onwards" | "fuzzy";
+  /** YYYY-MM-DD（落窗条目必有） */
+  dateStart: string | null;
+  /** YYYY-MM-DD（仅 exact-range） */
+  dateEnd: string | null;
+  fuzzyHint: string | null;
+  /** 已开始未结束（区间，as-of=刊日） */
+  ongoing: boolean;
+  /** 刊日→date_start 天数（仅 exact-day/exact-range；负=已开始区间，ongoing 徽章优先） */
+  daysUntil: number | null;
+}
+
 /** 日报详情（后端 NewsDailyDigestVO：读取期下架复检后的生效口径） */
 export interface NewsDailyDigest {
   /** YYYY-MM-DD（HKT 窗口闭端日） */
@@ -145,6 +167,8 @@ export interface NewsDailyDigest {
   visibleCount: number;
   disqualifiedCount: number;
   items: NewsDailyDigestItem[];
+  /** 校历关键日期栏目（#316）：空=窗口零条目，栏目整段隐藏；空刊仍携带（降级版式保底） */
+  keyDates?: NewsDailyDigestKeyDate[];
   buildTime: string;
 }
 
