@@ -136,8 +136,9 @@ function DesktopTopbar({
   const chatTitle = useChatSessionTitle();
   // 分享视图：标题优先用快照标题（store 里可能残留访客自己会话的标题，不可采信）
   const fluidTitle = shareView ? shareView.title : chatTitle;
+  // 红线公报（DESIGN.md）：顶栏=报头，底部 3px 砖红判别线是全站门面手势
   return (
-    <header className="sticky top-0 z-30 hidden items-center gap-3.5 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.92)] px-7 py-3 backdrop-blur min-[861px]:flex">
+    <header className="sticky top-0 z-30 hidden items-center gap-3.5 border-b-[3px] border-[var(--polyu-red)] bg-[rgba(246,246,247,0.92)] px-7 py-3 backdrop-blur min-[861px]:flex">
       <div className="min-w-0">
         <div className="truncate text-[17px] font-bold">
           {(fluid && fluidTitle) || (zh ? title.zh : title.en)}
@@ -164,7 +165,7 @@ function MobileTopbar({ onOpenMenu, shareView }: { onOpenMenu: () => void; share
   const { lang } = useFeedLang();
   const zh = lang === "zh";
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-[var(--feed-line-soft)] bg-[rgba(246,246,247,0.94)] px-3 py-2 backdrop-blur min-[861px]:hidden max-[400px]:gap-1.5 max-[400px]:px-2.5">
+    <div className="sticky top-0 z-30 flex items-center gap-2 border-b-[3px] border-[var(--polyu-red)] bg-[rgba(246,246,247,0.94)] px-3 py-2 backdrop-blur min-[861px]:hidden max-[400px]:gap-1.5 max-[400px]:px-2.5">
       {/* #232 触控清单：菜单钮 32→44（实高实宽）；顶栏随高 py-[11px]→py-2（54→60px） */}
       <button
         type="button"
