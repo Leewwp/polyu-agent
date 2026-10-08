@@ -66,10 +66,11 @@ export function ChatInput() {
     <div className="space-y-4">
       <div
         className={cn(
-          "relative flex flex-col rounded-2xl border bg-white px-4 pt-3 pb-2 transition-all duration-200",
+          // 红线公报：输入卡=白卡+发丝线+shadow-sm；聚焦=主色描边+glow（#228 同源主色）
+          "relative flex flex-col rounded-2xl border bg-white px-4 pt-3 pb-2 shadow-sm transition-all duration-200",
           isFocused
-            ? "border-[#D4D4D4] shadow-[0_4px_12px_rgba(0,0,0,0.06)]"
-            : "border-[#E5E5E5] hover:border-[#D4D4D4]"
+            ? "border-[hsl(var(--primary)/0.45)] shadow-glow"
+            : "border-[var(--feed-line)] hover:border-[#D8B7BC]"
         )}
       >
         <div className="relative">
@@ -78,7 +79,7 @@ export function ChatInput() {
             value={value}
             onChange={(event) => setValue(event.target.value)}
             placeholder={deepThinkingEnabled ? t.placeholderDeep : t.placeholderIdle}
-            className="max-h-40 min-h-[44px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 pr-2 text-[15px] max-[860px]:text-[16px] text-[#333333] shadow-none placeholder:text-[#999999] focus-visible:ring-0"
+            className="max-h-40 min-h-[44px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 pr-2 text-[15px] max-[860px]:text-[16px] text-[var(--feed-text-primary)] shadow-none placeholder:text-[var(--feed-text-tertiary)] focus-visible:ring-0"
             rows={1}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -109,18 +110,19 @@ export function ChatInput() {
             disabled={isStreaming}
             aria-pressed={deepThinkingEnabled}
             className={cn(
-              "absolute left-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all",
+              "absolute left-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+              // 深思考开关=Chips 选中态（DESIGN.md）：红 wash 底 + 深砖红字
               deepThinkingEnabled
-                ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
-                : "border-transparent bg-[#F5F5F5] text-[#999999] hover:bg-[#EEEEEE]",
+                ? "border-[var(--polyu-red-100)] bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]"
+                : "border-transparent bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-line-soft)]",
               isStreaming && "cursor-not-allowed opacity-60"
             )}
           >
             <span className="inline-flex items-center gap-2">
-              <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
+              <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[var(--polyu-red-dark)]")} />
               {t.deepThinking}
               {deepThinkingEnabled ? (
-                <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
+                <span className="h-2 w-2 rounded-full bg-[var(--polyu-red)] animate-pulse" />
               ) : null}
             </span>
           </button>
@@ -130,12 +132,12 @@ export function ChatInput() {
             disabled={!hasContent && !isStreaming}
             aria-label={isStreaming ? t.stopGenerating : t.sendMessage}
             className={cn(
-              "ml-auto rounded-full p-2.5 transition-all duration-200",
+              "ml-auto flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
               isStreaming
-                ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                ? "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)] hover:bg-[var(--polyu-red-100)]"
                 : hasContent
-                  ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
-                  : "cursor-not-allowed bg-[#F5F5F5] text-[#CCCCCC]"
+                  ? "bg-[var(--polyu-red)] text-white shadow-glow hover:bg-[var(--polyu-red-dark)]"
+                  : "cursor-not-allowed bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)]"
             )}
           >
             {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
@@ -143,17 +145,17 @@ export function ChatInput() {
         </div>
       </div>
       {deepThinkingEnabled ? (
-        <p className="text-xs text-[#2563EB]">
+        <p className="text-xs text-[var(--polyu-red-dark)]">
           <span className="inline-flex items-center gap-1.5">
             <Lightbulb className="h-3.5 w-3.5" />
             {t.deepThinkingOn}
           </span>
         </p>
       ) : null}
-      <p className="text-center text-xs text-[#999999]">
-        <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">Enter</kbd> {t.enterHint}
+      <p className="text-center text-xs text-[var(--feed-text-tertiary)]">
+        <kbd className="rounded border border-[var(--feed-line)] bg-[var(--feed-bg)] px-1.5 py-0.5 text-[var(--feed-text-secondary)]">Enter</kbd> {t.enterHint}
         <span className="px-1.5">·</span>
-        <kbd className="rounded bg-[#F5F5F5] px-1.5 py-0.5 text-[#666666]">
+        <kbd className="rounded border border-[var(--feed-line)] bg-[var(--feed-bg)] px-1.5 py-0.5 text-[var(--feed-text-secondary)]">
           Shift + Enter
         </kbd>{" "}
         {t.newlineHint}

@@ -1,10 +1,11 @@
 import * as React from "react";
-import { ArrowUpRight, BookOpen, Bot, Brain, Check, Lightbulb, Send, Square } from "lucide-react";
+import { ArrowUpRight, BookOpen, Brain, Check, Lightbulb, Send, Square } from "lucide-react";
 
 import { useOptionalFeedLang } from "@/components/feed/feedLang";
 import { composerText } from "@/components/chat/composerText";
 import { cn } from "@/lib/utils";
 import { listSampleQuestions } from "@/services/sampleQuestionService";
+import { feedDateLabels } from "@/services/newsMapping";
 import { useChatStore } from "@/stores/chatStore";
 
 type PromptPreset = {
@@ -42,6 +43,8 @@ export function WelcomeScreen() {
   const { lang } = useOptionalFeedLang();
   const zh = lang === "zh";
   const t = composerText(zh);
+  // 报眉日期行（红线公报门面）：HKT 实时值，与壳顶栏同源
+  const dateLine = feedDateLabels(new Date(), lang).long;
   const [value, setValue] = React.useState("");
   const [isFocused, setIsFocused] = React.useState(false);
   const [promptPresets, setPromptPresets] = React.useState<PromptPreset[]>(DEFAULT_PRESETS);
@@ -133,17 +136,11 @@ export function WelcomeScreen() {
 
   return (
     // 2026-09-13：矮视口（<663px）下原 overflow-hidden+垂直居中会把第三张
-    // 预设卡裁出视口且不可滚——改为「外层裁剪框（装饰层）+ 中层可滚 + my-auto 居中」：
-    // 装饰光斑留在不滚动的框内（滚动时背景不动），内容超高时 auto 边距归零、从顶部起滚
-    //（items-center 居中裁顶是 Flex 滚动容器的经典陷阱，my-auto 不触发）。
+    // 预设卡裁出视口且不可滚——「外层裁剪框 + 中层可滚 + my-auto 居中」保留：
+    // 内容超高时 auto 边距归零、从顶部起滚（items-center 居中裁顶是 Flex 滚动
+    // 容器的经典陷阱，my-auto 不触发）。
+    // 红线公报（DESIGN.md）：门面=报纸头版——纸灰底、红判别线+报眉行，无装饰层。
     <div className="relative h-full overflow-hidden">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#F8FAFC] via-white to-[#EFF6FF]" />
-        <div className="absolute inset-0 bg-grid-pattern opacity-40 [background-size:40px_40px]" />
-        <div className="absolute -top-32 right-[-40px] h-72 w-72 rounded-full bg-gradient-radial from-[#BFDBFE]/60 via-transparent to-transparent blur-3xl animate-float" />
-        <div className="absolute -bottom-36 left-[-80px] h-80 w-80 rounded-full bg-gradient-radial from-[#FDE68A]/40 via-transparent to-transparent blur-3xl animate-float" />
-      </div>
-
       <div className="relative h-full overflow-y-auto">
         <div className="flex min-h-full justify-center px-4 py-16 sm:px-6">
           <div className="relative my-auto w-full max-w-[860px]">
@@ -151,27 +148,17 @@ export function WelcomeScreen() {
           className="text-center opacity-0 animate-fade-up"
           style={{ animationFillMode: "both" }}
         >
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/70 px-3 py-1 text-xs font-medium text-[#2563EB] shadow-sm">
-            <Bot className="h-3.5 w-3.5" />
-            {zh ? "RAG 智能问答" : "RAG Q&A"}
-          </span>
-          <h1 className="mt-4 font-display text-4xl leading-tight tracking-tight text-[#111827] sm:text-5xl md:text-6xl">
-            {zh ? (
-              <>
-                把问题变成
-                <span className="text-gradient">清晰答案</span>
-              </>
-            ) : (
-              <>
-                Turning questions into
-                <span className="text-gradient"> clear answers</span>
-              </>
-            )}
+          <div aria-hidden="true" className="mx-auto h-[3px] w-14 bg-[var(--polyu-red)]" />
+          <p className="mt-3 text-[12px] tabular-nums text-[var(--feed-text-tertiary)]">
+            {zh ? `香港 · ${dateLine} · 非官方校园信息核验` : `Hong Kong · ${dateLine} · Unofficial campus gazette`}
+          </p>
+          <h1 className="mt-6 font-display text-4xl leading-tight tracking-tight text-[var(--feed-text-primary)] sm:text-5xl md:text-6xl">
+            {zh ? "把问题变成清晰答案" : "Turning questions into clear answers"}
           </h1>
-          <p className="mt-4 text-base text-[#4B5563] sm:text-lg">
+          <p className="mt-4 text-base text-[var(--feed-text-secondary)] sm:text-lg">
             {zh
-              ? "结构化提问、知识检索与深度思考，一次对话给出可执行方案"
-              : "Structured prompting, knowledge retrieval and deep reasoning — actionable answers in one chat"}
+              ? "结构化提问、知识检索与深度思考，一次对话给出可核验的答案"
+              : "Structured prompting, knowledge retrieval and deep reasoning — sourced, verifiable answers in one chat"}
           </p>
         </div>
 
@@ -181,12 +168,9 @@ export function WelcomeScreen() {
         >
           <div
             className={cn(
-              "relative flex flex-col rounded-3xl border border-white/70 bg-white/80 px-5 pt-4 pb-3 shadow-soft backdrop-blur-xl transition-all duration-200",
-              isFocused
-                ? // #228：聚焦描边与 shadow-glow 同源主色（原硬编码 #BFDBFE 蓝，
-                  // glow 随主色变红后蓝红打架）；45% 透明度在白底上仍是浅色描边
-                  "border-[hsl(var(--primary)/0.45)] shadow-glow"
-                : "hover:border-[#D4D4D4]"
+              // 白卡+发丝线+shadow-sm；聚焦=主色描边+glow（#228 同源主色）
+              "relative flex flex-col rounded-2xl border border-[var(--feed-line)] bg-white px-5 pt-4 pb-3 shadow-sm transition-all duration-200",
+              isFocused ? "border-[hsl(var(--primary)/0.45)] shadow-glow" : "hover:border-[#D8B7BC]"
             )}
           >
             <div className="relative">
@@ -195,7 +179,7 @@ export function WelcomeScreen() {
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
                 placeholder={deepThinkingEnabled ? t.placeholderDeep : t.placeholderIdle}
-                className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[#1F2937] placeholder:text-[#9CA3AF] focus:outline-none sm:text-base"
+                className="max-h-40 min-h-[52px] w-full resize-none border-0 bg-transparent px-2 pt-2 pb-2 text-[15px] text-[var(--feed-text-primary)] placeholder:text-[var(--feed-text-tertiary)] focus:outline-none sm:text-base"
                 rows={1}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
@@ -217,7 +201,6 @@ export function WelcomeScreen() {
                 }}
                 aria-label={t.sendMessage}
               />
-              <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-[10px] bg-gradient-to-b from-white/0 via-white/40 to-white/90" />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <button
@@ -227,17 +210,18 @@ export function WelcomeScreen() {
                 aria-pressed={deepThinkingEnabled}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
+                  // 深思考开关=Chips 选中态：红 wash 底 + 深砖红字（DESIGN.md）
                   deepThinkingEnabled
-                    ? "border-[#BFDBFE] bg-[#DBEAFE] text-[#2563EB]"
-                    : "border-transparent bg-[#F5F5F5] text-[#6B7280] hover:bg-[#EEEEEE]",
+                    ? "border-[var(--polyu-red-100)] bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]"
+                    : "border-transparent bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)] hover:bg-[var(--feed-line-soft)]",
                   isStreaming && "cursor-not-allowed opacity-60"
                 )}
               >
                 <span className="inline-flex items-center gap-2">
-                  <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[#3B82F6]")} />
+                  <Brain className={cn("h-3.5 w-3.5", deepThinkingEnabled && "text-[var(--polyu-red-dark)]")} />
                   {t.deepThinking}
                   {deepThinkingEnabled ? (
-                    <span className="h-2 w-2 rounded-full bg-[#3B82F6] animate-pulse" />
+                    <span className="h-2 w-2 rounded-full bg-[var(--polyu-red)] animate-pulse" />
                   ) : null}
                 </span>
               </button>
@@ -247,12 +231,12 @@ export function WelcomeScreen() {
                 disabled={!hasContent && !isStreaming}
                 aria-label={isStreaming ? t.stopGenerating : t.sendMessage}
                 className={cn(
-                  "ml-auto inline-flex items-center justify-center rounded-full p-2.5 transition-all duration-200",
+                  "ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200",
                   isStreaming
-                    ? "bg-[#FEE2E2] text-[#EF4444] hover:bg-[#FECACA]"
+                    ? "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)] hover:bg-[var(--polyu-red-100)]"
                     : hasContent
-                      ? "bg-[#3B82F6] text-white hover:bg-[#2563EB]"
-                      : "cursor-not-allowed bg-[#F5F5F5] text-[#CCCCCC]"
+                      ? "bg-[var(--polyu-red)] text-white shadow-glow hover:bg-[var(--polyu-red-dark)]"
+                      : "cursor-not-allowed bg-[var(--feed-bg)] text-[var(--feed-text-tertiary)]"
                 )}
               >
                 {isStreaming ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
@@ -260,20 +244,20 @@ export function WelcomeScreen() {
             </div>
           </div>
           {deepThinkingEnabled ? (
-            <p className="mt-3 text-xs text-[#2563EB]">
+            <p className="mt-3 text-xs text-[var(--polyu-red-dark)]">
               <span className="inline-flex items-center gap-1.5">
                 <Lightbulb className="h-3.5 w-3.5" />
                 {t.deepThinkingOn}
               </span>
             </p>
           ) : null}
-          <p className="mt-3 text-center text-xs text-[#94A3B8]">
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">
+          <p className="mt-3 text-center text-xs text-[var(--feed-text-tertiary)]">
+            <kbd className="rounded border border-[var(--feed-line)] bg-white px-1.5 py-0.5 text-[var(--feed-text-secondary)]">
               Enter
             </kbd>{" "}
             {t.enterHint}
             <span className="px-1.5">·</span>
-            <kbd className="rounded bg-white/80 px-1.5 py-0.5 text-[#6B7280] shadow-sm">
+            <kbd className="rounded border border-[var(--feed-line)] bg-white px-1.5 py-0.5 text-[var(--feed-text-secondary)]">
               Shift + Enter
             </kbd>{" "}
             {t.newlineHint}
@@ -285,10 +269,10 @@ export function WelcomeScreen() {
           className="mt-10 opacity-0 animate-fade-up"
           style={{ animationDelay: "160ms", animationFillMode: "both" }}
         >
-          <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-[0.24em] text-[#94A3B8]">
-            <span className="h-px w-8 bg-[#E5E7EB]" />
+          <div className="flex items-center justify-center gap-2 text-[12px] text-[var(--feed-text-tertiary)]">
+            <span className="h-px w-8 bg-[var(--feed-line)]" />
             {zh ? "试试这些开场" : "Try these starters"}
-            <span className="h-px w-8 bg-[#E5E7EB]" />
+            <span className="h-px w-8 bg-[var(--feed-line)]" />
           </div>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {promptPresets.map((preset) => {
@@ -300,22 +284,23 @@ export function WelcomeScreen() {
                   onClick={() => applyPreset(preset.prompt)}
                   disabled={isStreaming}
                   className={cn(
-                    "group rounded-2xl border border-white/70 bg-white/70 p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-[#BFDBFE] hover:shadow-md",
+                    // 白卡+发丝线；hover=边框迁移暖红调（Border-Shift 规则，不加阴影层）
+                    "group rounded-2xl border border-[var(--feed-line)] bg-white p-4 text-left shadow-sm transition-colors duration-200 hover:border-[#D8B7BC]",
                     isStreaming && "cursor-not-allowed opacity-60"
                   )}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EFF6FF] text-[#2563EB]">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--feed-bg)] text-[var(--feed-text-secondary)]">
                       <Icon className="h-4 w-4" />
                     </span>
                     <div>
-                      <p className="text-sm font-semibold text-[#1F2937]">{preset.title}</p>
-                      <p className="text-xs text-[#6B7280]">{preset.description}</p>
+                      <p className="text-sm font-semibold text-[var(--feed-text-primary)]">{preset.title}</p>
+                      <p className="text-xs text-[var(--feed-text-secondary)]">{preset.description}</p>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-[#94A3B8]">
+                  <div className="mt-3 flex items-center gap-2 text-xs text-[var(--feed-text-tertiary)]">
                     <span className="min-w-0 flex-1 truncate">{zh ? "推荐问法：" : "Prompt: "}{preset.prompt}</span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-[#CBD5F5] transition-colors group-hover:text-[#3B82F6]" />
+                    <ArrowUpRight className="h-3.5 w-3.5 text-[var(--feed-text-tertiary)] transition-colors group-hover:text-[var(--polyu-red)]" />
                   </div>
                 </button>
               );

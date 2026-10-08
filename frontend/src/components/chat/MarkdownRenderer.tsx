@@ -275,7 +275,7 @@ export function MarkdownRenderer({ content, messageId, sources }: MarkdownRender
           }
           return (
             <a
-              className="text-[#0969da] underline-offset-4 hover:underline dark:text-[#58a6ff]"
+              className="text-[var(--polyu-red)] underline-offset-4 hover:underline"
               target="_blank"
               rel="noreferrer"
               href={href}
@@ -389,7 +389,7 @@ export function MarkdownRenderer({ content, messageId, sources }: MarkdownRender
         blockquote({ children, ...props }) {
           return (
             <blockquote
-              className="my-5 rounded-r-md border-l-4 border-[#0969da] bg-[#f6f8fa] px-6 py-4 italic text-[#24292f] dark:border-[#58a6ff] dark:bg-[#161b22] dark:text-[#c9d1d9] [&_p:first-of-type]:before:content-none [&_p:last-of-type]:after:content-none"
+              className="my-5 rounded-r-md border-l border-[var(--polyu-red)] bg-[#f6f8fa] px-6 py-4 italic text-[#24292f] [&_p:first-of-type]:before:content-none [&_p:last-of-type]:after:content-none"
               {...props}
             >
               {children}

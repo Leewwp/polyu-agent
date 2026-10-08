@@ -42,11 +42,12 @@ export function SourceCitation({ index, messageId, source }: SourceCitationProps
       className={cn(
         // align-middle 让胶囊中线咬住正文（flex 容器默认拿盒子底边当基线 会整体悬高）
         // 再抬 2px 补上西文 x-height 中线与汉字中线的差
+        // 红线公报：正文引用角标=核验标记——红 wash 底 + 深砖红字（DESIGN.md Verified Wash）
         "relative -top-[2px] ml-[1px] mr-[1px] inline-flex h-[17px] min-w-[17px] items-center justify-center align-middle",
-        "rounded-full bg-[#F0F0F1] px-[5px] font-sans text-[10px] font-medium leading-none text-[#8A8F94]",
-        "outline-none transition-colors duration-150 dark:bg-[#2A2A2C] dark:text-[#A1A1AA]",
+        "rounded-full bg-[var(--polyu-red-50)] px-[5px] font-sans text-[10px] font-medium leading-none text-[var(--polyu-red-dark)]",
+        "outline-none transition-colors duration-150",
         interactive &&
-          "cursor-pointer hover:bg-[#E4E4E6] hover:text-[#52525B] focus-visible:ring-2 focus-visible:ring-[#D4D4D8] focus-visible:ring-offset-1 dark:hover:bg-[#3F3F46] dark:hover:text-[#E4E4E7]",
+          "cursor-pointer hover:bg-[var(--polyu-red-100)] focus-visible:ring-2 focus-visible:ring-[var(--polyu-red)] focus-visible:ring-offset-1",
         !interactive && "cursor-default"
       )}
     >
@@ -70,9 +71,8 @@ export function SourceCitation({ index, messageId, source }: SourceCitationProps
           align="start"
           sideOffset={8}
           className={cn(
-            "w-[360px] max-w-[calc(100vw-32px)] rounded-2xl border border-[#EDEDEE] bg-white p-0",
-            "text-[#1A1A1A] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.18)]",
-            "dark:border-[#3A3A3E] dark:bg-[#1F1F21] dark:text-[#F4F4F5]"
+            "w-[360px] max-w-[calc(100vw-32px)] rounded-2xl border border-[var(--feed-line)] bg-white p-0",
+            "text-[var(--feed-text-primary)] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.18)]"
           )}
         >
           <div
@@ -81,31 +81,31 @@ export function SourceCitation({ index, messageId, source }: SourceCitationProps
             onClick={() => openSource(source)}
             className={cn(
               "group cursor-pointer rounded-2xl p-4 transition-colors",
-              "hover:bg-[#FAFAFA] dark:hover:bg-[#26262A]"
+              "hover:bg-[var(--feed-bg)]"
             )}
           >
             <div className="flex items-center gap-2">
               <SourceIcon source={source} className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-[12px] text-[#8A8F94] dark:text-[#A1A1AA]">
+              <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--feed-text-tertiary)]">
                 {sourceSite(source)}
               </span>
-              <span className="flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-full bg-[#F2F2F3] px-1 text-[10px] font-medium text-[#8A8F94] dark:bg-[#3F3F46] dark:text-[#D4D4D8]">
+              <span className="flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-full bg-[var(--polyu-red-50)] px-1 text-[10px] font-medium text-[var(--polyu-red-dark)]">
                 {index}
               </span>
-              <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[#C6C6CA] transition-colors group-hover:text-[#8A8F94] dark:text-[#5C5C63] dark:group-hover:text-[#A1A1AA]" />
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-[var(--feed-text-tertiary)] transition-colors group-hover:text-[var(--polyu-red)]" />
             </div>
 
             <p className="mt-2.5 line-clamp-2 text-[13.5px] font-semibold leading-[1.5]">
               {title}
             </p>
             {detail ? (
-              <p className="mt-1 truncate text-[11px] text-[#A8ADB3] dark:text-[#8F8F98]">
+              <p className="mt-1 truncate text-[11px] text-[var(--feed-text-tertiary)]">
                 {detail}
               </p>
             ) : null}
 
             {excerpt ? (
-              <p className="mt-3 line-clamp-4 border-t border-[#F1F1F2] pt-3 text-[12.5px] leading-[1.75] text-[#73777D] dark:border-[#3A3A3E] dark:text-[#C4C4CB]">
+              <p className="mt-3 line-clamp-4 border-t border-[var(--feed-line-soft)] pt-3 text-[12.5px] leading-[1.75] text-[var(--feed-text-secondary)]">
                 {excerpt}
               </p>
             ) : null}

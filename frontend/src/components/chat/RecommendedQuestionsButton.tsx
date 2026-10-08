@@ -22,17 +22,17 @@ export function RecommendedQuestionsButton({ message }: RecommendedQuestionsButt
       disabled={spinning}
       aria-expanded={open}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full py-1 pl-2.5 pr-2 text-xs transition-colors",
+        "inline-flex items-center gap-1.5 rounded-full py-1 pl-2.5 pr-2 text-xs font-medium transition-colors",
         open
-          ? "bg-[#EAF1FF] text-[#2563EB]"
-          : "text-[#666666] hover:bg-[#F0F0F1] hover:text-[#1A1A1A]",
+          ? "bg-[var(--polyu-red-50)] text-[var(--polyu-red-dark)]"
+          : "text-[var(--feed-text-secondary)] hover:bg-[var(--polyu-red-50)] hover:text-[var(--polyu-red-dark)]",
         spinning && "cursor-wait opacity-80"
       )}
     >
       {spinning ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
-        <Sparkles className={cn("h-3.5 w-3.5", open && "text-[#3B82F6]")} />
+        <Sparkles className={cn("h-3.5 w-3.5", open && "text-[var(--polyu-red-dark)]")} />
       )}
       推荐问题
       <ChevronDown

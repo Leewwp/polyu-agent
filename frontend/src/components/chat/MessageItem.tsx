@@ -98,33 +98,33 @@ export const MessageItem = React.memo(function MessageItem({ message }: MessageI
           <ThinkingIndicator content={message.thinking} duration={message.thinkingDuration} />
         ) : null}
         {!isThinking && hasThinking ? (
-          <div className="overflow-hidden rounded-lg border border-[#BFDBFE] bg-[#DBEAFE]">
+          <div className="overflow-hidden rounded-lg border border-[var(--feed-line)] bg-[var(--feed-bg)]">
             <button
               type="button"
               onClick={() => setThinkingExpanded((prev) => !prev)}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-[#BFDBFE]/30"
+              className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--feed-card)]"
             >
               <div className="flex flex-1 items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#BFDBFE]">
-                  <Brain className="h-4 w-4 text-[#2563EB]" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--feed-card)] ring-1 ring-[var(--feed-line)]">
+                  <Brain className="h-4 w-4 text-[var(--feed-text-secondary)]" />
                 </div>
-                <span className="text-sm font-medium text-[#2563EB]">{zh ? "深度思考" : "Deep thinking"}</span>
+                <span className="text-sm font-medium text-[var(--feed-text-secondary)]">{zh ? "深度思考" : "Deep thinking"}</span>
                 {thinkingDuration ? (
-                  <span className="rounded-full bg-[#BFDBFE] px-2 py-0.5 text-xs text-[#2563EB]">
+                  <span className="rounded-full bg-[var(--feed-card)] px-2 py-0.5 text-xs tabular-nums text-[var(--feed-text-secondary)] ring-1 ring-[var(--feed-line)]">
                     {thinkingDuration}
                   </span>
                 ) : null}
               </div>
               <ChevronDown
                 className={cn(
-                  "h-4 w-4 text-[#3B82F6] transition-transform",
+                  "h-4 w-4 text-[var(--feed-text-tertiary)] transition-transform",
                   thinkingExpanded && "rotate-180"
                 )}
               />
             </button>
             {thinkingExpanded ? (
-              <div className="border-t border-[#BFDBFE] px-4 pb-4">
-                <div className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[#1E40AF]">
+              <div className="border-t border-[var(--feed-line)] px-4 pb-4">
+                <div className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[var(--feed-text-secondary)]">
                   {message.thinking}
                 </div>
               </div>

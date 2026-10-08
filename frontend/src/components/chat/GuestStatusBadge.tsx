@@ -57,7 +57,7 @@ export function GuestStatusBadge() {
         "flex items-center gap-2 rounded-full border px-3 py-1 text-xs",
         exhausted
           ? "border-amber-200 bg-amber-50 text-amber-700"
-          : "border-[#E5E5E5] bg-[#F9F9F9] text-[#666666]"
+          : "border-[var(--feed-line)] bg-[var(--feed-card)] text-[var(--feed-text-secondary)]"
       )}
       role="status"
       aria-label={zh ? "游客试用状态" : "Guest trial status"}
@@ -84,7 +84,7 @@ export function GuestStatusBadge() {
       </span>
       <Link
         to="/register"
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#D4D4D4] bg-white px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#F5F5F5]"
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--feed-line)] bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--polyu-red)] transition-colors hover:border-[var(--polyu-red)] hover:bg-[var(--polyu-red-50)]"
       >
         <LogIn className="h-3 w-3" />
         {zh ? "注册" : "Sign up"}
