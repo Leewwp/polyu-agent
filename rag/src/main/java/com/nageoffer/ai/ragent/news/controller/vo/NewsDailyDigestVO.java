@@ -99,6 +99,13 @@ public class NewsDailyDigestVO {
     private List<NewsDailyDigestItemVO> items;
 
     /**
+     * 校历关键日期栏目快照（#316 L1：纯数据零 LLM，供给与资讯量解耦；
+     * 生成期冻结 as-of=刊日）。窗口零条目=空列表，前端整段隐藏不渲染空壳；
+     * 空刊（items 为空）仍照常携带——降级版式保底
+     */
+    private List<NewsDailyDigestKeyDateVO> keyDates;
+
+    /**
      * 生成时刻
      */
     private Date buildTime;

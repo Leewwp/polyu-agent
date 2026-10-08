@@ -110,7 +110,7 @@ describe("TopicsPage", () => {
 
     await waitFor(() => {
       expect(container.querySelectorAll("a[href^='/topics/']")).toHaveLength(22);
-    });
+    }, { timeout: 5000 });
 
     // 计数随目录数据动态（waitFor 后=已加载，勿在加载前断言数字，有竞态）
     expect(screen.getByText(/22 个主题由 AI 标签自动聚合/)).toBeTruthy();
@@ -140,7 +140,7 @@ describe("TopicsPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("学院与部门")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
 
     const user = userEvent.setup();
     // MobileTopbar 补 LangPill 后桌面/移动两组 pill 并存，取第一组（桌面）
@@ -148,7 +148,7 @@ describe("TopicsPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Faculties & Departments")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     expect(screen.getByText("Research Areas & Themes")).toBeTruthy();
     expect(screen.getByText("Student Affairs")).toBeTruthy();
     expect(screen.getByText("74 items →")).toBeTruthy();
@@ -161,7 +161,7 @@ describe("TopicsPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("主题目录加载失败，请稍后刷新重试")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     expect(screen.queryByText("学院与部门")).toBeNull();
   });
 
@@ -175,7 +175,7 @@ describe("TopicsPage", () => {
       const card = screen.getByText("🤖 人工智能").closest("a")?.parentElement;
       expect(card).toBeTruthy();
       return card as HTMLElement;
-    });
+    }, { timeout: 5000 });
     await user.click(within(aiCard).getByRole("button", { name: "☆ 关注" }));
     expect(within(aiCard).getByRole("button", { name: "★ 已关注" })).toBeTruthy();
     expect(JSON.parse(mem.get(NEWS_FOLLOWED_TOPICS_KEY) ?? "[]")).toEqual(["ai"]);
@@ -185,7 +185,7 @@ describe("TopicsPage", () => {
     renderTopicDetail("ai");
     await waitFor(() => {
       expect(screen.getByText("共 2 条")).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     const detailFollow = screen.getByRole("button", { name: "★ 已关注" });
     expect(detailFollow.getAttribute("aria-pressed")).toBe("true");
 

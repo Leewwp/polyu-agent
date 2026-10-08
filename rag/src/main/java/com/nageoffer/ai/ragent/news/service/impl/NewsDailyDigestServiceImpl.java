@@ -20,17 +20,21 @@ package com.nageoffer.ai.ragent.news.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.calendar.dao.entity.KeyDateDO;
+import com.nageoffer.ai.ragent.calendar.dao.mapper.KeyDateMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.infra.enums.Tier;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
@@ -46,7 +50,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -93,6 +99,12 @@ import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
  * 空刊零调用直接落空刊模板。读取面（页面/RSS）零 LLM——见
  * {@link com.nageoffer.ai.ragent.news.service.NewsDailyDigestQueryService}。
  *
+ * <p><b>校历关键日期栏目（#316，总纲 #315 线一 L1）</b>：每刊额外装配
+ * 「未来 N 天关键日期与截止提醒」栏目快照行（t_news_daily_digest_key_date）
+ * ——纯数据、零 LLM，供给与资讯量彻底解耦（空刊保底有内容）；数据源=
+ * t_key_date 只读（#192 铁律），as-of=刊日生成期冻结，窗口/容量入
+ * rag.news 配置（digest-key-date-window-days 默认 14 / -max-entries 默认 8）。
+ *
  * <p><b>幂等</b>：digest_date 库级唯一；重建=按日期先删后插（快照行经
  * digest_id 外键 ON DELETE CASCADE 随旧刊头带走），同日期重跑只产一刊。
  * 单事务包住删+插，中途失败不产生半刊（下一轮重跑再建）。
@@ -122,10 +134,12 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
 
     private final NewsDailyDigestMapper digestMapper;
     private final NewsDailyDigestItemMapper digestItemMapper;
+    private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
     private final NewsItemMapper itemMapper;
     private final NewsItemTopicMapper itemTopicMapper;
     private final NewsTopicMapper topicMapper;
     private final NewsSourceMapper sourceMapper;
+    private final KeyDateMapper keyDateMapper;
     private final NewsLlmBudgetService llmBudgetService;
     private final PromptTemplateLoader promptTemplateLoader;
     private final NewsFetchProperties properties;
@@ -135,15 +149,18 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     @Autowired
     public NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
                                       NewsDailyDigestItemMapper digestItemMapper,
+                                      NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                       NewsItemMapper itemMapper,
                                       NewsItemTopicMapper itemTopicMapper,
                                       NewsTopicMapper topicMapper,
                                       NewsSourceMapper sourceMapper,
+                                      KeyDateMapper keyDateMapper,
                                       NewsLlmBudgetService llmBudgetService,
                                       PromptTemplateLoader promptTemplateLoader,
                                       NewsFetchProperties properties) {
-        this(digestMapper, digestItemMapper, itemMapper, itemTopicMapper, topicMapper, sourceMapper,
-                llmBudgetService, promptTemplateLoader, properties, new ObjectMapper(), Date::new);
+        this(digestMapper, digestItemMapper, digestKeyDateMapper, itemMapper, itemTopicMapper, topicMapper,
+                sourceMapper, keyDateMapper, llmBudgetService, promptTemplateLoader, properties,
+                new ObjectMapper(), Date::new);
     }
 
     /**
@@ -151,10 +168,12 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
      */
     NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
                                NewsDailyDigestItemMapper digestItemMapper,
+                               NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                NewsItemMapper itemMapper,
                                NewsItemTopicMapper itemTopicMapper,
                                NewsTopicMapper topicMapper,
                                NewsSourceMapper sourceMapper,
+                               KeyDateMapper keyDateMapper,
                                NewsLlmBudgetService llmBudgetService,
                                PromptTemplateLoader promptTemplateLoader,
                                NewsFetchProperties properties,
@@ -162,10 +181,12 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                                Supplier<Date> nowSupplier) {
         this.digestMapper = digestMapper;
         this.digestItemMapper = digestItemMapper;
+        this.digestKeyDateMapper = digestKeyDateMapper;
         this.itemMapper = itemMapper;
         this.itemTopicMapper = itemTopicMapper;
         this.topicMapper = topicMapper;
         this.sourceMapper = sourceMapper;
+        this.keyDateMapper = keyDateMapper;
         this.llmBudgetService = llmBudgetService;
         this.promptTemplateLoader = promptTemplateLoader;
         this.properties = properties;
@@ -218,8 +239,18 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
             snapshot.setSeq(++seq);
             digestItemMapper.insert(snapshot);
         }
-        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}（窗口 [{}, {})）",
-                digestDate, snapshots.size(), introSource, windowStart, windowEndDate);
+        // 校历关键日期栏目（#316 L1）：纯数据零 LLM，独立于资讯量——空刊也照常
+        // 落栏目行（降级版式保底）；快照行经 digest_id 级联随重建带走
+        List<NewsDailyDigestKeyDateDO> keyDateSnapshots = buildKeyDateSnapshots(digestDate);
+        int keyDateSeq = 0;
+        for (NewsDailyDigestKeyDateDO snapshot : keyDateSnapshots) {
+            snapshot.setDigestId(header.getId());
+            snapshot.setSeq(++keyDateSeq);
+            digestKeyDateMapper.insert(snapshot);
+        }
+        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}，校历关键日期 {} 条（窗口 [{},{}]）",
+                digestDate, snapshots.size(), introSource, keyDateSnapshots.size(),
+                digestDate, digestDate.plusDays(properties.effectiveDigestKeyDateWindowDays() - 1L));
         return new DigestBuildResult(digestDate, snapshots.size(), introSource, true);
     }
 
@@ -302,6 +333,73 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                     .build());
         }
         return snapshots;
+    }
+
+    // ==================== 校历关键日期栏目（#316 L1，纯数据零 LLM） ====================
+
+    /**
+     * 关键日期栏目快照构建（生成期冻结，as-of=刊日 D）：
+     * <ul>
+     * <li>窗口=[D, D+N-1] 含端共 N 个历日（N={@code rag.news.digest-key-date-window-days}，
+     *     默认 14）；status=published 且 date_start 或 date_end 落窗即入选
+     *     （fuzzy 行 date_* 全 NULL 天然不落窗；过期条目=两端均在 D 前不出现）；</li>
+     * <li>序=date_start 升序+uid 兜底（board currentAndUpcoming 同构：进行中
+     *     已开行者自然在前），容量截断=超限取最近；</li>
+     * <li>ongoing=已开始（date_start &lt; D）未结束（有效结束日 date_end??date_start
+     *     &gt;= D）；days_until=D→date_start 天数，倒计时门=仅 exact-day/exact-range
+     *     （onwards 不伪造截止语义恒 null——KeyDateQueryServiceImpl 同口径）；</li>
+     * <li>窗口零条目=空列表（读取面整段隐藏，不渲染空壳）。</li>
+     * </ul>
+     * t_key_date 只读（#192 合同铁律），本方法零写入；展示字段全冗余快照，
+     * withdrawn/归档不连带。
+     */
+    private List<NewsDailyDigestKeyDateDO> buildKeyDateSnapshots(LocalDate digestDate) {
+        LocalDate windowEndInclusive = digestDate.plusDays(properties.effectiveDigestKeyDateWindowDays() - 1L);
+        // 74 行量级全取内存过滤（SQL 侧只限定 published；防御性双保险=Java 侧
+        // 再滤一次 status——KeyDateQueryServiceImpl.board 先例，mock 直测时
+        // wrapper 过滤不可达）
+        List<KeyDateDO> candidates = keyDateMapper.selectList(new LambdaQueryWrapper<KeyDateDO>()
+                .eq(KeyDateDO::getStatus, STATUS_PUBLISHED));
+        return candidates.stream()
+                .filter(row -> STATUS_PUBLISHED.equals(row.getStatus()))
+                .filter(row -> inWindow(row.getDateStart(), digestDate, windowEndInclusive)
+                        || inWindow(row.getDateEnd(), digestDate, windowEndInclusive))
+                .sorted(Comparator.comparing(KeyDateDO::getDateStart)
+                        .thenComparing(KeyDateDO::getUid))
+                .limit(properties.effectiveDigestKeyDateMaxEntries())
+                .map(row -> toKeyDateSnapshot(row, digestDate))
+                .toList();
+    }
+
+    /** 日期落窗判定（null=不落窗；含端） */
+    private static boolean inWindow(LocalDate date, LocalDate windowStart, LocalDate windowEndInclusive) {
+        return date != null && !date.isBefore(windowStart) && !date.isAfter(windowEndInclusive);
+    }
+
+    /**
+     * 关键日期行→栏目快照：ongoing/days_until 按刊日冻结；倒计时门=仅
+     * exact-day/exact-range（onwards 恒 null，负值=已开始区间留给 ongoing 徽章）
+     */
+    private static NewsDailyDigestKeyDateDO toKeyDateSnapshot(KeyDateDO row, LocalDate asOf) {
+        LocalDate effectiveEnd = row.getDateEnd() != null ? row.getDateEnd() : row.getDateStart();
+        boolean ongoing = row.getDateStart().isBefore(asOf) && !effectiveEnd.isBefore(asOf);
+        Integer daysUntil = null;
+        if ("exact-day".equals(row.getPrecision()) || "exact-range".equals(row.getPrecision())) {
+            daysUntil = (int) ChronoUnit.DAYS.between(asOf, row.getDateStart());
+        }
+        return NewsDailyDigestKeyDateDO.builder()
+                .keyDateId(row.getId())
+                .uid(row.getUid())
+                .titleZh(row.getTitleZh())
+                .titleEn(row.getTitleEn())
+                .audienceText(row.getAudienceText())
+                .precision(row.getPrecision())
+                .dateStart(row.getDateStart())
+                .dateEnd(row.getDateEnd())
+                .fuzzyHint(row.getFuzzyHint())
+                .ongoing(ongoing)
+                .daysUntil(daysUntil)
+                .build();
     }
 
     // ==================== 导语（唯一 LLM 触点，可失败回退） ====================

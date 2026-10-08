@@ -17,8 +17,10 @@
 
 package com.nageoffer.ai.ragent.news.service.impl;
 
+import com.nageoffer.ai.ragent.calendar.dao.entity.KeyDateDO;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
@@ -71,8 +73,10 @@ class NewsDailyDigestServiceTests {
 
     private FakeDailyDigestStore digestStore;
     private FakeDailyDigestNewsItemStore itemStore;
+    private FakeKeyDateStore keyDateStore;
     private NewsLlmBudgetService budgetService;
     private PromptTemplateLoader promptLoader;
+    private NewsFetchProperties properties;
     private NewsDailyDigestService service;
 
     @BeforeEach
@@ -85,15 +89,17 @@ class NewsDailyDigestServiceTests {
                 com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO.class);
         digestStore = new FakeDailyDigestStore();
         itemStore = new FakeDailyDigestNewsItemStore();
+        keyDateStore = new FakeKeyDateStore();
         budgetService = mock(NewsLlmBudgetService.class);
         promptLoader = mock(PromptTemplateLoader.class);
         NewsItemTopicMapper itemTopicMapper = mock(NewsItemTopicMapper.class);
         NewsTopicMapper topicMapper = mock(NewsTopicMapper.class);
         NewsSourceMapper sourceMapper = mock(NewsSourceMapper.class);
         when(promptLoader.render(any(), any())).thenReturn("rendered-prompt");
+        properties = new NewsFetchProperties();
         service = new NewsDailyDigestServiceImpl(digestStore.digestMapper, digestStore.digestItemMapper,
-                itemStore.mapper, itemTopicMapper, topicMapper, sourceMapper,
-                budgetService, promptLoader, new NewsFetchProperties(), new ObjectMapper(), () -> NOW);
+                digestStore.digestKeyDateMapper, itemStore.mapper, itemTopicMapper, topicMapper, sourceMapper,
+                keyDateStore.mapper, budgetService, promptLoader, properties, new ObjectMapper(), () -> NOW);
     }
 
     // ==================== 条目工厂 ====================
@@ -286,6 +292,112 @@ class NewsDailyDigestServiceTests {
         itemStore.purgeById(40L);
         assertEquals("研究动态", digestStore.items().get(0).getTitleZh(),
                 "源行清理后快照仍完整（快照独立性）");
+    }
+
+    // ==================== 校历关键日期栏目（#316 L1，as-of=刊日 10-03，默认窗口 [10-03,10-16] 含端） ====================
+
+    /** t_key_date 行工厂（published 缺省；precision/date/status 按用例覆盖） */
+    private static KeyDateDO.KeyDateDOBuilder keyDate(long id, String dateStartIso, String dateEndIso) {
+        return KeyDateDO.builder()
+                .id(id).uid("uid-" + id).status("published")
+                .academicYear("2026/27").term("S1")
+                .titleEn("Key date " + id).titleZh("关键日期" + id)
+                .precision(dateEndIso == null ? "exact-day" : "exact-range")
+                .dateStart(dateStartIso == null ? null : java.time.LocalDate.parse(dateStartIso))
+                .dateEnd(dateEndIso == null ? null : java.time.LocalDate.parse(dateEndIso));
+    }
+
+    @Test
+    void keyDateSectionSelectsWindowsOrdersAndMarksOngoing() {
+        // 已开始未结束（09-28 起 10-06 止，结束日落窗）→ ongoing
+        keyDateStore.seed(keyDate(1L, "2026-09-28", "2026-10-06").build());
+        // 当日开始（=刊日）→ 非 ongoing，daysUntil=0
+        keyDateStore.seed(keyDate(2L, "2026-10-03", null).build());
+        keyDateStore.seed(keyDate(3L, "2026-10-10", null).build());
+        // 窗口末日（含端）→ 入选
+        keyDateStore.seed(keyDate(4L, "2026-10-16", null).build());
+        // onwards：开放起点落窗，倒计时门=daysUntil 恒 null
+        keyDateStore.seed(keyDate(11L, "2026-10-12", null).precision("onwards").build());
+        // 窗外未来（10-17）/全过期（09-20~09-25）/跨整窗（10-01~11-15 两端均不落窗）
+        keyDateStore.seed(keyDate(5L, "2026-10-17", null).build());
+        keyDateStore.seed(keyDate(6L, "2026-09-20", "2026-09-25").build());
+        keyDateStore.seed(keyDate(8L, "2026-10-01", "2026-11-15").build());
+        // fuzzy（date_* 全 NULL）与终态行（withdrawn/archived）一律不入
+        keyDateStore.seed(keyDate(7L, null, null).precision("fuzzy").fuzzyHint("十月上旬").build());
+        keyDateStore.seed(keyDate(9L, "2026-10-08", null).status("withdrawn").build());
+        keyDateStore.seed(keyDate(10L, "2026-10-09", null).status("archived").build());
+
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestKeyDateDO> section = digestStore.keyDates();
+        assertEquals(List.of(1L, 2L, 3L, 11L, 4L),
+                section.stream().map(NewsDailyDigestKeyDateDO::getKeyDateId).toList(),
+                "选材=两端任一落窗（含端），date_start 升序；过期/窗外/fuzzy/终态行排除");
+        assertEquals(List.of(true, false, false, false, false),
+                section.stream().map(NewsDailyDigestKeyDateDO::getOngoing).toList(),
+                "已开始未结束标进行中；当日开始不标");
+        assertEquals(java.util.Arrays.asList(-5, 0, 7, null, 13),
+                section.stream().map(NewsDailyDigestKeyDateDO::getDaysUntil).toList(),
+                "days_until=刊日→date_start（onwards 恒 null——倒计时门）");
+        assertEquals(List.of(1, 2, 3, 4, 5),
+                section.stream().map(NewsDailyDigestKeyDateDO::getSeq).toList(), "栏内序 1 起连续");
+        NewsDailyDigestKeyDateDO first = section.get(0);
+        assertEquals("关键日期1", first.getTitleZh());
+        assertEquals("Key date 1", first.getTitleEn());
+        assertEquals("exact-range", first.getPrecision());
+        assertEquals(java.time.LocalDate.parse("2026-09-28"), first.getDateStart());
+    }
+
+    @Test
+    void keyDateSectionCapsToNearestOnOverflow() {
+        for (int i = 4; i <= 13; i++) {
+            keyDateStore.seed(keyDate(100L + i, "2026-10-" + String.format("%02d", i), null).build());
+        }
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestKeyDateDO> section = digestStore.keyDates();
+        assertEquals(8, section.size(), "默认容量 8（超限取最近=date_start 升序截断）");
+        assertEquals(java.time.LocalDate.parse("2026-10-04"),
+                section.get(0).getDateStart(), "最近的在前");
+        assertEquals(java.time.LocalDate.parse("2026-10-11"),
+                section.get(section.size() - 1).getDateStart(), "10-12/10-13 被截断");
+    }
+
+    @Test
+    void keyDateSectionRespectsConfiguredWindowAndCap() {
+        properties.setDigestKeyDateWindowDays(2);
+        properties.setDigestKeyDateMaxEntries(1);
+        keyDateStore.seed(keyDate(21L, "2026-10-03", null).build()); // 窗内（[10-03,10-04] 含端）
+        keyDateStore.seed(keyDate(22L, "2026-10-05", null).build()); // 窗外（N=2 收窄后）
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestKeyDateDO> section = digestStore.keyDates();
+        assertEquals(List.of(21L), section.stream().map(NewsDailyDigestKeyDateDO::getKeyDateId).toList(),
+                "窗口/容量均走 rag.news 配置（默认 14/8 可收窄）");
+    }
+
+    @Test
+    void keyDateSectionEmptyWindowLandsZeroRowsAndRerunLeavesNoResidue() {
+        // 学期稳定期：窗口零条目 → 零快照行（读取面整段隐藏），出刊照常
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, digestStore.keyDates().size());
+        assertEquals(1, digestStore.headers().size(), "零栏目行不影响出刊");
+        // 窗口有条目后重建：级联带走旧行，只保留新一份（幂等不留残行）
+        keyDateStore.seed(keyDate(31L, "2026-10-05", null).build());
+        service.rebuildForDate(DIGEST_DATE);
+        keyDateStore.seed(keyDate(32L, "2026-10-06", null).build());
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(List.of(31L, 32L),
+                digestStore.keyDates().stream().map(NewsDailyDigestKeyDateDO::getKeyDateId).toList(),
+                "重建=按窗口全量重算（先删后插经级联），无残行无重复");
+    }
+
+    @Test
+    void keyDateSectionLandsOnEmptyNewsDigestToo() {
+        // 空刊降级版式（后端面）：资讯零条仍照常落栏目行——供给与资讯量解耦
+        keyDateStore.seed(keyDate(41L, "2026-10-05", "2026-10-08").build());
+        NewsDailyDigestService.DigestBuildResult result = service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, result.itemCount());
+        assertEquals(NewsDailyDigestDO.INTRO_SOURCE_EMPTY, result.introSource());
+        assertEquals(1, digestStore.keyDates().size(), "空刊也有 L1 栏目行（保底内容）");
+        verify(budgetService, never()).call(any(), any());
     }
 
     // ==================== 提示词与请求形状 ====================

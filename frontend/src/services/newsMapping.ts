@@ -293,7 +293,7 @@ export function mapTopic(vo: NewsTopicVO): NewsTopic {
 
 /** ==================== 日报（#212）：/public/news/daily/** VO → 前端类型 ==================== */
 
-import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
 
 /** 后端 NewsDailyDigestItemVO 形状 */
 export interface NewsDailyDigestItemVO {
@@ -311,6 +311,21 @@ export interface NewsDailyDigestItemVO {
   source: NewsItemVO["source"];
 }
 
+/** 后端 NewsDailyDigestKeyDateVO 形状（#316 L1：生成期冻结 as-of=刊日） */
+export interface NewsDailyDigestKeyDateVO {
+  seq: number;
+  uid: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  audienceText: string | null;
+  precision: string;
+  dateStart: string | null;
+  dateEnd: string | null;
+  fuzzyHint: string | null;
+  ongoing: boolean | null;
+  daysUntil: number | null;
+}
+
 /** 后端 NewsDailyDigestVO 形状 */
 export interface NewsDailyDigestVO {
   digestDate: string;
@@ -324,6 +339,7 @@ export interface NewsDailyDigestVO {
   visibleCount: number;
   disqualifiedCount: number;
   items: NewsDailyDigestItemVO[];
+  keyDates?: NewsDailyDigestKeyDateVO[] | null;
   buildTime: string;
 }
 
@@ -367,6 +383,23 @@ export function mapDailyDigestItem(vo: NewsDailyDigestItemVO): NewsDailyDigestIt
   };
 }
 
+/** 关键日期栏目快照直映（#316：快照列即展示字段，ongoing/daysUntil 生成期冻结） */
+function mapDailyDigestKeyDate(vo: NewsDailyDigestKeyDateVO): NewsDailyDigestKeyDate {
+  return {
+    seq: vo.seq,
+    uid: vo.uid,
+    titleZh: vo.titleZh,
+    titleEn: vo.titleEn,
+    audienceText: vo.audienceText,
+    precision: (vo.precision ?? "exact-day") as NewsDailyDigestKeyDate["precision"],
+    dateStart: vo.dateStart,
+    dateEnd: vo.dateEnd,
+    fuzzyHint: vo.fuzzyHint,
+    ongoing: vo.ongoing ?? false,
+    daysUntil: vo.daysUntil
+  };
+}
+
 export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
   return {
     digestDate: vo.digestDate,
@@ -380,6 +413,7 @@ export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
     visibleCount: vo.visibleCount ?? 0,
     disqualifiedCount: vo.disqualifiedCount ?? 0,
     items: (vo.items ?? []).map((item) => mapDailyDigestItem(item)),
+    keyDates: (vo.keyDates ?? []).map((row) => mapDailyDigestKeyDate(row)),
     buildTime: vo.buildTime
   };
 }

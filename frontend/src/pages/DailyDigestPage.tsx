@@ -23,7 +23,14 @@ import {
   fetchDailyDigest,
   fetchDailyDigestList
 } from "@/services/newsService";
-import type { NewsCategory, NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestSummary } from "@/types/news";
+import { countdownBadge, keyDateLabel } from "@/services/keyDateService";
+import type {
+  NewsCategory,
+  NewsDailyDigest,
+  NewsDailyDigestItem,
+  NewsDailyDigestKeyDate,
+  NewsDailyDigestSummary
+} from "@/types/news";
 import { isSafeUrl } from "@/utils/urlSafety";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { cn } from "@/lib/utils";
@@ -427,6 +434,67 @@ function SectionBlocks({ derived }: { derived: DerivedIssue }) {
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * 校历关键日期栏目（#316 L1，总纲 #315 线一）：日报头部固定栏目，纯数据
+ * 快照（零 LLM）、供给与资讯量解耦——空刊也保底有内容（降级版式）。
+ * - 窗口零条目=整段隐藏（不渲染空壳）；条目=生成期冻结（as-of=刊日）；
+ * - 徽章/日期文案复用 keyDateService 纯函数（phase 由 ongoing/daysUntil
+ *   派生：ongoing→进行中、daysUntil=0→今日、其余倒计时——与 /key-dates
+ *   独立页同一双语文案源）；
+ * - 移动端单列、桌面两列（沿用版面网格断点）。
+ */
+function KeyDatesBand({ keyDates }: { keyDates: NewsDailyDigestKeyDate[] }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  if (keyDates.length === 0) {
+    return null;
+  }
+  return (
+    <section id="sec-keydates" className="mb-5 scroll-mt-[76px]" aria-label={zh ? "校历关键日期" : "Academic key dates"}>
+      <div className="mb-3 flex items-baseline gap-2.5">
+        <h2 className="text-[17.5px] font-bold text-[var(--feed-text-primary)]">
+          {zh ? "校历关键日期" : "Academic key dates"}
+        </h2>
+        <span className="text-[11.5px] tabular-nums text-[var(--feed-text-tertiary)]">
+          {zh ? `${keyDates.length} 项` : `${keyDates.length} items`}
+        </span>
+        <span className="mx-1 flex-1 border-b border-[var(--feed-line-soft)]" />
+        <Link to="/key-dates" className="text-[12px] font-semibold text-[var(--feed-text-tertiary)] transition-colors hover:text-[var(--polyu-red)]">
+          {zh ? "查看全部 ›" : "View all ›"}
+        </Link>
+      </div>
+      <div className="grid gap-2 min-[861px]:grid-cols-2">
+        {keyDates.map((row) => {
+          const phase = row.ongoing ? "ongoing" : row.daysUntil === 0 ? "today" : "upcoming";
+          const badge = countdownBadge({ phase, daysUntil: row.daysUntil }, lang);
+          const title = (zh ? row.titleZh : row.titleEn) || (zh ? row.titleEn : row.titleZh) || "";
+          return (
+            <div
+              key={row.uid}
+              className="flex items-center gap-2.5 rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-3.5 py-2 shadow-sm"
+            >
+              <span className="flex-none text-[12px] tabular-nums text-[var(--feed-text-secondary)]">
+                {keyDateLabel(row, lang)}
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--feed-text-primary)]">
+                {title}
+                {row.audienceText && (
+                  <span className="ml-1 text-[11px] font-normal text-[var(--feed-text-tertiary)]">（{row.audienceText}）</span>
+                )}
+              </span>
+              {badge && (
+                <span className="flex-none rounded-full bg-[var(--polyu-red-50)] px-2.5 py-0.5 text-[11.5px] font-bold text-[var(--polyu-red-dark)]">
+                  {badge}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -871,6 +939,9 @@ function IssueBody({
       <Masthead digest={digest} latest={hasCatalog && digest.digestDate === summaries[0].digestDate} />
       {hasCatalog && <MobileDateBar summaries={summaries} selectedDate={digest.digestDate} />}
       <MobileTocButton onOpen={onOpenToc} />
+      {/* #316 L1：头部固定栏目——空窗整段隐藏；空刊（资讯零条）仍在休刊卡上方
+          保底呈现，日报任何一天不空页 */}
+      <KeyDatesBand keyDates={digest.keyDates ?? []} />
       {digest.items.length > 0 ? (
         <>
           <FrontPage digest={digest} derived={derived} />
