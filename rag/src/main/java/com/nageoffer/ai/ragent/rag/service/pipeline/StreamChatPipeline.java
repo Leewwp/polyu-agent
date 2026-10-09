@@ -165,11 +165,15 @@ public class StreamChatPipeline {
             return false;
         }
         StreamCallback callback = ctx.getCallback();
-        // 零证据兜底文案按提问语言输出（实测教训：EN 问曾收中文系统文案）；
+        // 零证据兜底=边界声明+引导回港理主题（#331：闲聊/无关题死胡同式拒答无法满足行为判据，
+        // 边界+引导三形态——闲聊/无关/检索失败——语义均成立，不引入形态判断分支）
         // 与 DashboardServiceImpl NO_DOC 统计口径保持同步（双语变体都要计入）
         callback.onContent(isChineseQuestion(ctx.getQuestion())
-                ? "未检索到与问题相关的文档内容。"
-                : "No relevant document content was found for this question.");
+                ? "未检索到与该问题相关的 PolyU 官方资料，无法作答；若问题超出 PolyU 学生服务范围，同样不在服务范围内。"
+                  + "欢迎问我 PolyU 相关问题，例如校历关键日期、图书馆空间预订、学生签证等。"
+                : "No relevant PolyU material was found for this question, so I can't answer it — "
+                  + "and if it falls outside PolyU student services, it's outside my scope too. "
+                  + "Feel free to ask me about PolyU topics such as key academic dates, library bookings, or student visas.");
         callback.onComplete();
         return true;
     }
