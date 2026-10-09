@@ -292,7 +292,8 @@ class EventsApiNewsFetcherTests {
         // #324：CPEO 文化活动日历与 events 同为 JSON_API——strategy 分发一对多，
         // 抓取器按源行 endpoint 取各自日历 id（BA1FFC…），条目归属各自 sourceKey。
         // 实查空月常态（2027/01、02 均 0 条）：cpeo-events 配 allow-empty（#186 成功
-        // 分类学）——静月=VALID_EMPTY 非 fail-closed，否则空月连败会误触自动隔离
+        // 分类学）——静月=VALID_EMPTY 非 fail-closed，否则空月连败会误触自动隔离。
+        // #323 扩窗后口径：2026-10-09 起跑 8 周窗=10/11/12 三个月取数（跨月 URL 去重后 1 条）。
         properties.getAllowEmptySources().add("cpeo-events");
         String cpeoEndpoint = "https://www.polyu.edu.hk/en/api/sitecore/calendar/get"
                 + "?id=BA1FFC08557D4D82A33C584551D93F99&date=YYYY/MM";
@@ -305,14 +306,16 @@ class EventsApiNewsFetcherTests {
                 + "\"content\":\"<a href=\\\"https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/2026/10-october/20261007_polyu-cinema?sc_lang=en\\\">detail</a>\"}]}";
         when(fetchClient.get(anyString())).thenReturn(
                 json.getBytes(StandardCharsets.UTF_8),
-                "{\"events\":[]}".getBytes(StandardCharsets.UTF_8));
+                EMPTY_EVENTS,
+                EMPTY_EVENTS);
 
-        List<RawNewsItem> items = fetcher.fetch(cpeo);
+        List<RawNewsItem> items = fetcherAt("2026-10-09").fetch(cpeo);
 
-        List<String> months = expectedMonths(0);
         ArgumentCaptor<String> urls = ArgumentCaptor.forClass(String.class);
-        verify(fetchClient, times(2)).get(urls.capture());
-        assertEquals(cpeoEndpoint.replace("YYYY/MM", months.get(0)), urls.getAllValues().get(0));
+        verify(fetchClient, times(3)).get(urls.capture());
+        assertEquals(cpeoEndpoint.replace("YYYY/MM", "2026/10"), urls.getAllValues().get(0));
+        assertEquals(cpeoEndpoint.replace("YYYY/MM", "2026/11"), urls.getAllValues().get(1));
+        assertEquals(cpeoEndpoint.replace("YYYY/MM", "2026/12"), urls.getAllValues().get(2));
         assertEquals(1, items.size());
         assertEquals("cpeo-events", items.get(0).sourceKey());
         assertEquals("PolyU Cinema", items.get(0).title());
