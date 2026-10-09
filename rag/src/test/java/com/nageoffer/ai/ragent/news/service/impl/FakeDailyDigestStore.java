@@ -21,9 +21,11 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestActivityMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
@@ -45,12 +47,13 @@ import static org.mockito.Mockito.when;
 
 /**
  * 日报两表内存 fake（#212 测试，#240 增 digest_id IN 批查与刊头 LIMIT 形状，
- * #316 增关键日期栏目快照行）：真实模拟本服务面固定发出的形状——刊头 insert
- * （回填 id）/delete(digest_date=)/selectCount/selectOne/selectList
- * （digest_date 倒序+LIMIT n=取最近 n 期）；快照 insert/selectList
- * （digest_id= 或 digest_id IN (…)，ORDER BY seq）；刊头删除<b>模拟外键
- * ON DELETE CASCADE</b>带走快照行（条目+关键日期，幂等重建不留残行）。
- * 真实 SQL 口径（唯一约束/级联）由 PG 环境保障，本 fake 只驱动行为断言。
+ * #316 增关键日期栏目快照行，#330 增校园活动版面快照行）：真实模拟本服务面
+ * 固定发出的形状——刊头 insert（回填 id）/delete(digest_date=)/selectCount/
+ * selectOne/selectList（digest_date 倒序+LIMIT n=取最近 n 期）；快照 insert/
+ * selectList（digest_id= 或 digest_id IN (…)，ORDER BY seq）；刊头删除
+ * <b>模拟外键 ON DELETE CASCADE</b>带走快照行（条目+关键日期+活动，幂等
+ * 重建不留残行）。真实 SQL 口径（唯一约束/级联）由 PG 环境保障，本 fake
+ * 只驱动行为断言。
  */
 final class FakeDailyDigestStore {
 
@@ -62,19 +65,23 @@ final class FakeDailyDigestStore {
     private final List<NewsDailyDigestDO> headers = new ArrayList<>();
     private final List<NewsDailyDigestItemDO> items = new ArrayList<>();
     private final List<NewsDailyDigestKeyDateDO> keyDates = new ArrayList<>();
+    private final List<NewsDailyDigestActivityDO> activities = new ArrayList<>();
     private final AtomicLong headerIdSeq = new AtomicLong();
     private final AtomicLong itemIdSeq = new AtomicLong();
     private final AtomicLong keyDateIdSeq = new AtomicLong();
+    private final AtomicLong activityIdSeq = new AtomicLong();
 
     final NewsDailyDigestMapper digestMapper = mock(NewsDailyDigestMapper.class);
     final NewsDailyDigestItemMapper digestItemMapper = mock(NewsDailyDigestItemMapper.class);
     final NewsDailyDigestKeyDateMapper digestKeyDateMapper = mock(NewsDailyDigestKeyDateMapper.class);
+    final NewsDailyDigestActivityMapper digestActivityMapper = mock(NewsDailyDigestActivityMapper.class);
 
     FakeDailyDigestStore() {
         MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
         TableInfoHelper.initTableInfo(assistant, NewsDailyDigestDO.class);
         TableInfoHelper.initTableInfo(assistant, NewsDailyDigestItemDO.class);
         TableInfoHelper.initTableInfo(assistant, NewsDailyDigestKeyDateDO.class);
+        TableInfoHelper.initTableInfo(assistant, NewsDailyDigestActivityDO.class);
 
         when(digestMapper.insert(any(NewsDailyDigestDO.class))).thenAnswer(invocation -> {
             NewsDailyDigestDO row = invocation.getArgument(0, NewsDailyDigestDO.class);
@@ -110,6 +117,15 @@ final class FakeDailyDigestStore {
         });
         when(digestKeyDateMapper.selectList(any(Wrapper.class))).thenAnswer(invocation ->
                 matchKeyDates(invocation.getArgument(0, Wrapper.class)));
+
+        when(digestActivityMapper.insert(any(NewsDailyDigestActivityDO.class))).thenAnswer(invocation -> {
+            NewsDailyDigestActivityDO row = invocation.getArgument(0, NewsDailyDigestActivityDO.class);
+            row.setId(activityIdSeq.incrementAndGet());
+            activities.add(row);
+            return 1;
+        });
+        when(digestActivityMapper.selectList(any(Wrapper.class))).thenAnswer(invocation ->
+                matchActivities(invocation.getArgument(0, Wrapper.class)));
     }
 
     /** 刊头持久视图（克隆防调用方污染） */
@@ -127,11 +143,17 @@ final class FakeDailyDigestStore {
         return keyDates.stream().map(FakeDailyDigestStore::copyKeyDate).toList();
     }
 
+    /** 校园活动版面快照持久视图（克隆，#330） */
+    List<NewsDailyDigestActivityDO> activities() {
+        return activities.stream().map(FakeDailyDigestStore::copyActivity).toList();
+    }
+
     private int deleteHeaders(Wrapper<NewsDailyDigestDO> wrapper) {
         List<NewsDailyDigestDO> doomed = matchHeaders(wrapper);
-        // 模拟 ON DELETE CASCADE：刊头删除带走其全部快照行（条目+关键日期）
+        // 模拟 ON DELETE CASCADE：刊头删除带走其全部快照行（条目+关键日期+活动）
         items.removeIf(item -> doomed.stream().anyMatch(h -> h.getId().equals(item.getDigestId())));
         keyDates.removeIf(row -> doomed.stream().anyMatch(h -> h.getId().equals(row.getDigestId())));
+        activities.removeIf(row -> doomed.stream().anyMatch(h -> h.getId().equals(row.getDigestId())));
         headers.removeAll(doomed);
         return doomed.size();
     }
@@ -179,6 +201,18 @@ final class FakeDailyDigestStore {
                 .filter(row -> digestId == null || digestId.equals(row.getDigestId()))
                 .sorted(Comparator.comparing(NewsDailyDigestKeyDateDO::getSeq))
                 .map(FakeDailyDigestStore::copyKeyDate)
+                .toList();
+    }
+
+    /** 校园活动版面快照批查（digest_id= 固定形状，seq 升序——#330 读取面直映） */
+    private List<NewsDailyDigestActivityDO> matchActivities(Wrapper<NewsDailyDigestActivityDO> wrapper) {
+        Map<String, Object> params = params(wrapper);
+        String sql = wrapper.getSqlSegment();
+        Long digestId = eqLong(sql, params, "digest_id");
+        return activities.stream()
+                .filter(row -> digestId == null || digestId.equals(row.getDigestId()))
+                .sorted(Comparator.comparing(NewsDailyDigestActivityDO::getSeq))
+                .map(FakeDailyDigestStore::copyActivity)
                 .toList();
     }
 
@@ -256,6 +290,17 @@ final class FakeDailyDigestStore {
                 .dateStart(row.getDateStart()).dateEnd(row.getDateEnd())
                 .fuzzyHint(row.getFuzzyHint())
                 .ongoing(row.getOngoing()).daysUntil(row.getDaysUntil())
+                .build();
+    }
+
+    private static NewsDailyDigestActivityDO copyActivity(NewsDailyDigestActivityDO row) {
+        return NewsDailyDigestActivityDO.builder()
+                .id(row.getId()).digestId(row.getDigestId()).itemId(row.getItemId())
+                .seq(row.getSeq())
+                .titleZh(row.getTitleZh()).titleEn(row.getTitleEn())
+                .url(row.getUrl())
+                .dateStart(row.getDateStart()).dateEnd(row.getDateEnd())
+                .ongoing(row.getOngoing())
                 .build();
     }
 }

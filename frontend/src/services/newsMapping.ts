@@ -293,7 +293,7 @@ export function mapTopic(vo: NewsTopicVO): NewsTopic {
 
 /** ==================== 日报（#212）：/public/news/daily/** VO → 前端类型 ==================== */
 
-import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
 
 /** 后端 NewsDailyDigestItemVO 形状 */
 export interface NewsDailyDigestItemVO {
@@ -326,6 +326,18 @@ export interface NewsDailyDigestKeyDateVO {
   daysUntil: number | null;
 }
 
+/** 后端 NewsDailyDigestActivityVO 形状（#330 L2：生成期冻结 as-of=刊日） */
+export interface NewsDailyDigestActivityVO {
+  seq: number;
+  itemId: number;
+  titleZh: string | null;
+  titleEn: string | null;
+  url: string;
+  dateStart: string;
+  dateEnd: string;
+  ongoing: boolean | null;
+}
+
 /** 后端 NewsDailyDigestVO 形状 */
 export interface NewsDailyDigestVO {
   digestDate: string;
@@ -340,6 +352,7 @@ export interface NewsDailyDigestVO {
   disqualifiedCount: number;
   items: NewsDailyDigestItemVO[];
   keyDates?: NewsDailyDigestKeyDateVO[] | null;
+  activities?: NewsDailyDigestActivityVO[] | null;
   buildTime: string;
 }
 
@@ -400,6 +413,20 @@ function mapDailyDigestKeyDate(vo: NewsDailyDigestKeyDateVO): NewsDailyDigestKey
   };
 }
 
+/** 校园活动版面快照直映（#330：快照列即展示字段，ongoing 生成期冻结） */
+function mapDailyDigestActivity(vo: NewsDailyDigestActivityVO): NewsDailyDigestActivity {
+  return {
+    seq: vo.seq,
+    itemId: vo.itemId,
+    titleZh: vo.titleZh,
+    titleEn: vo.titleEn,
+    url: vo.url,
+    dateStart: vo.dateStart,
+    dateEnd: vo.dateEnd,
+    ongoing: vo.ongoing ?? false
+  };
+}
+
 export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
   return {
     digestDate: vo.digestDate,
@@ -414,6 +441,7 @@ export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
     disqualifiedCount: vo.disqualifiedCount ?? 0,
     items: (vo.items ?? []).map((item) => mapDailyDigestItem(item)),
     keyDates: (vo.keyDates ?? []).map((row) => mapDailyDigestKeyDate(row)),
+    activities: (vo.activities ?? []).map((row) => mapDailyDigestActivity(row)),
     buildTime: vo.buildTime
   };
 }
