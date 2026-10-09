@@ -116,7 +116,8 @@ describe("TopicDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("共 2 条")).toBeTruthy();
     });
-    expect(screen.getByRole("link", { name: "‹ 全部主题" }).getAttribute("href")).toBe("/topics");
+    // 返回出口=共享 BackLink（#342）：accessible name=通用「返回」，href=自然父级
+    expect(screen.getByRole("link", { name: "返回" }).getAttribute("href")).toBe("/topics");
     // 名称在顶栏标题与界定头两处并存
     expect(screen.getAllByText("人工智能").length).toBeGreaterThan(1);
     expect(screen.getByText("AI 算法、应用与治理方向的科研与活动")).toBeTruthy();
@@ -210,7 +211,7 @@ describe("TopicDetailPage", () => {
     expect(screen.queryByText("近期焦点")).toBeNull();
     expect(screen.getAllByText("最新动态")).toHaveLength(1);
     expect(container.querySelectorAll("article")).toHaveLength(0);
-    expect(screen.getByRole("link", { name: "‹ 全部主题" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "返回" })).toBeTruthy();
   });
 
   it("shows the failure card when count > 0 but the item page resolves empty", async () => {
