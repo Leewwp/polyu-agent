@@ -216,10 +216,9 @@ class AgentRunGateTest {
             var validator = factory.getValidator();
             assertThat(validator.validate(properties)).isEmpty();
             properties.setSseTimeoutMs(1_800_000L);
-            // 锚稳定子串：上游校验消息当前不含「30 分钟」（3e174e37 在途自不一致），
-            // 日后补具体时长后缀本断言依然成立
             assertThat(validator.validate(properties)).singleElement()
-                    .satisfies(violation -> assertThat(violation.getMessage()).contains("本地任务保留时间"));
+                    .satisfies(violation -> assertThat(violation.getPropertyPath().toString())
+                            .isEqualTo("sseTimeoutWithinTaskRetention"));
             properties.setSseTimeoutMs(900_000L);
             properties.setMaxConcurrentRunsPerUser(0);
             assertThat(validator.validate(properties)).singleElement()
