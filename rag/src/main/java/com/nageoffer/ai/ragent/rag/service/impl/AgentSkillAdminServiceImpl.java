@@ -206,11 +206,9 @@ public class AgentSkillAdminServiceImpl implements AgentSkillAdminService {
     public List<AgentSkillToolOptionVO> listToolOptions() {
         Map<String, String> ownerBySkill = referencedToolOwners();
         List<AgentSkillToolOptionVO> options = new ArrayList<>();
-        LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (IntentNode node : intentNodeRegistry.listMcpToolNodes()) {
             String toolId = StrUtil.trimToNull(node.getMcpToolId());
-            // 同一工具挂多个意图时只出一个选项，展示名取先遇到的那个节点
-            if (toolId == null || !seen.add(toolId)) {
+            if (toolId == null) {
                 continue;
             }
             options.add(AgentSkillToolOptionVO.builder()

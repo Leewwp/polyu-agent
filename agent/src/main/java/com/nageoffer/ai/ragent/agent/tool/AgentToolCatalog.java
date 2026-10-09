@@ -46,7 +46,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 主 Agent 工具目录：固定注册 search_knowledge，并按意图树配置挂载当前可用的 MCP 工具
@@ -139,45 +138,24 @@ public class AgentToolCatalog {
 
     /**
      * 意图树配置与 AgentScope 发现的工具取交集，无工具或与内置工具重名的记入 unavailableToolIds
-     * 两处排序都为了指纹稳定，只排组内不够：分组序取决于各组最小的节点 id
+     * 一个工具只有一个节点（管理端与唯一索引共同保证），两处排序都为了指纹稳定
      */
     private McpResolution resolveMcpTools() {
-        Map<String, List<IntentNode>> nodesByToolId = intentNodeRegistry.listMcpToolNodes().stream()
-                .sorted(Comparator.comparing(IntentNode::getId))
-                .collect(Collectors.groupingBy(
-                        node -> node.getMcpToolId().trim(),
-                        LinkedHashMap::new,
-                        Collectors.toList()));
-
         List<McpToolBinding> bindings = new ArrayList<>();
         List<String> unavailableToolIds = new ArrayList<>();
-        nodesByToolId.forEach((toolId, nodes) -> {
+        for (IntentNode node : intentNodeRegistry.listMcpToolNodes()) {
+            String toolId = node.getMcpToolId().trim();
             RemoteTool remote = mcpClients.get(toolId);
             if (remote == null || RESERVED_TOOL_NAMES.contains(toolId)) {
                 unavailableToolIds.add(toolId);
-                return;
+                continue;
             }
-            bindings.add(toBinding(toolId, nodes, remote));
-        });
+            String displayName = StrUtil.isNotBlank(node.getName()) ? node.getName() : toolId;
+            bindings.add(McpToolBinding.of(toolId, displayName, node.getDescription(), node.isRequireConfirm(), remote));
+        }
         bindings.sort(Comparator.comparing(McpToolBinding::toolId));
         unavailableToolIds.sort(Comparator.naturalOrder());
         return new McpResolution(bindings, unavailableToolIds);
-    }
-
-    private McpToolBinding toBinding(String toolId, List<IntentNode> nodes, RemoteTool remote) {
-        String displayName = nodes.stream()
-                .map(IntentNode::getName)
-                .filter(StrUtil::isNotBlank)
-                .findFirst()
-                .orElse(toolId);
-        String description = nodes.stream()
-                .map(IntentNode::getDescription)
-                .filter(StrUtil::isNotBlank)
-                .distinct()
-                .collect(Collectors.joining("\n"));
-        // 同一工具挂在多个意图下，任一节点勾选即需确认
-        boolean confirmConfigured = nodes.stream().anyMatch(IntentNode::isRequireConfirm);
-        return McpToolBinding.of(toolId, displayName, description, confirmConfigured, remote);
     }
 
     private record McpResolution(List<McpToolBinding> bindings, List<String> unavailableToolIds) {

@@ -290,16 +290,17 @@ class AgentToolCatalogTest {
     }
 
     /**
-     * 同一工具挂多个节点时，展示名和描述不能跟着意图树的读出顺序漂
+     * 指纹不能跟着意图树的读出顺序漂
      */
     @Test
-    void shouldResolveSameBindingRegardlessOfNodeOrder() {
-        IntentNode first = mcpNode("a_sales", "销售查询", "查销售", "sales_query");
-        IntentNode second = mcpNode("b_report", "销售报表", "查报表", "sales_query");
-        List<RemoteTool> executors = List.of(executor("sales_query", "服务端描述"));
+    void shouldResolveSameFingerprintRegardlessOfNodeOrder() {
+        IntentNode sales = mcpNode("a_sales", "销售查询", "查销售", "sales_query");
+        IntentNode report = mcpNode("b_report", "销售报表", "查报表", "sales_report");
+        List<RemoteTool> executors = List.of(
+                executor("sales_query", "服务端描述"), executor("sales_report", "服务端描述"));
 
-        AgentToolCatalog.ResolvedCatalog ordered = catalogFor(List.of(first, second), executors).resolve(KNOWLEDGE_ONLY);
-        AgentToolCatalog.ResolvedCatalog shuffled = catalogFor(List.of(second, first), executors).resolve(KNOWLEDGE_ONLY);
+        AgentToolCatalog.ResolvedCatalog ordered = catalogFor(List.of(sales, report), executors).resolve(KNOWLEDGE_ONLY);
+        AgentToolCatalog.ResolvedCatalog shuffled = catalogFor(List.of(report, sales), executors).resolve(KNOWLEDGE_ONLY);
 
         assertThat(ordered.displayNameOf("sales_query")).isEqualTo("销售查询");
         assertThat(ordered.fingerprint()).isEqualTo(shuffled.fingerprint());

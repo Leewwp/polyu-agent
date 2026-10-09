@@ -128,6 +128,9 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         }
 
         int kind = requestParam.getKind() == null ? IntentKind.KB.getCode() : requestParam.getKind();
+        if (Objects.equals(kind, IntentKind.MCP.getCode())) {
+            requireUniqueMcpToolId(StrUtil.trim(requestParam.getMcpToolId()), null);
+        }
         CollectionBinding collectionBinding = Objects.equals(kind, IntentKind.KB.getCode())
                 ? resolveCreateCollectionBinding(requestParam)
                 : CollectionBinding.empty();
@@ -232,7 +235,9 @@ public class IntentTreeServiceImpl implements IntentTreeService {
         if (req.getRequireConfirm() != null) {
             node.setRequireConfirm(normalizeRequireConfirm(req.getRequireConfirm(), node.getKind()));
         }
-        if (!Objects.equals(node.getKind(), IntentKind.MCP.getCode())) {
+        if (Objects.equals(node.getKind(), IntentKind.MCP.getCode())) {
+            requireUniqueMcpToolId(node.getMcpToolId(), id);
+        } else {
             node.setMcpToolId(null);
             node.setRequireConfirm(0);
         }
@@ -420,8 +425,24 @@ public class IntentTreeServiceImpl implements IntentTreeService {
     }
 
     /**
-     * 非 MCP 节点一律落 0：确认标志只在工具调用链路上被读取，留在别的类型上是无效数据
+     * 一个 MCP 工具只允许一个节点：Agent 按工具名装配，节点上的确认开关就是该工具的开关，不做多节点合并
+     *
+     * @param excludeId 更新时排除自身
      */
+    private void requireUniqueMcpToolId(String toolId, String excludeId) {
+        if (StrUtil.isBlank(toolId)) {
+            return;
+        }
+        long count = intentNodeMapper.selectCount(new LambdaQueryWrapper<IntentNodeDO>()
+                .eq(IntentNodeDO::getKind, IntentKind.MCP.getCode())
+                .eq(IntentNodeDO::getMcpToolId, toolId)
+                .eq(IntentNodeDO::getDeleted, 0)
+                .ne(excludeId != null, IntentNodeDO::getId, excludeId));
+        if (count > 0) {
+            throw new ClientException("MCP 工具已被其他节点关联，一个工具只允许配置一个节点: " + toolId);
+        }
+    }
+
     private Integer normalizeRequireConfirm(Integer requireConfirm, Integer kind) {
         if (!Objects.equals(kind, IntentKind.MCP.getCode())) {
             return 0;

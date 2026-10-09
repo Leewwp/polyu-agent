@@ -348,6 +348,7 @@ CREATE TABLE t_intent_node (
     update_time           TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted               SMALLINT     NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX uk_intent_node_mcp_tool ON t_intent_node (mcp_tool_id) WHERE kind = 2 AND deleted = 0;
 COMMENT ON TABLE t_intent_node IS '意图树节点配置表';
 
 CREATE TABLE t_query_term_mapping (
