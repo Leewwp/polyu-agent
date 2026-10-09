@@ -413,7 +413,9 @@ rag:
       confidence-threshold: 0.6    # KB 意图最高分低于此值 → 退化为全库检索
       supplement-ratio: 0.25       # 定向时各通道从自身产出额度划给「未命中库」的保底比例，兜住意图判错；0=关闭补充路，命中库已覆盖全库时自动不补
     channels:
-      timeout-ms: 15000     # 单通道查询超时上限（毫秒）
+      timeout-ms: 25000     # 单通道查询超时上限（毫秒）。2026-10-09 参数验证 #354 定值式：
+                           # SiliconFlow embedding 抖动同机三连测 0.25~9.10s、已知最大尖峰 21.2s（doc04 §9-E3：完成但 >15s 被弃→空回答），
+                           # 15s 覆盖性失败 → 25000 = 尖峰 21.2s × 1.2 余量；实施须走五步门（env 键 RAG_SEARCH_CHANNELS_TIMEOUT_MS）
       vector:
         enabled: true       # 向量通道总开关
       keyword:
