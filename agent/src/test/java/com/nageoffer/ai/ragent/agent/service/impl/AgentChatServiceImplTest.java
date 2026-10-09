@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.agent.service.impl;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
+import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
 import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryOutcome;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
@@ -322,6 +323,63 @@ class AgentChatServiceImplTest {
         RuntimeContext captured = runtimeContext.getValue();
         assertThat(contextId(captured, AgentTraceContextKeys.CONFIRM_MESSAGE_ID)).isEqualTo("m-4004");
         assertThat(contextId(captured, AgentTraceContextKeys.REPLY_TO_MESSAGE_ID)).isEqualTo("m-3003");
+    }
+
+    /**
+     * 英文原问判定出的回答语言进 RuntimeContext，供中间件与知识工具共用
+     */
+    @Test
+    void shouldPutDetectedAnswerLanguageIntoRuntimeContext() {
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
+        ArgumentCaptor<RuntimeContext> runtimeContext = ArgumentCaptor.forClass(RuntimeContext.class);
+
+        service.streamChat("Can I study in the library overnight?", CONVERSATION_ID, new SseEmitter());
+
+        verify(agent).streamEvents(any(Msg.class), runtimeContext.capture());
+        assertThat(contextId(runtimeContext.getValue(), AnswerLanguages.RUNTIME_CONTEXT_KEY)).isEqualTo("en");
+    }
+
+    /**
+     * 判不出语言（纯数字）不落键，消费侧按无约束处理
+     */
+    @Test
+    void shouldSkipLanguageContextWhenUndeterminable() {
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
+        ArgumentCaptor<RuntimeContext> runtimeContext = ArgumentCaptor.forClass(RuntimeContext.class);
+
+        service.streamChat("12345", CONVERSATION_ID, new SseEmitter());
+
+        verify(agent).streamEvents(any(Msg.class), runtimeContext.capture());
+        assertThat(contextId(runtimeContext.getValue(), AnswerLanguages.RUNTIME_CONTEXT_KEY)).isNull();
+    }
+
+    /**
+     * 确认续跑没有新问题文本：语言从答复挂靠的原用户消息恢复，不拿中文工具结果判定
+     */
+    @Test
+    void shouldRestoreLanguageFromOriginalUserMessageOnConfirmResume() {
+        ToolUseBlock asking = ToolUseBlock.builder()
+                .id("call-1")
+                .name("submit_leave")
+                .input(Map.of("days", 1))
+                .state(ToolCallState.ASKING)
+                .build();
+        when(agent.getAgentState(USER_ID, CONVERSATION_ID)).thenReturn(AgentState.builder()
+                .userId(USER_ID)
+                .sessionId(CONVERSATION_ID)
+                .addMessage(AssistantMessage.builder().content(asking).build())
+                .build());
+        when(conversationService.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004"))
+                .thenReturn(new AgentConfirmSettlement("会话标题", "m-3003"));
+        when(conversationService.getMessageContent(CONVERSATION_ID, USER_ID, "m-3003"))
+                .thenReturn("What are the library opening hours?");
+        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
+        ArgumentCaptor<RuntimeContext> runtimeContext = ArgumentCaptor.forClass(RuntimeContext.class);
+
+        service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter());
+
+        verify(agent).streamEvents(any(Msg.class), runtimeContext.capture());
+        assertThat(contextId(runtimeContext.getValue(), AnswerLanguages.RUNTIME_CONTEXT_KEY)).isEqualTo("en");
     }
 
     /**

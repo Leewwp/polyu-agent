@@ -203,6 +203,19 @@ public class AgentConversationServiceImpl implements AgentConversationService {
         return message;
     }
 
+    @Override
+    public String getMessageContent(String conversationId, String userId, String messageId) {
+        if (StrUtil.hasBlank(conversationId, userId, messageId)) {
+            return null;
+        }
+        AgentMessageDO message = messageMapper.selectOne(Wrappers.lambdaQuery(AgentMessageDO.class)
+                .eq(AgentMessageDO::getId, messageId)
+                .eq(AgentMessageDO::getConversationId, conversationId)
+                .eq(AgentMessageDO::getUserId, userId)
+                .last("LIMIT 1"));
+        return message == null ? null : message.getContent();
+    }
+
     /**
      * 查出仍挂着 pending 确认卡片的消息，连同卡片块一起返回，没有则返回 null
      */

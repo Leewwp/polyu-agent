@@ -130,6 +130,46 @@ class RAGPromptServiceTest {
         assertFalse(result.contains(STUB_BASE_TEMPLATE));
     }
 
+    /**
+     * 语言约束在所有模板选择之后统一追加：意图自定义模板也绕不开，且位置在最后压制模板残留的固定语言要求
+     */
+    @Test
+    void appendsAnswerLanguageRuleAfterEveryTemplatePath() {
+        PromptContext intentTemplateContext = PromptContext.builder()
+                .kbContext("<content>资料</content>")
+                .kbIntents(List.of(intentWithTemplate("intent-1", "# 意图模板（固定要求简体中文）")))
+                .eligibleIntentIds(Set.of("intent-1"))
+                .build();
+
+        for (PromptContext context : new PromptContext[]{kbContext(), intentTemplateContext}) {
+            String en = service(false).buildStructuredMessages(
+                    context, List.of(), "question", List.of(), false, "en").get(0).getContent();
+            assertTrue(en.contains("written entirely in English"), "英文约束必须追加");
+            assertTrue(en.indexOf("written entirely in English") > en.indexOf("# 意图模板")
+                    || en.indexOf("written entirely in English") > en.indexOf("# 桩基础模板"),
+                    "约束位于模板正文之后");
+
+            String zh = service(false).buildStructuredMessages(
+                    context, List.of(), "问题", List.of(), false, "zh").get(0).getContent();
+            assertTrue(zh.contains("最终答案必须以简体中文撰写"), "中文约束必须追加");
+            assertTrue(zh.indexOf("最终答案必须以简体中文撰写") > zh.indexOf("# 意图模板")
+                    || zh.indexOf("最终答案必须以简体中文撰写") > zh.indexOf("# 桩基础模板"),
+                    "约束位于模板正文之后");
+        }
+    }
+
+    /**
+     * 未判定语言（null）不追加任何约束段落，行为与改动前的默认路径一致
+     */
+    @Test
+    void omitsAnswerLanguageRuleWhenUndetermined() {
+        String result = service(false).buildStructuredMessages(
+                kbContext(), List.of(), "问题", List.of(), false, null).get(0).getContent();
+
+        assertFalse(result.contains("written entirely in English"));
+        assertFalse(result.contains("最终答案必须以简体中文撰写"));
+    }
+
     @Test
     void directedMissUsesDefaultTemplate() {
         PromptContext context = PromptContext.builder()

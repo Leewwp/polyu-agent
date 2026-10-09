@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.agent.tool;
 
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
+import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
 import com.nageoffer.ai.ragent.agent.trace.AgentToolBodyTracer;
 import com.nageoffer.ai.ragent.framework.cancellation.TaskCancellation;
 import com.nageoffer.ai.ragent.rag.service.KnowledgeSearchFacade;
@@ -105,9 +106,14 @@ public class KnowledgeSearchTool implements AgentTool {
             return buildResult(toolCallId, "工具参数 query 不能为空", true);
         }
         String normalizedQuery = query.get();
+        // 回答语言来自入口判定的 RuntimeContext，不让模型经工具参数干预，也不从改写后 query 重猜
+        String answerLanguage = param.getRuntimeContext() == null
+                ? null
+                : param.getRuntimeContext().get(AnswerLanguages.RUNTIME_CONTEXT_KEY) instanceof String value
+                        ? value : null;
         try {
             KnowledgeSearchFacade.KnowledgeSearchOutcome outcome =
-                    knowledgeSearchFacade.searchWithSources(normalizedQuery);
+                    knowledgeSearchFacade.searchWithSources(normalizedQuery, answerLanguage);
             // RAG 逐层降级，取消到这里多半不是异常而是一份空结果，只在 catch 里判会漏掉
             if (TaskCancellation.isCancelled()) {
                 return buildInterrupted(toolCallId);
