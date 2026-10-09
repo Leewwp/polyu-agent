@@ -25,6 +25,7 @@ import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScoreFilters;
+import com.nageoffer.ai.ragent.rag.core.prompt.AnswerLanguageRules;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
@@ -94,9 +95,16 @@ public class KnowledgeSearchFacade {
 
     /**
      * 检索并合成答案，同时带出结构化来源（docId 按纪律不进模型上下文，仅供前端徽章旁路消费）
-     * 歧义引导与空检索路径 sources 为空
+     * 歧义引导与空检索路径 sources 为空；未判定语言的旧调用等价于不约束
      */
     public KnowledgeSearchOutcome searchWithSources(String query) {
+        return searchWithSources(query, null);
+    }
+
+    /**
+     * @param answerLanguage 入口判定的本轮回答语言（"zh"/"en"），null 表示不约束、沿用模板自身的语言规则
+     */
+    public KnowledgeSearchOutcome searchWithSources(String query, String answerLanguage) {
         // 不喂历史：主 Agent 手握完整对话，传进来的已是消解过、且被它有意收窄的查询
         RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, List.of());
         List<SubQuestionIntent> subIntents = filterKbOnly(intentResolver.resolve(rewriteResult));
@@ -111,7 +119,8 @@ public class KnowledgeSearchFacade {
 
         RetrievalContext retrievalCtx = retrievalEngine.retrieve(subIntents);
         if (!retrievalCtx.hasKb()) {
-            return new KnowledgeSearchOutcome(EMPTY_RESULT, List.of());
+            // 空检索文案是接近终答的文本：按本轮语言出，英文提问不再收固定中文
+            return new KnowledgeSearchOutcome(emptyResultNotice(answerLanguage), List.of());
         }
 
         // 工具不渲染角标，但内部 docId 一定要抹掉，否则会随工具结果漏进主 Agent 的可见文本
@@ -123,7 +132,8 @@ public class KnowledgeSearchFacade {
                 .eligibleIntentIds(retrievalCtx.getEligibleIntentIds())
                 .build();
         List<ChatMessage> messages = promptService.buildStructuredMessages(
-                promptContext, List.of(), rewriteResult.rewrittenQuestion(), rewriteResult.subQuestions(), false);
+                promptContext, List.of(), rewriteResult.rewrittenQuestion(), rewriteResult.subQuestions(), false,
+                answerLanguage);
 
         String answer = llmService.chat(ChatRequest.builder()
                 .messages(messages)
@@ -132,6 +142,15 @@ public class KnowledgeSearchFacade {
                 .thinking(false)
                 .build());
         return new KnowledgeSearchOutcome(answer, collectSources(retrievalCtx));
+    }
+
+    /**
+     * 空检索兜底文案按本轮语言出：这行文本经主 Agent 转述后几乎原样到达用户
+     */
+    private String emptyResultNotice(String answerLanguage) {
+        return AnswerLanguageRules.EN.equals(answerLanguage)
+                ? "No relevant content was found in the knowledge base for this question."
+                : EMPTY_RESULT;
     }
 
     /**

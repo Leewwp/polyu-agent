@@ -41,6 +41,13 @@ public interface AgentConversationService {
     String addUserMessage(String conversationId, String userId, String content);
 
     /**
+     * 按消息号取本会话一条消息的原文，确认续跑时用它从原用户问题恢复本轮回答语言
+     *
+     * @return 消息不存在或不在该会话/用户名下返回 null，调用方按无可判定语言处理
+     */
+    String getMessageContent(String conversationId, String userId, String messageId);
+
+    /**
      * 保存助手消息
      */
     String addAssistantMessage(String conversationId, String userId, String content, String thinkingContent,
