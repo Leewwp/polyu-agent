@@ -63,18 +63,8 @@ function requestStarCount(): Promise<StarCache | null> {
 }
 
 /**
- * 星数展示格式（#337 星钮 chip 共用纯函数）：null→"--"（API 不可达降级态）；
- * <1000 原样；≥1000→x.k 一位小数去尾零（12345→12.3k、2000→2k）。
- */
-export function formatStarCount(starCount: number | null): string {
-  if (starCount === null) return "--";
-  if (starCount < 1000) return String(starCount);
-  const rounded = Math.round((starCount / 1000) * 10) / 10;
-  return `${String(rounded).replace(/\.0$/, "")}k`;
-}
-
-/**
  * 读取 GitHub Star 数：共享三小时本地缓存，并在过期、窗口聚焦或页面恢复可见时检查刷新
+ * （#341 后 FeedShell 不再消费星数；本 hook 留守上游 Header/AgentLayout import）
  */
 export function useGitHubStars() {
   const [starCount, setStarCount] = React.useState<number | null>(

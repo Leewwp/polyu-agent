@@ -6,7 +6,6 @@ import { MemoryRouter } from "react-router-dom";
 import { FeedShell } from "./FeedShell";
 import { FeedLangProvider } from "./feedLang";
 import { feedDateLabels } from "@/services/newsMapping";
-import { formatStarCount } from "@/hooks/useGitHubStars";
 import { useAgentChatStore } from "@/stores/agentChatStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useEngineStore } from "@/stores/engineStore";
@@ -48,20 +47,6 @@ function renderShell(shareView?: { title: string | null }) {
     </MemoryRouter>
   );
 }
-
-/**
- * #337 GitHub 星钮 seam：渲染结果/链接语义/降级态经 mock fetch 断言，
- * 星数形态直测 formatStarCount 纯函数（useGitHubStars.ts 同文件导出），
- * 不断言 hook 内部缓存实现。壳挂星钮（useGitHubStars 发起 api.github.com
- * 请求）后，全文件用例统一桩掉 fetch 保持封闭；星钮用例自行覆写桩值。
- */
-beforeEach(() => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
 
 describe("FeedShell global language pills", () => {
   let mem: Map<string, string>;
@@ -202,6 +187,12 @@ describe("FeedShell fluid topbar session title", () => {
   });
 });
 
+/**
+ * #337 GitHub 入口 seam（#341 去星数重写）：只断言外部行为——渲染文本/链接语义
+ * （href、新窗、aria-label 双语）。壳不再挂 useGitHubStars，api.github.com
+ * 请求面与 "--" 降级态从展示层消失——fetch 断言/星数格式化纯函数用例/
+ * 降级用例随星数一并退役，本文件不再桩 fetch。
+ */
 describe("FeedShell GitHub star button (#337)", () => {
   beforeEach(() => {
     installLocalStorageStub();
@@ -215,17 +206,7 @@ describe("FeedShell GitHub star button (#337)", () => {
     Object.defineProperty(window, "localStorage", { value: undefined, configurable: true });
   });
 
-  /** 星数 seam 桩：GitHub API 形状（stargazers_count）——好测试只看这个外部形态 */
-  function stubStarsResponse(stargazersCount: number) {
-    return vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ stargazers_count: stargazersCount })
-    });
-  }
-
-  it("renders the repo link in both topbars with new-window semantics and the switched repo URL", async () => {
-    const fetchMock = stubStarsResponse(321);
-    vi.stubGlobal("fetch", fetchMock);
+  it("renders the repo link in both topbars with new-window semantics and the switched repo URL", () => {
     renderShell();
 
     // 桌面胶囊 + 移动 icon-only 各一枚（jsdom 无 CSS 布局，双顶栏均在树中）
@@ -236,33 +217,20 @@ describe("FeedShell GitHub star button (#337)", () => {
       expect(link.getAttribute("target")).toBe("_blank");
       expect(link.getAttribute("rel")).toContain("noreferrer");
     }
-    // 切仓在 seam 上可见：请求打到本项目仓库（非上游 nageoffer/ragent）
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.github.com/repos/Leewwp/polyu-agent",
-      expect.anything()
-    );
   });
 
-  // 星数形态断言直测 formatStarCount 纯函数（组件 seam 只保留链接/降级语义，
-  // 避免同一份格式化断言在组件与纯函数两侧双跑）
-  it("formatStarCount: null→--, <1000 raw, >=1000 one-decimal x.k with trailing .0 trimmed", () => {
-    expect(formatStarCount(null)).toBe("--");
-    expect(formatStarCount(0)).toBe("0");
-    expect(formatStarCount(321)).toBe("321");
-    expect(formatStarCount(999)).toBe("999");
-    expect(formatStarCount(12345)).toBe("12.3k");
-    expect(formatStarCount(2000)).toBe("2k");
-  });
-
-  it("degrades the chip to -- when the API is unreachable, without throwing", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+  it("#341 desktop pill renders the fixed label GitHub (star count and -- degraded state removed)", () => {
     renderShell();
-    // 失败退避不报错；chip 落 "--"（仅桌面胶囊有 chip，移动 icon-only 无文案）
-    expect(await screen.findByText("--")).toBeTruthy();
+
+    // 桌面胶囊恒显固定文字 "GitHub"；移动档 icon-only 无文案——全树唯一该文本
+    const labels = screen.getAllByText("GitHub");
+    expect(labels).toHaveLength(1);
+    expect(labels[0].closest("a")?.getAttribute("href")).toBe("https://github.com/Leewwp/polyu-agent");
+    // 星数 chip 的 "--" 降级态不得再现（api.github.com 限额不可靠已生产实证）
+    expect(screen.queryByText("--")).toBeNull();
   });
 
   it("keeps the button in share views and switches aria-label with the global language", async () => {
-    vi.stubGlobal("fetch", stubStarsResponse(8));
     renderShell({ title: null });
 
     expect(screen.getAllByRole("link", { name: "打开 GitHub 仓库" })).toHaveLength(2);

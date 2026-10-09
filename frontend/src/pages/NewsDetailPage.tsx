@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
+import { BackLink } from "@/components/feed/BackLink";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
@@ -96,7 +97,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
   if (!item) {
     return missing ? (
       <>
-        <BackLink zh={zh} />
+        <BackLink fallbackTo="/" className="mb-2.5" />
         <div className="mt-3 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
           {zh ? "该资讯不存在或已下架" : "This news item does not exist or has been removed"}
         </div>
@@ -106,7 +107,7 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
 
   return (
     <>
-      <BackLink zh={zh} />
+      <BackLink fallbackTo="/" className="mb-2.5" />
 
       <article className="rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] p-5 shadow-sm md:px-7 md:py-6">
         <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
@@ -183,18 +184,11 @@ function NewsDetailBody({ item, missing }: { item: NewsItem | null; missing: boo
   );
 }
 
-function BackLink({ zh }: { zh: boolean }) {
-  return (
-    <Link to="/" className="mb-2.5 inline-block text-[13px] text-[var(--feed-text-tertiary)] hover:text-[var(--polyu-red)]">
-      {zh ? "‹ 返回资讯流" : "‹ Back to feed"}
-    </Link>
-  );
-}
-
 /**
  * 轻量分享：navigator.share（移动端系统面板）优先，不支持时降级
  * 复制链接+toast；分享 URL=本详情页直链。用户主动取消 share 不打扰。
  * #233：随顶部动作行删除收敛为单档主钮（compact 档随之退役）。
+ * #342：私有 BackLink 退役，返回出口收编 feed 域共享件。
  */
 function ShareButton({ item, zh }: { item: NewsItem; zh: boolean }) {
   const onShare = async () => {

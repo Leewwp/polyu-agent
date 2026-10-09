@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 
+import { BackLink } from "@/components/feed/BackLink";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { NewsCard } from "@/components/feed/NewsCard";
@@ -145,12 +146,8 @@ function TopicDetailBody({ detail }: { detail: TopicDetailData }) {
 
   return (
     <>
-      <Link
-        to="/topics"
-        className="mb-2.5 inline-block text-[13px] text-[var(--feed-text-tertiary)] hover:text-[var(--polyu-red)]"
-      >
-        {zh ? "‹ 全部主题" : "‹ All topics"}
-      </Link>
+      {/* #342 共享返回出口：history 精准返回上一页，直链回退 /topics；mb-2.5 间距锚点沿旧链保留 */}
+      <BackLink fallbackTo="/topics" className="mb-2.5" />
       <div className="mb-1 border-b border-[var(--feed-line-soft)] pb-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           {/* #231：内容头 h2 升 h1（视觉不变）——主题名是本页页面级标题 */}
