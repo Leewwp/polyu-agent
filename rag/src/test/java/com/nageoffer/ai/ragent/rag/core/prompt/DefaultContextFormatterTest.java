@@ -34,8 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * 覆盖上下文优化的核心行为：
  * 1. 按文档聚合：文档之间按相关性（各文档最佳块排名）排序，文档内部按 chunkIndex 还原原文顺序
- * 2. 只注入内部 docId 作为锚点，文档名（含文件名）绝不进上下文；docId 缺失的块单独成组、无任何属性
+ * 2. 只注入内部 docId 与日期标记作为属性，文档名（含文件名）绝不进上下文；docId 缺失的块单独成组
  * 3. 同文档的块按 index 排好后用单换行顺次拼接
+ * 4. 日期元数据透传（#327）：每条证据块带日期标记——有日期显日期，无日期显「日期未知」
  */
 class DefaultContextFormatterTest {
 
@@ -47,6 +48,15 @@ class DefaultContextFormatterTest {
         return RetrievedChunk.builder()
                 .id(id).text(text).score(score)
                 .docId(docId).docName(docName).chunkIndex(index)
+                .build();
+    }
+
+    private RetrievedChunk chunk(String id, String text, String docId, String docName, Integer index, float score,
+                                 String sourceDate) {
+        return RetrievedChunk.builder()
+                .id(id).text(text).score(score)
+                .docId(docId).docName(docName).chunkIndex(index)
+                .sourceDate(sourceDate)
                 .build();
     }
 
@@ -73,9 +83,9 @@ class DefaultContextFormatterTest {
         assertFalse(result.contains("员工手册"), "文档名不得进入上下文");
         assertFalse(result.contains("报销政策"));
 
-        // 孤块单独成组、无任何属性
-        assertTrue(result.replace("\r\n", "\n").contains("<content>\n孤块正文\n</content>"),
-                "docId 缺失应渲染为无属性的独立块");
+        // 孤块单独成组、无内部 docId 属性，但日期标记照带（无日期证据同样要显「日期未知」）
+        assertTrue(result.replace("\r\n", "\n").contains("<content data-ragent-date=\"日期未知\">\n孤块正文\n</content>"),
+                "docId 缺失应渲染为无 docId 属性的独立块，日期标记仍须可见");
     }
 
     @Test
@@ -97,7 +107,9 @@ class DefaultContextFormatterTest {
 
         String result = formatter().formatKbContext(List.of(), Set.of(), chunks, 100);
 
-        assertTrue(result.contains("<content data-ragent-doc-id=\"docC\">"));
+        // 日期标记在前、内部 docId 收尾：docId 必须保持在标签行末位，
+        // CitationContextEnricher 的锚点正则才能在抹 docId 时原样保留前导属性
+        assertTrue(result.contains("<content data-ragent-date=\"日期未知\" data-ragent-doc-id=\"docC\">"));
     }
 
     @Test
@@ -179,8 +191,63 @@ class DefaultContextFormatterTest {
         // 未转义的 </content> 只允许围栏自身那一处闭合（chunk 里的已被中和）
         long rawClosers = result.split("</content>", -1).length - 1;
         org.junit.jupiter.api.Assertions.assertEquals(1, rawClosers, "未转义闭合只许围栏自身一处");
-        // 围栏自身的 <content data-ragent-doc-id> 开闭标签仍在（未被误伤）
-        assertTrue(result.contains("<content data-ragent-doc-id=\"docX\">"));
+        // 围栏自身的 <content ...> 开闭标签仍在（未被误伤），日期标记随标签行一同保留
+        assertTrue(result.contains("<content data-ragent-date=\"日期未知\" data-ragent-doc-id=\"docX\">"));
         assertTrue(result.contains("</content>\n") || result.trim().endsWith("</content>"), "围栏自身闭合保留");
+    }
+
+    // ==================== 日期元数据透传（#327）====================
+
+    @Test
+    void datedEvidenceCarriesDateMarker() {
+        // 有日期证据（日期来源=publish_time/key_date 元数据，承 #275 精度口径只透出日期部分）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("n1", "奖学金申请截止通知正文", "docNews", "资讯文档", 0, 0.9f, "2026-09-12"));
+
+        String result = formatter().formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("<content data-ragent-date=\"2026-09-12\" data-ragent-doc-id=\"docNews\">"),
+                "有日期证据应在文档块标签行透出日期标记");
+    }
+
+    @Test
+    void undatedEvidenceMarkedDateUnknown() {
+        // 知识库文档证据无日期来源时显「日期未知」，不能缺省不标
+        List<RetrievedChunk> chunks = List.of(
+                chunk("k1", "图书馆开放时间正文", "docLib", "图书馆页面", 0, 0.9f));
+
+        String result = formatter().formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("<content data-ragent-date=\"日期未知\" data-ragent-doc-id=\"docLib\">"),
+                "无日期证据应显「日期未知」标记");
+    }
+
+    @Test
+    void mixedDatedAndUndatedEvidenceEachCarryOwnMarker() {
+        // 混合证据：有日期块显日期、无日期块显未知，各自成块、不出现第二种口径
+        List<RetrievedChunk> chunks = List.of(
+                chunk("n1", "资讯证据正文", "docNews", "资讯文档", 0, 0.9f, "2026-09-12"),
+                chunk("k1", "知识库文档证据正文", "docLib", "图书馆页面", 0, 0.8f));
+
+        String result = formatter().formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"2026-09-12\""), "有日期块显日期");
+        assertTrue(result.contains("data-ragent-date=\"日期未知\""), "无日期块显「日期未知」");
+        // 两个标记各自挂在对应文档块上
+        assertTrue(result.contains("<content data-ragent-date=\"2026-09-12\" data-ragent-doc-id=\"docNews\">"));
+        assertTrue(result.contains("<content data-ragent-date=\"日期未知\" data-ragent-doc-id=\"docLib\">"));
+    }
+
+    @Test
+    void sameDocChunksShareFirstSeenDateMarker() {
+        // 同文档多块：按检索序取首见非空日期，整块共享同一标记，不逐块各标各的
+        List<RetrievedChunk> chunks = List.of(
+                chunk("n2", "同文档无日期块", "docNews", "资讯文档", 1, 0.9f),
+                chunk("n1", "同文档有日期块", "docNews", "资讯文档", 0, 0.8f, "2026-09-12"));
+
+        String result = formatter().formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"2026-09-12\""));
+        assertFalse(result.contains("data-ragent-date=\"日期未知\""), "同文档任一块带日期即整块按该日期标注");
     }
 }
