@@ -34,6 +34,10 @@ import java.util.Date;
  * @param langRaw      原文语言（en/zh-Hant/zh-Hans；列表页默认 en）
  * @param publishTime  原文发布时间（events 型为活动开始时间）；date-only 证据为
  *                     D 23:59:59 HKT 归期代表值（#275，非真实发布时刻）
+ * @param activityEnd  活动结束时刻（#323 活动实体模型）：仅活动型来源（events，
+ *                     起止成对）携带——publishTime=活动开始、本字段=活动结束
+ *                     （date-only 结束证据为 D 23:59:59 HKT 含端代表值）；
+ *                     null=非活动条目（新闻条目，无明确起止，不进活动版面投影）
  * @param categoryHint 来源侧分类原文（如 "Research &amp; Innovation"），仅作 LLM 分类参考，不入固定 8 类
  * @param sourceKey    归属信源标识
  * @param publishTimePrecision 发布时间精度（#275）：date=只有日期（代表值 23:59:59，
@@ -49,15 +53,24 @@ public record RawNewsItem(String url,
                           String titleZh,
                           String langRaw,
                           Date publishTime,
+                          Date activityEnd,
                           String categoryHint,
                           String sourceKey,
                           String publishTimePrecision,
                           String rawSummary) {
 
-    /** 兼容构造（无原始摘要）：rawSummary=null */
+    /** 兼容构造（无活动结束时刻）：activityEnd=null（非活动条目） */
+    public RawNewsItem(String url, String urlHash, String title, String titleZh, String langRaw,
+                       Date publishTime, String categoryHint, String sourceKey, String publishTimePrecision,
+                       String rawSummary) {
+        this(url, urlHash, title, titleZh, langRaw, publishTime, null, categoryHint, sourceKey,
+                publishTimePrecision, rawSummary);
+    }
+
+    /** 兼容构造（无原始摘要、无活动结束时刻）：rawSummary/activityEnd=null */
     public RawNewsItem(String url, String urlHash, String title, String titleZh, String langRaw,
                        Date publishTime, String categoryHint, String sourceKey, String publishTimePrecision) {
-        this(url, urlHash, title, titleZh, langRaw, publishTime, categoryHint, sourceKey,
+        this(url, urlHash, title, titleZh, langRaw, publishTime, null, categoryHint, sourceKey,
                 publishTimePrecision, null);
     }
 }

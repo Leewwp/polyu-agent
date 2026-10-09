@@ -387,6 +387,7 @@ public class NewsFetchService {
                 .category("other")
                 .langRaw(item.langRaw())
                 .publishTime(item.publishTime())
+                .activityEndTime(item.activityEnd())
                 .publishTimePrecision(PublishTimePrecision.orUnknown(item.publishTimePrecision()))
                 .fetchTime(now)
                 .status(status)

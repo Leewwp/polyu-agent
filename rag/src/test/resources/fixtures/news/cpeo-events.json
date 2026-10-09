@@ -1,0 +1,58 @@
+{
+  "events": [
+    {
+      "id": "1",
+      "start-date": "2026-01-27",
+      "end-date": "2026-12-31",
+      "isInitial": "0",
+      "type": "highlights",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/2026/02-february/2026-polyu-cinema?sc_lang=en\" title=\"PolyU Cinema\"><span>PolyU Cinema</span></a></p></div>",
+      "title": "PolyU Cinema",
+      "csscode": "blue",
+      "eventStartDate": "2026-01-27T19:30:00+08:00",
+      "eventEndDate": "2026-12-31T22:00:00+08:00"
+    },
+    {
+      "id": "2",
+      "start-date": "2026-10-06",
+      "end-date": "2026-10-06",
+      "isInitial": "0",
+      "type": "collaborations",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/2026/10-october/20261006_cnhe-talk?sc_lang=en\" title=\"「年度中國歷史人物選舉2026」啟動禮暨學術講座\"><span>「年度中國歷史人物選舉2026」啟動禮暨學術講座</span></a></p></div>",
+      "title": "「年度中國歷史人物選舉2026」啟動禮暨學術講座",
+      "csscode": "orange",
+      "eventStartDate": "2026-10-06T14:30:00+08:00",
+      "eventEndDate": "2026-10-06T16:30:00+08:00"
+    },
+    {
+      "id": "3",
+      "start-date": "2026-10-07",
+      "end-date": "2026-10-07",
+      "isInitial": "0",
+      "type": "highlights",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/2026/10-october/20261007_polyu-cinema?sc_lang=en\" title=\"PolyU Cinema: “How to Make Millions before Grandma Dies”\"><span>PolyU Cinema: “How to Make Millions before Grandma Dies”</span></a></p></div>",
+      "title": "PolyU Cinema: “How to Make Millions before Grandma Dies” ",
+      "csscode": "blue",
+      "eventStartDate": "2026-10-07T19:30:00+08:00",
+      "eventEndDate": "2026-10-07T21:00:00+08:00"
+    },
+    {
+      "id": "6",
+      "start-date": "2026-10-13",
+      "end-date": "2026-10-13",
+      "isInitial": "0",
+      "type": "",
+      "content": "<div class=\"ev-blk\"><p class=\"ev-blk__title\"><a href=\"https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/2026/10-october/20261013_colorful-breeze?sc_lang=en\" title=\"\"Colorful Breeze\" 一 China's Ethnic Art Colleges Tour Gala: \"Greetings from Tianshan\"\"><span>\"Colorful Breeze\" 一 China's Ethnic Art Colleges Tour Gala: \"Greetings from Tianshan\"</span></a></p></div>",
+      "title": "\"Colorful Breeze\" 一 China's Ethnic Art Colleges Tour Gala: \"Greetings from Tianshan\"",
+      "csscode": "",
+      "eventStartDate": "2026-10-13T19:30:00+08:00",
+      "eventEndDate": "2026-10-13T21:30:00+08:00"
+    }
+  ],
+  "eventTypeList": [
+    {
+      "Title": "Collaborations",
+      "CssCode": "legend-item--orange"
+    }
+  ]
+}

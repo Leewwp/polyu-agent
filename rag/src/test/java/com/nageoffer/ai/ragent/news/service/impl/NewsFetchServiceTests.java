@@ -45,6 +45,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -159,6 +160,33 @@ class NewsFetchServiceTests {
         String url = "https://example.com/news/" + slug;
         return new RawNewsItem(url, NewsUrlNormalizer.urlHash(url), title, null, "en",
                 new Date(now.getTime() - ageMillis), null, key, PublishTimePrecision.DATETIME, summary);
+    }
+
+    // ================== #323：活动结束时刻随准入落库（活动实体模型持久面） ==================
+
+    @Test
+    void admittedActivityItemCarriesActivityEndTime() {
+        // 活动条目（events 型）：publishTime=活动开始、activityEnd=活动结束（未来时刻）
+        String activityUrl = "https://example.com/events/congregation";
+        Date start = new Date(now.getTime() + 20 * DAY);
+        Date end = new Date(now.getTime() + 41 * DAY);
+        RawNewsItem activity = new RawNewsItem(activityUrl, NewsUrlNormalizer.urlHash(activityUrl),
+                "32nd Congregation", null, "en", start, end, "ceremony", "events",
+                PublishTimePrecision.UNKNOWN, null);
+        // 普通新闻条目：无结束证据 → activity_end_time 落 null（不进活动版面投影）
+        RawNewsItem plain = item("media-releases", "plain-news", HOUR);
+
+        List<NewsItemDO> inserted = admit(List.of(
+                new NewsFetchService.SourceCandidates(source(1, "events"), List.of(activity)),
+                new NewsFetchService.SourceCandidates(source(2, "media-releases"), List.of(plain))));
+
+        NewsItemDO activityRow = inserted.stream()
+                .filter(row -> activityUrl.equals(row.getUrl())).findFirst().orElseThrow();
+        assertEquals(start, activityRow.getPublishTime(), "活动开始沿用 publish_time 语义（#275 不改）");
+        assertEquals(end, activityRow.getActivityEndTime(), "活动结束时刻随准入落 activity_end_time（#323）");
+        NewsItemDO plainRow = inserted.stream()
+                .filter(row -> !activityUrl.equals(row.getUrl())).findFirst().orElseThrow();
+        assertNull(plainRow.getActivityEndTime(), "无结束证据的新闻条目 activity_end_time=null");
     }
 
     private List<NewsItemDO> admit(List<NewsFetchService.SourceCandidates> batches) {

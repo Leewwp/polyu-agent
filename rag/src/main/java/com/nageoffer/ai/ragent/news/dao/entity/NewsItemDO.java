@@ -105,6 +105,14 @@ public class NewsItemDO {
     private String publishTimePrecision;
 
     /**
+     * 活动结束时刻（#323 活动实体模型）：活动型来源条目（events，起止成对）的
+     * 结束时间——publish_time=活动开始、本列=活动结束（date-only 结束证据为
+     * D 23:59:59 HKT 含端代表值）；NULL=非活动条目（无明确起止，纯资讯流，
+     * 活动版面投影按「本列非空」识别活动实体）
+     */
+    private Date activityEndTime;
+
+    /**
      * 抓取入库时间
      */
     private Date fetchTime;
