@@ -79,7 +79,8 @@ describe("NewsDetailPage", () => {
     // 主题标签 → 主题详情路由（mock-001 topics: energy/materials/eng）
     expect(screen.getByRole("link", { name: "# 新能源与可持续" }).getAttribute("href")).toBe("/topics/energy");
     // 返回链 + 底部一组操作：原文外链与分享钮各仅一处（顶部动作行已删，新开标签）
-    expect(screen.getByRole("link", { name: "‹ 返回资讯流" }).getAttribute("href")).toBe("/");
+    // 返回出口=共享 BackLink（#342）：accessible name=通用「返回」，href=自然父级
+    expect(screen.getByRole("link", { name: "返回" }).getAttribute("href")).toBe("/");
     const sourceLinks = screen.getAllByRole("link", { name: "查看原文 ↗" });
     expect(sourceLinks).toHaveLength(1);
     expect(sourceLinks[0].getAttribute("href")).toBe(ITEM.url);
@@ -112,7 +113,7 @@ describe("NewsDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("该资讯不存在或已下架")).toBeTruthy();
     });
-    expect(screen.getByRole("link", { name: "‹ 返回资讯流" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "返回" })).toBeTruthy();
   });
 
   it("renders en fields when the stored global lang is en", async () => {
@@ -125,6 +126,8 @@ describe("NewsDetailPage", () => {
     expect(screen.getByText(ITEM.summaryEn)).toBeTruthy();
     expect(screen.getByText("AI summary")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Share" }).length).toBeGreaterThanOrEqual(1);
+    // 返回出口文案随全局语言（BackLink 共享件，#342）
+    expect(screen.getByRole("link", { name: "Back" })).toBeTruthy();
     // #233：顶部紧凑档 "Source ↗" 已删——EN 只剩底部 "View source ↗" 一处
     expect(screen.getAllByRole("link", { name: "View source ↗" })).toHaveLength(1);
     expect(screen.queryByRole("link", { name: "Source ↗" })).toBeNull();
