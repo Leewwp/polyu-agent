@@ -182,10 +182,14 @@ public class DefaultContextFormatter implements ContextFormatter {
     }
 
     /**
-     * 渲染单个文档块：组内按序号排序后拼接，只带内部 docId 作为锚点
+     * 渲染单个文档块：组内按序号排序后拼接，带日期标记与内部 docId 作为锚点
      * <p>
      * 刻意不注入文档标题：标题一旦进入上下文，模型就会写出"出自《XX》"之类的归因表述，
      * 而提示词层面的禁令压不住。资料之间的区分交给 {@code ref} 编号，文档名只在前端来源列表展示
+     * <p>
+     * #327 日期标记：每条证据块必须带日期（有日期显日期、无日期显「日期未知」），模型据此判断条目新旧；
+     * {@code data-ragent-date} 刻意放在 {@code data-ragent-doc-id} 前导位——CitationContextEnricher
+     * 的锚点正则要求 docId 收尾，前导属性在抹 docId / 注入 ref 编号时原样保留，日期标记才不会两处口径
      */
     private String renderDocBlock(List<RetrievedChunk> group) {
         List<RetrievedChunk> ordered = group.stream()
@@ -194,16 +198,37 @@ public class DefaultContextFormatter implements ContextFormatter {
                 .toList();
 
         String chunks = joinDocBody(ordered);
+        String date = sanitizeAttribute(resolveDateMarker(group));
         String docId = sanitizeAttribute(resolveDocId(group));
         if (StrUtil.isNotBlank(docId)) {
             return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "kb-doc-block", Map.of(
+                    "date", date,
                     "doc_id", docId,
                     "chunks", chunks
             ));
         }
         return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "kb-doc-block-anonymous", Map.of(
+                "date", date,
                 "chunks", chunks
         ));
+    }
+
+    /**
+     * 无日期证据的统一标记：组装层不猜日期，模型侧口径唯一
+     */
+    private static final String DATE_UNKNOWN_MARKER = "日期未知";
+
+    /**
+     * 文档块的日期标记取值：组内首见非空 sourceDate（检索序，即证据最佳块的日期），全组无日期回落「日期未知」。
+     * 同文档多块日期不一致时不合成区间、不逐块各标——文档是引用与展示的最小单位，标记也随文档一个口径
+     */
+    private String resolveDateMarker(List<RetrievedChunk> group) {
+        return group.stream()
+                .map(RetrievedChunk::getSourceDate)
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .map(String::trim)
+                .orElse(DATE_UNKNOWN_MARKER);
     }
 
     /**

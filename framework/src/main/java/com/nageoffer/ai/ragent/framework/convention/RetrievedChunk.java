@@ -98,4 +98,13 @@ public class RetrievedChunk {
      * 检索后由元数据富化补齐 未富化时为 null
      */
     private String docName;
+
+    /**
+     * 证据日期元数据（yyyy-MM-dd，如 2026-09-12），null 表示无日期来源
+     * <p>
+     * 日期口径承 #275 日期精度归一：只透出日期部分，date-only 来源不补时刻、datetime 来源不截谎精度；
+     * 新闻类证据=发布时间（t_news_item 系 publish_time），校历类证据=适用日期（t_key_date date_start 起）。
+     * 证据来源未携带日期（如知识库文档、联网检索）时保持 null，由上下文组装层渲染「日期未知」标记
+     */
+    private String sourceDate;
 }
