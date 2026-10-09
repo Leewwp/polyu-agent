@@ -59,6 +59,13 @@ describe("touch targets ≥44px（主清单源锚定）", () => {
     expect(s).toContain("<ShareButton item={item} zh={zh} />");
   });
 
+  it("BackLink：feed 域返回出口 ≥44（#342 三页共用，命中区外扩而视觉左对齐不缩进）", () => {
+    const s = read("src/components/feed/BackLink.tsx");
+    // 命中区按维护者附件框选的体感范围设计（min-h 44+px-2 外扩），-ml-2 抵消
+    // 外扩的视觉缩进；小于号字符已由 lucide ArrowLeft（h-4 w-4）替代
+    expect(s).toContain("min-h-[44px] items-center gap-1.5 px-2 -ml-2");
+  });
+
   it("用户面主要表单提交钮 ≥44（登录/注册/找回/账号/反馈）", () => {
     expect(read("src/pages/LoginPage.tsx")).toContain('className="min-h-[44px] w-full"');
     const reg = read("src/pages/RegisterPage.tsx");

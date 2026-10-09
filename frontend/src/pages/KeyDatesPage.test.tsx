@@ -55,6 +55,23 @@ describe("KeyDatesPage", () => {
     expect(screen.getByText("最近完整同步 9月29日 07:31")).toBeTruthy();
   });
 
+  it("#342 renders the top back exit and removes the legacy footer link (单出口原则)", async () => {
+    vi.mocked(fetchKeyDateBoard).mockResolvedValue(MOCK_KEY_DATE_BOARD);
+    renderPage();
+
+    // 顶部出口=共享 BackLink：覆盖学年头卡之前的首元素，accessible name=「返回」，
+    // 直链（无站内历史）回退 /；44px 命中区由 touchTargets.contract.test 源锚定
+    await waitFor(() => expect(screen.getByText("覆盖学年 2026/27")).toBeTruthy());
+    const back = screen.getByRole("link", { name: "返回" });
+    expect(back.getAttribute("href")).toBe("/");
+    // 出口先于头卡（顶部而非页尾）
+    const header = screen.getByText(/覆盖学年 2026\/27/);
+    expect(back.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 页尾旧 11.5px 小字链移除——单出口，不双返
+    expect(screen.queryByText("← 返回资讯首页")).toBeNull();
+    expect(screen.queryByRole("link", { name: "← 返回资讯首页" })).toBeNull();
+  });
+
   it("shows degraded banner as last complete version, not latest (三态不冒充最新)", async () => {
     vi.mocked(fetchKeyDateBoard).mockResolvedValue(MOCK_KEY_DATE_BOARD);
     renderPage();
@@ -140,6 +157,8 @@ describe("KeyDatesPage", () => {
 
     await waitFor(() => expect(screen.getByText(/关键日期暂不可用/)).toBeTruthy());
     expect(screen.getByText(/以 eStudent 及校务邮件为准/)).toBeTruthy();
+    // #342：页尾旧链已删，失败态仍保顶部返回出口（任意态不零出口）
+    expect(screen.getByRole("link", { name: "返回" })).toBeTruthy();
   });
 
   it("renders all-normal board without banner", async () => {

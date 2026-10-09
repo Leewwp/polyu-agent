@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 
+import { BackLink } from "@/components/feed/BackLink";
 import { FeedFooter } from "@/components/feed/FeedFooter";
 import { FeedShell } from "@/components/feed/FeedShell";
 import { useFeedLang } from "@/components/feed/feedLang";
@@ -104,23 +104,32 @@ function KeyDatesBody({ board, failed }: { board: KeyDateBoard | null; failed: b
 
   if (failed) {
     return (
-      <div className="mt-4 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
-        {zh
-          ? "关键日期暂不可用，请稍后再试；最新信息以 eStudent 及校务邮件为准。"
-          : "Key dates are unavailable right now — please retry later; always refer to eStudent and official email."}
-      </div>
+      <>
+        {/* #342 顶部返回出口（覆盖学年头卡之前；失败态也不零出口——页尾旧链已删） */}
+        <BackLink fallbackTo="/" />
+        <div className="mt-4 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
+          {zh
+            ? "关键日期暂不可用，请稍后再试；最新信息以 eStudent 及校务邮件为准。"
+            : "Key dates are unavailable right now — please retry later; always refer to eStudent and official email."}
+        </div>
+      </>
     );
   }
   if (!board) {
     return (
-      <div className="mt-4 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
-        {zh ? "加载中…" : "Loading…"}
-      </div>
+      <>
+        <BackLink fallbackTo="/" />
+        <div className="mt-4 rounded-2xl border border-dashed border-[var(--feed-line)] bg-[var(--feed-card)] p-7 text-center text-[13px] text-[var(--feed-text-tertiary)]">
+          {zh ? "加载中…" : "Loading…"}
+        </div>
+      </>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 头部之前首元素=返回出口（#342：从日报/首页卡片进入后精准回入口页） */}
+      <BackLink fallbackTo="/" />
       {/* 头部：覆盖学年+最近完整同步（三态展示口径的正常态基线） */}
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-4 py-3 text-[12.5px]">
         <span className="rounded-full bg-[var(--polyu-red-50)] px-2.5 py-0.5 font-semibold text-[var(--polyu-red-dark)]">
@@ -257,17 +266,12 @@ function KeyDatesBody({ board, failed }: { board: KeyDateBoard | null; failed: b
         </p>
       </section>
 
-      {/* 缺口页脚（票面口径原文） */}
+      {/* 缺口页脚（票面口径原文；#342 页尾旧返回小字链已删——单出口原则） */}
       <p className="text-center text-[11.5px] text-[var(--feed-text-tertiary)]">
         {zh
           ? "关键日期整理自理大公开页面，仅供快速参考——一切以 eStudent 及校务邮件为准。"
           : "Key dates are compiled from public PolyU pages for quick reference only — always refer to eStudent and official email."}
       </p>
-      <div className="text-center text-[11.5px] text-[var(--feed-text-tertiary)]">
-        <Link className="font-semibold hover:text-[var(--polyu-red-dark)]" to="/">
-          {zh ? "← 返回资讯首页" : "← Back to feed"}
-        </Link>
-      </div>
     </div>
   );
 }
