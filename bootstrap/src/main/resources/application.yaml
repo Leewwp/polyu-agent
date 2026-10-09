@@ -218,7 +218,9 @@ rag:
     backfill-days: 14          # 回灌窗口天数（建议 14 天；历史回灌临时调大如 95，跑完即还原）
     max-items-per-source: 50   # 单源单轮入库上限（批上限防长事务；历史回灌临时调大）
     fetch-pages-max: 1         # HTML_LIST 抓取页深（1=仅列表首页现行口径；历史回灌临时调大，到头自动停）
-    events-past-months: 0      # events 回溯过去月数（0=当前月+下月现行口径；历史回灌临时调大）
+    events-past-months: 0      # events 回溯过去月数（0=不回溯；历史回灌临时调大）
+    events-window-weeks: 8    # events 未来滚动窗口周数（#323）：按月取数拼窗覆盖「今天起 N 周」（2~3 个月），
+                              # 跨月条目按 URL 去重；fail-closed 仅当前月+下月（+2 月及以后零排期宽和）
     retention-days: 90        # 条目保留期，NewsRetentionJob 清理阈值
     retention-scan-delay-ms: 3600000   # 保留清理巡检间隔（毫秒）
     retention-initial-delay-ms: 120000 # 启动首扫延迟（毫秒），避开启动高峰

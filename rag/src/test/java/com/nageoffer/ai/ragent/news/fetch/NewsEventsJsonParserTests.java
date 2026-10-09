@@ -25,6 +25,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,6 +57,54 @@ class NewsEventsJsonParserTests {
         assertEquals("conference / lecture", lecture.typeHint());
         assertEquals("https://www.polyu.edu.hk/en/events/2026/9/15455_669", lecture.link());
         assertTrue(lecture.title().contains("Microwave Full Field Vibration"));
+    }
+
+    // ---------- #323：活动实体模型——结束时刻提取（eventEndDate/end-date） ----------
+
+    @Test
+    void parsesIsoEndInstantFromFixture() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(fixture());
+        NewsEventsJsonParser.EventEntry lecture = events.stream()
+                .filter(e -> e.title().startsWith("Faculty of Engineering Distinguished Lecture"))
+                .findFirst().orElseThrow();
+        // eventEndDate=2026-09-14T11:30:00+08:00 → UTC 03:30（单日活动的起止瞬时）
+        assertEquals(DateFrom.instant("2026-09-14T03:30:00Z"), lecture.end());
+    }
+
+    @Test
+    void multiDayEntryCarriesDistinctStartAndEnd() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(fixture());
+        NewsEventsJsonParser.EventEntry election = events.stream()
+                .filter(e -> e.title().startsWith("Election of Student Members"))
+                .findFirst().orElseThrow();
+        // 跨日活动：start=2026-09-09T00:00+08:00，end=2026-09-22T23:59+08:00（UTC 15:59）
+        assertEquals(DateFrom.instant("2026-09-08T16:00:00Z"), election.start());
+        assertEquals(DateFrom.instant("2026-09-22T15:59:00Z"), election.end());
+    }
+
+    @Test
+    void dateOnlyEndFallsBackToEndOfDayHktRepresentative() {
+        // 裸日期 end-date（无 eventEndDate）：按当日 23:59:59 HKT 归期代表值解释
+        // （含端语义——全日活动在结束日当天仍属进行中），2026-11-21 → UTC 15:59:59
+        byte[] json = ("{\"events\":[{\"title\":\"Date-only end event\","
+                + "\"start-date\":\"2026-11-20\",\"end-date\":\"2026-11-21\",\"type\":\"showcase\","
+                + "\"content\":\"<a href=\\\"https://www.polyu.edu.hk/events/date-only/\\\">d</a>\"}]}")
+                .getBytes();
+        NewsEventsJsonParser.EventEntry entry = NewsEventsJsonParser.parse(json).get(0);
+        assertEquals(DateFrom.instant("2026-11-19T16:00:00Z"), entry.start());
+        assertEquals(DateFrom.instant("2026-11-21T15:59:59Z"), entry.end());
+    }
+
+    @Test
+    void missingEndFieldsYieldNullEnd() {
+        // 无任何结束字段：end=null（非活动实体候选，仅按新闻条目走资讯流）
+        byte[] json = ("{\"events\":[{\"title\":\"No end event\","
+                + "\"eventStartDate\":\"2026-10-05T10:00:00+08:00\",\"type\":\"seminar\","
+                + "\"content\":\"<a href=\\\"https://www.polyu.edu.hk/events/no-end/\\\">d</a>\"}]}")
+                .getBytes();
+        NewsEventsJsonParser.EventEntry entry = NewsEventsJsonParser.parse(json).get(0);
+        assertEquals(DateFrom.instant("2026-10-05T02:00:00Z"), entry.start());
+        assertNull(entry.end());
     }
 
     @Test
