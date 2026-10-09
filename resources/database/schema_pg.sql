@@ -1506,6 +1506,26 @@ COMMENT ON COLUMN t_news_daily_digest_key_date.date_start IS 'NOT NULL 有据：
 COMMENT ON COLUMN t_news_daily_digest_key_date.ongoing IS '已开始未结束（date_start < 刊日 且 有效结束日 date_end??date_start >= 刊日；as-of=刊日生成期冻结，不随读取时刻漂移）';
 COMMENT ON COLUMN t_news_daily_digest_key_date.days_until IS '刊日→date_start 天数（0=当日开始；负=已开始的区间，展示层以 ongoing 徽章优先）；倒计时门=仅 exact-day/exact-range，onwards 恒 NULL';
 
+CREATE TABLE t_news_daily_digest_activity (
+  id         BIGSERIAL PRIMARY KEY,
+  digest_id  BIGINT        NOT NULL REFERENCES t_news_daily_digest(id) ON DELETE CASCADE,
+  item_id    BIGINT        NOT NULL,    -- 溯源 t_news_item.id（无外键：90 天保留清理删除不连带）
+  seq        INT           NOT NULL,    -- 版面内序（1 起，date_start 升序、item_id 兜底）
+  title_zh   VARCHAR(512),
+  title_en   VARCHAR(512),
+  url        VARCHAR(1024) NOT NULL,    -- 详情页永久外链（卡片外链语义）
+  date_start DATE          NOT NULL,    -- 活动开始日（HKT 历日；publish_time 活动开始语义）
+  date_end   DATE          NOT NULL,    -- 活动结束日（HKT 历日；activity_end_time 含端代表值）
+  ongoing    BOOLEAN       NOT NULL DEFAULT false,  -- 进行中=开始日 < 刊日 且 结束日 >= 刊日
+  CONSTRAINT uq_news_daily_digest_activity UNIQUE (digest_id, item_id)
+);
+CREATE INDEX idx_news_daily_digest_activity_digest ON t_news_daily_digest_activity(digest_id);
+COMMENT ON TABLE t_news_daily_digest_activity IS '日报校园活动版面快照（#330 L2：纯数据零 LLM；item_id 只作溯源无外键，保留清理不连带；(digest_id,item_id) 唯一=同刊内一活动一行；刊头删除级联带走）';
+COMMENT ON COLUMN t_news_daily_digest_activity.seq IS '版面内序（1 起，确定性：date_start 升序、item_id 兜底；超容量取最近）';
+COMMENT ON COLUMN t_news_daily_digest_activity.date_start IS '活动开始日（#323 模型：publish_time=活动开始，投影换算 HKT 历日；版面按活动实体日期组织，非 publish_time 窗口）';
+COMMENT ON COLUMN t_news_daily_digest_activity.date_end IS '活动结束日（activity_end_time 换算 HKT 历日；date-only 结束证据按当日 23:59:59 含端代表值入库，投影为当日历日）';
+COMMENT ON COLUMN t_news_daily_digest_activity.ongoing IS '进行中=开始日 < 刊日 且 结束日 >= 刊日（当日开始归「即将来临」，与 L1 关键日期「当日开始不标进行中」同口径；as-of=刊日生成期冻结，不随读取时刻漂移）';
+
 CREATE TABLE t_site_feedback (
   id            BIGSERIAL PRIMARY KEY,
   content       TEXT        NOT NULL,

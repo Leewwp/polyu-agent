@@ -17,11 +17,13 @@
 
 package com.nageoffer.ai.ragent.news.service.impl;
 
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestActivityVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,7 +68,7 @@ class NewsDailyDigestQueryServiceTests {
         itemStore = new FakeDailyDigestNewsItemStore();
         service = new NewsDailyDigestQueryServiceImpl(digestStore.digestMapper,
                 digestStore.digestItemMapper, digestStore.digestKeyDateMapper,
-                itemStore.mapper, new NewsFetchProperties());
+                digestStore.digestActivityMapper, itemStore.mapper, new NewsFetchProperties());
     }
 
     // ==================== 装配（真刊+真快照） ====================
@@ -193,6 +195,49 @@ class NewsDailyDigestQueryServiceTests {
         NewsDailyDigestVO detail = service.getDetail(DATE);
         assertNotNull(detail.getKeyDates());
         assertTrue(detail.getKeyDates().isEmpty(), "无栏目快照行=空列表（前端整段隐藏，不渲染空壳）");
+    }
+
+    // ==================== 校园活动版面透出（#330 L2） ====================
+
+    @Test
+    void detailCarriesActivitySectionSnapshotOrderedBySeq() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        Long digestId = digestStore.headers().get(0).getId();
+        digestStore.digestActivityMapper.insert(NewsDailyDigestActivityDO.builder()
+                .digestId(digestId).itemId(201L).seq(1)
+                .titleZh("第32届毕业典礼").titleEn("32nd Congregation")
+                .url("https://www.polyu.edu.hk/en/events/congregation")
+                .dateStart(LocalDate.of(2026, 10, 1)).dateEnd(LocalDate.of(2026, 11, 21))
+                .ongoing(true).build());
+        digestStore.digestActivityMapper.insert(NewsDailyDigestActivityDO.builder()
+                .digestId(digestId).itemId(202L).seq(2)
+                .titleZh(null).titleEn("Information Day 2026")
+                .url("https://www.polyu.edu.hk/en/events/infoday")
+                .dateStart(LocalDate.of(2026, 10, 10)).dateEnd(LocalDate.of(2026, 10, 10))
+                .ongoing(false).build());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        List<NewsDailyDigestActivityVO> activities = detail.getActivities();
+        assertEquals(2, activities.size());
+        assertEquals(List.of(1, 2), activities.stream().map(NewsDailyDigestActivityVO::getSeq).toList());
+        NewsDailyDigestActivityVO ongoing = activities.get(0);
+        assertEquals(201L, ongoing.getItemId());
+        assertEquals("第32届毕业典礼", ongoing.getTitleZh());
+        assertEquals("https://www.polyu.edu.hk/en/events/congregation", ongoing.getUrl());
+        assertEquals(LocalDate.of(2026, 10, 1), ongoing.getDateStart());
+        assertEquals(LocalDate.of(2026, 11, 21), ongoing.getDateEnd());
+        assertEquals(Boolean.TRUE, ongoing.getOngoing());
+        assertNull(activities.get(1).getTitleZh(), "标题缺词 null 直映——前端回退英文");
+        assertEquals(Boolean.FALSE, activities.get(1).getOngoing());
+    }
+
+    @Test
+    void detailWithoutActivityRowsYieldsEmptySectionList() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        assertNotNull(detail.getActivities());
+        assertTrue(detail.getActivities().isEmpty(), "无版面快照行=空列表（前端整段隐藏，不渲染空壳）");
     }
 
     // ==================== hide 失格与导语回退 ====================

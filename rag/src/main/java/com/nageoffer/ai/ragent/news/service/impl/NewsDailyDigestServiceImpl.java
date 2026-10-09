@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.infra.enums.Tier;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
@@ -33,6 +34,7 @@ import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestActivityMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
@@ -41,6 +43,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.service.NewsActivityQueryService;
 import com.nageoffer.ai.ragent.news.service.NewsDailyDigestService;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import lombok.extern.slf4j.Slf4j;
@@ -105,6 +108,17 @@ import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
  * t_key_date 只读（#192 铁律），as-of=刊日生成期冻结，窗口/容量入
  * rag.news 配置（digest-key-date-window-days 默认 14 / -max-entries 默认 8）。
  *
+ * <p><b>校园活动版面（#330，父票 #317——总纲 #315 线一 L2）</b>：每刊额外
+ * 装配「进行中/即将来临」两组的活动版面快照行（t_news_daily_digest_activity）
+ * ——纯数据、零 LLM，按<b>活动实体日期</b>（publish_time=活动开始 →
+ * activity_end_time=活动结束，非资讯流 publish_time 窗口）组织；数据源=
+ * {@link NewsActivityQueryService} 活动实体投影（#323 模型——events 现为唯一
+ * 活跃源，CPEO/SAO 入库后自动汇入<b>无需改版面</b>，装配层只面向投影编程
+ * 不感知源适配）。as-of=刊日生成期冻结（ongoing 不随读取时刻漂移），
+ * 窗口/容量入 rag.news 配置（digest-activity-window-days 默认 56=8 周 /
+ * -max-entries 默认 10）；过期活动（结束日早于刊日）经投影窗口合同自动
+ * 移出，窗口零活动=零快照行（读取面整段隐藏）。
+ *
  * <p><b>幂等</b>：digest_date 库级唯一；重建=按日期先删后插（快照行经
  * digest_id 外键 ON DELETE CASCADE 随旧刊头带走），同日期重跑只产一刊。
  * 单事务包住删+插，中途失败不产生半刊（下一轮重跑再建）。
@@ -135,11 +149,13 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     private final NewsDailyDigestMapper digestMapper;
     private final NewsDailyDigestItemMapper digestItemMapper;
     private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
+    private final NewsDailyDigestActivityMapper digestActivityMapper;
     private final NewsItemMapper itemMapper;
     private final NewsItemTopicMapper itemTopicMapper;
     private final NewsTopicMapper topicMapper;
     private final NewsSourceMapper sourceMapper;
     private final KeyDateMapper keyDateMapper;
+    private final NewsActivityQueryService activityQueryService;
     private final NewsLlmBudgetService llmBudgetService;
     private final PromptTemplateLoader promptTemplateLoader;
     private final NewsFetchProperties properties;
@@ -150,16 +166,19 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     public NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
                                       NewsDailyDigestItemMapper digestItemMapper,
                                       NewsDailyDigestKeyDateMapper digestKeyDateMapper,
+                                      NewsDailyDigestActivityMapper digestActivityMapper,
                                       NewsItemMapper itemMapper,
                                       NewsItemTopicMapper itemTopicMapper,
                                       NewsTopicMapper topicMapper,
                                       NewsSourceMapper sourceMapper,
                                       KeyDateMapper keyDateMapper,
+                                      NewsActivityQueryService activityQueryService,
                                       NewsLlmBudgetService llmBudgetService,
                                       PromptTemplateLoader promptTemplateLoader,
                                       NewsFetchProperties properties) {
-        this(digestMapper, digestItemMapper, digestKeyDateMapper, itemMapper, itemTopicMapper, topicMapper,
-                sourceMapper, keyDateMapper, llmBudgetService, promptTemplateLoader, properties,
+        this(digestMapper, digestItemMapper, digestKeyDateMapper, digestActivityMapper,
+                itemMapper, itemTopicMapper, topicMapper, sourceMapper, keyDateMapper,
+                activityQueryService, llmBudgetService, promptTemplateLoader, properties,
                 new ObjectMapper(), Date::new);
     }
 
@@ -169,11 +188,13 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     NewsDailyDigestServiceImpl(NewsDailyDigestMapper digestMapper,
                                NewsDailyDigestItemMapper digestItemMapper,
                                NewsDailyDigestKeyDateMapper digestKeyDateMapper,
+                               NewsDailyDigestActivityMapper digestActivityMapper,
                                NewsItemMapper itemMapper,
                                NewsItemTopicMapper itemTopicMapper,
                                NewsTopicMapper topicMapper,
                                NewsSourceMapper sourceMapper,
                                KeyDateMapper keyDateMapper,
+                               NewsActivityQueryService activityQueryService,
                                NewsLlmBudgetService llmBudgetService,
                                PromptTemplateLoader promptTemplateLoader,
                                NewsFetchProperties properties,
@@ -182,11 +203,13 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
         this.digestMapper = digestMapper;
         this.digestItemMapper = digestItemMapper;
         this.digestKeyDateMapper = digestKeyDateMapper;
+        this.digestActivityMapper = digestActivityMapper;
         this.itemMapper = itemMapper;
         this.itemTopicMapper = itemTopicMapper;
         this.topicMapper = topicMapper;
         this.sourceMapper = sourceMapper;
         this.keyDateMapper = keyDateMapper;
+        this.activityQueryService = activityQueryService;
         this.llmBudgetService = llmBudgetService;
         this.promptTemplateLoader = promptTemplateLoader;
         this.properties = properties;
@@ -248,9 +271,20 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
             snapshot.setSeq(++keyDateSeq);
             digestKeyDateMapper.insert(snapshot);
         }
-        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}，校历关键日期 {} 条（窗口 [{},{}]）",
+        // 校园活动版面（#330 L2）：纯数据零 LLM，独立于资讯量——空刊也照常落
+        // 版面行；快照行经 digest_id 级联随重建带走
+        List<NewsDailyDigestActivityDO> activitySnapshots = buildActivitySnapshots(digestDate);
+        int activitySeq = 0;
+        for (NewsDailyDigestActivityDO snapshot : activitySnapshots) {
+            snapshot.setDigestId(header.getId());
+            snapshot.setSeq(++activitySeq);
+            digestActivityMapper.insert(snapshot);
+        }
+        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}，校历关键日期 {} 条（窗口 [{},{}]），校园活动 {} 项（窗口 [{},{}]）",
                 digestDate, snapshots.size(), introSource, keyDateSnapshots.size(),
-                digestDate, digestDate.plusDays(properties.effectiveDigestKeyDateWindowDays() - 1L));
+                digestDate, digestDate.plusDays(properties.effectiveDigestKeyDateWindowDays() - 1L),
+                activitySnapshots.size(),
+                digestDate, digestDate.plusDays(properties.effectiveDigestActivityWindowDays() - 1L));
         return new DigestBuildResult(digestDate, snapshots.size(), introSource, true);
     }
 
@@ -399,6 +433,49 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                 .fuzzyHint(row.getFuzzyHint())
                 .ongoing(ongoing)
                 .daysUntil(daysUntil)
+                .build();
+    }
+
+    // ==================== 校园活动版面（#330 L2，纯数据零 LLM） ====================
+
+    /**
+     * 校园活动版面快照构建（生成期冻结，as-of=刊日 D）：
+     * <ul>
+     * <li>数据源={@link NewsActivityQueryService#campusActivities}（#323 活动
+     *     实体投影）：窗口=[D, D+N-1] 含端（N={@code rag.news.digest-activity-
+     *     window-days}，默认 56=8 周，与 events 抓取扩窗同口径）；投影已按
+     *     「活动区间与窗口任一历日重叠」选材并按 startDate 升序+itemId 兜底
+     *     排序——过期（结束日早于 D）与远未开始天然落窗外，装配层不重复
+     *     实现窗口语义（装配只面向投影编程，不感知 events/CPEO/SAO 源适配）；</li>
+     * <li>容量截断=超限取最近（{@code rag.news.digest-activity-max-entries}，
+     *     默认 10，startDate 升序截断——进行中的开始日早自然在前）；</li>
+     * <li>ongoing=已开始（startDate &lt; D）未结束（endDate &gt;= D）——
+     *     「进行中」组；当日开始（startDate = D）归「即将来临」组（与 L1
+     *     关键日期「当日开始不标进行中」同口径），生成期冻结不随读取漂移；</li>
+     * <li>窗口零活动=空列表（读取面整段隐藏，不渲染空壳）；展示字段全冗余
+     *     快照（item_id 只作溯源，90 天保留清理删除源行不连带）。</li>
+     * </ul>
+     */
+    private List<NewsDailyDigestActivityDO> buildActivitySnapshots(LocalDate digestDate) {
+        return activityQueryService
+                .campusActivities(digestDate, properties.effectiveDigestActivityWindowDays())
+                .stream()
+                .limit(properties.effectiveDigestActivityMaxEntries())
+                .map(activity -> toActivitySnapshot(activity, digestDate))
+                .toList();
+    }
+
+    /** 活动实体→版面快照：ongoing 按刊日冻结（当日开始归即将来临） */
+    private static NewsDailyDigestActivityDO toActivitySnapshot(
+            NewsActivityQueryService.CampusActivity activity, LocalDate asOf) {
+        return NewsDailyDigestActivityDO.builder()
+                .itemId(activity.itemId())
+                .titleZh(activity.titleZh())
+                .titleEn(activity.titleEn())
+                .url(activity.url())
+                .dateStart(activity.startDate())
+                .dateEnd(activity.endDate())
+                .ongoing(activity.startDate().isBefore(asOf))
                 .build();
     }
 
