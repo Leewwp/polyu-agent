@@ -1,0 +1,43 @@
+-- 261010 #324 CPEO 文化活动源 seed（#317 校园活动版面子票；生产侧手工 SQL，与
+-- init_data_pg.sql 新行同形态同值——新文件避免与并行票升级脚本冲突）
+--
+-- 查定结论（2026-10-09 实地，本机 curl --noproxy 直连 + 站内搜）：
+--   列表页    https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/
+--             （页面 200/105KB；SSR 零列表条目，列表由前端 JS 拉日历 API 渲染）
+--   抓取形态  官网活动日历同款 Sitecore JSON API（JSON_API 族）：
+--             /en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=YYYY/MM
+--             （events 源用 id=F45B40DE…，页面 JS 常量取证日历 id；大写 Calendar 301→
+--              小写，OkHttp 默认跟随重定向覆盖，与 events 源判例一致——seed 直落小写）
+--   响应结构  events[]{title / eventStartDate(ISO+08:00) / start-date / type / content(HTML
+--             内嵌详情页绝对链接)}——与 NewsEventsJsonParser 既有形态逐字段一致，零代码
+--             复用 EventsApiNewsFetcher + NewsEventsJsonParser（strategy 分发一对多）。
+--   robots    www.polyu.edu.hk/robots.txt：User-agent:* 仅 Disallow 各子站 search-result
+--             类路径与 /cpa/souvenirs/，无 Crawl-delay；/cpeo 与 /en/api 均未禁=允许抓
+--             （与 #188 批 2 官网子站同判例）。
+--
+-- 实采 smoke（2026-10-09，日历 id=BA1FFC…）：
+--   2026/10 = 9 条：全条目含详情绝对链接+ISO 时刻；PolyU Cinema 放映 2 场
+--     （"How to Make Millions before Grandma Dies" 10-07 19:30、"Lin Zexu: Beyond the
+--      Humen Opium Destruction" 10-15 19:30，type=highlights）+ 讲座/音乐会/中外标题混合；
+--   2026/11 = 1 条、2026/12 = 1 条（均为 "PolyU Cinema" 系列置顶伞卡，start=2026-01-27）；
+--   2027/01 = 0 条、2027/02 = 0 条——空月属常态。
+-- 字段映射（PolyU Cinema 口径）：片名→title（"PolyU Cinema: …"）；日期→eventStartDate
+--   真实瞬时（#275 精度 unknown，活动 start 语义不改，与 events 源同口径）；链接→content
+--   首个绝对锚；type→categoryHint（LLM 分类参考）；地点/领票在详情页，经既有富化链路
+--   （详情抓取→LLM 摘要）进 summary，不为此改宽表结构。
+-- 运维口径：源须入 rag.news.allow-empty-sources（application.yaml 已随本票配置）——
+--   空月=VALID_EMPTY（#186 成功分类学），否则静月 fail-closed 连败会误触自动隔离；
+--   日准入上限 rag.news.admission-source-daily-caps.cpeo-events=10（#277 新源起步口径，
+--   月级 ~9 条节奏留停摆补抓余量）。
+--
+-- 铁律（#188/#276/#277 同口径）：seed 一律 enabled=FALSE——启用须获批上线窗内逐源
+--   技术检查（robots、匿名访问、真实解析、过滤、预算）通过后启用并留痕，不走探活
+--   自动复归（disabled_reason='manual'）。既有行 enabled 绝不 UPDATE，本脚本只 INSERT。
+-- independence_group='polyu-official'（#187 组映射）：与官网各源同组（同一大学机构），
+--   事件投票不重复加票。
+-- 幂等：ON CONFLICT (source_key) DO NOTHING，重复执行无害、不翻转既有禁用行。
+-- 新环境（空数据卷）走 schema_pg.sql 全量初始化 + init_data_pg.sql 同源种子，不经本脚本。
+
+INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, home_url, fetch_endpoint, fetch_strategy, official, enabled, disabled_reason, independence_group) VALUES
+  ('cpeo-events', 'official', '文化推广及活动办事处活动', 'CPEO Events Calendar', 'https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual', 'polyu-official')
+ON CONFLICT (source_key) DO NOTHING;

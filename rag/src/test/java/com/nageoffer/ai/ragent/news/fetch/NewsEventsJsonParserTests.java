@@ -25,6 +25,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -58,6 +59,54 @@ class NewsEventsJsonParserTests {
         assertTrue(lecture.title().contains("Microwave Full Field Vibration"));
     }
 
+    // ---------- #323：活动实体模型——结束时刻提取（eventEndDate/end-date） ----------
+
+    @Test
+    void parsesIsoEndInstantFromFixture() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(fixture());
+        NewsEventsJsonParser.EventEntry lecture = events.stream()
+                .filter(e -> e.title().startsWith("Faculty of Engineering Distinguished Lecture"))
+                .findFirst().orElseThrow();
+        // eventEndDate=2026-09-14T11:30:00+08:00 → UTC 03:30（单日活动的起止瞬时）
+        assertEquals(DateFrom.instant("2026-09-14T03:30:00Z"), lecture.end());
+    }
+
+    @Test
+    void multiDayEntryCarriesDistinctStartAndEnd() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(fixture());
+        NewsEventsJsonParser.EventEntry election = events.stream()
+                .filter(e -> e.title().startsWith("Election of Student Members"))
+                .findFirst().orElseThrow();
+        // 跨日活动：start=2026-09-09T00:00+08:00，end=2026-09-22T23:59+08:00（UTC 15:59）
+        assertEquals(DateFrom.instant("2026-09-08T16:00:00Z"), election.start());
+        assertEquals(DateFrom.instant("2026-09-22T15:59:00Z"), election.end());
+    }
+
+    @Test
+    void dateOnlyEndFallsBackToEndOfDayHktRepresentative() {
+        // 裸日期 end-date（无 eventEndDate）：按当日 23:59:59 HKT 归期代表值解释
+        // （含端语义——全日活动在结束日当天仍属进行中），2026-11-21 → UTC 15:59:59
+        byte[] json = ("{\"events\":[{\"title\":\"Date-only end event\","
+                + "\"start-date\":\"2026-11-20\",\"end-date\":\"2026-11-21\",\"type\":\"showcase\","
+                + "\"content\":\"<a href=\\\"https://www.polyu.edu.hk/events/date-only/\\\">d</a>\"}]}")
+                .getBytes();
+        NewsEventsJsonParser.EventEntry entry = NewsEventsJsonParser.parse(json).get(0);
+        assertEquals(DateFrom.instant("2026-11-19T16:00:00Z"), entry.start());
+        assertEquals(DateFrom.instant("2026-11-21T15:59:59Z"), entry.end());
+    }
+
+    @Test
+    void missingEndFieldsYieldNullEnd() {
+        // 无任何结束字段：end=null（非活动实体候选，仅按新闻条目走资讯流）
+        byte[] json = ("{\"events\":[{\"title\":\"No end event\","
+                + "\"eventStartDate\":\"2026-10-05T10:00:00+08:00\",\"type\":\"seminar\","
+                + "\"content\":\"<a href=\\\"https://www.polyu.edu.hk/events/no-end/\\\">d</a>\"}]}")
+                .getBytes();
+        NewsEventsJsonParser.EventEntry entry = NewsEventsJsonParser.parse(json).get(0);
+        assertEquals(DateFrom.instant("2026-10-05T02:00:00Z"), entry.start());
+        assertNull(entry.end());
+    }
+
     @Test
     void midnightEventKeepsHktDaySemantics() throws Exception {
         List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(fixture());
@@ -78,6 +127,48 @@ class NewsEventsJsonParserTests {
         assertThrows(NewsFetchException.class, () -> NewsEventsJsonParser.parse("{\"foo\":1}".getBytes()));
     }
 
+    // ---------- #324：CPEO 文化活动日历（同款 Sitecore API，id=BA1FFC…；PolyU Cinema 系列） ----------
+
+    private byte[] cpeoFixture() throws Exception {
+        try (InputStream in = getClass().getResourceAsStream("/fixtures/news/cpeo-events.json")) {
+            assertNotNull(in, "fixture 缺失：/fixtures/news/cpeo-events.json");
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void parsesCpeoCalendarSameShapeAsEventsSource() throws Exception {
+        // #324 查定：CPEO 列表页背后即官网活动日历同款 calendar/get API（仅日历 id 不同），
+        // 解析器零改动复用——4 条冻结实采（2026-10）全产出，含 PolyU Cinema 放映条目
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        assertEquals(4, events.size());
+    }
+
+    @Test
+    void keepsChineseTitleVerbatimAndCinemaInstant() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        // 中文标题条目原样保留（langRaw 归 LLM 富化判定，解析层不改写）
+        NewsEventsJsonParser.EventEntry talk = events.stream()
+                .filter(e -> e.title().startsWith("「年度中國歷史人物選舉2026」")).findFirst().orElseThrow();
+        assertEquals("collaborations", talk.typeHint());
+        assertEquals(DateFrom.instant("2026-10-06T06:30:00Z"), talk.start());
+        // PolyU Cinema 放映场：eventStartDate=2026-10-07T19:30:00+08:00 → UTC 11:30 真实瞬时
+        NewsEventsJsonParser.EventEntry cinema = events.stream()
+                .filter(e -> e.title().startsWith("PolyU Cinema:")).findFirst().orElseThrow();
+        assertEquals(DateFrom.instant("2026-10-07T11:30:00Z"), cinema.start());
+        assertTrue(cinema.link().endsWith("/20261007_polyu-cinema?sc_lang=en"));
+    }
+
+    @Test
+    void emptyTypeCpeoEntryIsKeptWithBlankTypeHint() throws Exception {
+        // CPEO 实采存在 type 为空串的条目（"Colorful Breeze"）：不因类别缺失丢条目
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        NewsEventsJsonParser.EventEntry breeze = events.stream()
+                .filter(e -> e.title().startsWith("\"Colorful Breeze\"")).findFirst().orElseThrow();
+        assertEquals(DateFrom.instant("2026-10-13T11:30:00Z"), breeze.start());
+        assertTrue(breeze.typeHint() == null || breeze.typeHint().isBlank());
+    }
+
     // ---------- #186：允许空变体——缺 events 数组/坏 JSON 不因宽和豁免 ----------
 
     @Test
@@ -88,6 +179,51 @@ class NewsEventsJsonParserTests {
         assertThrows(NewsFetchStructureException.class,
                 () -> NewsEventsJsonParser.parse("{broken".getBytes(), false),
                 "坏 JSON 同理");
+    }
+
+    // ---------- #325：SAO 学生活动日历（同 API 不同 calendar id，fixture 冻结 2026-10-09 实采） ----------
+
+    private byte[] saoFixture() throws Exception {
+        try (InputStream in = getClass().getResourceAsStream("/fixtures/news/sao-events.json")) {
+            assertNotNull(in, "fixture 缺失：/fixtures/news/sao-events.json");
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void saoCalendarFixtureParsesStudentDevelopmentEntries() throws Exception {
+        // SAO 学生发展组活动日历（calendar id=6840C445…，/sao/news-and-events/event-calendar/）
+        // 与大学级 events 同款 Sitecore API 响应形状；eventTypeList 仅 Student Development
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(saoFixture());
+        // CLF 2026 两段日期（9/3-4、9/7-8）= 两个条目，各自独立详情页（slug 含日期段）
+        assertEquals(4, events.size());
+
+        List<NewsEventsJsonParser.EventEntry> clfSegments = events.stream()
+                .filter(e -> e.title().startsWith("Campus Life Festival 2026")).toList();
+        assertEquals(2, clfSegments.size());
+        assertEquals(DateFrom.instant("2026-09-03T04:00:00Z"), clfSegments.get(0).start());
+        assertEquals(DateFrom.instant("2026-09-07T04:00:00Z"), clfSegments.get(1).start());
+        assertTrue(!clfSegments.get(0).link().equals(clfSegments.get(1).link()),
+                "两段日期各自详情页，URL 去重后仍独立成条");
+        assertEquals("student development", clfSegments.get(0).typeHint());
+        assertTrue(clfSegments.get(0).link().startsWith("https://www.polyu.edu.hk/sao/news-and-events/event-calendar/"),
+                "详情链接落在 SAO 日历域名下");
+
+        NewsEventsJsonParser.EventEntry talentShow = events.stream()
+                .filter(e -> e.title().startsWith("Annual Talent Show 2026"))
+                .findFirst().orElseThrow();
+        // 19:00 HKT 晚场 → UTC 11:00
+        assertEquals(DateFrom.instant("2026-09-17T11:00:00Z"), talentShow.start());
+    }
+
+    @Test
+    void saoEmptyMonthIsValidEmptyOnlyWhenNotFailClosed() {
+        // 2026-11 实采响应（32 字节）：events 空数组=日历渐进排期的正常空态——
+        // 源已列 allow-empty-sources（#186），宽和收空；strict 重载仍 fail-closed
+        // （若未来移出 allow-empty，空月即结构失配隔离，本测试钉住该语义边界）
+        byte[] emptyMonth = "{\"events\":[],\"eventTypeList\":[]}".getBytes();
+        assertTrue(NewsEventsJsonParser.parse(emptyMonth, false).isEmpty());
+        assertThrows(NewsFetchStructureException.class, () -> NewsEventsJsonParser.parse(emptyMonth));
     }
 
     static final class DateFrom {

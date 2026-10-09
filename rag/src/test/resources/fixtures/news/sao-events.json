@@ -1,0 +1,58 @@
+{
+  "events": [
+    {
+      "id": "3",
+      "start-date": "2026-09-03",
+      "end-date": "2026-09-04",
+      "isInitial": "0",
+      "type": "student development",
+      "content": "<div class=\"ev-blk  ani-before slideInBottom\">\r\n\t<div class=\"ev-blk__date date-blk\">\r\n\t\t<p class=\"date-blk__sub startev\" data-start=\"20260903\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">03</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\"></span>\r\n\t\t\t\t<span class=\"day-month-blk__year\"></span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t\t<p class=\"date-blk__sub endev\" data-end=\"20260904\" style=\"display:block\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">04</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t</div>\r\n\t<div class=\"ev-blk__main\">\r\n\t\t<p class=\"ev-blk__title\">\r\n\t\t\t<a href=\"https://www.polyu.edu.hk/sao/news-and-events/event-calendar/2026/september/campus-life-festival-2026-090304?sc_lang=en\" class=\"underline-link\" title=\"Campus Life Festival 2026\">\r\n\t\t\t\t<span class=\"underline-link__line\">Campus Life Festival 2026</span>\r\n\t\t\t</a>\r\n\t\t</p>\r\n\t\t<div class=\"ev-blk__cate-holder\">\r\n\t\t\t<ul class=\"ev-blk__legend-list legend-list\"><li class=\"legend-list__itm\"><p class=\"legend-item--purple legend-item\">Student Development</p></li></ul>\r\n\t\t\t<p class=\"ev-blk__holder\" style=\"display:none\"></p>\r\n\t\t</div>\r\n\t</div>\r\n</div>",
+      "title": "Campus Life Festival 2026",
+      "csscode": "purple",
+      "eventStartDate": "2026-09-03T12:00:00+08:00",
+      "eventEndDate": "2026-09-04T18:00:00+08:00"
+    },
+    {
+      "id": "4",
+      "start-date": "2026-09-07",
+      "end-date": "2026-09-08",
+      "isInitial": "0",
+      "type": "student development",
+      "content": "<div class=\"ev-blk  ani-before slideInBottom\">\r\n\t<div class=\"ev-blk__date date-blk\">\r\n\t\t<p class=\"date-blk__sub startev\" data-start=\"20260907\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">07</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\"></span>\r\n\t\t\t\t<span class=\"day-month-blk__year\"></span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t\t<p class=\"date-blk__sub endev\" data-end=\"20260908\" style=\"display:block\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">08</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t</div>\r\n\t<div class=\"ev-blk__main\">\r\n\t\t<p class=\"ev-blk__title\">\r\n\t\t\t<a href=\"https://www.polyu.edu.hk/sao/news-and-events/event-calendar/2026/september/campus-life-festival-2026-090708?sc_lang=en\" class=\"underline-link\" title=\"Campus Life Festival 2026\">\r\n\t\t\t\t<span class=\"underline-link__line\">Campus Life Festival 2026</span>\r\n\t\t\t</a>\r\n\t\t</p>\r\n\t\t<div class=\"ev-blk__cate-holder\">\r\n\t\t\t<ul class=\"ev-blk__legend-list legend-list\"><li class=\"legend-list__itm\"><p class=\"legend-item--purple legend-item\">Student Development</p></li></ul>\r\n\t\t\t<p class=\"ev-blk__holder\" style=\"display:none\"></p>\r\n\t\t</div>\r\n\t</div>\r\n</div>",
+      "title": "Campus Life Festival 2026",
+      "csscode": "purple",
+      "eventStartDate": "2026-09-07T12:00:00+08:00",
+      "eventEndDate": "2026-09-08T18:00:00+08:00"
+    },
+    {
+      "id": "5",
+      "start-date": "2026-09-17",
+      "end-date": "2026-09-17",
+      "isInitial": "0",
+      "type": "others",
+      "content": "<div class=\"ev-blk  ani-before slideInBottom\">\r\n\t<div class=\"ev-blk__date date-blk\">\r\n\t\t<p class=\"date-blk__sub startev\" data-start=\"20260917\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">17</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t\t<p class=\"date-blk__sub endev\" data-end=\"20260917\" style=\"display:none\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">17</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t</div>\r\n\t<div class=\"ev-blk__main\">\r\n\t\t<p class=\"ev-blk__title\">\r\n\t\t\t<a href=\"https://www.polyu.edu.hk/sao/news-and-events/event-calendar/2026/september/annual-talent-show-2026?sc_lang=en\" class=\"underline-link\" title=\"Annual Talent Show 2026\">\r\n\t\t\t\t<span class=\"underline-link__line\">Annual Talent Show 2026</span>\r\n\t\t\t</a>\r\n\t\t</p>\r\n\t\t<div class=\"ev-blk__cate-holder\">\r\n\t\t\t<ul class=\"ev-blk__legend-list legend-list\"><li class=\"legend-list__itm\"><p class=\"legend-item--orange legend-item\">Others</p></li></ul>\r\n\t\t\t<p class=\"ev-blk__holder\" style=\"display:none\"></p>\r\n\t\t</div>\r\n\t</div>\r\n</div>",
+      "title": "Annual Talent Show 2026",
+      "csscode": "orange",
+      "eventStartDate": "2026-09-17T19:00:00+08:00",
+      "eventEndDate": "2026-09-17T21:00:00+08:00"
+    },
+    {
+      "id": "7",
+      "start-date": "2026-09-27",
+      "end-date": "2026-09-27",
+      "isInitial": "0",
+      "type": "student development",
+      "content": "<div class=\"ev-blk  ani-before slideInBottom\">\r\n\t<div class=\"ev-blk__date date-blk\">\r\n\t\t<p class=\"date-blk__sub startev\" data-start=\"20260927\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">27</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t\t<p class=\"date-blk__sub endev\" data-end=\"20260927\" style=\"display:none\">\r\n\t\t\t<span class=\"day-month-blk\">\r\n\t\t\t\t<span class=\"day-month-blk__day\">27</span>\r\n\t\t\t\t<span class=\"day-month-blk__month\">Sep</span>\r\n\t\t\t\t<span class=\"day-month-blk__year\">2026</span>\r\n\t\t\t</span>\r\n\t\t</p>\r\n\t</div>\r\n\t<div class=\"ev-blk__main\">\r\n\t\t<p class=\"ev-blk__title\">\r\n\t\t\t<a href=\"https://www.polyu.edu.hk/sao/news-and-events/event-calendar/2026/september/cultural-night-series-202627-conight?sc_lang=en\" class=\"underline-link\" title=\"Cultural Night Series 2026/27 – C-ONight\">\r\n\t\t\t\t<span class=\"underline-link__line\">Cultural Night Series 2026/27 – C-ONight</span>\r\n\t\t\t</a>\r\n\t\t</p>\r\n\t\t<div class=\"ev-blk__cate-holder\">\r\n\t\t\t<ul class=\"ev-blk__legend-list legend-list\"><li class=\"legend-list__itm\"><p class=\"legend-item--purple legend-item\">Student Development</p></li></ul>\r\n\t\t\t<p class=\"ev-blk__holder\" style=\"display:none\"></p>\r\n\t\t</div>\r\n\t</div>\r\n</div>",
+      "title": "Cultural Night Series 2026/27 – C-ONight",
+      "csscode": "purple",
+      "eventStartDate": "2026-09-27T19:00:00+08:00",
+      "eventEndDate": "2026-09-27T21:30:00+08:00"
+    }
+  ],
+  "eventTypeList": [
+    {
+      "Title": "Student Development",
+      "CssCode": "legend-item--purple"
+    }
+  ]
+}
