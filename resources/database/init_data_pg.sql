@@ -706,7 +706,13 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   -- rag.news.allow-empty-sources（#186）防静月 fail-closed 连败误触自动隔离。
   -- seed 停用铁律同 #276/#277，启用留获批上线窗逐源技术检查（升级脚本同款：
   -- upgrades/v2.0.0/261010_cpeo_source_seed.sql）。
-  ('cpeo-events',     'official', '文化推广及活动办事处活动', 'CPEO Events Calendar', 'https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual')
+  ('cpeo-events',     'official', '文化推广及活动办事处活动', 'CPEO Events Calendar', 'https://www.polyu.edu.hk/cpeo/promotion-of-culture-on-campus/event/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual'),
+  -- #325 SAO 学生发展组活动日历（2026-10-09 查定）：/sao/news-and-events/event-calendar/ 页
+  -- JS 装载同款 Sitecore calendar API（calendar id=6840C445…，与大学级 events 的 F45B40DE… 不同簿）；
+  -- eventTypeList 仅 Student Development，9 月实采 7 条含 Campus Life Festival 两段日期拆条；
+  -- 日历渐进排期=下月空数组正常空态，源列 rag.news.allow-empty-sources（#186 有效空语义）。
+  -- 走既有 EventsApiNewsFetcher/NewsEventsJsonParser 零代码；seed 停用铁律同 #276。
+  ('sao-events',      'official', '学生事务处学生活动日历', 'SAO Event Calendar',     'https://www.polyu.edu.hk/sao/news-and-events/event-calendar/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=6840C445F9424C878A295D68627EBC4D&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual')
 ON CONFLICT (source_key) DO NOTHING;
 
 -- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
@@ -718,7 +724,7 @@ WHERE independence_group IS NULL
                      'sao-news', 'ar-notices', 'feng-news', 'comp-news', 'fce-news', 'shtm-news',
                      'youtube-main', 'youtube-feng', 'youtube-comp', 'youtube-fce',
                      'alumni-news', 'lib-news', 'fb-news', 'fhss-news',
-                     'speed-news', 'sd-news', 'sft-news', 'fs-awards', 'cpeo-events');
+                     'speed-news', 'sd-news', 'sft-news', 'fs-awards', 'cpeo-events', 'sao-events');
 UPDATE t_news_source SET independence_group = 'prn-wire'
 WHERE independence_group IS NULL AND source_key = 'prn';
 -- #277 媒体/政府三源按发布机构独立组（同机构多 feed 不多计独立票）

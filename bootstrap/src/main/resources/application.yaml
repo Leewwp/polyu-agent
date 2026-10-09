@@ -259,6 +259,7 @@ rag:
       media-releases: 3
       recent-focus: 3
       events: 3               #   活动日历=3
+      sao-events: 3           #   #325 SAO 学生活动日历=3（官网日历类同 events；seed 停用期零效果）
       sao-news: 3             #   官网子站公告/学院新闻=3
       ar-notices: 3
       feng-news: 3
@@ -289,6 +290,8 @@ rag:
                                      # （新频道空 feed 属正常；官网列表空页=模板改版嫌疑 fail-closed）。未列入的源零条目仍计结构失配
       - cpeo-events                 # #324 CPEO 活动日历：实查 2027/01、02 均 0 条=静月常态（JSON 有效、events:[]），不入表则静月
                                      # fail-closed 连败会误触自动隔离；JSON 不合法仍不豁免（解析器内建守卫）
+      - sao-events                  # #325 SAO 活动日历渐进排期：下月空数组=正常空态（2026-11 实采 32 字节空 events，
+                                     # 9 月 7 条→10 月 3 条→11 月 0 条为常态节奏）；缺 events 数组/坏 JSON 仍 fail-closed
     admission-source-daily-caps:     # 源日准入上限表（#185，sourceKey→条/日 HKT）：命中者覆盖 admission-default-source-daily-cap（50）；
                                      # 只是局部上限，全站仍受 admission-daily-site-cap（60/日，env 可调 RAG_NEWS_ADMISSIONDAILYSITECAP）约束。
                                      # #188 批 2 四源：稳态 20/日（2026-10-01 回灌验收毕自突发档 200/日回落；ai-arxiv-rss=20 同档先例；

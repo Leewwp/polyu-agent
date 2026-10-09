@@ -28,3 +28,15 @@ lib-news 行结构（Drupal views）：`div.views-row` 行容器 / `h3.views-fie
 | cpeo-events.json | cpeo-events | https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=2026/10 | 200，9 条，留 4（伞卡/中文标题/PolyU Cinema 放映场/空 type） | JSON_API（NewsEventsJsonParser 既有，零代码） | b7db058f0fd0f45e419c09fe6b01427d0ddcd04b724fa9f24955e2d0669963ea |
 
 实采备注（空月常态）：同日查 2026/11=1 条、2026/12=1 条（均 "PolyU Cinema" 系列置顶伞卡，eventStartDate=2026-01-27 常驻）、2027/01=0 条、2027/02=0 条——源入 `rag.news.allow-empty-sources`（#186）防静月 fail-closed 连败误触自动隔离。
+
+## #325 新增（2026-10-09，分支 `daily/sao-source-325`）
+
+SAO 学生发展组活动日历真实响应快照（裁剪件：7 条留 4——Campus Life Festival 两段日期、Annual Talent Show、Cultural Night；字段结构与 `eventTypeList` 原样）。抓取口径与生产同款：UA=`polyuguide-feed/1.0 (+https://polyuguide.com)`，`curl -4` 直连。快照为真实第三方内容，仅作本项目测试夹具使用，不额外公开传播。
+
+| fixture | source_key | 抓取 URL | 实采状态 | 解析族 | sha256 |
+|---|---|---|---|---|---|
+| sao-events.json | sao-events | https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=6840C445F9424C878A295D68627EBC4D&date=2026/09 | 200，7 条，留 4 | Sitecore calendar JSON 族（既有 events.json 同款，零代码） | 21b014714e61cc614153a87222c580ae1219c7a477e1fdbae32ed2e0f3e6b20a |
+
+robots 实判：`www.polyu.edu.hk/robots.txt` Disallow 仅各子站 search-results 与 `/cpa/souvenirs/`，API 路径 `/en/api/sitecore/calendar/get` 未禁（大学级 events 源同判例）。
+
+sao-events 特记（与大学级 events 的差异）：calendar id 不同（`6840C445…` vs `F45B40DE…`）；`eventTypeList` 仅 Student Development 一类；**跨段活动按日期段拆条**（CLF 9/3-4 与 9/7-8 两条，详情页 slug 含日期段 `-090304`/`-090708`，URL 去重后仍独立成条）；日历渐进排期——下月空数组属正常空态（2026-11 实采 `{"events":[],"eventTypeList":[]}` 32 字节），源列 `allow-empty-sources`（#186 有效空语义），空月断言钉在 `NewsEventsJsonParserTests#saoEmptyMonthIsValidEmptyOnlyWhenNotFailClosed`。
