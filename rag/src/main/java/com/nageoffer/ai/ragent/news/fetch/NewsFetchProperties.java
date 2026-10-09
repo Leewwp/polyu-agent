@@ -28,9 +28,9 @@ import java.util.Map;
  * 资讯抓取与预算参数（抓取序列的窗口/批上限+LLM 摘要预算护栏外置，#184）
  *
  * <p>绑定 {@code rag.news.*} 节，默认值=日常运营口径（14 天窗口、
- * 单源单轮 50 条、HTML_LIST 仅首页、events 当前月+下月）。历史回灌（近
- * 3 个月一次性补齐）通过命令行参数临时调大跑完即还原，日常不改动：
- * {@code --rag.news.backfill-days=95 --rag.news.max-items-per-source=500
+ * 单源单轮 50 条、HTML_LIST 仅首页、events 未来 8 周滚动窗口按月取数拼窗，
+ * #323）。历史回灌（近 3 个月一次性补齐）通过命令行参数临时调大跑完即还原，
+ * 日常不改动：{@code --rag.news.backfill-days=95 --rag.news.max-items-per-source=500
  * --rag.news.fetch-pages-max=15 --rag.news.events-past-months=3}。
  *
  * <p>预算护栏（{@code rag.news.budget-*}）口径与默认值：
@@ -70,10 +70,17 @@ public class NewsFetchProperties {
     private int fetchPagesMax = 1;
 
     /**
-     * events 型回溯过去月数（0=现行口径：当前月+下月两请求；>0 时向前多取
-     * N 个月份请求，跨月活动仍防漏）
+     * events 型回溯过去月数（0=现行口径；>0 时向前多取 N 个月份请求，跨月活动仍防漏）
      */
     private int eventsPastMonths = 0;
+
+    /**
+     * events 型未来滚动窗口周数（#323，票面=8）：按月取数拼窗——月份集合=覆盖
+     * 「今天起 N 周」所需的全部月份（2 或 3 个月，跨年自然拼接），跨月条目按
+     * 规范化 URL 去重；fail-closed 口径不随窗口放大（仅当前月+下月维持零条目
+     * 结构守卫，+2 月及以后零排期属正常宽和收空）
+     */
+    private int eventsWindowWeeks = 8;
 
     // ================== 准入与状态合同（#185，父票 #180 §2/§3） ==================
     //
@@ -352,6 +359,13 @@ public class NewsFetchProperties {
      */
     public int effectiveProbeSuccessWindowHours() {
         return probeSuccessWindowHours > 0 ? probeSuccessWindowHours : 48;
+    }
+
+    /**
+     * events 未来滚动窗口周数有效值（非正回退 8，#323 票面口径）
+     */
+    public int effectiveEventsWindowWeeks() {
+        return eventsWindowWeeks > 0 ? eventsWindowWeeks : 8;
     }
 
     /**

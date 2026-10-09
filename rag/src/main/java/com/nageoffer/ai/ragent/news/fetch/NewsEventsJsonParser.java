@@ -31,9 +31,11 @@ import java.util.List;
  *
  * <p>端点 {@code /en/api/sitecore/calendar/get?id=…&date=YYYY/MM}（大写 Calendar
  * 会 302 到小写，OkHttp 默认跟随重定向即覆盖）；响应结构 {@code events[]} 每条含
- * title / eventStartDate（ISO 带 +08:00）/ start-date / type / content（HTML 片段，
- * 内嵌详情页绝对链接）。条目 URL 从 content 的第一个 {@code <a href>} 提取——
- * 无链接的条目跳过（无永久外链不满足「卡片永远外链原文」纪律）。
+ * title / eventStartDate / eventEndDate（ISO 带 +08:00）/ start-date / end-date
+ * （裸日期）/ type / content（HTML 片段，内嵌详情页绝对链接）。条目 URL 从
+ * content 的第一个 {@code <a href>} 提取——无链接的条目跳过（无永久外链不满足
+ * 「卡片永远外链原文」纪律）。跨月活动会在其覆盖的每个月份响应里重复出现，
+ * 去重归抓取器按 URL 归一（#323）。
  */
 public final class NewsEventsJsonParser {
 
@@ -81,7 +83,13 @@ public final class NewsEventsJsonParser {
             if (start == null) {
                 start = parseDateOnly(event.path("start-date").asText(null));
             }
-            parsed.add(new EventEntry(detailUrl, title.trim(), start,
+            // #323 活动实体模型：结束时刻（eventEndDate 优先；裸日期 end-date 按
+            // 当日 23:59:59 HKT 归期代表值——含端语义，全日活动结束日当天仍属进行中）
+            Date end = parseInstant(event.path("eventEndDate").asText(null));
+            if (end == null) {
+                end = parseDateOnlyEndOfDay(event.path("end-date").asText(null));
+            }
+            parsed.add(new EventEntry(detailUrl, title.trim(), start, end,
                     event.path("type").asText(null)));
         }
         if (failClosed && parsed.isEmpty()) {
@@ -131,8 +139,26 @@ public final class NewsEventsJsonParser {
     }
 
     /**
-     * 活动条目：详情页链接 + 标题 + 开始时间 + 类型原文
+     * 裸结束日期（"2026-11-21"）按当日 23:59:59 HKT 归期代表值解释（#323 含端
+     * 语义：结束日=全天占用的最后一日，代表值取当日末刻而非零点——零点会让
+     * 「已开始未结束」判定在结束日当天提前收口）
      */
-    public record EventEntry(String link, String title, Date start, String typeHint) {
+    private static Date parseDateOnlyEndOfDay(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Date.from(java.time.LocalDate.parse(value.trim())
+                    .atTime(23, 59, 59).atZone(java.time.ZoneId.of("Asia/Hong_Kong")).toInstant());
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    /**
+     * 活动条目：详情页链接 + 标题 + 起止时间 + 类型原文；end=null=无明确结束
+     * 证据（不构成活动实体候选，仅按新闻条目走资讯流，#323）
+     */
+    public record EventEntry(String link, String title, Date start, Date end, String typeHint) {
     }
 }
