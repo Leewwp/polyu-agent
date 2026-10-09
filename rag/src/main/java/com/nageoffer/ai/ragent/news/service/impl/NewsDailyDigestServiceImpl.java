@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.news.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nageoffer.ai.ragent.calendar.KeyDateSemantics;
 import com.nageoffer.ai.ragent.calendar.dao.entity.KeyDateDO;
 import com.nageoffer.ai.ragent.calendar.dao.mapper.KeyDateMapper;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
@@ -53,7 +54,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -381,7 +381,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
      *     已开行者自然在前），容量截断=超限取最近；</li>
      * <li>ongoing=已开始（date_start &lt; D）未结束（有效结束日 date_end??date_start
      *     &gt;= D）；days_until=D→date_start 天数，倒计时门=仅 exact-day/exact-range
-     *     （onwards 不伪造截止语义恒 null——KeyDateQueryServiceImpl 同口径）；</li>
+     *     （onwards 不伪造截止语义恒 null——KeyDateSemantics 单一源，与看板同口径）；</li>
      * <li>窗口零条目=空列表（读取面整段隐藏，不渲染空壳）。</li>
      * </ul>
      * t_key_date 只读（#192 合同铁律），本方法零写入；展示字段全冗余快照，
@@ -413,14 +413,11 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     /**
      * 关键日期行→栏目快照：ongoing/days_until 按刊日冻结；倒计时门=仅
      * exact-day/exact-range（onwards 恒 null，负值=已开始区间留给 ongoing 徽章）
+     * ——语义三件套口径单一源 {@link KeyDateSemantics}
      */
     private static NewsDailyDigestKeyDateDO toKeyDateSnapshot(KeyDateDO row, LocalDate asOf) {
-        LocalDate effectiveEnd = row.getDateEnd() != null ? row.getDateEnd() : row.getDateStart();
-        boolean ongoing = row.getDateStart().isBefore(asOf) && !effectiveEnd.isBefore(asOf);
-        Integer daysUntil = null;
-        if ("exact-day".equals(row.getPrecision()) || "exact-range".equals(row.getPrecision())) {
-            daysUntil = (int) ChronoUnit.DAYS.between(asOf, row.getDateStart());
-        }
+        boolean ongoing = KeyDateSemantics.isOngoing(row, asOf);
+        Integer daysUntil = KeyDateSemantics.daysUntil(row, asOf);
         return NewsDailyDigestKeyDateDO.builder()
                 .keyDateId(row.getId())
                 .uid(row.getUid())
