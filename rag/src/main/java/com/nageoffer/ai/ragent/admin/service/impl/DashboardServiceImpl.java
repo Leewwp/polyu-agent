@@ -61,9 +61,9 @@ public class DashboardServiceImpl implements DashboardService {
     private static final String STATUS_SUCCESS = "SUCCESS";
     private static final String STATUS_ERROR = "ERROR";
     private static final String ROLE_ASSISTANT = "assistant";
-    private static final String NO_DOC_REPLY = "未检索到与问题相关的文档内容。";
+    private static final String NO_DOC_REPLY = "未检索到与该问题相关的 PolyU 官方资料，无法作答；若问题超出 PolyU 学生服务范围，同样不在服务范围内。欢迎问我 PolyU 相关问题，例如校历关键日期、图书馆空间预订、学生签证等。";
     // 双语化：零证据兜底文案英文变体（StreamChatPipeline 按提问语言输出），统计两变体并计
-    private static final String NO_DOC_REPLY_EN = "No relevant document content was found for this question.";
+    private static final String NO_DOC_REPLY_EN = "No relevant PolyU material was found for this question, so I can't answer it — and if it falls outside PolyU student services, it's outside my scope too. Feel free to ask me about PolyU topics such as key academic dates, library bookings, or student visas.";
     private static final String GRANULARITY_DAY = "day";
     private static final String GRANULARITY_HOUR = "hour";
     private static final long SLOW_LATENCY_THRESHOLD_MS = 20000L;
