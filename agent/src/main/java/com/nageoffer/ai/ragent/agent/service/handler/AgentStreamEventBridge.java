@@ -86,10 +86,13 @@ public class AgentStreamEventBridge {
     private static final int TOOL_RESULT_MAX_CHARS = 64_000;
     private static final String FALLBACK_CALL_KEY = "__anonymous__";
     /**
-     * 中断时的用户提示，写操作可能已经发出去，一律提醒核对再重试
+     * 中断时的用户提示，写操作可能已经发出去，一律提醒核对再重试；按本轮回答语言出双语变体
      */
     private static final String NOTICE_INTERRUPTED =
             "回复到这里中断了。如果上面有提交类操作，请先到对应业务系统核对是否生效，确认没生效再重新提问";
+    private static final String NOTICE_INTERRUPTED_EN =
+            "The reply was interrupted here. If a submit-type action appears above, please verify in the "
+                    + "corresponding system whether it took effect before asking again.";
     /**
      * 块时间戳格式，沿用前端约定不带时区
      */
@@ -104,6 +107,10 @@ public class AgentStreamEventBridge {
     private final String userId;
     private final String title;
     private final String replyToMessageId;
+    /**
+     * 本轮回答语言（"zh"/"en"，可空），只影响系统直接输出的中断提示文案
+     */
+    private final String answerLanguage;
     /**
      * 块时刻来源，测试传定格时钟
      */
@@ -144,7 +151,8 @@ public class AgentStreamEventBridge {
     public AgentStreamEventBridge(AgentRunHandle runHandle, AgentConversationService conversationService,
                                   ResolvedCatalog catalog, AgentMemoryApprovalService approvalService,
                                   String conversationId, String userId, String title,
-                                  String replyToMessageId, Clock clock, AgentToolExecutionFacts facts) {
+                                  String replyToMessageId, String answerLanguage,
+                                  Clock clock, AgentToolExecutionFacts facts) {
         this.runHandle = runHandle;
         this.sender = runHandle.getSender();
         this.conversationService = conversationService;
@@ -154,6 +162,7 @@ public class AgentStreamEventBridge {
         this.userId = userId;
         this.title = title;
         this.replyToMessageId = replyToMessageId;
+        this.answerLanguage = answerLanguage;
         this.clock = clock;
         this.facts = facts;
     }
@@ -223,20 +232,28 @@ public class AgentStreamEventBridge {
             // 块和当场的增量都要发，只塞进 content 的话历史回放有块就不读 content，刷新后这句就没了
             String content;
             synchronized (stateLock) {
+                String notice = interruptedNotice();
                 String streamed = textOf(TextKind.ANSWER);
                 content = StrUtil.isBlank(streamed)
-                        ? NOTICE_INTERRUPTED
-                        : streamed + "\n\n" + NOTICE_INTERRUPTED;
-                appendTextBlock(TextKind.ERROR, NOTICE_INTERRUPTED, false);
+                        ? notice
+                        : streamed + "\n\n" + notice;
+                appendTextBlock(TextKind.ERROR, notice, false);
             }
             sender.sendEvent(AgentSSEEventType.MESSAGE.value(),
-                    new AgentMessageDelta(TextKind.ERROR.kind, NOTICE_INTERRUPTED));
+                    new AgentMessageDelta(TextKind.ERROR.kind, interruptedNotice()));
             // 出错也落库留痕，否则已执行的工具操作在历史里查不到
             String messageId = settleAndPersistMessage(content, AgentMessageStatus.INTERRUPTED);
             // finish 让前端把已流出的内容与工具块定型，口径与落库一致，刷新前后看到的是同一条
             sendTerminal(AgentSSEEventType.FINISH,
                     new AgentCompletionPayload(messageId, title, AgentMessageStatus.INTERRUPTED.name(), facts.settleRun()));
         });
+    }
+
+    /**
+     * 中断提示按本轮回答语言取变体：英文提问收到固定中文系统文案是已实测过的缺陷形态
+     */
+    private String interruptedNotice() {
+        return "en".equals(answerLanguage) ? NOTICE_INTERRUPTED_EN : NOTICE_INTERRUPTED;
     }
 
     /**

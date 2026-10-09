@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -107,7 +108,7 @@ class KnowledgeSearchFacadeTest {
 
         ArgumentCaptor<List<ChatMessage>> promptHistory = ArgumentCaptor.forClass(List.class);
         verify(promptService).buildStructuredMessages(
-                any(PromptContext.class), promptHistory.capture(), anyString(), anyList(), anyBoolean());
+                any(PromptContext.class), promptHistory.capture(), anyString(), anyList(), anyBoolean(), any());
         assertTrue(promptHistory.getValue().isEmpty(), "合成阶段只依据本次证据");
     }
 
@@ -133,7 +134,7 @@ class KnowledgeSearchFacadeTest {
         when(retrievalEngine.retrieve(anyList()))
                 .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).build());
         when(promptService.buildStructuredMessages(
-                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean()))
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean(), any()))
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("答案");
 
@@ -171,7 +172,7 @@ class KnowledgeSearchFacadeTest {
         assertEquals(prompt, result);
         verify(retrievalEngine, never()).retrieve(anyList());
         verify(promptService, never()).buildStructuredMessages(
-                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean());
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean(), any());
         verify(llmService, never()).chat(any());
     }
 
@@ -211,7 +212,7 @@ class KnowledgeSearchFacadeTest {
         when(retrievalEngine.retrieve(anyList()))
                 .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).intentChunks(intentChunks).build());
         when(promptService.buildStructuredMessages(
-                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean()))
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean(), any()))
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("答案");
 
@@ -257,6 +258,39 @@ class KnowledgeSearchFacadeTest {
                 new CitationContextEnricher(properties), promptService, llmService, knowledgeDocumentMapper);
     }
 
+    /**
+     * 入口判定的语言贯穿到合成：answerLanguage 原样传给提示词服务第六参，不中途变形
+     */
+    @Test
+    void passesAnswerLanguageThroughToSynthesis() {
+        KnowledgeSearchFacade facade = facade(false);
+        stubRetrievalHit();
+
+        facade.searchWithSources(QUESTION, "en");
+
+        verify(promptService).buildStructuredMessages(
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean(), eq("en"));
+    }
+
+    /**
+     * 空检索兜底按本轮语言出：英文轮次不再收固定中文文案，未判定语言维持中文原样
+     */
+    @Test
+    void returnsLocalizedEmptyResultNotice() {
+        when(queryRewriteService.rewriteWithSplit(anyString(), anyList()))
+                .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
+        when(intentResolver.resolve(any(RewriteResult.class))).thenReturn(List.of());
+        when(guidanceService.detectAmbiguity(anyString(), anyList())).thenReturn(GuidanceDecision.none());
+        when(retrievalEngine.retrieve(anyList())).thenReturn(RetrievalContext.builder().build());
+
+        assertEquals("未在知识库中检索到与该问题相关的内容。",
+                facade(false).searchWithSources(QUESTION, "zh").answer());
+        assertEquals("No relevant content was found in the knowledge base for this question.",
+                facade(false).searchWithSources(QUESTION, "en").answer());
+        assertEquals("未在知识库中检索到与该问题相关的内容。",
+                facade(false).searchWithSources(QUESTION, null).answer());
+    }
+
     private void stubRetrievalHit() {
         NodeScore kbNode = NodeScore.builder()
                 .node(IntentNode.builder().id("kb-1").build())
@@ -270,7 +304,7 @@ class KnowledgeSearchFacadeTest {
         when(retrievalEngine.retrieve(anyList()))
                 .thenReturn(RetrievalContext.builder().kbContext(KB_CONTEXT).build());
         when(promptService.buildStructuredMessages(
-                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean()))
+                any(PromptContext.class), anyList(), anyString(), anyList(), anyBoolean(), any()))
                 .thenReturn(List.of());
         when(llmService.chat(any())).thenReturn("差旅报销上限 800 元");
     }
@@ -278,7 +312,7 @@ class KnowledgeSearchFacadeTest {
     private PromptContext capturePromptContext() {
         ArgumentCaptor<PromptContext> captor = ArgumentCaptor.forClass(PromptContext.class);
         verify(promptService).buildStructuredMessages(
-                captor.capture(), anyList(), anyString(), anyList(), anyBoolean());
+                captor.capture(), anyList(), anyString(), anyList(), anyBoolean(), any());
         return captor.getValue();
     }
 }

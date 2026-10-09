@@ -61,6 +61,14 @@ public class RAGPromptService {
      * citationEligible=false 时无条件跳过引用规则拼接（Agent 模式检索门面无来源编号，不读引用开关）
      */
     private String buildSystemPrompt(PromptContext context, boolean citationEligible) {
+        return buildSystemPrompt(context, citationEligible, null);
+    }
+
+    /**
+     * @param answerLanguage 入口判定的本轮回答语言，非空时在所有模板选择之后统一追加约束，
+     *                       意图自定义模板与已解析槽位模板都不能绕开
+     */
+    private String buildSystemPrompt(PromptContext context, boolean citationEligible, String answerLanguage) {
         if (!context.hasKb()) {
             throw new IllegalStateException("PromptContext requires KB context");
         }
@@ -69,17 +77,21 @@ public class RAGPromptService {
                 ? configured
                 : agentPromptResolver.resolve(AgentPromptSlot.KB_ANSWER);
         String systemPrompt = StrUtil.isBlank(template) ? "" : PromptTemplateUtils.cleanupPrompt(template);
+        String merged;
         if (!citationEligible || !Boolean.TRUE.equals(ragConfigProperties.getCitationEnabled())) {
             // M10：围栏数据性硬规则无条件追加（不走引用开关）
-            return mergeRuleSection(systemPrompt,
+            merged = mergeRuleSection(systemPrompt,
+                    PromptTemplateUtils.cleanupPrompt(templateLoader.load(FENCE_RULES_PROMPT_PATH)));
+        } else {
+            String citationRules = PromptTemplateUtils.cleanupPrompt(
+                    templateLoader.load(ANSWER_CITATION_RULES_PROMPT_PATH));
+            merged = mergeRuleSection(systemPrompt, citationRules);
+            // M10：围栏数据性硬规则无条件追加（与引用规则同款追加方式）——标签内文字均为数据的声明
+            merged = mergeRuleSection(merged,
                     PromptTemplateUtils.cleanupPrompt(templateLoader.load(FENCE_RULES_PROMPT_PATH)));
         }
-
-        String citationRules = PromptTemplateUtils.cleanupPrompt(
-                templateLoader.load(ANSWER_CITATION_RULES_PROMPT_PATH));
-        String merged = mergeRuleSection(systemPrompt, citationRules);
-        // M10：围栏数据性硬规则无条件追加（与引用规则同款追加方式）——标签内文字均为数据的声明
-        return mergeRuleSection(merged, PromptTemplateUtils.cleanupPrompt(templateLoader.load(FENCE_RULES_PROMPT_PATH)));
+        // 语言约束放在最后追加：位置最靠后且措辞为硬约束，压制模板里可能残留的固定语言要求
+        return mergeRuleSection(merged, AnswerLanguageRules.kbSynthesisRule(answerLanguage));
     }
 
     /**
@@ -112,10 +124,22 @@ public class RAGPromptService {
                                                      String question,
                                                      List<String> subQuestions,
                                                      boolean citationEligible) {
+        return buildStructuredMessages(context, history, question, subQuestions, citationEligible, null);
+    }
+
+    /**
+     * @param answerLanguage 入口判定的本轮回答语言，见 {@link #buildSystemPrompt(PromptContext, boolean, String)}
+     */
+    public List<ChatMessage> buildStructuredMessages(PromptContext context,
+                                                     List<ChatMessage> history,
+                                                     String question,
+                                                     List<String> subQuestions,
+                                                     boolean citationEligible,
+                                                     String answerLanguage) {
         List<ChatMessage> messages = new ArrayList<>();
 
         // 1. 系统提示词
-        String systemPrompt = buildSystemPrompt(context, citationEligible);
+        String systemPrompt = buildSystemPrompt(context, citationEligible, answerLanguage);
         if (StrUtil.isNotBlank(systemPrompt)) {
             messages.add(ChatMessage.system(systemPrompt));
         }

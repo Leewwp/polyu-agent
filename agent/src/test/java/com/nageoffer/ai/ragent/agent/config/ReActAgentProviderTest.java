@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.config;
 
 import com.nageoffer.ai.ragent.agent.confirm.AgentConfirmDenialMiddleware;
+import com.nageoffer.ai.ragent.agent.language.AnswerLanguageMiddleware;
 import com.nageoffer.ai.ragent.agent.memory.AgentContextCompactionMiddleware;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
@@ -122,6 +123,7 @@ class ReActAgentProviderTest {
                 agentProperties,
                 passThrough(AgentUserMemoryMiddleware.class),
                 passThrough(AgentContextCompactionMiddleware.class),
+                passThrough(AnswerLanguageMiddleware.class),
                 passThrough(AgentConfirmDenialMiddleware.class),
                 passThrough(AgentSkillMaskingMiddleware.class),
                 new AgentToolBatchMiddleware(),

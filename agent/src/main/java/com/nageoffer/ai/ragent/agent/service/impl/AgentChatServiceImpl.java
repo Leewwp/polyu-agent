@@ -26,6 +26,7 @@ import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.dto.AgentMetaPayload;
 import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.enums.AgentSSEEventType;
+import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
@@ -154,6 +155,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         // 必须在 addUserMessage 之前建立基线，否则本轮消息会被划进历史、漏抽
         memoryPipeline.ensureExtractionBaseline(userId);
         String questionMessageId = conversationService.addUserMessage(conversationId, userId, question);
+        // 语言以原始问题判定一次：后续工具改写、query 重写都不再重新猜
+        String answerLanguage = AnswerLanguages.detect(question);
 
         launchStream(new UserMessage(question), activeAgent, RunScope.builder()
                 .emitter(emitter)
@@ -162,6 +165,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .taskId(taskId)
                 .title(title)
                 .replyToMessageId(questionMessageId)
+                .answerLanguage(answerLanguage)
                 .releaseGate(releaseGate)
                 .build());
     }
@@ -174,6 +178,9 @@ public class AgentChatServiceImpl implements AgentChatService {
         ActiveAgent activeAgent = agentProvider.getAgent();
         AgentConfirmSettlement settlement = conversationService.getPendingConfirm(conversationId, userId, messageId);
         List<ConfirmResult> confirmResults = resolveConfirmResultsOrExpire(activeAgent, userId, conversationId, messageId, approved);
+        // 续跑没有新问题文本：本轮语言从答复挂靠的原用户消息恢复，判不出（消息缺失/无语言）回落人设默认
+        String answerLanguage = AnswerLanguages.detect(
+                conversationService.getMessageContent(conversationId, userId, settlement.replyToMessageId()));
 
         // 空正文消息仅携带确认/拒绝结果，框架不会把它并进对话上下文
         Msg resumeMsg = UserMessage.builder()
@@ -186,6 +193,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .taskId(taskId)
                 .title(settlement.title())
                 .replyToMessageId(settlement.replyToMessageId())
+                .answerLanguage(answerLanguage)
                 .confirmMessageId(messageId)
                 .confirmApproved(approved)
                 .releaseGate(releaseGate)
@@ -347,6 +355,7 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .userId(scope.userId())
                 .title(scope.title())
                 .replyToMessageId(scope.replyToMessageId())
+                .answerLanguage(scope.answerLanguage())
                 .clock(clock)
                 .facts(facts)
                 .build();
@@ -377,6 +386,10 @@ public class AgentChatServiceImpl implements AgentChatService {
         runtimeContext.put(AgentTraceContextKeys.TASK_ID, scope.taskId());
         runtimeContext.put(AgentTraceContextKeys.REPLY_TO_MESSAGE_ID, scope.replyToMessageId());
         runtimeContext.put(AgentTraceContextKeys.CONFIRM_MESSAGE_ID, scope.confirmMessageId());
+        // 底层 ConcurrentHashMap 不接受 null，判不出语言的轮次不落键，消费侧按无约束处理
+        if (StrUtil.isNotBlank(scope.answerLanguage())) {
+            runtimeContext.put(AnswerLanguages.RUNTIME_CONTEXT_KEY, scope.answerLanguage());
+        }
         return runtimeContext;
     }
 
@@ -385,8 +398,8 @@ public class AgentChatServiceImpl implements AgentChatService {
      */
     @Builder
     private record RunScope(SseEmitter emitter, String userId, String conversationId,
-                            String taskId, String title, String replyToMessageId, String confirmMessageId,
-                            boolean confirmApproved, Runnable releaseGate) {
+                            String taskId, String title, String replyToMessageId, String answerLanguage,
+                            String confirmMessageId, boolean confirmApproved, Runnable releaseGate) {
     }
 
     /**
