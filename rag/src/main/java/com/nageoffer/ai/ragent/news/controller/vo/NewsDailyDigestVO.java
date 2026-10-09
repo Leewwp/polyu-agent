@@ -106,6 +106,13 @@ public class NewsDailyDigestVO {
     private List<NewsDailyDigestKeyDateVO> keyDates;
 
     /**
+     * 校园活动版面快照（#330 L2：纯数据零 LLM，ongoing 生成期冻结 as-of=刊日
+     * ——true=进行中组/false=即将来临组）。窗口零活动=空列表，前端整段隐藏
+     * 不渲染空壳；空刊（items 为空）仍照常携带——供给与资讯量解耦
+     */
+    private List<NewsDailyDigestActivityVO> activities;
+
+    /**
      * 生成时刻
      */
     private Date buildTime;

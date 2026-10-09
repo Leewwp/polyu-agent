@@ -6,7 +6,7 @@ import { DailyDigestPage } from "./DailyDigestPage";
 import { FeedLangProvider } from "@/components/feed/feedLang";
 import { resetPageTitleForTests } from "@/hooks/usePageTitle";
 import { dailyDigestRssUrl, fetchDailyDigest, fetchDailyDigestList } from "@/services/newsService";
-import type { NewsDailyDigest, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
 
 /**
  * 公开日报页（#241 报刊范式，原型 proto/238 转正）：
@@ -607,6 +607,137 @@ describe("DailyDigestPage", () => {
       expect(screen.getByText("in 9 days")).toBeTruthy();
       expect(screen.getByText("28 Sep – 6 Oct")).toBeTruthy();
       expect(screen.getByText("Mon 12 Oct")).toBeTruthy();
+    } finally {
+      window.localStorage.removeItem("polyu.feed.lang");
+    }
+  });
+
+  // ─────────────── #330 校园活动版面（L2：进行中/即将来临两组，空刊降级保底） ───────────────
+
+  function activityRow(overrides: Partial<NewsDailyDigestActivity> = {}): NewsDailyDigestActivity {
+    return {
+      seq: 1,
+      itemId: 201,
+      titleZh: "第32届毕业典礼",
+      titleEn: "32nd Congregation",
+      url: "https://www.polyu.edu.hk/en/events/congregation",
+      dateStart: "2026-10-01",
+      dateEnd: "2026-11-21",
+      ongoing: true,
+      ...overrides
+    };
+  }
+
+  it("#330 renders the activities band grouped ongoing/upcoming, ordered by snapshot seq, cards linking out", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    // 数组故意乱序（seq 3 在前）——客户端按快照序（date_start 升序）兜底排序
+    vi.mocked(fetchDailyDigest).mockResolvedValue(
+      digestFixture({
+        activities: [
+          activityRow({
+            seq: 3,
+            itemId: 203,
+            titleZh: "艺墟",
+            titleEn: "Art Fair",
+            dateStart: "2026-10-18",
+            dateEnd: "2026-10-20",
+            ongoing: false
+          }),
+          activityRow({ seq: 1, itemId: 201, ongoing: true }),
+          activityRow({
+            seq: 2,
+            itemId: 202,
+            titleZh: null,
+            titleEn: "Information Day 2026",
+            dateStart: "2026-10-10",
+            dateEnd: "2026-10-10",
+            ongoing: false
+          })
+        ]
+      })
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("校园活动")).toBeTruthy(), { timeout: 5000 });
+    // 两组分组（ongoing 生成期冻结直映）：进行中（跨区间）+即将来临，组计数如实
+    expect(screen.getByText("进行中")).toBeTruthy();
+    expect(screen.getByText("即将来临")).toBeTruthy();
+    expect(screen.getByText("1 项")).toBeTruthy();
+    expect(screen.getByText("2 项")).toBeTruthy();
+    expect(screen.getByText("3 项")).toBeTruthy();
+    // 词表缺词 zh=null 回退英文标题
+    expect(screen.getByText("Information Day 2026")).toBeTruthy();
+    // 日期文案：区间+单日两形态（HKT 历日快照直映）
+    expect(screen.getByText("10月1日 – 11月21日")).toBeTruthy();
+    expect(screen.getByText("10月10日")).toBeTruthy();
+    // 卡片外链语义：整卡 <a> 指详情页新窗打开
+    const card = screen.getByText("第32届毕业典礼").closest("a");
+    expect(card?.getAttribute("href")).toBe("https://www.polyu.edu.hk/en/events/congregation");
+    expect(card?.getAttribute("target")).toBe("_blank");
+    // 快照序（date_start 升序）决定 DOM 序：毕业典礼 → Info Day → 艺墟
+    const first = screen.getByText("第32届毕业典礼");
+    const second = screen.getByText("Information Day 2026");
+    const third = screen.getByText("艺墟");
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(second.compareDocumentPosition(third) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("#330 hides the activities band entirely when the window has no activities", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByLabelText("校园活动")).toBeNull();
+    expect(screen.queryByText("即将来临")).toBeNull();
+  });
+
+  it("#330 keeps the activities band on a recess issue as the degraded floor layout", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue({
+      ...recessFixture("2026-10-01"),
+      activities: [activityRow()]
+    });
+    renderPage("/daily/2026-10-01");
+
+    await waitFor(() => expect(screen.getByText("本日休刊")).toBeTruthy(), { timeout: 5000 });
+    // 空刊降级版式：资讯零条仍出 L2 版面（保底内容）+休刊说明并存
+    expect(screen.getByLabelText("校园活动")).toBeTruthy();
+    expect(screen.getByText("第32届毕业典礼")).toBeTruthy();
+    expect(screen.getByText(/不是生成故障/)).toBeTruthy();
+  });
+
+  it("#330 renders the activities band bilingually under the English UI language", async () => {
+    window.localStorage.setItem("polyu.feed.lang", "en");
+    try {
+      vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+      vi.mocked(fetchDailyDigest).mockResolvedValue(
+        digestFixture({
+          activities: [
+            activityRow(),
+            activityRow({
+              seq: 2,
+              itemId: 202,
+              titleEn: null,
+              titleZh: "艺墟2026",
+              dateStart: "2026-10-10",
+              dateEnd: "2026-10-10",
+              ongoing: false
+            })
+          ]
+        })
+      );
+      renderPage();
+
+      await waitFor(() => expect(screen.getByLabelText("Campus activities")).toBeTruthy(), { timeout: 5000 });
+      // 组标题/日期文案同源英文
+      expect(screen.getByText("Ongoing")).toBeTruthy();
+      expect(screen.getByText("Upcoming")).toBeTruthy();
+      expect(screen.getByText("1 Oct – 21 Nov")).toBeTruthy();
+      expect(screen.getByText("10 Oct")).toBeTruthy();
+      // 英文优先、英文缺位回退中文
+      expect(screen.getByText("32nd Congregation")).toBeTruthy();
+      expect(screen.getByText("艺墟2026")).toBeTruthy();
     } finally {
       window.localStorage.removeItem("polyu.feed.lang");
     }

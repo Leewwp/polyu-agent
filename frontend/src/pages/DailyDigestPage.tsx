@@ -27,6 +27,7 @@ import { countdownBadge, keyDateLabel } from "@/services/keyDateService";
 import type {
   NewsCategory,
   NewsDailyDigest,
+  NewsDailyDigestActivity,
   NewsDailyDigestItem,
   NewsDailyDigestKeyDate,
   NewsDailyDigestSummary
@@ -54,7 +55,10 @@ import { cn } from "@/lib/utils";
  * - 加载反馈与竞态（#272）：目录/详情等待均出稳定骨架（aria-busy+
  *   装饰 aria-hidden+motion-safe 脉动），目录失败与详情失败分开表达，
  *   详情成功不抹目录失败；渲染守卫保证切期帧不把新日期配旧刊；
- *   切期关闭旧目录抽屉。
+ *   切期关闭旧目录抽屉；
+ * - 头部固定栏目：#316 L1 校历关键日期 + #330 L2 校园活动（「进行中/
+ *   即将来临」两组、日历块卡片、与 L1 视觉区分）——均纯数据快照零 LLM、
+ *   空窗整段隐藏、空刊保底呈现。
  */
 
 /** 版序 = feed 类目 chips 序（#237 Q7：版序沿用 feed 类目序；other 兜底最后） */
@@ -495,6 +499,114 @@ function KeyDatesBand({ keyDates }: { keyDates: NewsDailyDigestKeyDate[] }) {
         })}
       </div>
     </section>
+  );
+}
+
+/**
+ * 校园活动版面（#330 L2，父票 #317——总纲 #315 线一）：日报头部固定版面，
+ * 纯数据快照（零 LLM）、供给与资讯量解耦——空刊也保底有内容（降级版式）。
+ * - 「进行中/即将来临」两组（ongoing 生成期冻结 as-of=刊日：已开始未结束=
+ *   进行中，当日开始归即将来临），组内按快照序（date_start 升序，进行中的
+ *   跨区间活动开始日早自然在前）；窗口零活动=整段隐藏（不渲染空壳）；
+ *   过期活动不进快照——读者只见进行中与未来 1-2 周清单；
+ * - 与 L1 校历栏目（keyDates 基线分隔单行清单）视觉区分：红底横幅题头+
+ *   日历块卡片+组小标题，条目=卡片外链语义（详情页新窗打开）；
+ * - 移动端单列、桌面两列（沿用版面网格断点）；数据源=events 扩窗兜底
+ *   （#323），CPEO/SAO 入库后自动汇入无需改版面。
+ */
+function CampusActivitiesBand({ activities }: { activities: NewsDailyDigestActivity[] }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  if (activities.length === 0) {
+    return null;
+  }
+  // 客户端按快照序兜底排序（后端 seq 升序返回，防御数组乱序）
+  const rows = [...activities].sort((a, b) => a.seq - b.seq);
+  const ongoing = rows.filter((row) => row.ongoing);
+  const upcoming = rows.filter((row) => !row.ongoing);
+  const group = (label: string, list: NewsDailyDigestActivity[]) => {
+    if (list.length === 0) {
+      return null;
+    }
+    return (
+      <div key={label} className="mb-2.5 last:mb-0">
+        <div className="mb-1.5 flex items-baseline gap-1.5">
+          <h3 className="text-[12.5px] font-bold text-[var(--polyu-red-dark)]">{label}</h3>
+          <span className="text-[10.5px] tabular-nums text-[var(--feed-text-tertiary)]">
+            {zh ? `${list.length} 项` : `${list.length}`}
+          </span>
+        </div>
+        <div className="grid gap-2 min-[861px]:grid-cols-2">
+          {list.map((row) => (
+            <ActivityCard key={row.itemId} row={row} zh={zh} />
+          ))}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <section id="sec-activities" className="mb-5 scroll-mt-[76px]" aria-label={zh ? "校园活动" : "Campus activities"}>
+      {/* L2 视觉区分（vs L1 基线题头）：红底横幅题头，条目计数+排序口径说明 */}
+      <div className="mb-3 flex items-baseline gap-2.5 rounded-xl bg-[var(--polyu-red-50)] px-3.5 py-2">
+        <h2 className="text-[15.5px] font-bold text-[var(--polyu-red-dark)]">
+          {zh ? "校园活动" : "Campus activities"}
+        </h2>
+        <span className="text-[11.5px] font-semibold tabular-nums text-[var(--polyu-red-dark)]">
+          {zh ? `${rows.length} 项` : `${rows.length} items`}
+        </span>
+        <span className="ml-auto text-[10px] font-semibold tracking-[0.08em] text-[var(--polyu-red-dark)]">
+          {zh ? "按开始日期排列" : "BY START DATE"}
+        </span>
+      </div>
+      {group(zh ? "进行中" : "Ongoing", ongoing)}
+      {group(zh ? "即将来临" : "Upcoming", upcoming)}
+    </section>
+  );
+}
+
+/** 活动日期文案：单日「10月10日」/区间「10月1日 – 11月21日」（HKT 历日快照直映） */
+function activityDateLabel(row: Pick<NewsDailyDigestActivity, "dateStart" | "dateEnd">, zh: boolean): string {
+  if (row.dateStart === row.dateEnd) {
+    return zh ? zhDate(row.dateStart) : enDate(row.dateStart);
+  }
+  return zh
+    ? `${zhDate(row.dateStart)} – ${zhDate(row.dateEnd)}`
+    : `${enDate(row.dateStart)} – ${enDate(row.dateEnd)}`;
+}
+
+/** 活动卡片：日历块（月+日）+标题+起止区间文案，整卡外链（详情页新窗打开） */
+function ActivityCard({ row, zh }: { row: NewsDailyDigestActivity; zh: boolean }) {
+  const title = (zh ? row.titleZh : row.titleEn) || (zh ? row.titleEn : row.titleZh) || "";
+  const start = dateParts(row.dateStart);
+  const body = (
+    <>
+      <span
+        aria-hidden
+        className="flex h-[38px] w-[44px] flex-none flex-col items-center justify-center rounded-lg bg-[var(--polyu-red-50)] leading-tight"
+      >
+        <span className="text-[9.5px] font-bold text-[var(--polyu-red-dark)]">
+          {zh ? `${start.m}月` : MONTHS_EN[start.m - 1]}
+        </span>
+        <span className="text-[15px] font-black tabular-nums text-[var(--polyu-red-dark)]">{start.day}</span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-semibold text-[var(--feed-text-primary)]">{title}</span>
+        <span className="mt-0.5 block text-[11px] tabular-nums text-[var(--feed-text-tertiary)]">
+          {activityDateLabel(row, zh)}
+        </span>
+      </span>
+      <span aria-hidden className="flex-none text-[12px] text-[var(--feed-text-tertiary)]">↗</span>
+    </>
+  );
+  const cls =
+    "flex items-center gap-2.5 rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-3 py-2 shadow-sm transition-colors hover:border-[#D8B7BC]";
+  if (!isSafeUrl(row.url)) {
+    return <div className={cls}>{body}</div>;
+  }
+  return (
+    <a className={cls} href={row.url} target="_blank" rel="noopener noreferrer">
+      {body}
+    </a>
   );
 }
 
@@ -939,9 +1051,10 @@ function IssueBody({
       <Masthead digest={digest} latest={hasCatalog && digest.digestDate === summaries[0].digestDate} />
       {hasCatalog && <MobileDateBar summaries={summaries} selectedDate={digest.digestDate} />}
       <MobileTocButton onOpen={onOpenToc} />
-      {/* #316 L1：头部固定栏目——空窗整段隐藏；空刊（资讯零条）仍在休刊卡上方
-          保底呈现，日报任何一天不空页 */}
+      {/* #316 L1 + #330 L2：头部固定栏目——空窗整段隐藏；空刊（资讯零条）仍在
+          休刊卡上方保底呈现，日报任何一天不空页（两栏目供给均与资讯量解耦） */}
       <KeyDatesBand keyDates={digest.keyDates ?? []} />
+      <CampusActivitiesBand activities={digest.activities ?? []} />
       {digest.items.length > 0 ? (
         <>
           <FrontPage digest={digest} derived={derived} />

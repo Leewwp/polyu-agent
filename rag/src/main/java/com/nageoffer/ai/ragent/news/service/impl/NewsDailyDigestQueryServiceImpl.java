@@ -18,15 +18,18 @@
 package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestActivityVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestItemVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceMetaVO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestActivityMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
@@ -109,6 +112,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     private final NewsDailyDigestMapper digestMapper;
     private final NewsDailyDigestItemMapper digestItemMapper;
     private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
+    private final NewsDailyDigestActivityMapper digestActivityMapper;
     private final NewsItemMapper itemMapper;
     private final NewsFetchProperties properties;
 
@@ -116,11 +120,13 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     public NewsDailyDigestQueryServiceImpl(NewsDailyDigestMapper digestMapper,
                                            NewsDailyDigestItemMapper digestItemMapper,
                                            NewsDailyDigestKeyDateMapper digestKeyDateMapper,
+                                           NewsDailyDigestActivityMapper digestActivityMapper,
                                            NewsItemMapper itemMapper,
                                            NewsFetchProperties properties) {
         this.digestMapper = digestMapper;
         this.digestItemMapper = digestItemMapper;
         this.digestKeyDateMapper = digestKeyDateMapper;
+        this.digestActivityMapper = digestActivityMapper;
         this.itemMapper = itemMapper;
         this.properties = properties;
     }
@@ -173,6 +179,13 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                                 .eq(NewsDailyDigestKeyDateDO::getDigestId, header.getId())
                                 .orderByAsc(NewsDailyDigestKeyDateDO::getSeq))
                 .stream().map(this::toKeyDateVO).toList();
+        // 校园活动版面（#330 L2）：快照行直映零 LLM 零回查 t_news_item——
+        // ongoing 生成期冻结（as-of=刊日）；空列表=版面隐藏
+        List<NewsDailyDigestActivityVO> activities = digestActivityMapper.selectList(
+                        new LambdaQueryWrapper<NewsDailyDigestActivityDO>()
+                                .eq(NewsDailyDigestActivityDO::getDigestId, header.getId())
+                                .orderByAsc(NewsDailyDigestActivityDO::getSeq))
+                .stream().map(this::toActivityVO).toList();
         return NewsDailyDigestVO.builder()
                 .digestDate(header.getDigestDate())
                 .windowStart(header.getWindowStart())
@@ -186,6 +199,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .disqualifiedCount(disqualified)
                 .items(visible)
                 .keyDates(keyDates)
+                .activities(activities)
                 .buildTime(header.getBuildTime())
                 .build();
     }
@@ -446,6 +460,20 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .fuzzyHint(snapshot.getFuzzyHint())
                 .ongoing(snapshot.getOngoing())
                 .daysUntil(snapshot.getDaysUntil())
+                .build();
+    }
+
+    /** 校园活动版面快照直映（快照列即展示字段，ongoing 生成期冻结，#330） */
+    private NewsDailyDigestActivityVO toActivityVO(NewsDailyDigestActivityDO snapshot) {
+        return NewsDailyDigestActivityVO.builder()
+                .seq(snapshot.getSeq())
+                .itemId(snapshot.getItemId())
+                .titleZh(snapshot.getTitleZh())
+                .titleEn(snapshot.getTitleEn())
+                .url(snapshot.getUrl())
+                .dateStart(snapshot.getDateStart())
+                .dateEnd(snapshot.getDateEnd())
+                .ongoing(snapshot.getOngoing())
                 .build();
     }
 

@@ -238,6 +238,35 @@ public class NewsFetchProperties {
         return digestKeyDateMaxEntries > 0 ? digestKeyDateMaxEntries : 8;
     }
 
+    // ================== 日报校园活动版面（#330，父票 #317——总纲 #315 线一 L2） ==================
+
+    /**
+     * 活动版面窗口天数（含刊日当天的历日数）：窗口=[D, D+N-1] 含端，活动区间
+     * （publish_time 活动开始 → activity_end_time 活动结束，HKT 历日）与窗口
+     * 任一历日重叠即入选；默认 56=8 周（与 events 抓取扩窗同口径，#323）；
+     * 纯数据零 LLM，供给与资讯量解耦（空刊保底版面）
+     */
+    private int digestActivityWindowDays = 56;
+
+    /**
+     * 活动版面最大条数：超限取最近（date_start 升序截断）；非正回退 10
+     */
+    private int digestActivityMaxEntries = 10;
+
+    /**
+     * 活动版面窗口天数有效值（含端历日数，非正回退 56）
+     */
+    public int effectiveDigestActivityWindowDays() {
+        return digestActivityWindowDays > 0 ? digestActivityWindowDays : 56;
+    }
+
+    /**
+     * 活动版面最大条数有效值（非正回退 10）
+     */
+    public int effectiveDigestActivityMaxEntries() {
+        return digestActivityMaxEntries > 0 ? digestActivityMaxEntries : 10;
+    }
+
     /**
      * 日报单刊快照条数硬上界有效值（非正回退 200）
      */

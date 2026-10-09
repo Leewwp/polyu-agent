@@ -148,6 +148,24 @@ export interface NewsDailyDigestKeyDate {
   daysUntil: number | null;
 }
 
+/** 日报校园活动版面快照（#330 L2：后端 NewsDailyDigestActivityVO，生成期冻结 as-of=刊日） */
+export interface NewsDailyDigestActivity {
+  /** 版面内序（1 起，date_start 升序、item_id 兜底；进行中的开始日早自然在前） */
+  seq: number;
+  /** 溯源条目 id（无外键语义，快照独立性红线） */
+  itemId: number;
+  titleZh: string | null;
+  titleEn: string | null;
+  /** 详情页永久外链（卡片外链语义） */
+  url: string;
+  /** YYYY-MM-DD 活动开始日（HKT 历日） */
+  dateStart: string;
+  /** YYYY-MM-DD 活动结束日（HKT 历日，含端） */
+  dateEnd: string;
+  /** 进行中=开始日 < 刊日 且结束日 >= 刊日（当日开始归「即将来临」，生成期冻结） */
+  ongoing: boolean;
+}
+
 /** 日报详情（后端 NewsDailyDigestVO：读取期下架复检后的生效口径） */
 export interface NewsDailyDigest {
   /** YYYY-MM-DD（HKT 窗口闭端日） */
@@ -169,6 +187,8 @@ export interface NewsDailyDigest {
   items: NewsDailyDigestItem[];
   /** 校历关键日期栏目（#316）：空=窗口零条目，栏目整段隐藏；空刊仍携带（降级版式保底） */
   keyDates?: NewsDailyDigestKeyDate[];
+  /** 校园活动版面（#330）：空=窗口零活动，版面整段隐藏；空刊仍携带（供给与资讯量解耦） */
+  activities?: NewsDailyDigestActivity[];
   buildTime: string;
 }
 

@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.nageoffer.ai.ragent.calendar.dao.entity.KeyDateDO;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
@@ -29,6 +30,7 @@ import com.nageoffer.ai.ragent.news.dao.mapper.NewsItemTopicMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsSourceMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsTopicMapper;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
+import com.nageoffer.ai.ragent.news.service.NewsActivityQueryService;
 import com.nageoffer.ai.ragent.news.service.NewsDailyDigestService;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +41,8 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 
@@ -74,6 +78,7 @@ class NewsDailyDigestServiceTests {
     private FakeDailyDigestStore digestStore;
     private FakeDailyDigestNewsItemStore itemStore;
     private FakeKeyDateStore keyDateStore;
+    private FakeActivityPort activityPort;
     private NewsLlmBudgetService budgetService;
     private PromptTemplateLoader promptLoader;
     private NewsFetchProperties properties;
@@ -90,6 +95,7 @@ class NewsDailyDigestServiceTests {
         digestStore = new FakeDailyDigestStore();
         itemStore = new FakeDailyDigestNewsItemStore();
         keyDateStore = new FakeKeyDateStore();
+        activityPort = new FakeActivityPort();
         budgetService = mock(NewsLlmBudgetService.class);
         promptLoader = mock(PromptTemplateLoader.class);
         NewsItemTopicMapper itemTopicMapper = mock(NewsItemTopicMapper.class);
@@ -98,8 +104,10 @@ class NewsDailyDigestServiceTests {
         when(promptLoader.render(any(), any())).thenReturn("rendered-prompt");
         properties = new NewsFetchProperties();
         service = new NewsDailyDigestServiceImpl(digestStore.digestMapper, digestStore.digestItemMapper,
-                digestStore.digestKeyDateMapper, itemStore.mapper, itemTopicMapper, topicMapper, sourceMapper,
-                keyDateStore.mapper, budgetService, promptLoader, properties, new ObjectMapper(), () -> NOW);
+                digestStore.digestKeyDateMapper, digestStore.digestActivityMapper,
+                itemStore.mapper, itemTopicMapper, topicMapper, sourceMapper,
+                keyDateStore.mapper, activityPort, budgetService, promptLoader, properties,
+                new ObjectMapper(), () -> NOW);
     }
 
     // ==================== 条目工厂 ====================
@@ -397,6 +405,130 @@ class NewsDailyDigestServiceTests {
         assertEquals(0, result.itemCount());
         assertEquals(NewsDailyDigestDO.INTRO_SOURCE_EMPTY, result.introSource());
         assertEquals(1, digestStore.keyDates().size(), "空刊也有 L1 栏目行（保底内容）");
+        verify(budgetService, never()).call(any(), any());
+    }
+
+    // ==================== 校园活动版面（#330 L2，as-of=刊日 10-03，默认窗口 56 天） ====================
+
+    /**
+     * 活动读取口内存 fake（#330）：按 {@link NewsActivityQueryService} 合同实现
+     * 最小语义——窗口 [asOf, asOf+windowDays-1] 含端、活动区间与窗口任一历日
+     * 重叠入选（过期=结束日早于 as-of 落窗外）、startDate 升序+itemId 兜底，
+     * 并记录最近一次调用的 as-of/窗口（断言装配层透传刊日与配置窗口）。
+     * 真实 SQL 口径由 NewsActivityQueryServiceTests 在真端口面证明。
+     */
+    private static final class FakeActivityPort implements NewsActivityQueryService {
+        private final List<CampusActivity> rows = new ArrayList<>();
+        private LocalDate lastAsOf;
+        private int lastWindowDays;
+
+        void seed(long itemId, String dateStartIso, String dateEndIso) {
+            rows.add(new CampusActivity(itemId, "活动" + itemId, "PolyU Event " + itemId,
+                    "https://www.polyu.edu.hk/en/events/" + itemId,
+                    LocalDate.parse(dateStartIso), LocalDate.parse(dateEndIso)));
+        }
+
+        @Override
+        public List<CampusActivity> campusActivities(LocalDate asOf, int windowDays) {
+            this.lastAsOf = asOf;
+            this.lastWindowDays = windowDays;
+            LocalDate windowEndInclusive = asOf.plusDays(Math.max(1, windowDays) - 1L);
+            return rows.stream()
+                    .filter(row -> !row.endDate().isBefore(asOf) && !row.startDate().isAfter(windowEndInclusive))
+                    .sorted(Comparator.comparing(CampusActivity::startDate)
+                            .thenComparing(CampusActivity::itemId))
+                    .toList();
+        }
+    }
+
+    @Test
+    void activitySectionGroupsOrdersMarksOngoingAndExpiredFallsOut() {
+        // 默认窗口 56 天：[10-03, 11-27] 含端（10-03+55）
+        // 进行中：10-01 开始 11-21 结束（32nd Congregation 形状，跨月）
+        activityPort.seed(1L, "2026-10-01", "2026-11-21");
+        // 当日开始（=刊日）→ 归「即将来临」非进行中（L1「当日开始不标进行中」同口径）
+        activityPort.seed(2L, "2026-10-03", "2026-10-03");
+        // 即将来临：刊日后开始，按开始日升序；窗尾邻域（11-20 起）仍可达
+        activityPort.seed(3L, "2026-10-10", "2026-10-12");
+        activityPort.seed(4L, "2026-11-20", "2026-11-26");
+        // 过期（结束日 10-01 早于刊日 10-03）：端口合同天然移出，不进快照
+        activityPort.seed(5L, "2026-09-01", "2026-10-01");
+        // 远未开始（开始日 11-28 = 窗尾 11-27 后一日，首出窗日）：落窗外
+        activityPort.seed(6L, "2026-11-28", "2026-11-29");
+
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestActivityDO> section = digestStore.activities();
+        assertEquals(List.of(1L, 2L, 3L, 4L),
+                section.stream().map(NewsDailyDigestActivityDO::getItemId).toList(),
+                "选材=端口窗口内活动 startDate 升序（进行中的开始日早自然在前）；过期/窗外排除");
+        assertEquals(List.of(true, false, false, false),
+                section.stream().map(NewsDailyDigestActivityDO::getOngoing).toList(),
+                "进行中=开始日 < 刊日 且结束日 >= 刊日；当日开始归即将来临");
+        assertEquals(List.of(1, 2, 3, 4),
+                section.stream().map(NewsDailyDigestActivityDO::getSeq).toList(), "版面内序 1 起连续");
+        NewsDailyDigestActivityDO first = section.get(0);
+        assertEquals("活动1", first.getTitleZh());
+        assertEquals("PolyU Event 1", first.getTitleEn());
+        assertEquals("https://www.polyu.edu.hk/en/events/1", first.getUrl());
+        assertEquals(LocalDate.parse("2026-10-01"), first.getDateStart());
+        assertEquals(LocalDate.parse("2026-11-21"), first.getDateEnd());
+        // 装配层透传刊日与配置窗口（默认 56=8 周，与 events 扩窗同口径）
+        assertEquals(DIGEST_DATE, activityPort.lastAsOf);
+        assertEquals(56, activityPort.lastWindowDays);
+    }
+
+    @Test
+    void activitySectionCapsToNearestOnOverflow() {
+        for (int i = 4; i <= 15; i++) {
+            activityPort.seed(100L + i, "2026-10-" + String.format("%02d", i),
+                    "2026-10-" + String.format("%02d", i));
+        }
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestActivityDO> section = digestStore.activities();
+        assertEquals(10, section.size(), "默认容量 10（超限取最近=startDate 升序截断）");
+        assertEquals(LocalDate.parse("2026-10-04"),
+                section.get(0).getDateStart(), "最近的在前");
+        assertEquals(LocalDate.parse("2026-10-13"),
+                section.get(section.size() - 1).getDateStart(), "10-14/10-15 被截断");
+    }
+
+    @Test
+    void activitySectionRespectsConfiguredWindowAndCap() {
+        properties.setDigestActivityWindowDays(2);
+        properties.setDigestActivityMaxEntries(1);
+        activityPort.seed(21L, "2026-10-03", "2026-10-04"); // 窗内（[10-03,10-04] 含端）
+        activityPort.seed(22L, "2026-10-05", "2026-10-06"); // 窗外（N=2 收窄后）
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestActivityDO> section = digestStore.activities();
+        assertEquals(List.of(21L), section.stream().map(NewsDailyDigestActivityDO::getItemId).toList(),
+                "窗口/容量均走 rag.news 配置（默认 56/10 可收窄）");
+        assertEquals(2, activityPort.lastWindowDays, "装配层透传配置窗口天数");
+    }
+
+    @Test
+    void activitySectionEmptyWindowLandsZeroRowsAndRerunLeavesNoResidue() {
+        // 寒暑假稳定期：窗口零活动 → 零快照行（读取面整段隐藏），出刊照常
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, digestStore.activities().size());
+        assertEquals(1, digestStore.headers().size(), "零版面行不影响出刊");
+        // 窗口有活动后重建：级联带走旧行，只保留新一份（幂等不留残行）
+        activityPort.seed(31L, "2026-10-05", "2026-10-08");
+        service.rebuildForDate(DIGEST_DATE);
+        activityPort.seed(32L, "2026-10-06", "2026-10-06");
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(List.of(31L, 32L),
+                digestStore.activities().stream().map(NewsDailyDigestActivityDO::getItemId).toList(),
+                "重建=按窗口全量重算（先删后插经级联），无残行无重复");
+    }
+
+    @Test
+    void activitySectionLandsOnEmptyNewsDigestToo() {
+        // 空刊降级版式（后端面）：资讯零条仍照常落版面行——供给与资讯量解耦
+        activityPort.seed(41L, "2026-10-05", "2026-10-08");
+        NewsDailyDigestService.DigestBuildResult result = service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, result.itemCount());
+        assertEquals(NewsDailyDigestDO.INTRO_SOURCE_EMPTY, result.introSource());
+        assertEquals(1, digestStore.activities().size(), "空刊也有 L2 版面行（保底内容）");
         verify(budgetService, never()).call(any(), any());
     }
 
