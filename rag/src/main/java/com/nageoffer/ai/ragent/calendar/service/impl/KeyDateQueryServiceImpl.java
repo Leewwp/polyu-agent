@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.calendar.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.nageoffer.ai.ragent.calendar.KeyDateSemantics;
 import com.nageoffer.ai.ragent.calendar.controller.vo.KeyDateAuditVO;
 import com.nageoffer.ai.ragent.calendar.controller.vo.KeyDateBoardVO;
 import com.nageoffer.ai.ragent.calendar.controller.vo.KeyDateSourceVO;
@@ -35,7 +36,6 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -80,9 +80,6 @@ public class KeyDateQueryServiceImpl implements KeyDateQueryService {
     private static final String PHASE_RECENT = "recent";
     private static final String PHASE_ARCHIVED = "archived";
     private static final String PHASE_UNDATED = "undated";
-
-    private static final String PRECISION_EXACT_DAY = "exact-day";
-    private static final String PRECISION_EXACT_RANGE = "exact-range";
 
     private final KeyDateMapper keyDateMapper;
     private final KeyDateSourceMapper sourceMapper;
@@ -155,10 +152,10 @@ public class KeyDateQueryServiceImpl implements KeyDateQueryService {
                 undated.add(toVO(row, PHASE_UNDATED, today));
                 continue;
             }
-            LocalDate end = row.getDateEnd() != null ? row.getDateEnd() : start;
+            LocalDate end = KeyDateSemantics.effectiveEnd(row);
             if (start.isEqual(today)) {
                 current.add(toVO(row, PHASE_TODAY, today));
-            } else if (start.isBefore(today) && !end.isBefore(today)) {
+            } else if (KeyDateSemantics.isOngoing(row, today)) {
                 // exact-range 进行中（含今日为结束日的区间）
                 current.add(toVO(row, PHASE_ONGOING, today));
             } else if (start.isAfter(today)) {
@@ -258,20 +255,17 @@ public class KeyDateQueryServiceImpl implements KeyDateQueryService {
     }
 
     /**
-     * 有效结束日（date_end ?? date_start——exact-day/onwards 无结束列，
-     * 过期判定与倒序排列统一走本口径）
+     * 有效结束日（date_end ?? date_start）的 VO 排序投影——口径单一源
+     * {@link KeyDateSemantics#effectiveEnd}（工具类面向 DO，recent/archived
+     * 倒序排面对 VO 编程）
      */
     private static LocalDate effectiveEnd(KeyDateVO vo) {
         return vo.getDateEnd() != null ? vo.getDateEnd() : vo.getDateStart();
     }
 
     private KeyDateVO toVO(KeyDateDO row, String phase, LocalDate today) {
-        Integer daysUntil = null;
-        if (PRECISION_EXACT_DAY.equals(row.getPrecision()) || PRECISION_EXACT_RANGE.equals(row.getPrecision())) {
-            // 倒计时门：仅精确日/精确区间计天数（负=已过，供 recent 段「已过 N 天」文案）
-            daysUntil = row.getDateStart() == null ? null
-                    : (int) ChronoUnit.DAYS.between(today, row.getDateStart());
-        }
+        // 倒计时门（负=已过，供 recent 段「已过 N 天」文案）——KeyDateSemantics 单一源
+        Integer daysUntil = KeyDateSemantics.daysUntil(row, today);
         return KeyDateVO.builder()
                 .uid(row.getUid())
                 .academicYear(row.getAcademicYear())
