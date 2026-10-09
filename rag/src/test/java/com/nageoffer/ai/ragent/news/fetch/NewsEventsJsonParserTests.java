@@ -90,6 +90,51 @@ class NewsEventsJsonParserTests {
                 "坏 JSON 同理");
     }
 
+    // ---------- #325：SAO 学生活动日历（同 API 不同 calendar id，fixture 冻结 2026-10-09 实采） ----------
+
+    private byte[] saoFixture() throws Exception {
+        try (InputStream in = getClass().getResourceAsStream("/fixtures/news/sao-events.json")) {
+            assertNotNull(in, "fixture 缺失：/fixtures/news/sao-events.json");
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void saoCalendarFixtureParsesStudentDevelopmentEntries() throws Exception {
+        // SAO 学生发展组活动日历（calendar id=6840C445…，/sao/news-and-events/event-calendar/）
+        // 与大学级 events 同款 Sitecore API 响应形状；eventTypeList 仅 Student Development
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(saoFixture());
+        // CLF 2026 两段日期（9/3-4、9/7-8）= 两个条目，各自独立详情页（slug 含日期段）
+        assertEquals(4, events.size());
+
+        List<NewsEventsJsonParser.EventEntry> clfSegments = events.stream()
+                .filter(e -> e.title().startsWith("Campus Life Festival 2026")).toList();
+        assertEquals(2, clfSegments.size());
+        assertEquals(DateFrom.instant("2026-09-03T04:00:00Z"), clfSegments.get(0).start());
+        assertEquals(DateFrom.instant("2026-09-07T04:00:00Z"), clfSegments.get(1).start());
+        assertTrue(!clfSegments.get(0).link().equals(clfSegments.get(1).link()),
+                "两段日期各自详情页，URL 去重后仍独立成条");
+        assertEquals("student development", clfSegments.get(0).typeHint());
+        assertTrue(clfSegments.get(0).link().startsWith("https://www.polyu.edu.hk/sao/news-and-events/event-calendar/"),
+                "详情链接落在 SAO 日历域名下");
+
+        NewsEventsJsonParser.EventEntry talentShow = events.stream()
+                .filter(e -> e.title().startsWith("Annual Talent Show 2026"))
+                .findFirst().orElseThrow();
+        // 19:00 HKT 晚场 → UTC 11:00
+        assertEquals(DateFrom.instant("2026-09-17T11:00:00Z"), talentShow.start());
+    }
+
+    @Test
+    void saoEmptyMonthIsValidEmptyOnlyWhenNotFailClosed() {
+        // 2026-11 实采响应（32 字节）：events 空数组=日历渐进排期的正常空态——
+        // 源已列 allow-empty-sources（#186），宽和收空；strict 重载仍 fail-closed
+        // （若未来移出 allow-empty，空月即结构失配隔离，本测试钉住该语义边界）
+        byte[] emptyMonth = "{\"events\":[],\"eventTypeList\":[]}".getBytes();
+        assertTrue(NewsEventsJsonParser.parse(emptyMonth, false).isEmpty());
+        assertThrows(NewsFetchStructureException.class, () -> NewsEventsJsonParser.parse(emptyMonth));
+    }
+
     static final class DateFrom {
 
         static java.util.Date instant(String iso) {
