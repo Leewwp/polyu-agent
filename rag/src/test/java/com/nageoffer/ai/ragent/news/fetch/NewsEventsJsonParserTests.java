@@ -78,6 +78,48 @@ class NewsEventsJsonParserTests {
         assertThrows(NewsFetchException.class, () -> NewsEventsJsonParser.parse("{\"foo\":1}".getBytes()));
     }
 
+    // ---------- #324：CPEO 文化活动日历（同款 Sitecore API，id=BA1FFC…；PolyU Cinema 系列） ----------
+
+    private byte[] cpeoFixture() throws Exception {
+        try (InputStream in = getClass().getResourceAsStream("/fixtures/news/cpeo-events.json")) {
+            assertNotNull(in, "fixture 缺失：/fixtures/news/cpeo-events.json");
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    void parsesCpeoCalendarSameShapeAsEventsSource() throws Exception {
+        // #324 查定：CPEO 列表页背后即官网活动日历同款 calendar/get API（仅日历 id 不同），
+        // 解析器零改动复用——4 条冻结实采（2026-10）全产出，含 PolyU Cinema 放映条目
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        assertEquals(4, events.size());
+    }
+
+    @Test
+    void keepsChineseTitleVerbatimAndCinemaInstant() throws Exception {
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        // 中文标题条目原样保留（langRaw 归 LLM 富化判定，解析层不改写）
+        NewsEventsJsonParser.EventEntry talk = events.stream()
+                .filter(e -> e.title().startsWith("「年度中國歷史人物選舉2026」")).findFirst().orElseThrow();
+        assertEquals("collaborations", talk.typeHint());
+        assertEquals(DateFrom.instant("2026-10-06T06:30:00Z"), talk.start());
+        // PolyU Cinema 放映场：eventStartDate=2026-10-07T19:30:00+08:00 → UTC 11:30 真实瞬时
+        NewsEventsJsonParser.EventEntry cinema = events.stream()
+                .filter(e -> e.title().startsWith("PolyU Cinema:")).findFirst().orElseThrow();
+        assertEquals(DateFrom.instant("2026-10-07T11:30:00Z"), cinema.start());
+        assertTrue(cinema.link().endsWith("/20261007_polyu-cinema?sc_lang=en"));
+    }
+
+    @Test
+    void emptyTypeCpeoEntryIsKeptWithBlankTypeHint() throws Exception {
+        // CPEO 实采存在 type 为空串的条目（"Colorful Breeze"）：不因类别缺失丢条目
+        List<NewsEventsJsonParser.EventEntry> events = NewsEventsJsonParser.parse(cpeoFixture());
+        NewsEventsJsonParser.EventEntry breeze = events.stream()
+                .filter(e -> e.title().startsWith("\"Colorful Breeze\"")).findFirst().orElseThrow();
+        assertEquals(DateFrom.instant("2026-10-13T11:30:00Z"), breeze.start());
+        assertTrue(breeze.typeHint() == null || breeze.typeHint().isBlank());
+    }
+
     // ---------- #186：允许空变体——缺 events 数组/坏 JSON 不因宽和豁免 ----------
 
     @Test

@@ -283,8 +283,10 @@ rag:
     probe-required-successes: 2      # 探活复归所需连续有效完整成功次数（#186 票面=两次；解析失配/网络失败不算有效成功——HTTP 200 不是恢复充分条件）
     probe-success-window-hours: 48   # 探活成功连续窗口（#186 票面 ≤48h）：相邻两次有效成功间隔超窗=不连续，streak 重起
     robots-cache-ttl-seconds: 86400  # robots.txt 进程内缓存 TTL 秒（#186 修「缓存永不过期」）：到期后同 host 下一次请求重拉——robots 规则变更（含 Disallow 解除）TTL 内可见
-    allow-empty-sources: []          # 允许零条目为健康结果（VALID_EMPTY）的源 key 集（#186 成功分类学）：逐源外置=空态语义由运营口径决定
+    allow-empty-sources:            # 允许零条目为健康结果（VALID_EMPTY）的源 key 集（#186 成功分类学）：逐源外置=空态语义由运营口径决定
                                      # （新频道空 feed 属正常；官网列表空页=模板改版嫌疑 fail-closed）。未列入的源零条目仍计结构失配
+      - cpeo-events                 # #324 CPEO 活动日历：实查 2027/01、02 均 0 条=静月常态（JSON 有效、events:[]），不入表则静月
+                                     # fail-closed 连败会误触自动隔离；JSON 不合法仍不豁免（解析器内建守卫）
     admission-source-daily-caps:     # 源日准入上限表（#185，sourceKey→条/日 HKT）：命中者覆盖 admission-default-source-daily-cap（50）；
                                      # 只是局部上限，全站仍受 admission-daily-site-cap（60/日，env 可调 RAG_NEWS_ADMISSIONDAILYSITECAP）约束。
                                      # #188 批 2 四源：稳态 20/日（2026-10-01 回灌验收毕自突发档 200/日回落；ai-arxiv-rss=20 同档先例；
@@ -304,6 +306,9 @@ rag:
       scmp-education: 10
       rthk-local-news: 10
       gia-news: 10
+      # #324 CPEO 活动日历（含 PolyU Cinema 放映）：月级 ~9 条节奏，10/日起步（#277 新源
+      # 口径，留一个数量级余量供停摆补抓；全站 60/日仍兜底）
+      cpeo-events: 10
     gate-source-keys:              # 八校确定性门生效源（#277）：仅三 source_key，其余源不经门
       - scmp-education
       - rthk-local-news

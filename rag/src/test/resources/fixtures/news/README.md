@@ -18,3 +18,13 @@ robots 实判（抓取时同 host 原样快照留存本地研究档案，不入�
 - `www.lib.polyu.edu.hk/robots.txt`（sha256 278e83bcf567badfebcdea4d5d20ca9898e4449fe4eb2e3b5a08227b4ca9b762）：**Crawl-delay: 10**（`User-agent: *`），Disallow 为 Drupal 管理路径——`/news` 未禁。10s < `NewsHttpFetchClient` 单次等待上限 60s，走正常节拍等待（不触发 defer 豁免）。
 
 lib-news 行结构（Drupal views）：`div.views-row` 行容器 / `h3.views-field-title a` 标题锚 / `.views-news-events-posted` 裸文本节点为日期（"Friday, September 18, 2026 - 08:30"）/ 行内 `.badge` 为类别（News/Event/Notice）。部分行 URL 无日期段（如 `/news/new-ai-workstations-...`），日期一律取自 posted 文本。
+
+## #324 新增（2026-10-09，分支 `daily/cpeo-source-324`）
+
+`cpeo-events.json`：CPEO 文化活动日历（含 PolyU Cinema 常驻放映系列）真实响应快照（裁剪件：content 只留标题锚结构，与 `events.json` 同惯例；title/eventStartDate/start-date/type/csscode/详情链接全真）。抓取口径同上（`curl --noproxy '*'` 直连）。同 host robots 判例不变（主域 * 组仅 Disallow search-result 类路径，无 Crawl-delay）。快照为真实第三方内容，仅作本项目测试夹具使用。
+
+| fixture | source_key | 抓取 URL | 实采状态 | 解析族 | sha256 |
+|---|---|---|---|---|---|
+| cpeo-events.json | cpeo-events | https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=BA1FFC08557D4D82A33C584551D93F99&date=2026/10 | 200，9 条，留 4（伞卡/中文标题/PolyU Cinema 放映场/空 type） | JSON_API（NewsEventsJsonParser 既有，零代码） | b7db058f0fd0f45e419c09fe6b01427d0ddcd04b724fa9f24955e2d0669963ea |
+
+实采备注（空月常态）：同日查 2026/11=1 条、2026/12=1 条（均 "PolyU Cinema" 系列置顶伞卡，eventStartDate=2026-01-27 常驻）、2027/01=0 条、2027/02=0 条——源入 `rag.news.allow-empty-sources`（#186）防静月 fail-closed 连败误触自动隔离。
