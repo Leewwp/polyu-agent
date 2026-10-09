@@ -2,12 +2,12 @@
 {snippet_section}{doc_blocks}
 
 --- section: kb-doc-block ---
-<content data-ragent-doc-id="{doc_id}">
+<content data-ragent-date="{date}" data-ragent-doc-id="{doc_id}">
 {chunks}
 </content>
 
 --- section: kb-doc-block-anonymous ---
-<content>
+<content data-ragent-date="{date}">
 {chunks}
 </content>
 

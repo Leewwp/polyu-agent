@@ -94,4 +94,38 @@ class CitationContextEnricherTest {
         assertFalse(result.contains("data-ragent-doc-id"));
         assertFalse(result.contains(" ref="));
     }
+
+    // ==================== 日期标记保留（#327）====================
+
+    @Test
+    void dateMarkerSurvivesCitationNumbering() {
+        // 组装层写入的日期标记位于 docId 前导属性位：注入 ref 编号时必须原样保留
+        String context = """
+                <content data-ragent-date="2026-09-12" data-ragent-doc-id="doc-a">
+                A
+                </content>
+                """;
+        List<SourceRef> sources = List.of(SourceRef.builder().index(1).docId("doc-a").build());
+
+        String result = enricher.enrich(context, sources);
+
+        assertTrue(result.contains("<content data-ragent-date=\"2026-09-12\" ref=\"1\">"),
+                "注入引用编号后日期标记仍在");
+        assertFalse(result.contains("data-ragent-doc-id"));
+    }
+
+    @Test
+    void dateMarkerSurvivesAgentModeStripping() {
+        // Agent 模式只抹内部 docId（stripDocIdAnchors）：日期标记对模型可见，不能一并抹掉
+        String context = """
+                <content data-ragent-date="日期未知" data-ragent-doc-id="doc-a">
+                A
+                </content>
+                """;
+
+        String result = enricher.stripDocIdAnchors(context);
+
+        assertTrue(result.contains("<content data-ragent-date=\"日期未知\">"), "抹 docId 后日期标记保留");
+        assertFalse(result.contains("data-ragent-doc-id"));
+    }
 }
