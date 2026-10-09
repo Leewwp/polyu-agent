@@ -232,6 +232,30 @@ class RAGPromptServiceTest {
         assertTrue(result.startsWith("# 单意图模板"));
     }
 
+    /**
+     * #332 A1 as-of 时钟基准：所有 KB 合成路径的 system prompt 都注入 HKT 当前日期行，
+     * 位置紧随槽模板（含意图自定义模板替换场景），先于引用规则。
+     */
+    @Test
+    void injectsHktCurrentDateFactAfterTemplateBeforeRules() {
+        for (boolean citationEnabled : new boolean[]{true, false}) {
+            String result = service(citationEnabled).buildSystemPrompt(kbContext());
+            assertTrue(result.contains("当前日期（香港时间）："), "system prompt 必须注入 as-of 时钟基准");
+            assertTrue(result.indexOf(STUB_BASE_TEMPLATE) < result.indexOf("当前日期（香港时间）"),
+                    "日期行紧随槽模板之后");
+        }
+        String withCitation = service(true).buildSystemPrompt(kbContext());
+        assertTrue(withCitation.indexOf("当前日期（香港时间）") < withCitation.indexOf("# 行内引用规则"),
+                "日期行先于引用规则追加段");
+        PromptContext context = PromptContext.builder()
+                .kbContext("<content>资料</content>")
+                .kbIntents(List.of(intentWithTemplate("# 自定义意图模板")))
+                .eligibleIntentIds(Set.of("intent-1"))
+                .build();
+        assertTrue(service(true).buildSystemPrompt(context).contains("当前日期（香港时间）："),
+                "意图模板整份替换基础模板时 as-of 基准不得丢失");
+    }
+
     private static NodeScore intentWithTemplate(String template) {
         return intentWithTemplate("intent-1", template);
     }
