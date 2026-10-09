@@ -7,7 +7,6 @@ import { FeedSidebar } from "./FeedSidebar";
 import { MobileTabbar } from "./MobileTabbar";
 import { UserMenu } from "./UserMenu";
 import { useFeedLang } from "./feedLang";
-import { formatStarCount, useGitHubStars } from "@/hooks/useGitHubStars";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { feedDateLabels } from "@/services/newsMapping";
 import { AgentSessionShareButton } from "@/components/agent/AgentSessionShareButton";
@@ -103,13 +102,15 @@ function LangPill() {
 }
 
 /**
- * GitHub 仓库入口（#337/#335）：顶栏显著位导流开源仓库——访客一键新窗直达源码/README。
- * - 数据：useGitHubStars（已切 Leewwp/polyu-agent 仓；3h 本地缓存/聚焦刷新/失败
- *   退避机制原样），API 不可达降级 "--" 不报错；
+ * GitHub 仓库入口（#337/#335；#341 去星数）：顶栏显著位导流开源仓库——访客一键新窗直达源码/README。
+ * - #341：星数 chip 改固定文字 "GitHub"——按钮核心语义=「开源项目、一键直达」，星数次
+ *   要且 api.github.com 未认证限额 403 降级 "--" 已生产实证不可靠；壳不再调
+ *   useGitHubStars（星数格式化纯函数随本票删除），展示层零星数请求（hook 留守上游
+ *   Header/AgentLayout 死码 import，整文件收编另票）；
  * - 形制（Gazette）：胶囊描边款——1px 发丝线+白底，hover 边框迁移暖红 #D8B7BC
- *   （NewsCard/ChatInput 等同款 hover token）；砖红只落在星数 chip 的小面积语义，
- *   不大面积铺红（Ruling Line 规则）；
- * - 双档：desktop=图标+星数 chip（身份区 LangPill 之左）；mobile=icon-only 紧凑形
+ *   （NewsCard/ChatInput 等同款 hover token）；文字中性次级色（砖红只留给
+ *   判别线/选中语义，不再落星数 chip 的小面积红）；
+ * - 双档：desktop=图标+文字 "GitHub"（身份区 LangPill 之左）；mobile=icon-only 紧凑形
  *   （#136 320px 五元素红线上的第六元素必须 icon-only，44 实高触控契约、无文案防挤占）；
  * - 色域墙：仅用户面壳（FeedShell）挂载，admin 域不经本壳天然不出现；分享视图同显。
  */
@@ -118,7 +119,6 @@ const GITHUB_REPO_URL = "https://github.com/Leewwp/polyu-agent";
 function GitHubStarLink({ variant }: { variant: "desktop" | "mobile" }) {
   const { lang } = useFeedLang();
   const zh = lang === "zh";
-  const starLabel = formatStarCount(useGitHubStars());
   const ariaLabel = zh ? "打开 GitHub 仓库" : "Open GitHub repository";
   if (variant === "mobile") {
     return (
@@ -143,9 +143,7 @@ function GitHubStarLink({ variant }: { variant: "desktop" | "mobile" }) {
       className="flex h-9 flex-none items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--feed-line)] bg-white px-3 text-[var(--feed-text-secondary)] shadow-sm transition-colors hover:border-[#D8B7BC]"
     >
       <Github className="h-4 w-4" aria-hidden="true" />
-      <span className="rounded-full bg-[var(--feed-bg)] px-1.5 py-0.5 text-[11px] font-bold text-[var(--polyu-red)]">
-        {starLabel}
-      </span>
+      <span className="text-[13px] font-semibold">GitHub</span>
     </a>
   );
 }
