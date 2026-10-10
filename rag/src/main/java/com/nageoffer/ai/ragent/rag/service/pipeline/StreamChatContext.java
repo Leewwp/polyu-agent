@@ -45,6 +45,13 @@ public class StreamChatContext {
 
     // ==================== 管道中填充的中间状态 ====================
 
+    /**
+     * 入口对原始提问判定一次的本轮回答语言（"zh"/"en"，判不出为 null），
+     * 供 KB 合成系统提示与零检索兜底文案共用，不从改写后 query 重猜
+     */
+    @Setter
+    private String answerLanguage;
+
     @Setter
     private List<ChatMessage> history;
 
