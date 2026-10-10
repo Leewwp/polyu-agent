@@ -119,6 +119,12 @@ public class NewsEnrichService {
     static final String PROMPT_PATH = "prompt/news-summary.st";
 
     /**
+     * 回执失败留证阶段（#382）：JSON 解析失败与写作守卫拒绝可区分，随 error_brief 落库
+     */
+    static final String FAILURE_STAGE_JSON_PARSE = "JSON_PARSE";
+    static final String FAILURE_STAGE_WRITING_GUARD = "WRITING_GUARD";
+
+    /**
      * 固定 8 类 + other 兜底（禁止自由标签）
      */
     static final Set<String> ALLOWED_CATEGORIES = Set.of(
@@ -337,7 +343,7 @@ public class NewsEnrichService {
                 .build();
         NewsLlmBudgetService.LlmCall call;
         try {
-            call = llmBudgetService.call(request, Tier.FAST);
+            call = llmBudgetService.call(request, Tier.FAST, item.getId());
         } catch (IllegalStateException terminal) {
             // 回执终态（POISONED 隔离/同指纹重试预算耗尽）：同指纹零新增请求——
             // 明示零调用回退收尾，不无限等内容变化也不无限付费重试
@@ -348,8 +354,9 @@ public class NewsEnrichService {
         try {
             payload = parsePayload(call.content());
         } catch (RuntimeException e) {
-            // 无效响应回报：新鲜响应保留一次下轮复用（已付费），复用响应清除并隔离不无限复读
-            call.reportInvalid();
+            // 无效响应回报：新鲜响应保留一次下轮复用（已付费），复用响应清除并隔离不无限复读；
+            // 阶段+具体原因随回执落 error_brief（#382 留证，与守卫拒绝可区分）
+            call.reportInvalid(FAILURE_STAGE_JSON_PARSE, e.getMessage());
             throw e;
         }
         // T22 分段兜底：提示词已要求分段，模型偶发输出整段单块（样本实测 1/6）时按同规则补齐
@@ -357,8 +364,9 @@ public class NewsEnrichService {
         try {
             NewsWritingGuard.enforce(payload, titleLine, content);
         } catch (NewsWritingGuard.RejectionException rejection) {
-            // 守卫拒绝同样走回执无效回报（新鲜响应保留一次免费复用；复用响应隔离）
-            call.reportInvalid();
+            // 守卫拒绝同样走回执无效回报（新鲜响应保留一次免费复用；复用响应隔离），
+            // 阶段标 WRITING_GUARD 与 JSON 解析失败可区分（#382）
+            call.reportInvalid(FAILURE_STAGE_WRITING_GUARD, rejection.getMessage());
             if (call.reused()) {
                 // 复用响应仍不过守卫=同指纹无望，明示零调用回退（不无限复读不无限重试）
                 applyFallback(item, "守卫拒绝（复用响应）：" + rejection.getMessage());

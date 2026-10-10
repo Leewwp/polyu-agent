@@ -116,7 +116,7 @@ class NewsPipelineReplayTest {
      */
     private NewsLlmBudgetService mockBudget() {
         NewsLlmBudgetService budget = mock(NewsLlmBudgetService.class);
-        when(budget.call(any(ChatRequest.class), any(Tier.class))).thenAnswer(invocation -> {
+        when(budget.call(any(ChatRequest.class), any(Tier.class), any())).thenAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0, ChatRequest.class);
             String prompt = request.getMessages().get(0).getContent();
             String valid = "{\"title_zh\":\"标题\",\"title_en\":\"Title\","
@@ -130,9 +130,9 @@ class NewsPipelineReplayTest {
             if (prompt.contains("guard reject sample")) {
                 boolean reused = budgetCalls.computeIfAbsent("guard", k -> new AtomicInteger())
                         .incrementAndGet() > 1;
-                return new NewsLlmBudgetService.LlmCall(halfBilingual, reused, () -> { });
+                return new NewsLlmBudgetService.LlmCall(halfBilingual, reused, (stage, reason) -> { });
             }
-            return new NewsLlmBudgetService.LlmCall(valid, false, () -> { });
+            return new NewsLlmBudgetService.LlmCall(valid, false, (stage, reason) -> { });
         });
         return budget;
     }

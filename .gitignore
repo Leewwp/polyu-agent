@@ -80,6 +80,9 @@ docs/temp
 # TypeScript 增量构建缓存（临时输出不入库）
 *.tsbuildinfo
 
+# Python 字节码缓存（评测工具链本地运行产物；只忽略生成目录不忽略源码）
+evaluation/__pycache__/
+
 ### Regression artifacts ###
 # Local reports, credentials, logs, snapshots and compiled CLI classes.
 /resources/regression/*/artifacts/
