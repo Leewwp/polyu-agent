@@ -174,9 +174,12 @@ describe("DailyDigestPage", () => {
     vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy(), { timeout: 5000 });
-    // 头条放大档：头条徽标+来源徽标（每卡一枚，取多枚）+摘要
-    expect(screen.getByText("头条")).toBeTruthy();
+    // #373：「研究突破甲」在 rail 目录预览（firstTitle 同源）也出现，waitFor 若锚它可被 rail
+    // 提前满足，其后同步断言在头条卡挂载前一拍扑空（10-10 三连 flaky 实录）；且条目双现后
+    // getByText 单匹配语义会抛 multiple-elements，不能与计数断言混进同一 waitFor——锚点改
+    // 「头条」徽标（只在头条卡渲染、全页唯一），锚定它即锚定头条卡挂载完成
+    await waitFor(() => expect(screen.getByText("头条")).toBeTruthy(), { timeout: 5000 });
+    // 头条放大档：来源徽标（每卡一枚，取多枚）+摘要
     expect(screen.getAllByText("理大官网").length).toBeGreaterThan(0);
     // 今日看点=排序 2-4 名；看点条目同时留在版面内（仅头条不重复）→ 条目3 双现
     expect(screen.getByText("今日看点")).toBeTruthy();
