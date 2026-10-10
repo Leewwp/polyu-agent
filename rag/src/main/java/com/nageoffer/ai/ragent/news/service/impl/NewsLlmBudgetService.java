@@ -43,6 +43,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -176,6 +177,14 @@ public class NewsLlmBudgetService {
      * @throws LlmBudgetExhaustedException 预算耗尽或计价未闭合（调用方当日降级）
      */
     public LlmCall call(ChatRequest request, Tier tier) {
+        return call(request, tier, null);
+    }
+
+    /**
+     * 带条目关联的调用（#382 留证）：itemId 随回执周期行落定，失败可按条目直接定位；
+     * 非条目调用（如日报导语）传 null，按指纹定位
+     */
+    public LlmCall call(ChatRequest request, Tier tier, Long itemId) {
         String fingerprint = fingerprintOf(request, tier);
         List<NewsLlmReceiptDO> history = findByFingerprint(fingerprint);
         if (history.stream().anyMatch(row -> STATUS_POISONED.equals(row.getStatus()))) {
@@ -188,7 +197,8 @@ public class NewsLlmBudgetService {
         if (responded != null) {
             log.info("[news][budget] 请求 {} 命中回执复用（历史 attempts={}），不重复付费",
                     fingerprint, history.stream().mapToInt(row -> nvl(row.getAttempts())).sum());
-            return new LlmCall(responded.getResponseText(), true, () -> poisonReused(responded));
+            return new LlmCall(responded.getResponseText(), true,
+                    (stage, reason) -> poisonReused(responded, stage, reason));
         }
         // 计价闭合（修正点4）：完整候选链+模式+额度校验，未闭合拒绝付费准入（零发出）；
         // 与预算否决同族落 DEGRADED 事件行（admin/日志双口径可查）
@@ -198,7 +208,7 @@ public class NewsLlmBudgetService {
         } catch (LlmBudgetExhaustedException e) {
             NewsLlmReceiptDO eventRow;
             synchronized (admissionLock) {
-                eventRow = findOrCreatePeriodRow(fingerprint, todayDateKey(), monthKey());
+                eventRow = findOrCreatePeriodRow(fingerprint, todayDateKey(), monthKey(), itemId);
             }
             degrade(eventRow, e);
             throw e;
@@ -215,7 +225,7 @@ public class NewsLlmBudgetService {
         int iterationsAllowed = initialConsumed ? maxRetries - retriesTotal : 1 + maxRetries - retriesTotal;
         Exception lastFailure = null;
         for (int iteration = 1; iteration <= iterationsAllowed; iteration++) {
-            Session session = openTodaySession(fingerprint, costPerAttempt);
+            Session session = openTodaySession(fingerprint, costPerAttempt, itemId);
             boolean isRetry = initialConsumed || iteration > 1;
             if (isRetry) {
                 // 重试签发标记：发出前随 write-ahead 一并记账；被预算否决（未发出）不计数
@@ -226,7 +236,7 @@ public class NewsLlmBudgetService {
                 // 先落库再用：业务解析/落库失败时同指纹下轮复用，不重复付费
                 complete(session.currentRow(), session, raw);
                 NewsLlmReceiptDO successRow = session.currentRow();
-                return new LlmCall(raw, false, () -> markParseFailed(successRow));
+                return new LlmCall(raw, false, (stage, reason) -> markParseFailed(successRow, stage, reason));
             } catch (LlmBudgetExhaustedException e) {
                 degrade(session.currentRow(), e);
                 throw e;
@@ -264,17 +274,19 @@ public class NewsLlmBudgetService {
         private final BigDecimal costPerAttempt;
         private final BigDecimal dailyLimit;
         private final BigDecimal monthlyLimit;
+        private final Long itemId;
 
         private NewsLlmReceiptDO row;
         private String lastTargetId;
         private boolean retryPending;
 
-        private Session(String fingerprint, NewsLlmReceiptDO todayRow, BigDecimal costPerAttempt) {
+        private Session(String fingerprint, NewsLlmReceiptDO todayRow, BigDecimal costPerAttempt, Long itemId) {
             this.fingerprint = fingerprint;
             this.row = todayRow;
             this.costPerAttempt = costPerAttempt;
             this.dailyLimit = BigDecimal.valueOf(properties.getBudgetDailyYuan());
             this.monthlyLimit = BigDecimal.valueOf(properties.getBudgetMonthlyYuan());
+            this.itemId = itemId;
         }
 
         /**
@@ -297,7 +309,7 @@ public class NewsLlmBudgetService {
                 // 同时重读最新持久值：同一次逻辑调用内 fallback 的后续发出能看到此前已记账的 attempt
                 LocalDate attemptDay = todayDateKey();
                 String attemptMonth = monthKey();
-                this.row = findOrCreatePeriodRow(fingerprint, attemptDay, attemptMonth);
+                this.row = findOrCreatePeriodRow(fingerprint, attemptDay, attemptMonth, itemId);
                 NewsLlmReceiptDO current = this.row;
                 int nextAttempts = nvl(current.getAttempts()) + 1;
                 // 本日行成本=当日 attempts × 单次上界（最贵候选×完整限额推导，见类 javadoc）
@@ -314,7 +326,8 @@ public class NewsLlmBudgetService {
                             dailyAfter, dailyLimit, monthlyAfter, monthlyLimit, nextAttempts));
                 }
                 // write-ahead：真实发出前先记账（未知结果保守预留，重启不清零）。
-                // 周期键（stat_date/stat_month）随行落定不改写——跨日重试在新周期行续算
+                // 周期键（stat_date/stat_month）随行落定不改写——跨日重试在新周期行续算；
+                // 条目关联（item_id）在首次发起时落定，之后同指纹刷新保持不变
                 var update = Wrappers.lambdaUpdate(NewsLlmReceiptDO.class)
                         .eq(NewsLlmReceiptDO::getId, current.getId())
                         .set(NewsLlmReceiptDO::getAttempts, nextAttempts)
@@ -322,6 +335,9 @@ public class NewsLlmBudgetService {
                         .set(NewsLlmReceiptDO::getServedModelId, lastTargetId)
                         .set(NewsLlmReceiptDO::getStatus, STATUS_PENDING)
                         .set(NewsLlmReceiptDO::getErrorBrief, null);
+                if (itemId != null) {
+                    update.set(NewsLlmReceiptDO::getItemId, itemId);
+                }
                 if (retryPending) {
                     update.set(NewsLlmReceiptDO::getRetries, nvl(current.getRetries()) + 1);
                     // 重试计数按逻辑调用记一次（fallback 换候选只另计 attempt，不另计 retry）
@@ -337,12 +353,12 @@ public class NewsLlmBudgetService {
      * {@link Session#beforeAttempt} 内按发出时刻重取（含跨午夜/月末切换）。
      * 建行在准入锁内串行（同指纹并发建行由锁+库唯一约束双兜底）
      */
-    private Session openTodaySession(String fingerprint, BigDecimal costPerAttempt) {
+    private Session openTodaySession(String fingerprint, BigDecimal costPerAttempt, Long itemId) {
         NewsLlmReceiptDO todayRow;
         synchronized (admissionLock) {
-            todayRow = findOrCreatePeriodRow(fingerprint, todayDateKey(), monthKey());
+            todayRow = findOrCreatePeriodRow(fingerprint, todayDateKey(), monthKey(), itemId);
         }
-        return new Session(fingerprint, todayRow, costPerAttempt);
+        return new Session(fingerprint, todayRow, costPerAttempt, itemId);
     }
 
     // ==================== 计价闭合（修正点4） ====================
@@ -426,9 +442,10 @@ public class NewsLlmBudgetService {
 
     /**
      * 查找或新建周期行（指纹, 发生日）：周期键随行落定后永不改写；
-     * 返回行持有最新持久值（真实库/可靠 fake store 均为独立查询结果）
+     * 返回行持有最新持久值（真实库/可靠 fake store 均为独立查询结果）；
+     * itemId 非空时随新行落定（同指纹既有行不改写条目关联）
      */
-    private NewsLlmReceiptDO findOrCreatePeriodRow(String fingerprint, LocalDate day, String month) {
+    private NewsLlmReceiptDO findOrCreatePeriodRow(String fingerprint, LocalDate day, String month, Long itemId) {
         NewsLlmReceiptDO row = receiptMapper.selectOne(Wrappers.lambdaQuery(NewsLlmReceiptDO.class)
                 .eq(NewsLlmReceiptDO::getRequestFingerprint, fingerprint)
                 .eq(NewsLlmReceiptDO::getStatDate, day)
@@ -436,6 +453,7 @@ public class NewsLlmBudgetService {
         if (row == null) {
             row = NewsLlmReceiptDO.builder()
                     .requestFingerprint(fingerprint)
+                    .itemId(itemId)
                     .statDate(day)
                     .statMonth(month)
                     .attempts(0)
@@ -474,28 +492,41 @@ public class NewsLlmBudgetService {
     }
 
     /**
-     * 新鲜响应解析无效：保留 response_text 一次下轮复用（已付费），标记 FAILED
+     * 新鲜响应解析无效：保留 response_text 一次下轮复用（已付费），标记 FAILED；
+     * 失败阶段与具体原因落 error_brief（#382，下轮复用再失败由 poisonReused 覆盖为最新原因）
      */
-    private void markParseFailed(NewsLlmReceiptDO row) {
+    private void markParseFailed(NewsLlmReceiptDO row, String stage, String reason) {
         receiptMapper.update(null, Wrappers.lambdaUpdate(NewsLlmReceiptDO.class)
                 .eq(NewsLlmReceiptDO::getId, row.getId())
                 .set(NewsLlmReceiptDO::getStatus, STATUS_FAILED)
-                .set(NewsLlmReceiptDO::getErrorBrief, "响应解析无效，保留一次复用"));
-        log.warn("[news][budget] 请求 {} 响应解析无效，回执保留一次复用（下轮仍失败则隔离）",
-                row.getRequestFingerprint());
+                .set(NewsLlmReceiptDO::getErrorBrief,
+                        rejectionBrief(stage, reason, "新鲜响应，保留一次复用")));
+        log.warn("[news][budget] 请求 {}（item={}）响应解析无效（stage={}），回执保留一次复用（下轮仍失败则隔离）",
+                row.getRequestFingerprint(), row.getItemId(), stage);
     }
 
     /**
-     * 复用响应解析无效：清除响应并隔离（POISONED），不再复读也不再重复付费
+     * 复用响应解析无效：清除响应并隔离（POISONED），不再复读也不再重复付费；
+     * 最新失败阶段与具体原因保留在 error_brief（#382：隔离后仍可核查，不靠日志回溯）
      */
-    private void poisonReused(NewsLlmReceiptDO row) {
+    private void poisonReused(NewsLlmReceiptDO row, String stage, String reason) {
         receiptMapper.update(null, Wrappers.lambdaUpdate(NewsLlmReceiptDO.class)
                 .eq(NewsLlmReceiptDO::getId, row.getId())
                 .set(NewsLlmReceiptDO::getResponseText, null)
                 .set(NewsLlmReceiptDO::getStatus, STATUS_POISONED)
-                .set(NewsLlmReceiptDO::getErrorBrief, "复用响应解析无效，已隔离不无限复读"));
-        log.warn("[news][budget] 请求 {} 复用响应解析无效，回执已隔离（不无限复读）",
-                row.getRequestFingerprint());
+                .set(NewsLlmReceiptDO::getErrorBrief,
+                        rejectionBrief(stage, reason, "复用响应，已隔离不无限复读")));
+        log.warn("[news][budget] 请求 {}（item={}）复用响应解析无效（stage={}），回执已隔离（不无限复读）",
+                row.getRequestFingerprint(), row.getItemId(), stage);
+    }
+
+    /**
+     * 失败留证摘要（#382）：「stage=阶段（生命周期）: 具体原因」，长度走既有 500 字符
+     * 截断（error_brief VARCHAR(512)）；不含提示词与响应正文
+     */
+    private static String rejectionBrief(String stage, String reason, String lifecycle) {
+        return brief("stage=" + (stage == null ? "UNKNOWN" : stage) + "（" + lifecycle + "）："
+                + (reason == null ? "" : reason));
     }
 
     // ==================== 指纹与聚合 ====================
@@ -596,16 +627,17 @@ public class NewsLlmBudgetService {
     /**
      * 调用结果：内容+是否回执复用+解析无效回报句柄
      *
-     * <p>调用方解析失败时执行 {@link #reportInvalid()}——新鲜响应保留一次复用
+     * <p>调用方解析/守卫失败时执行 {@link #reportInvalid(String, String)} 携带失败阶段
+     * （如 JSON_PARSE/WRITING_GUARD，#382 可区分）与具体原因——新鲜响应保留一次复用
      * （已付费不浪费），复用响应则清除并隔离（不无限复读）
      */
     public static final class LlmCall {
 
         private final String content;
         private final boolean reused;
-        private final Runnable invalidReporter;
+        private final BiConsumer<String, String> invalidReporter;
 
-        LlmCall(String content, boolean reused, Runnable invalidReporter) {
+        LlmCall(String content, boolean reused, BiConsumer<String, String> invalidReporter) {
             this.content = content;
             this.reused = reused;
             this.invalidReporter = invalidReporter;
@@ -619,8 +651,8 @@ public class NewsLlmBudgetService {
             return reused;
         }
 
-        public void reportInvalid() {
-            invalidReporter.run();
+        public void reportInvalid(String stage, String reason) {
+            invalidReporter.accept(stage, reason);
         }
     }
 }

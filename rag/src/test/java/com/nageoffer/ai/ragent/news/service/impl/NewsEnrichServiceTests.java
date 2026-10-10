@@ -45,6 +45,7 @@ import org.mockito.ArgumentCaptor;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -55,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -102,9 +105,9 @@ class NewsEnrichServiceTests {
                 httpFetchClient, new HtmlDocumentParser(), llmBudgetService,
                 promptTemplateLoader, new com.fasterxml.jackson.databind.ObjectMapper(),
                 fetchProperties);
-        // 默认桩：预算网关直通返回有效载荷
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
-                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, () -> { }));
+        // 默认桩：预算网关直通返回有效载荷（#382：三参形态带条目关联）
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, (stage, reason) -> { }));
     }
 
     private NewsItemDO item(long id) {
@@ -146,9 +149,9 @@ class NewsEnrichServiceTests {
         when(httpFetchClient.get(any())).thenReturn(
                 ("<html><body><main><p>Research news content.</p></main></body></html>")
                         .getBytes(StandardCharsets.UTF_8));
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
-                .thenReturn(new NewsLlmBudgetService.LlmCall("模型炸了", false, () -> { }))
-                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, () -> { }));
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
+                .thenReturn(new NewsLlmBudgetService.LlmCall("模型炸了", false, (stage, reason) -> { }))
+                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, (stage, reason) -> { }));
 
         int enriched = service.enrichPendingItems();
 
@@ -221,7 +224,7 @@ class NewsEnrichServiceTests {
         NewsItemDO one = item(7);
         when(itemMapper.selectList(any())).thenReturn(List.of(one));
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class))).thenAnswer(invocation -> {
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any())).thenAnswer(invocation -> {
             throw new ClientException("stop-here");
         });
         service.enrichPendingItems();
@@ -252,7 +255,7 @@ class NewsEnrichServiceTests {
         service.enrichPendingItems();
 
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
-        verify(llmBudgetService).call(captor.capture(), org.mockito.ArgumentMatchers.eq(Tier.FAST));
+        verify(llmBudgetService).call(captor.capture(), org.mockito.ArgumentMatchers.eq(Tier.FAST), eq(11L));
         ChatRequest request = captor.getValue();
         assertEquals(1024, request.getMaxTokens(), "输出上限 maxTokens=1024 透传（#184 范围1）");
         assertEquals(0.2D, request.getTemperature());
@@ -269,7 +272,7 @@ class NewsEnrichServiceTests {
         service.enrichPendingItems();
 
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
-        verify(llmBudgetService).call(captor.capture(), any(Tier.class));
+        verify(llmBudgetService).call(captor.capture(), any(Tier.class), any());
         assertEquals(512, captor.getValue().getMaxTokens(), "输出上限随 rag.news.summary-max-tokens 外置可调");
     }
 
@@ -318,13 +321,13 @@ class NewsEnrichServiceTests {
         NewsItemDO second = item(22);
         when(itemMapper.selectList(any())).thenReturn(List.of(first, second));
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenThrow(new LlmBudgetExhaustedException("资讯 LLM 预算耗尽"));
 
         int enriched = service.enrichPendingItems();
 
         assertEquals(0, enriched, "预算耗尽当日降级=仅入库不富化");
-        verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class));
+        verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class), any());
         verify(itemMapper, never()).update(any(), any());
         // #187：选题 1 次 + 内容哈希复用查证 1 次（查证命中前不进 LLM 路径）
         verify(itemMapper, times(2)).selectList(any());
@@ -332,15 +335,17 @@ class NewsEnrichServiceTests {
 
     @Test
     void parseFailureReportsInvalidBackToReceipt() {
-        Runnable invalidReporter = mock(Runnable.class);
+        @SuppressWarnings("unchecked")
+        BiConsumer<String, String> invalidReporter = mock(BiConsumer.class);
         when(itemMapper.selectList(any())).thenReturn(List.of(item(31)));
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenReturn(new NewsLlmBudgetService.LlmCall("不是JSON", false, invalidReporter));
 
         assertEquals(0, service.enrichPendingItems());
 
-        verify(invalidReporter).run();
+        // #382：阶段=JSON_PARSE 且携带具体原因回报回执（与守卫拒绝可区分）
+        verify(invalidReporter).accept(eq("JSON_PARSE"), contains("不含 JSON 对象"));
         verify(itemMapper, never()).update(any(), any());
     }
 
@@ -381,15 +386,16 @@ class NewsEnrichServiceTests {
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
         // max_tokens 截断形状：JSON 在字符串中途断裂（无闭合括号）——解析必然失败
         String truncated = "{\"title_zh\":\"标题\",\"title_en\":\"Title\",\"summary_zh\":\"摘要被截断于中";
-        Runnable invalidReporter = mock(Runnable.class);
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        @SuppressWarnings("unchecked")
+        BiConsumer<String, String> invalidReporter = mock(BiConsumer.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenReturn(new NewsLlmBudgetService.LlmCall(truncated, false, invalidReporter))
-                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, () -> { }));
+                .thenReturn(new NewsLlmBudgetService.LlmCall(VALID_PAYLOAD, false, (stage, reason) -> { }));
 
         int enriched = service.enrichPendingItems();
 
         assertEquals(1, enriched, "截断响应条目不发布，批内下一条正常处理（单条隔离，不无限重试）");
-        verify(invalidReporter).run();
+        verify(invalidReporter).accept(eq("JSON_PARSE"), contains("不含 JSON 对象"));
         verify(itemMapper, org.mockito.Mockito.times(1)).update(any(), any());
     }
 
@@ -424,7 +430,7 @@ class NewsEnrichServiceTests {
         realLoaderService.enrichPendingItems();
 
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
-        verify(llmBudgetService).call(captor.capture(), org.mockito.ArgumentMatchers.eq(Tier.FAST));
+        verify(llmBudgetService).call(captor.capture(), org.mockito.ArgumentMatchers.eq(Tier.FAST), eq(51L));
         String prompt = captor.getValue().getMessages().get(0).getContent();
         assertTrue(NewsEnrichService.estimatePromptTokens(prompt) <= 6000,
                 "完整渲染请求（模板+词表+标题+正文）≤ 输入限额 6000（估算口径），实际="
@@ -456,7 +462,7 @@ class NewsEnrichServiceTests {
         int enriched = realLoaderService.enrichPendingItems();
 
         assertEquals(0, enriched, "静态部分超限=拒绝付费准入，当日该条目仅入库不富化");
-        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class));
+        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class), any());
         verify(itemMapper, never()).update(any(), any());
     }
 
@@ -523,14 +529,16 @@ class NewsEnrichServiceTests {
         // 守卫拒绝形状：英文摘要缺失（双语完整性）
         String halfBilingual = "{\"title_zh\":\"标题\",\"title_en\":\"Title\","
                 + "\"summary_zh\":\"摘要\",\"summary_en\":\"\",\"category\":\"research\",\"topics\":[]}";
-        Runnable invalidReporter = mock(Runnable.class);
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        @SuppressWarnings("unchecked")
+        BiConsumer<String, String> invalidReporter = mock(BiConsumer.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenReturn(new NewsLlmBudgetService.LlmCall(halfBilingual, false, invalidReporter));
 
         int enriched = service.enrichPendingItems();
 
         assertEquals(0, enriched, "守卫拒绝的新鲜响应：本轮不发布");
-        verify(invalidReporter).run();
+        // #382：守卫拒绝阶段=WRITING_GUARD（与 JSON 解析失败可区分），携带具体守卫原因
+        verify(invalidReporter).accept(eq("WRITING_GUARD"), contains("双语摘要不完整"));
         verify(itemMapper, never()).update(any(), any());
     }
 
@@ -541,8 +549,9 @@ class NewsEnrichServiceTests {
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
         String halfBilingual = "{\"title_zh\":\"标题\",\"title_en\":\"Title\","
                 + "\"summary_zh\":\"摘要\",\"summary_en\":\"\",\"category\":\"research\",\"topics\":[]}";
-        Runnable invalidReporter = mock(Runnable.class);
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        @SuppressWarnings("unchecked")
+        BiConsumer<String, String> invalidReporter = mock(BiConsumer.class);
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenReturn(new NewsLlmBudgetService.LlmCall(halfBilingual, true, invalidReporter));
 
         int enriched = service.enrichPendingItems();
@@ -568,7 +577,7 @@ class NewsEnrichServiceTests {
         when(itemMapper.selectList(any())).thenReturn(List.of(pending));
         when(httpFetchClient.get(any())).thenReturn("<p>content</p>".getBytes(StandardCharsets.UTF_8));
         // 回执终态（POISONED 隔离/重试预算耗尽）：预算服务抛 IllegalStateException，零新增请求
-        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class)))
+        when(llmBudgetService.call(any(ChatRequest.class), any(Tier.class), any()))
                 .thenThrow(new IllegalStateException("资讯 LLM 回执已隔离（模型输出持续无效）"));
 
         int enriched = service.enrichPendingItems();
@@ -666,7 +675,7 @@ class NewsEnrichServiceTests {
         service.enrichOne(pending);
 
         // #184 边界：复用先于预算服务返回，不产生请求指纹与回执
-        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class));
+        verify(llmBudgetService, never()).call(any(ChatRequest.class), any(Tier.class), any());
         ArgumentCaptor<Wrapper<NewsItemDO>> captor = ArgumentCaptor.forClass(Wrapper.class);
         verify(itemMapper).update(any(), captor.capture());
         Map<String, Object> params = ((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<NewsItemDO>)
@@ -694,7 +703,7 @@ class NewsEnrichServiceTests {
         service.enrichOne(pending);
 
         // fallback 供体（标题派生回退）不作复用来源——复用它等于标题猜测
-        verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class));
+        verify(llmBudgetService, times(1)).call(any(ChatRequest.class), any(Tier.class), any());
     }
 
     @Test

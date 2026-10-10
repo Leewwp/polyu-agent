@@ -132,7 +132,7 @@ class NewsDailyDigestServiceTests {
 
     private void stubLlmSuccess(String zh, String en) {
         when(budgetService.call(any(), any())).thenReturn(new NewsLlmBudgetService.LlmCall(
-                "{\"intro_zh\":\"" + zh + "\",\"intro_en\":\"" + en + "\"}", false, () -> { }));
+                "{\"intro_zh\":\"" + zh + "\",\"intro_en\":\"" + en + "\"}", false, (stage, reason) -> { }));
     }
 
     // ==================== 窗口边界（左闭右开） ====================
@@ -267,7 +267,7 @@ class NewsDailyDigestServiceTests {
     void invalidLlmPayloadFallsBackAndReportsInvalid() {
         itemStore.seed(visibleItem().id(33L).publishTime(hkt(2026, 10, 2, 9, 0)).build());
         when(budgetService.call(any(), any())).thenReturn(new NewsLlmBudgetService.LlmCall(
-                "not-json", false, () -> { }));
+                "not-json", false, (stage, reason) -> { }));
         NewsDailyDigestService.DigestBuildResult result = service.rebuildForDate(DIGEST_DATE);
         assertEquals(NewsDailyDigestDO.INTRO_SOURCE_FALLBACK, result.introSource());
     }

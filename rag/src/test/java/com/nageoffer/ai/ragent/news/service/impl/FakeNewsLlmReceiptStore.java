@@ -63,6 +63,7 @@ final class FakeNewsLlmReceiptStore {
 
     private static final Map<String, BiConsumer<NewsLlmReceiptDO, Object>> COLUMN_SETTERS = Map.ofEntries(
             Map.entry("request_fingerprint", (row, v) -> row.setRequestFingerprint((String) v)),
+            Map.entry("item_id", (row, v) -> row.setItemId(((Number) v).longValue())),
             Map.entry("stat_date", (row, v) -> row.setStatDate((LocalDate) v)),
             Map.entry("stat_month", (row, v) -> row.setStatMonth((String) v)),
             Map.entry("model_id", (row, v) -> row.setModelId((String) v)),
@@ -212,6 +213,7 @@ final class FakeNewsLlmReceiptStore {
         return NewsLlmReceiptDO.builder()
                 .id(source.getId())
                 .requestFingerprint(source.getRequestFingerprint())
+                .itemId(source.getItemId())
                 .statDate(source.getStatDate())
                 .statMonth(source.getStatMonth())
                 .modelId(source.getModelId())

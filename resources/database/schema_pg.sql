@@ -1396,6 +1396,7 @@ COMMENT ON COLUMN t_news_event_migration.kind IS 'merge=事件级合并（item_i
 CREATE TABLE t_news_llm_receipt (
   id                  BIGSERIAL PRIMARY KEY,
   request_fingerprint VARCHAR(64)  NOT NULL,            -- sha256（提示词全文+模型+影响输出参数）
+  item_id             BIGINT,                           -- 关联资讯条目（t_news_item.id，发起时落定；历史行为 NULL）
   stat_date           DATE         NOT NULL,            -- 本行发出所处日（HKT 日切，行落定后不改写）
   stat_month          VARCHAR(7)   NOT NULL,            -- yyyy-MM（HKT，随 stat_date 落定不改写）
   model_id            VARCHAR(64),                      -- 指纹成分模型（Tier.FAST 主选 id）
@@ -1414,6 +1415,7 @@ CREATE INDEX idx_news_llm_receipt_date ON t_news_llm_receipt(stat_date);
 CREATE INDEX idx_news_llm_receipt_month ON t_news_llm_receipt(stat_month);
 COMMENT ON TABLE t_news_llm_receipt IS '资讯 LLM 付费回执（#184）：（指纹,日）周期账本行，attempts 双口径计数+成本上界估算，预算聚合数据源（重启不清零）';
 COMMENT ON COLUMN t_news_llm_receipt.request_fingerprint IS 'sha256(实际渲染提示词全文+模型+temperature/topP/maxTokens)；同指纹重跑复用响应不重复付费';
+COMMENT ON COLUMN t_news_llm_receipt.item_id IS '关联资讯条目 id（t_news_item.id，回执发起时落定，失败可按条目定位）；日报导语等非条目调用与历史行为 NULL（按指纹定位）';
 COMMENT ON COLUMN t_news_llm_receipt.stat_date IS '本行发出所处日（HKT 日切）——日预算聚合键；行落定后不改写，跨日重试在新行续算（维护者修正点3）';
 COMMENT ON COLUMN t_news_llm_receipt.stat_month IS 'yyyy-MM（HKT）——月预算聚合键；随 stat_date 落定不改写';
 COMMENT ON COLUMN t_news_llm_receipt.model_id IS '指纹成分中的模型（Tier.FAST 主选 id，配置期口径）';
@@ -1423,7 +1425,7 @@ COMMENT ON COLUMN t_news_llm_receipt.retries IS '本周期行内网关重试数�
 COMMENT ON COLUMN t_news_llm_receipt.cost_estimate IS '本周期行成本（元）= 行内 attempts × 单次上界（FAST 链最贵候选×完整限额，现行 ≈¥0.006848/次，推导见 rag.news.budget-model-prices 注释）';
 COMMENT ON COLUMN t_news_llm_receipt.response_text IS '成功响应原文：先落库再用，同指纹重跑复用不重复付费；复用解析无效时清除并置 POISONED（不无限复读）';
 COMMENT ON COLUMN t_news_llm_receipt.status IS 'PENDING=发出中；SUCCESS=已回执；DEGRADED=预算耗尽降级（次日补偿后翻转）；FAILED=重试耗尽或解析失败；POISONED=复用响应持续无效已隔离';
-COMMENT ON COLUMN t_news_llm_receipt.error_brief IS '最近一次失败原因摘要（诊断用，不含提示词与响应内容）';
+COMMENT ON COLUMN t_news_llm_receipt.error_brief IS '最近一次失败原因摘要（诊断用，不含提示词与响应内容）；解析/守卫类拒绝带「stage=阶段（生命周期）: 具体原因」前缀（#382），保留到 POISONED 隔离后仍可查';
 
 -- 资讯日报（2026-10-03，#212——父票 #182 r3 §日报 P2-a 出口）：刊头（HKT 日期唯一一刊）
 -- + 条目快照行表。行表而非 JSON：读取期须逐条回查 t_news_item 做主动下架复检
