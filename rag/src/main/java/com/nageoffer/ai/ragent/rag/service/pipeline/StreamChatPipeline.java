@@ -32,6 +32,7 @@ import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.memory.ConversationMemoryService;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
+import com.nageoffer.ai.ragent.rag.core.prompt.AnswerLanguageRules;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
@@ -80,6 +81,7 @@ public class StreamChatPipeline {
      * 执行流式对话管道
      */
     public void execute(StreamChatContext ctx) {
+        detectAnswerLanguage(ctx);
         loadMemory(ctx);
         rewriteQuery(ctx);
         resolveIntents(ctx);
@@ -100,6 +102,13 @@ public class StreamChatPipeline {
     }
 
     // ==================== 流水线阶段 ====================
+
+    /**
+     * 与 Agent 链同纪律：只对原始提问判定一次，改写后 query 不重猜、模型不干预
+     */
+    private void detectAnswerLanguage(StreamChatContext ctx) {
+        ctx.setAnswerLanguage(AnswerLanguageRules.detect(ctx.getQuestion()));
+    }
 
     private void loadMemory(StreamChatContext ctx) {
         List<ChatMessage> history = memoryService.load(ctx.getConversationId(), ctx.getUserId());
@@ -167,8 +176,9 @@ public class StreamChatPipeline {
         StreamCallback callback = ctx.getCallback();
         // 零证据兜底=边界声明+引导回港理主题（#331：闲聊/无关题死胡同式拒答无法满足行为判据，
         // 边界+引导三形态——闲聊/无关/检索失败——语义均成立，不引入形态判断分支）
-        // 与 DashboardServiceImpl NO_DOC 统计口径保持同步（双语变体都要计入）
-        callback.onContent(isChineseQuestion(ctx.getQuestion())
+        // 与 DashboardServiceImpl NO_DOC 统计口径保持同步（双语变体都要计入）；
+        // 兜底语言用入口共享判定（#370），判不出（null）维持默认英文边界
+        callback.onContent(AnswerLanguageRules.ZH.equals(ctx.getAnswerLanguage())
                 ? "未检索到与该问题相关的 PolyU 官方资料，无法作答；若问题超出 PolyU 学生服务范围，同样不在服务范围内。"
                   + "欢迎问我 PolyU 相关问题，例如校历关键日期、图书馆空间预订、学生签证等。"
                 : "No relevant PolyU material was found for this question, so I can't answer it — "
@@ -176,10 +186,6 @@ public class StreamChatPipeline {
                   + "Feel free to ask me about PolyU topics such as key academic dates, library bookings, or student visas.");
         callback.onComplete();
         return true;
-    }
-
-    private boolean isChineseQuestion(String question) {
-        return question != null && question.chars().anyMatch(cp -> (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF));
     }
 
     private void streamRagResponse(StreamChatContext ctx, RetrievalContext retrievalCtx) {
@@ -198,6 +204,7 @@ public class StreamChatPipeline {
                 intentResolver.mergeKbIntents(ctx.getSubIntents()),
                 ctx.getHistory(),
                 ctx.isDeepThinking(),
+                ctx.getAnswerLanguage(),
                 ctx.getCallback()
         );
         taskManager.bindHandle(ctx.getTaskId(), handle == null ? null : handle::cancel);
@@ -229,18 +236,22 @@ public class StreamChatPipeline {
     private StreamCancellationHandle streamLLMResponse(RewriteResult rewriteResult, RetrievalContext ctx,
                                                        List<NodeScore> kbIntents,
                                                        List<ChatMessage> history,
-                                                       boolean deepThinking, StreamCallback callback) {
+                                                       boolean deepThinking, String answerLanguage,
+                                                       StreamCallback callback) {
         PromptContext promptContext = PromptContext.builder()
                 .kbContext(ctx.getKbContext())
                 .kbIntents(kbIntents)
                 .eligibleIntentIds(ctx.getEligibleIntentIds())
                 .build();
 
+        // 语言约束经 6 参重载进系统提示：所有模板选择之后统一追加（意图自定义模板/槽模板都绕不开）
         List<ChatMessage> messages = promptBuilder.buildStructuredMessages(
                 promptContext,
                 history,
                 rewriteResult.rewrittenQuestion(),
-                rewriteResult.subQuestions()  // 传入子问题列表
+                rewriteResult.subQuestions(),  // 传入子问题列表
+                true,
+                answerLanguage
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
