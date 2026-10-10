@@ -57,6 +57,12 @@ public class NewsLlmReceiptDO {
     private String requestFingerprint;
 
     /**
+     * 关联资讯条目 id（t_news_item.id，回执发起时落定）——条目富化回执的失败可按条目
+     * 直接定位（#382 留证）；日报导语等非条目调用为 NULL，按指纹定位。历史行为 NULL
+     */
+    private Long itemId;
+
+    /**
      * 本行发出所处日（HKT 日切）——预算按日聚合口径。
      * <p>类型映射（修正点6，2026-09-29 本地 polyu-pg 实证）：PG DATE 列与 Java String
      * 经 PgJDBC setString 双向不兼容（INSERT 报 "column is of type date but expression
@@ -108,7 +114,8 @@ public class NewsLlmReceiptDO {
     private String status;
 
     /**
-     * 最近一次失败原因摘要（诊断用，不含提示词与响应内容）
+     * 最近一次失败原因摘要（诊断用，不含提示词与响应内容）。解析/守卫类拒绝带
+     * 「stage=阶段（生命周期）: 具体原因」前缀（#382），随行保留到 POISONED 隔离后仍可查
      */
     private String errorBrief;
 

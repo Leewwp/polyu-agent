@@ -116,14 +116,14 @@ class NewsPipelineCapacityReplayTest {
                     + url + "</p></main></body></html>").getBytes(StandardCharsets.UTF_8);
         });
         budget = mock(NewsLlmBudgetService.class);
-        when(budget.call(any(ChatRequest.class), any(Tier.class))).thenAnswer(invocation -> {
+        when(budget.call(any(ChatRequest.class), any(Tier.class), any())).thenAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0, ChatRequest.class);
             assertTrue(request.getMessages().get(0).getContent().contains("# 受控主题词表"),
                     "真实模板渲染进请求（测量含模板成本）");
             llmCalls.incrementAndGet();
             return new NewsLlmBudgetService.LlmCall("{\"title_zh\":\"标题\",\"title_en\":\"Title\","
                     + "\"summary_zh\":\"摘要内容。\\n\\n补充段落。\",\"summary_en\":\"Summary.\\n\\nParagraph.\","
-                    + "\"category\":\"campus\",\"topics\":[]}", false, () -> { });
+                    + "\"category\":\"campus\",\"topics\":[]}", false, (stage, reason) -> { });
         });
         enrichService = new NewsEnrichService(store.mapper, sourceMapper,
                 mock(NewsTopicMapper.class), mock(NewsItemTopicMapper.class),

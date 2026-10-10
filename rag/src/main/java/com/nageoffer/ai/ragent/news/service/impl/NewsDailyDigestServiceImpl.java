@@ -133,6 +133,12 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     static final String INTRO_PROMPT_PATH = "prompt/news-digest-intro.st";
 
     /**
+     * 导语回执失败留证阶段（#382）：字段缺失与 JSON 解析失败可区分（导语无条目 id，按指纹定位）
+     */
+    static final String INTRO_STAGE_FIELDS_MISSING = "INTRO_FIELDS_MISSING";
+    static final String INTRO_STAGE_JSON_PARSE = "INTRO_JSON_PARSE";
+
+    /**
      * 导语提示词携带的条目行上限（输入体积防线：40 行×60 字符≈2400 CJK 字符
      * ≈2400 tokens，在 max-input-tokens 4000 的正文预算内；超限截断只影响
      * 导语概括面，不影响快照全量——快照始终按窗口全量落库）
@@ -506,11 +512,11 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                 if (!zh.isEmpty() && !en.isEmpty()) {
                     return new IntroOutcome(NewsDailyDigestDO.INTRO_SOURCE_LLM, zh, en);
                 }
-                call.reportInvalid();
+                call.reportInvalid(INTRO_STAGE_FIELDS_MISSING, "intro_zh/intro_en 任一为空（日报导语载荷）");
                 log.warn("[news][daily] 日报 {} 导语响应字段缺失（zh/en 任一为空），回退模板", digestDate);
             } catch (RuntimeException parseFailure) {
                 // 无效响应回报：新鲜响应保留一次下轮复用（已付费），复用响应隔离
-                call.reportInvalid();
+                call.reportInvalid(INTRO_STAGE_JSON_PARSE, parseFailure.getMessage());
                 log.warn("[news][daily] 日报 {} 导语响应解析失败，回退模板：{}", digestDate, parseFailure.getMessage());
             }
         } catch (LlmBudgetExhaustedException e) {

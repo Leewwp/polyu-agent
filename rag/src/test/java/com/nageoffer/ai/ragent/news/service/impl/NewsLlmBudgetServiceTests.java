@@ -600,25 +600,70 @@ class NewsLlmBudgetServiceTests {
             return "{\"title_zh\":\"标题\",\"summary_zh\":\"摘要中被 max_tokens 截断";
         });
 
-        // 第 1 轮：新鲜响应（截断 JSON）→ 解析失败回报 → FAILED 保留一次复用
-        NewsLlmBudgetService.LlmCall first = service.call(request, Tier.FAST);
+        // 第 1 轮：新鲜响应（截断 JSON）→ 解析失败回报（阶段+具体原因留证）→ FAILED 保留一次复用
+        NewsLlmBudgetService.LlmCall first = service.call(request, Tier.FAST, 196L);
         assertFalse(first.reused());
-        first.reportInvalid();
+        first.reportInvalid("JSON_PARSE", "LLM 输出 JSON 解析失败：Expecting value: line 10 column 4 (char 2814)");
         NewsLlmReceiptDO row = rowOf(store, LocalDate.of(2026, 9, 29));
         assertEquals(NewsLlmBudgetService.STATUS_FAILED, row.getStatus());
         assertNotNull(row.getResponseText(), "新鲜响应保留一次复用（已付费不浪费）");
+        assertEquals(196L, row.getItemId(), "#382 条目关联随回执落定");
+        assertTrue(row.getErrorBrief().startsWith("stage=JSON_PARSE（新鲜响应，保留一次复用）"),
+                "FAILED 留证含阶段与具体原因：" + row.getErrorBrief());
+        assertTrue(row.getErrorBrief().contains("char 2814"));
 
-        // 第 2 轮：免费复用仍无效 → 清除并隔离（POISONED）
-        NewsLlmBudgetService.LlmCall second = service.call(request, Tier.FAST);
+        // 第 2 轮：免费复用仍无效 → 清除并隔离（POISONED），最新具体原因仍可查
+        NewsLlmBudgetService.LlmCall second = service.call(request, Tier.FAST, 196L);
         assertTrue(second.reused());
-        second.reportInvalid();
+        second.reportInvalid("WRITING_GUARD", "标题关键数字未在摘要中原样保留：2026（金额/名额/日期等事实保真守卫）");
         assertEquals(NewsLlmBudgetService.STATUS_POISONED, row.getStatus());
-        assertNull(row.getResponseText());
+        assertNull(row.getResponseText(), "原始无效响应按既有合同清除");
+        assertTrue(row.getErrorBrief().startsWith("stage=WRITING_GUARD（复用响应，已隔离不无限复读）"),
+                "#382 隔离后仍可查最新具体拒绝原因（阶段升级为守卫拒绝）：" + row.getErrorBrief());
+        assertTrue(row.getErrorBrief().contains("标题关键数字未在摘要中原样保留"));
 
         // 第 3 轮：隔离后拒绝复读——不无限重试、不重复付费
         assertThrows(IllegalStateException.class, () -> service.call(request, Tier.FAST));
         verify(llmService, times(1)).chat(any(ChatRequest.class), any(Tier.class));
         assertEquals(1, rowOf(store, LocalDate.of(2026, 9, 29)).getAttempts(), "整个生命周期只真实发出一次");
+    }
+
+    // ==================== #382 失败留证：条目关联与阶段可区分 ====================
+
+    @Test
+    void receiptCarriesItemIdAndStagesDistinguishParseFromGuardRejection() {
+        NewsLlmBudgetService service = serviceAt(LocalDate.of(2026, 10, 9));
+        stubChatSingleAttemptSuccess();
+
+        // 两条目两条指纹：分别以 JSON 解析失败与写作守卫拒绝回报
+        NewsLlmBudgetService.LlmCall parseCall = service.call(request("条目213的提示词"), Tier.FAST, 213L);
+        parseCall.reportInvalid("JSON_PARSE", "LLM 输出不含 JSON 对象");
+        NewsLlmBudgetService.LlmCall guardCall = service.call(request("条目215的提示词"), Tier.FAST, 215L);
+        guardCall.reportInvalid("WRITING_GUARD", "摘要提及身份词族 [OpenAI] 但原文无同族支撑");
+
+        NewsLlmReceiptDO parseRow = rowOf(store, fingerprintOf(service, request("条目213的提示词")));
+        NewsLlmReceiptDO guardRow = rowOf(store, fingerprintOf(service, request("条目215的提示词")));
+        assertEquals(213L, parseRow.getItemId());
+        assertEquals(215L, guardRow.getItemId());
+        assertTrue(parseRow.getErrorBrief().startsWith("stage=JSON_PARSE"),
+                "JSON 解析失败可区分：" + parseRow.getErrorBrief());
+        assertTrue(guardRow.getErrorBrief().startsWith("stage=WRITING_GUARD"),
+                "守卫拒绝可区分：" + guardRow.getErrorBrief());
+        assertNotEquals(parseRow.getErrorBrief(), guardRow.getErrorBrief());
+    }
+
+    @Test
+    void nonItemCallKeepsItemIdNullForFingerprintBasedLocation() {
+        NewsLlmBudgetService service = serviceAt(LocalDate.of(2026, 10, 9));
+        stubChatSingleAttemptSuccess();
+
+        // 日报导语等非条目调用：无条目关联，仍按指纹定位（历史行为同形）
+        NewsLlmBudgetService.LlmCall call = service.call(request("日报导语提示词"), Tier.FAST);
+        call.reportInvalid("INTRO_JSON_PARSE", "Unexpected end of JSON");
+        NewsLlmReceiptDO row = store.rows().get(0);
+        assertNull(row.getItemId());
+        assertEquals(NewsLlmBudgetService.STATUS_FAILED, row.getStatus());
+        assertTrue(row.getErrorBrief().startsWith("stage=INTRO_JSON_PARSE"));
     }
 
     // ==================== 指纹与诊断（保留硬门） ====================
