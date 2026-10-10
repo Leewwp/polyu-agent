@@ -14,6 +14,7 @@ import {
   MONTHS_EN,
   dailyMonthKey,
   dailyMonthLabel,
+  hktClockSafe,
   hktTodayKey
 } from "@/services/newsMapping";
 import {
@@ -42,6 +43,9 @@ import { cn } from "@/lib/utils";
  * - 版面=9 类目固定版序（Q7，沿用 feed chips 序），空版消失；每版 >8 溢出快讯 ≤12；
  * - 导航两层（Q8）：桌面月分组 rail（首条标题两行预览=目录接口 firstTitle 字段，
  *   #240 已上线）+ 移动横向日期条（「今天」标记）+「本期目录」抽屉；
+ *   预览口径（#380）：仅 itemCount=0 显示休刊，有资讯时当前语言标题→
+ *   另一语言标题→中性「本期资讯」，目录/翻期导航同口径；刊头出刊时钟
+ *   （#381）按 Asia/Hong_Kong 显示，不直接截 ISO 串的 UTC 字段；
  * - 路由（Q5+默认采纳）：/daily=最新一期渲染（canonical=/daily）、
  *   /daily/:date 深链（canonical=自身）；日期切换=真实路由导航改写地址栏
  *   （对齐已提交 IndexNow/sitemap 的 URL 面）；key 不合式 404；
@@ -102,6 +106,37 @@ const enDate = (ds: string) => {
   return `${p.day} ${MONTHS_EN[p.m - 1]}`;
 };
 const enWeekday = (ds: string) => WEEKDAYS_EN[dateParts(ds).wd];
+
+/**
+ * 目录/翻期预览口径（#380）：仅 itemCount=0 是休刊；有资讯时当前语言非空标题 →
+ * 另一语言非空标题 → 双语中性「本期资讯」预览；空白字符串视空
+ */
+function digestPreview(issue: NewsDailyDigestSummary, zh: boolean, recess: string): string {
+  if (issue.itemCount === 0) {
+    return recess;
+  }
+  const current = (zh ? issue.firstTitleZh : issue.firstTitleEn)?.trim();
+  if (current) {
+    return current;
+  }
+  const other = (zh ? issue.firstTitleEn : issue.firstTitleZh)?.trim();
+  if (other) {
+    return other;
+  }
+  return zh ? "本期资讯" : "News in this issue";
+}
+
+/**
+ * 出刊时钟（#381）：buildTime 为 ISO 时间串，按香港时区显示 HH:mm；
+ * 空/非法时间返回空串（刊头省略出刊段，不显示 Invalid Date）
+ */
+function buildClockHkt(buildTime: string): string {
+  if (!buildTime) {
+    return "";
+  }
+  const date = new Date(buildTime);
+  return Number.isNaN(date.getTime()) ? "" : hktClockSafe(date);
+}
 
 interface DerivedIssue {
   lead: NewsDailyDigestItem | null;
@@ -211,6 +246,7 @@ function Masthead({ digest, latest }: { digest: NewsDailyDigest; latest: boolean
   const ws = digest.windowStart.slice(5, 16).replace("T", " ");
   const we = digest.windowEnd.slice(5, 16).replace("T", " ");
   const empty = digest.items.length === 0;
+  const pubClock = buildClockHkt(digest.buildTime);
   return (
     <header className="mb-4">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2.5">
@@ -239,7 +275,9 @@ function Masthead({ digest, latest }: { digest: NewsDailyDigest; latest: boolean
             </span>
           </div>
           <div className="text-[10.5px] tabular-nums text-[var(--feed-text-tertiary)]">
-            {zh ? `覆盖窗口 ${ws} → ${we} HKT · 出刊 ${digest.buildTime.slice(11, 16)}` : `Window ${ws} → ${we} HKT · Published ${digest.buildTime.slice(11, 16)}`}
+            {(zh
+              ? `覆盖窗口 ${ws} → ${we} HKT${pubClock ? ` · 出刊 ${pubClock}` : ""}`
+              : `Window ${ws} → ${we} HKT${pubClock ? ` · Published ${pubClock}` : ""}`)}
           </div>
         </div>
       </div>
@@ -627,7 +665,7 @@ function PrevNext({ summaries, selectedDate }: { summaries: NewsDailyDigestSumma
         </div>
       );
     }
-    const preview = (zh ? issue.firstTitleZh : issue.firstTitleEn) || (zh ? "本日休刊" : "In recess");
+    const preview = digestPreview(issue, zh, zh ? "本日休刊" : "In recess");
     return (
       <Link
         to={`/daily/${issue.digestDate}`}
@@ -691,7 +729,7 @@ function DesktopRail({ summaries, selectedDate }: { summaries: NewsDailyDigestSu
               const p = dateParts(s.digestDate);
               const selected = s.digestDate === selectedDate;
               const empty = s.itemCount === 0;
-              const preview = (zh ? s.firstTitleZh : s.firstTitleEn) || (zh ? "本日休刊，窗口内无公开发布" : "In recess — nothing published in window");
+              const preview = digestPreview(s, zh, zh ? "本日休刊，窗口内无公开发布" : "In recess — nothing published in window");
               return (
                 <Link
                   key={s.digestDate}
