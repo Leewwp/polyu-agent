@@ -77,6 +77,9 @@ public class RAGPromptService {
                 ? configured
                 : agentPromptResolver.resolve(AgentPromptSlot.KB_ANSWER);
         String systemPrompt = StrUtil.isBlank(template) ? "" : PromptTemplateUtils.cleanupPrompt(template);
+        // #332 A1 as-of 时钟基准：紧随槽模板注入服务器 HKT 当前日期事实（无配置键，票面约束）。
+        // 槽模板（KB_ANSWER v4 起）的时效规则以本行为基准；无规则牵引时仅是环境事实，不改变回答行为。
+        systemPrompt = mergeRuleSection(systemPrompt, CurrentDateFact.hktDateLine());
         String merged;
         if (!citationEligible || !Boolean.TRUE.equals(ragConfigProperties.getCitationEnabled())) {
             // M10：围栏数据性硬规则无条件追加（不走引用开关）
