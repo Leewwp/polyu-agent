@@ -126,6 +126,15 @@ function railLink(date: string) {
   return link!;
 }
 
+/** rail 往期清单行（#380）：aside 内找「带预览段落」的同 href 链接——rail 顶月历的日期格同 href 但无 p 预览 */
+function railRow(date: string, zh = true) {
+  const link = within(screen.getByLabelText(zh ? "往期日报" : "Past issues"))
+    .getAllByRole("link")
+    .find((a) => a.getAttribute("href") === `/daily/${date}` && a.querySelector("p"));
+  expect(link).toBeTruthy();
+  return link!;
+}
+
 /** 主栏头条标题集（h4>a；rail 目录预览是 p 标签，不在此列） */
 const mainHeadlines = () => Array.from(document.querySelectorAll("h4 a")).map((a) => a.textContent ?? "");
 
@@ -304,6 +313,128 @@ describe("DailyDigestPage", () => {
     // 翻期格：上一期/下一期均从目录推导（firstTitle 预览，rail 内同文本再现）
     expect(screen.getAllByText("研究突破乙").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("校园动态丙").length).toBeGreaterThanOrEqual(2);
+  });
+
+  // ─────────────── #380 预览口径：仅 itemCount=0 是休刊 ───────────────
+
+  /** #380 形状=生产 10-10 刊：itemCount=4、firstTitleZh=null、英文标题在 */
+  const MISSING_ZH_SUMMARIES: NewsDailyDigestSummary[] = [
+    { digestDate: "2026-10-10", itemCount: 4, introSource: "fallback", buildTime: "2026-10-10T00:40:01.115Z", firstTitleZh: null, firstTitleEn: "AlumNews (October 2026)" },
+    { digestDate: "2026-10-09", itemCount: 3, introSource: "llm", buildTime: "2026-10-09T00:40:00.000Z", firstTitleZh: "   ", firstTitleEn: "  " },
+    { digestDate: "2026-10-08", itemCount: 0, introSource: "empty", buildTime: "2026-10-08T00:40:00.000Z", firstTitleZh: null, firstTitleEn: null }
+  ];
+
+  function singleItemDigest(date: string): NewsDailyDigest {
+    return digestFixture({
+      digestDate: date,
+      windowStart: "2026-10-09T16:00:00+08:00",
+      windowEnd: "2026-10-10T08:00:00+08:00",
+      items: [item(61, 1, "campus", "当期头条甲")],
+      itemCount: 1,
+      visibleCount: 1,
+      buildTime: "2026-10-10T00:40:01.115Z"
+    });
+  }
+
+  it("#380 rail preview: items with missing current-language title fall back to the other language, never recess wording", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(MISSING_ZH_SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(singleItemDigest("2026-10-10"));
+    renderPage("/daily/2026-10-10");
+
+    await waitFor(() => expect(screen.getByText("当期头条甲")).toBeTruthy(), { timeout: 5000 });
+    // 10-10：中文标题缺失→英文标题；徽章如实 4，无休刊字样
+    const link1010 = railRow("2026-10-10");
+    expect(within(link1010).getByText("AlumNews (October 2026)")).toBeTruthy();
+    expect(within(link1010).queryByText(/休刊/)).toBeNull();
+    expect(within(link1010).getByText("4")).toBeTruthy();
+    // 10-09：双标题空白字符串→中性「本期资讯」预览
+    const link1009 = railRow("2026-10-09");
+    expect(within(link1009).getByText("本期资讯")).toBeTruthy();
+    expect(within(link1009).queryByText(/休刊/)).toBeNull();
+    // 10-08：零条仍正确显示休刊
+    const link1008 = railRow("2026-10-08");
+    expect(within(link1008).getByText("本日休刊，窗口内无公开发布")).toBeTruthy();
+  });
+
+  it("#380 falls back symmetrically under the English UI (missing English title shows the Chinese one)", async () => {
+    window.localStorage.setItem("polyu.feed.lang", "en");
+    try {
+      vi.mocked(fetchDailyDigestList).mockResolvedValue([
+        { digestDate: "2026-10-10", itemCount: 2, introSource: "llm", buildTime: "2026-10-10T00:40:01.115Z", firstTitleZh: "校园动态丙", firstTitleEn: null },
+        { digestDate: "2026-10-09", itemCount: 0, introSource: "empty", buildTime: "2026-10-09T00:40:00.000Z", firstTitleZh: null, firstTitleEn: null }
+      ]);
+      vi.mocked(fetchDailyDigest).mockResolvedValue(singleItemDigest("2026-10-10"));
+      renderPage("/daily/2026-10-10");
+
+      await waitFor(() => expect(screen.getByText("Title 61")).toBeTruthy(), { timeout: 5000 });
+      const link1010 = railRow("2026-10-10", false);
+      expect(within(link1010).getByText("校园动态丙")).toBeTruthy();
+      expect(within(link1010).queryByText(/recess/i)).toBeNull();
+      expect(within(link1010).getByText("2")).toBeTruthy();
+      const link1009 = railRow("2026-10-09", false);
+      expect(within(link1009).getByText("In recess — nothing published in window")).toBeTruthy();
+    } finally {
+      window.localStorage.removeItem("polyu.feed.lang");
+    }
+  });
+
+  it("#380 prev/next pager follows the same preview rule as the rail", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(MISSING_ZH_SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockImplementation(async (date: string) => singleItemDigest(date));
+    renderPage("/daily/2026-10-09");
+
+    await waitFor(() => expect(screen.getByText("当期头条甲")).toBeTruthy(), { timeout: 5000 });
+    const pager = screen.getByLabelText("上下一期导航");
+    // 下一期=10-10（中文标题缺失）→ 英文标题，不是「本日休刊」
+    expect(within(pager).getByText("AlumNews (October 2026)")).toBeTruthy();
+    // 上一期=10-08（零条）→ 短休刊标签
+    expect(within(pager).getByText("本日休刊")).toBeTruthy();
+  });
+
+  // ─────────────── #381 出刊时钟：buildTime 按 Asia/Hong_Kong 显示 ───────────────
+
+  it("#381 renders the published clock in HKT for both languages (Z-suffix buildTime, not the UTC slice)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(MISSING_ZH_SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(singleItemDigest("2026-10-10"));
+    renderPage("/daily/2026-10-10");
+
+    // 2026-10-10T00:40:01.115Z = 香港 08:40（旧实现 slice 出 UTC 00:40）
+    await waitFor(() => expect(screen.getByText(/出刊 08:40/)).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByText(/出刊 00:40/)).toBeNull();
+  });
+
+  it("#381 English masthead shows the same HKT published clock", async () => {
+    window.localStorage.setItem("polyu.feed.lang", "en");
+    try {
+      vi.mocked(fetchDailyDigestList).mockResolvedValue(MISSING_ZH_SUMMARIES);
+      vi.mocked(fetchDailyDigest).mockResolvedValue(singleItemDigest("2026-10-10"));
+      renderPage("/daily/2026-10-10");
+
+      await waitFor(() => expect(screen.getByText(/Published 08:40/)).toBeTruthy(), { timeout: 5000 });
+      expect(screen.queryByText(/Published 00:40/)).toBeNull();
+    } finally {
+      window.localStorage.removeItem("polyu.feed.lang");
+    }
+  });
+
+  it("#381 omits the published segment on an invalid buildTime instead of showing Invalid Date", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(MISSING_ZH_SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture({
+      digestDate: "2026-10-10",
+      windowStart: "2026-10-09T16:00:00+08:00",
+      windowEnd: "2026-10-10T08:00:00+08:00",
+      items: [item(61, 1, "campus", "当期头条甲")],
+      itemCount: 1,
+      visibleCount: 1,
+      buildTime: "not-a-timestamp"
+    }));
+    renderPage("/daily/2026-10-10");
+
+    await waitFor(() => expect(screen.getByText("当期头条甲")).toBeTruthy(), { timeout: 5000 });
+    // 非法时间：刊头省略出刊段，不出 Invalid/NaN（月历图例的「出刊」为正常 UI，不计入）
+    expect(screen.getByText("覆盖窗口 10-09 16:00 → 10-10 08:00 HKT")).toBeTruthy();
+    expect(screen.queryByText(/· 出刊/)).toBeNull();
+    expect(screen.queryByText(/Invalid/)).toBeNull();
   });
 
   it("shows not-yet-generated state when the catalog is empty", async () => {
