@@ -43,6 +43,12 @@ jobs:
       - name: Unit tests (vitest)
         run: npm test
 
+      # #375 重页面 waitFor 显式 timeout 门禁（TypeScript 编译器 API 调用级检查）：
+      # 裸调用（含多行形态）报 文件:行号 即红；先跑 --self-test 四形态自检再查真实两文件。
+      # 扩面到其余 31 文件存量另票，不在本门。
+      - name: waitFor explicit-timeout gate (heavy pages)
+        run: npm run check:waitfor
+
       - name: Build
         run: npm run build
 
