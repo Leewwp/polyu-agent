@@ -516,13 +516,12 @@ ai:
       - id: qwen3-local
         provider: ollama
         model: qwen3:8b-fp16
-      - id: qwen3-max
+      - id: qwen3.8
         provider: bailian
-        model: qwen3-max
-        supports-thinking: true
-      - id: gpt-5.4
+        model: qwen3.8-27b
+      - id: gpt-6.1-sol
         provider: aihubmix
-        model: gpt-5.4
+        model: gpt-6.1-sol
       - id: deepseek-flash
         provider: deepseek
         model: deepseek-flash
@@ -550,7 +549,7 @@ ai:
         candidates: [ minimaxm3, qwen-plus, deepseek-flash ]
         timeout-ms: 120000
       deep:
-        candidates: [ qwen3-max, deepseek-flash ]
+        candidates: [ deepseek-flash ]
         timeout-ms: 180000
 
   embedding:
