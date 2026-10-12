@@ -21,6 +21,8 @@ import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import io.agentscope.core.agent.RuntimeContext;
+import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.ToolResultBlock;
 import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.tool.ToolCallParam;
@@ -37,6 +39,8 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -77,7 +81,7 @@ class McpToolProxyTest {
                 .put(McpMeta.class, new McpMeta(AgentMcpMeta.ofUser("2001")))
                 .build();
 
-        assertThat(tool.callAsync(param(context)).block().getState()).isEqualTo(ToolResultState.SUCCESS);
+        assertThat(Objects.requireNonNull(tool.callAsync(param(context)).block()).getState()).isEqualTo(ToolResultState.SUCCESS);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> meta = ArgumentCaptor.forClass(Map.class);
         verify(client).callTool(eq(TOOL_ID), anyMap(), meta.capture());
@@ -87,9 +91,14 @@ class McpToolProxyTest {
     @Test
     void shouldRejectMaskedToolBeforeRemoteCall() {
         RuntimeContext context = RuntimeContext.builder().build();
-        context.put(AgentSkillMaskingMiddleware.MASKED_TOOLS_ATTRIBUTE, Map.of(TOOL_ID, "order_skill"));
+        context.put(AgentSkillMaskingMiddleware.MASKED_TOOLS_ATTRIBUTE, Set.of(TOOL_ID));
 
-        assertThat(tool.callAsync(param(context)).block().getState()).isEqualTo(ToolResultState.ERROR);
+        ToolResultBlock result = tool.callAsync(param(context)).block();
+        assert result != null;
+        assertThat(result.getState()).isEqualTo(ToolResultState.ERROR);
+        assertThat(result.getOutput()).singleElement().isInstanceOfSatisfying(TextBlock.class,
+                text -> assertThat(text.getText()).isEqualTo(
+                        "该工具尚未解锁。请根据当前任务，从 load_skill 的技能清单中选择并加载对应手册，再调用此工具。"));
         verify(client, never()).callTool(eq(TOOL_ID), anyMap(), anyMap());
     }
 
@@ -100,8 +109,8 @@ class McpToolProxyTest {
                 .thenReturn(Mono.error(new CancellationException("stopped")));
 
         RuntimeContext context = RuntimeContext.builder().build();
-        assertThat(tool.callAsync(param(context)).block().getState()).isEqualTo(ToolResultState.ERROR);
-        assertThat(tool.callAsync(param(context)).block().getState()).isEqualTo(ToolResultState.INTERRUPTED);
+        assertThat(Objects.requireNonNull(tool.callAsync(param(context)).block()).getState()).isEqualTo(ToolResultState.ERROR);
+        assertThat(Objects.requireNonNull(tool.callAsync(param(context)).block()).getState()).isEqualTo(ToolResultState.INTERRUPTED);
     }
 
     private ToolCallParam param(RuntimeContext context) {

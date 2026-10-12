@@ -21,6 +21,7 @@ import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.McpToolBinding;
 import com.nageoffer.ai.ragent.agent.trace.AgentToolBodyTracer;
 import com.nageoffer.ai.ragent.framework.cancellation.TaskCancellation;
+import io.agentscope.core.agent.AgentBase;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolResultBlock;
@@ -38,6 +39,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 代理远程 MCP 工具调用，复用 AgentScope 的连接、Schema 与结果转换，并补充本项目的执行规则
@@ -46,6 +48,7 @@ import java.util.Optional;
 public class McpToolProxy extends McpTool {
 
     private static final String CALL_FAILED_MESSAGE = "工具调用失败，请稍后重试";
+    private static final String MASKED_TOOL_MESSAGE = "该工具尚未解锁。请根据当前任务，从 load_skill 的技能清单中选择并加载对应手册，再调用此工具。";
     private final boolean needsConfirm;
     private final McpClientWrapper client;
 
@@ -59,28 +62,30 @@ public class McpToolProxy extends McpTool {
 
     @Override
     public Mono<PermissionDecision> checkPermissions(Map<String, Object> toolInput, PermissionContextState context) {
-        return Mono.just(needsConfirm
-                ? PermissionDecision.ask("该操作执行前需要你确认")
-                : PermissionDecision.allow("该工具无需执行前确认"));
+        return Mono.deferContextual(view -> {
+            RuntimeContext runtime = view.getOrDefault(AgentBase.RUNTIME_CONTEXT_KEY, null);
+            boolean ask = needsConfirm && !(runtime != null && isMasked(runtime));
+            return Mono.just(ask
+                    ? PermissionDecision.ask("该操作执行前需要你确认")
+                    : PermissionDecision.allow("该工具无需执行前确认"));
+        });
     }
 
     @Override
     public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
         Optional<RuntimeContext> context = Optional.ofNullable(param.getRuntimeContext());
-        String maskedBy = context.map(this::maskedBySkill).orElse(null);
-        if (maskedBy != null) {
+        if (context.map(this::isMasked).orElse(false)) {
             String callId = Optional.ofNullable(param.getToolUseBlock())
                     .map(ToolUseBlock::getId)
                     .orElse(null);
             AgentToolExecutionFacts facts = AgentToolExecutionFacts.from(param.getRuntimeContext());
             if (facts != null) {
-                facts.markShortCircuit(callId, AgentToolExecutionFacts.SHORT_CIRCUIT_MASKED, maskedBy);
+                facts.markShortCircuit(callId, AgentToolExecutionFacts.SHORT_CIRCUIT_MASKED, null);
             }
-            String message = "这个工具属于技能 %s，手册尚未加载。请先调用 load_skill 获取手册".formatted(maskedBy);
             return Mono.just(ToolResultBlock.builder()
                     .id(callId)
                     .name(getName())
-                    .output(TextBlock.builder().text(message).build())
+                    .output(TextBlock.builder().text(MASKED_TOOL_MESSAGE).build())
                     .state(ToolResultState.ERROR)
                     .build());
         }
@@ -103,9 +108,8 @@ public class McpToolProxy extends McpTool {
         });
     }
 
-    private String maskedBySkill(RuntimeContext context) {
+    private boolean isMasked(RuntimeContext context) {
         Object masked = context.get(AgentSkillMaskingMiddleware.MASKED_TOOLS_ATTRIBUTE);
-        return masked instanceof Map<?, ?> map && map.get(getName()) instanceof String skillCode
-                ? skillCode : null;
+        return masked instanceof Set<?> tools && tools.contains(getName());
     }
 }

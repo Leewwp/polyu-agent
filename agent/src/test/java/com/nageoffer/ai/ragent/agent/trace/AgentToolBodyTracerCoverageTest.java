@@ -65,6 +65,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -151,7 +152,7 @@ class AgentToolBodyTracerCoverageTest {
     @Test
     void shouldNotOpenToolSpanWhenSkillMaskingRefusesTheCall() {
         Toolkit toolkit = productionToolkit();
-        ctx.put(AgentSkillMaskingMiddleware.MASKED_TOOLS_ATTRIBUTE, Map.of("leave_submit", "leave"));
+        ctx.put(AgentSkillMaskingMiddleware.MASKED_TOOLS_ATTRIBUTE, Set.of("leave_submit"));
 
         Span batch = tracerProvider.get("test").spanBuilder("tool_batch").startSpan();
         try (Scope ignored = batch.makeCurrent()) {
@@ -165,7 +166,7 @@ class AgentToolBodyTracerCoverageTest {
         assertThat(facts.toolFact("call-1").endedAt()).isNull();
         assertThat(facts.toolFact("call-1").shortCircuitReason())
                 .isEqualTo(AgentToolExecutionFacts.SHORT_CIRCUIT_MASKED);
-        assertThat(facts.toolFact("call-1").shortCircuitDetail()).isEqualTo("leave");
+        assertThat(facts.toolFact("call-1").shortCircuitDetail()).isNull();
     }
 
     private ToolCallParam param(String toolCallId, String toolName) {

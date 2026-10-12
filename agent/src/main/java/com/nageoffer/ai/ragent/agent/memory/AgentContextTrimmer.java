@@ -252,9 +252,8 @@ public class AgentContextTrimmer {
 
     /**
      * 靠占位前缀识别已清理块，不依赖 metadata
-     * 对外开放供技能遮蔽复用：正文被换成占位后 metadata 仍在，判"已加载"必须再过这一道
      */
-    public static boolean isEvicted(ToolResultBlock block) {
+    static boolean isEvicted(ToolResultBlock block) {
         List<ContentBlock> output = block.getOutput();
         return output.size() == 1
                 && output.get(0) instanceof TextBlock text
