@@ -70,12 +70,29 @@ public final class CompactionRegressionMain {
 
     private static Path runLive(Path suiteDir, InitializerConfig config, CompactionScript script,
                                 Map<String, String> arguments) throws Exception {
-        Path runDir = suiteDir.resolve("artifacts").resolve(RUN_ID.format(LocalDateTime.now()));
+        String resume = arguments.get("resume");
+        Path runDir = resume == null
+                ? suiteDir.resolve("artifacts").resolve(RUN_ID.format(LocalDateTime.now()))
+                : Path.of(resume).toAbsolutePath().normalize();
         Files.createDirectories(runDir);
         int sessions = Integer.parseInt(arguments.getOrDefault("sessions", config.get("run.sessions", "2")));
         int limit = Integer.parseInt(arguments.getOrDefault("limit", String.valueOf(script.turns().size())));
         int steadyGenerations = Integer.parseInt(arguments.getOrDefault("steady-generations",
                 config.get("run.steady-generations", "0")));
+        // 续跑：已有产物里每条会话从末尾那段连续失败的轮次起重发，之前的轮次与代数原样保留
+        List<Resume> resumes = new ArrayList<>();
+        if (resume != null) {
+            try (Stream<Path> stream = Files.list(runDir)) {
+                for (Path dir : stream.filter(Files::isDirectory)
+                        .filter(path -> path.getFileName().toString().startsWith("session-")).sorted().toList()) {
+                    resumes.add(Resume.load(dir, script));
+                }
+            }
+            if (resumes.isEmpty()) {
+                throw new IllegalStateException("续跑目录里没有会话产物: " + runDir);
+            }
+            sessions = resumes.size();
+        }
         try (RagentHttpClient http = new RagentHttpClient(config);
              JdbcClient platform = new JdbcClient(config, "database");
              JdbcClient biz = new JdbcClient(config, "biz-database")) {
@@ -93,8 +110,9 @@ public final class CompactionRegressionMain {
             for (int number = 1; number <= sessions; number++) {
                 Session session = new Session(number, runDir.resolve("session-" + number), script, limit,
                         steadyGenerations, new CompactionSseClient(http, config), platform, config, userId);
+                Resume start = resumes.isEmpty() ? Resume.FRESH : resumes.get(number - 1);
                 futures.add(pool.submit(() -> {
-                    session.run();
+                    session.run(start);
                     return null;
                 }));
             }
@@ -189,6 +207,55 @@ public final class CompactionRegressionMain {
     }
 
     /**
+     * 续跑起点：会话 id、从第几轮重发、库里已有几代、稳态期已观测几代
+     * 末尾连续失败的轮次从 turns.jsonl 里裁掉；库里对应的消息与状态要先手工清掉，这里不碰库
+     */
+    private record Resume(String conversationId, int startTurn, int seen, int steady) {
+
+        static final Resume FRESH = new Resume(null, 1, 0, 0);
+
+        static Resume load(Path dir, CompactionScript script) throws IOException {
+            Path file = dir.resolve("turns.jsonl");
+            List<Map<String, Object>> records = new ArrayList<>();
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                if (!line.isBlank()) {
+                    records.add(SimpleJson.object(SimpleJson.parse(line)));
+                }
+            }
+            if (records.isEmpty()) {
+                throw new IllegalStateException(dir + " 没有已跑过的轮次，不能续跑");
+            }
+            int cut = records.size();
+            while (cut > 0 && !"NORMAL".equals(SimpleJson.string(records.get(cut - 1), "status"))) {
+                cut--;
+            }
+            String conversationId = SimpleJson.string(records.get(0), "conversationId");
+            int startTurn = cut == records.size()
+                    ? SimpleJson.integer(records.get(cut - 1), "index", 0) + 1
+                    : SimpleJson.integer(records.get(cut), "index", 0);
+            StringBuilder kept = new StringBuilder();
+            for (Map<String, Object> record : records.subList(0, cut)) {
+                kept.append(SimpleJson.stringify(record)).append('\n');
+            }
+            Files.writeString(file, kept.toString(), StandardCharsets.UTF_8);
+            int seen = 0;
+            int steady = 0;
+            int hold3 = script.index("hold3");
+            for (int number = 1; Files.exists(dir.resolve("gen-" + number + ".json")); number++) {
+                Map<String, Object> gen = SimpleJson.object(SimpleJson.parse(
+                        Files.readString(dir.resolve("gen-" + number + ".json"), StandardCharsets.UTF_8)));
+                seen = number;
+                if (SimpleJson.integer(gen, "compactedThrough", 0) >= hold3) {
+                    steady++;
+                }
+            }
+            log(dir.getFileName() + " 续跑：会话 " + conversationId + "，裁掉第 " + startTurn + " 轮起的 "
+                    + (records.size() - cut) + " 条失败记录，已有 " + seen + " 代，稳态期已观测 " + steady + " 代");
+            return new Resume(conversationId, startTurn, seen, steady);
+        }
+    }
+
+    /**
      * 一条独立会话：逐轮发问、拒卡、等状态落库，再看这一轮有没有长出新的一代摘要
      */
     private static final class Session {
@@ -227,14 +294,18 @@ public final class CompactionRegressionMain {
         /**
          * 稳态期（hold3 已压出原文）观测够 steadyGenerations 代后直接跳到末轮：再往后的轮次只是重复同一组对比
          */
-        void run() throws Exception {
+        void run(Resume resume) throws Exception {
             Files.createDirectories(dir);
-            List<CompactionScript.Turn> turns = script.turns().subList(0, limit);
+            List<CompactionScript.Turn> turns = script.turns().subList(resume.startTurn() - 1, limit);
+            if (turns.isEmpty()) {
+                log("会话 " + number + " 没有剩余轮次");
+                return;
+            }
             CompactionScript.Turn last = turns.get(turns.size() - 1);
             int hold3 = script.index("hold3");
-            String conversationId = null;
-            int seen = 0;
-            int steady = 0;
+            String conversationId = resume.conversationId();
+            int seen = resume.seen();
+            int steady = resume.steady();
             for (CompactionScript.Turn turn : turns) {
                 if (steadyGenerations > 0 && steady >= steadyGenerations && turn != last) {
                     continue;

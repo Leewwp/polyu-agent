@@ -32,12 +32,19 @@ final class CompactionSseClient {
     private static final String CONFIRM_PATH = "/agent/v1/chat/confirm";
 
     private final RagentHttpClient http;
-    private final HttpClient client;
+    private final Duration connectTimeout;
 
     CompactionSseClient(RagentHttpClient http, InitializerConfig config) {
         this.http = http;
-        this.client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(config.getInt("server.connect-timeout-seconds", 5)))
+        this.connectTimeout = Duration.ofSeconds(config.getInt("server.connect-timeout-seconds", 5));
+    }
+
+    /**
+     * 每次请求新建客户端：共用的 JDK HttpClient 在长 SSE 流中途失效后，之后每次发送都只会报 closed，整轮回归跟着中断
+     */
+    private HttpClient newClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
@@ -68,7 +75,7 @@ final class CompactionSseClient {
                 .header("Accept", "text/event-stream")
                 .header("Authorization", http.authorization())
                 .build();
-        HttpResponse<Stream<String>> response = client.send(request, HttpResponse.BodyHandlers.ofLines());
+        HttpResponse<Stream<String>> response = newClient().send(request, HttpResponse.BodyHandlers.ofLines());
         try (Stream<String> lines = response.body()) {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + "，" + label);

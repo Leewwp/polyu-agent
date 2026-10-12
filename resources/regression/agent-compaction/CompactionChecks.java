@@ -137,7 +137,7 @@ final class CompactionChecks {
                     + "|(?:已(?:经)?(?:明确)?)?授权(?:办理|提交)|已(?:经)?授权|允许提交"
                     + "|(?:已撤销|撤销了)(?:暂缓|限制)|(?:暂缓|限制)(?:已撤销|撤销了)");
     private static final Pattern NEGATED = Pattern.compile("(?:未|没|没有|尚未|并未|不|不能|并非|并不|未曾)(?:明确|再次|正式|实际|获得|得到|被|要求|直接|立即|现在|已经|已)*$");
-    private static final Pattern HISTORICAL = Pattern.compile("曾(?:经)?|此前|之前|原先");
+    private static final Pattern HISTORICAL = Pattern.compile("曾(?:经)?|此前|之前|原先|中途");
     private static final Pattern WITHDRAWN = Pattern.compile("(?:后|现|又|但|已改).*(?:暂缓|先别提交|撤回|撤销|取消授权)");
     // 查没查到是工具结果，按「编号留、内容不抄」不写；署名给用户或客服、或写明待核实，就没当成事实
     private static final Pattern CLAIM_QUALIFIER = Pattern.compile(
