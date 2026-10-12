@@ -21,19 +21,24 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.nageoffer.ai.ragent.agent.config.AgentProperties;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
-import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
-import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
-import com.nageoffer.ai.ragent.infra.chat.LLMService;
-import com.nageoffer.ai.ragent.infra.enums.Tier;
+import com.nageoffer.ai.ragent.infra.enums.ModelProvider;
 import com.nageoffer.ai.ragent.infra.util.LLMResponseCleaner;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
+import io.agentscope.core.message.Msg;
+import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.model.ChatResponse;
+import io.agentscope.core.model.ExecutionConfig;
+import io.agentscope.core.model.GenerateOptions;
+import io.agentscope.core.model.Model;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -47,12 +52,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AgentMemoryJudge {
 
-    /**
-     * 单条用户消息进素材的长度上限，长文里可晋升的事实一般落在开头
-     */
-    private static final int MATERIAL_ITEM_CHARS = 1200;
-
-    private static final String TRUNCATED_SUFFIX = "…（后续 %d 字符省略）";
+    private static final Duration JUDGE_TIMEOUT = Duration.ofSeconds(120);
+    private static final String FINISH_REASON_STOP = "stop";
 
     private static final String FENCE_TURNS = "recent_turns";
     private static final String FENCE_MEMORIES = "existing_memories";
@@ -68,7 +69,8 @@ public class AgentMemoryJudge {
     private static final String FIELD_ID = "id";
     private static final String FIELD_CONTENT = "content";
 
-    private final LLMService llmService;
+    private final Model agentChatModel;
+    private final AgentProperties agentProperties;
     private final AgentPromptResolver agentPromptResolver;
     private final AgentMemoryProperties memoryProperties;
 
@@ -87,19 +89,37 @@ public class AgentMemoryJudge {
         }
 
         // 素材以数据身份放在用户消息里，「围栏内是数据」的声明由提示词给
-        ChatRequest request = ChatRequest.builder()
-                .messages(List.of(ChatMessage.user(prompt)))
-                .temperature(0.2D)
-                .topP(0.9D)
-                .thinking(false)
-                .maxTokens(maxChars)
-                .build();
-        // 不走 FAST 档：5s 是 OkHttp 整段调用预算，素材上千字符必然超时
-        String raw = llmService.chat(request, Tier.STANDARD);
+        List<Msg> messages = List.of(Msg.builder().name("user").role(MsgRole.USER).textContent(prompt).build());
+        ChatResponse response = agentChatModel.stream(messages, null, buildOptions())
+                .singleOrEmpty()
+                .blockOptional()
+                .orElseThrow(() -> new IllegalStateException("长期记忆仲裁返回为空"));
+        if (!FINISH_REASON_STOP.equals(response.getFinishReason())) {
+            throw new IllegalStateException("长期记忆仲裁未正常结束, 结束原因: " + response.getFinishReason());
+        }
+        String raw = Msg.builder().role(MsgRole.ASSISTANT).content(response.getContent()).build().getTextContent();
         List<AgentMemoryDecision> decisions = parse(raw);
         log.info("长期记忆仲裁完成, 素材消息: {}, 已有条目: {}, 决策: {}",
                 pending.size(), existing.size(), decisions.size());
         return decisions;
+    }
+
+    /**
+     * 与摘要相同：非流式取完整响应，超时与尝试次数显式指定，字符预算只写入提示词
+     */
+    private GenerateOptions buildOptions() {
+        GenerateOptions.Builder options = GenerateOptions.builder()
+                .stream(false)
+                .temperature(0.3D)
+                .executionConfig(ExecutionConfig.builder()
+                        .timeout(JUDGE_TIMEOUT)
+                        .maxAttempts(agentProperties.getMaxRetries())
+                        .build());
+        // 只给 DeepSeek 显式关闭思考，其他供应商不发送该字段
+        if (ModelProvider.DEEP_SEEK.matches(agentProperties.getChat().getProvider())) {
+            options.additionalBodyParam("thinking", Map.of("type", "disabled"));
+        }
+        return options.build();
     }
 
     /**
@@ -223,17 +243,9 @@ public class AgentMemoryJudge {
                 text.append(CONVERSATION_BREAK).append('\n');
             }
             previousConversationId = message.getConversationId();
-            text.append("- ").append(truncate(content)).append('\n');
+            text.append("- ").append(content).append('\n');
         }
         return text.toString().stripTrailing();
-    }
-
-    private String truncate(String value) {
-        if (value.length() <= MATERIAL_ITEM_CHARS) {
-            return value;
-        }
-        return value.substring(0, MATERIAL_ITEM_CHARS)
-                + String.format(TRUNCATED_SUFFIX, value.length() - MATERIAL_ITEM_CHARS);
     }
 
     private String fence(String name, String body) {
