@@ -540,54 +540,27 @@ CREATE INDEX idx_agent_compaction_conv ON t_agent_context_compaction (conversati
 COMMENT ON TABLE t_agent_context_compaction IS 'Agent 上下文压缩事件，追加型审计日志，应用侧无读路径';
 
 CREATE TABLE t_agent_memory (
-    id            VARCHAR(20)  NOT NULL PRIMARY KEY,
-    user_id       VARCHAR(20)  NOT NULL,
-    content       VARCHAR(500) NOT NULL,
-    source_type   VARCHAR(16)  NOT NULL,
-    invalid_at    TIMESTAMP,
-    superseded_by VARCHAR(20),
-    create_time   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id                VARCHAR(20)  NOT NULL PRIMARY KEY,
+    user_id           VARCHAR(20)  NOT NULL,
+    content           VARCHAR(500) NOT NULL,
+    source_type       VARCHAR(16)  NOT NULL,
+    invalid_at        TIMESTAMP,
+    source_message_id VARCHAR(20),
+    expressed_at      TIMESTAMP,
+    create_time       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 -- 部分索引：读路径只查 ACTIVE，失效行不进索引
 CREATE INDEX idx_agent_memory_active ON t_agent_memory (user_id) WHERE invalid_at IS NULL;
 COMMENT ON TABLE t_agent_memory IS 'Agent长期记忆事实表';
 
-CREATE TABLE t_agent_memory_extraction (
-    id                      VARCHAR(20) NOT NULL PRIMARY KEY,
-    user_id                 VARCHAR(20) NOT NULL,
-    conversation_id         VARCHAR(20) NOT NULL,
-    from_message_id         VARCHAR(20) NOT NULL,
-    to_message_id           VARCHAR(20) NOT NULL,
-    -- VARCHAR(32)：PENDING_APPROVAL 恰 16 字符顶满旧宽，状态机加宽防再犯（261005 迁移同步加宽存量库）
-    status                  VARCHAR(32) NOT NULL,
-    trigger_type            VARCHAR(16) NOT NULL,
-    decision_count          INTEGER     NOT NULL DEFAULT 0,
-    attempt_count           INTEGER     NOT NULL DEFAULT 1,
-    plan_json               TEXT,
-    plan_expires_at         TIMESTAMP,
-    expected_revision       BIGINT,
-    plan_tool_call_id       VARCHAR(64),
-    plan_confirm_message_id VARCHAR(20),
-    plan_result_json        TEXT,
-    create_time             TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    settle_time             TIMESTAMP
+CREATE TABLE t_agent_memory_cursor (
+    user_id         VARCHAR(20) NOT NULL PRIMARY KEY,
+    last_message_id VARCHAR(20),
+    create_time     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time     TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_agent_memory_extraction_user ON t_agent_memory_extraction (user_id, to_message_id);
--- 部分唯一索引即分布式 claim：同一用户同时只允许一次在飞抽取，记忆只有一份，消费顺序必须是说话先后
-CREATE UNIQUE INDEX uk_agent_memory_extraction_processing
-    ON t_agent_memory_extraction (user_id) WHERE status = 'PROCESSING';
--- 审批互斥面：同一用户同时至多一个待审（或已批未执行）计划，见 261005_agent_memory_hitl_approval.sql
-CREATE UNIQUE INDEX uk_agent_memory_extraction_plan_pending
-    ON t_agent_memory_extraction (user_id) WHERE status IN ('PENDING_APPROVAL', 'APPROVED');
-COMMENT ON TABLE t_agent_memory_extraction IS 'Agent长期记忆抽取台账';
-
-CREATE TABLE t_agent_memory_control (
-    user_id     VARCHAR(20) NOT NULL PRIMARY KEY,
-    revision    BIGINT      NOT NULL DEFAULT 0,
-    create_time TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-COMMENT ON TABLE t_agent_memory_control IS 'Agent长期记忆控制面';
+COMMENT ON TABLE t_agent_memory_cursor IS 'Agent长期记忆整理游标';
 
 -- ============================================
 -- Ingestion Pipeline Tables
@@ -1075,36 +1048,18 @@ COMMENT ON COLUMN t_agent_context_compaction.create_time IS '创建时间';
 COMMENT ON COLUMN t_agent_memory.id IS '主键ID';
 COMMENT ON COLUMN t_agent_memory.user_id IS '用户ID';
 COMMENT ON COLUMN t_agent_memory.content IS '记忆正文';
-COMMENT ON COLUMN t_agent_memory.source_type IS '写入来源：FLUSH/BACKGROUND/CONSOLIDATION';
-COMMENT ON COLUMN t_agent_memory.invalid_at IS '失效时刻，NULL 即 ACTIVE';
-COMMENT ON COLUMN t_agent_memory.superseded_by IS '取代者ID，撤回与清空行留空';
-COMMENT ON COLUMN t_agent_memory.create_time IS '创建时间';
+COMMENT ON COLUMN t_agent_memory.source_type IS '当前正文的写入入口：FLUSH/BACKGROUND';
+COMMENT ON COLUMN t_agent_memory.invalid_at IS '失效时刻，NULL 即有效；删除与容量移除时写入';
+COMMENT ON COLUMN t_agent_memory.source_message_id IS '当前正文依据的用户消息ID，即用户最近一次明确表达或确认它的发言；早期数据为空';
+COMMENT ON COLUMN t_agent_memory.expressed_at IS '那条用户消息的入库时间，即用户表达时间，不是本行写入时间；早期数据为空';
+COMMENT ON COLUMN t_agent_memory.create_time IS '本行写入时间';
+COMMENT ON COLUMN t_agent_memory.update_time IS '本行最近一次修改（改写、失效）的时间';
 
--- t_agent_memory_extraction
-COMMENT ON COLUMN t_agent_memory_extraction.id IS '主键ID';
-COMMENT ON COLUMN t_agent_memory_extraction.user_id IS '用户ID';
-COMMENT ON COLUMN t_agent_memory_extraction.conversation_id IS '触发本批的会话ID';
-COMMENT ON COLUMN t_agent_memory_extraction.from_message_id IS '本批首条用户消息ID';
-COMMENT ON COLUMN t_agent_memory_extraction.to_message_id IS '本批末条用户消息ID';
-COMMENT ON COLUMN t_agent_memory_extraction.status IS '抽取状态：PROCESSING/WRITTEN/NOOP/DROPPED/CONFLICT/PENDING_APPROVAL/APPROVED/APPLIED/REJECTED/EXPIRED/INVALIDATED';
-COMMENT ON COLUMN t_agent_memory_extraction.trigger_type IS '触发方：FLUSH/BACKGROUND';
-COMMENT ON COLUMN t_agent_memory_extraction.decision_count IS '实际落库的决策条数';
-COMMENT ON COLUMN t_agent_memory_extraction.attempt_count IS '第几次尝试，达上限记 DROPPED';
-COMMENT ON COLUMN t_agent_memory_extraction.plan_json IS '冻结的记忆变更计划快照（受审批次决策+目标条目内容+消息范围+快照凭证），仅审批链路读写';
-COMMENT ON COLUMN t_agent_memory_extraction.plan_expires_at IS '计划有效期截止（冻结时刻+30 分钟），读取/确认/执行/新请求时按需结算到期';
-COMMENT ON COLUMN t_agent_memory_extraction.expected_revision IS '冻结时刻的记忆版本号，执行时复核，跨会话版本变化即失效';
-COMMENT ON COLUMN t_agent_memory_extraction.plan_tool_call_id IS '批准绑定的 apply_memory_change 工具调用ID，执行时校验';
-COMMENT ON COLUMN t_agent_memory_extraction.plan_confirm_message_id IS '批准所在的确认卡消息ID，审计用';
-COMMENT ON COLUMN t_agent_memory_extraction.plan_result_json IS 'APPLIED 后的执行结果快照，重复执行读原结果不重复提交';
-COMMENT ON COLUMN t_agent_memory_extraction.create_time IS '创建时间';
-COMMENT ON COLUMN t_agent_memory_extraction.settle_time IS '抽取结束时刻，非终态为空';
-
--- t_agent_memory_control
-COMMENT ON COLUMN t_agent_memory_control.user_id IS '用户ID';
-COMMENT ON COLUMN t_agent_memory_control.revision IS '记忆集版本号，提交期与水位一同双校验';
-COMMENT ON COLUMN t_agent_memory_control.create_time IS '建行时刻，兼作抽取下界：更早的历史消息不倒灌';
-COMMENT ON COLUMN t_agent_memory_control.update_time IS '更新时间';
-
+-- t_agent_memory_cursor
+COMMENT ON COLUMN t_agent_memory_cursor.user_id IS '用户ID';
+COMMENT ON COLUMN t_agent_memory_cursor.last_message_id IS '已整理到的最后一条用户消息ID，之后的用户消息待整理；NULL 表示从该用户第一条消息开始';
+COMMENT ON COLUMN t_agent_memory_cursor.create_time IS '首次纳入长期记忆的时刻';
+COMMENT ON COLUMN t_agent_memory_cursor.update_time IS '最近一次推进游标的时刻';
 -- ============================================================
 -- 统一分享快照（2026-09-22，issue #124）
 -- 答案分享与会话分享是同一机制的两种粒度（CONTEXT.md 伞词条「分享快照」）：
@@ -1626,3 +1581,4 @@ COMMENT ON COLUMN t_key_date.ics_export_state IS 'ICS 导出历史最小承载�
 COMMENT ON TABLE t_key_date_source IS '校历源状态（合同§6）：人工启停（enabled，不自动复活）与自动隔离（auto_state，3 轮退化隔离、两次完整探测复归）严格区分；verifier 零事件写径';
 COMMENT ON COLUMN t_key_date_source.last_success_at IS '最近完整同步时间（完整候选原子发布后才刷新；≠内容更新时间；退化轮不刷新）';
 COMMENT ON COLUMN t_key_date_source.last_complete_snapshot IS '最后完整候选版本快照（JSON）；退化不覆盖——保留用于比对与恢复判定';
+

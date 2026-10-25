@@ -20,8 +20,7 @@ package com.nageoffer.ai.ragent.agent.config;
 import com.nageoffer.ai.ragent.agent.confirm.AgentConfirmDenialMiddleware;
 import com.nageoffer.ai.ragent.agent.language.AnswerLanguageMiddleware;
 import com.nageoffer.ai.ragent.agent.memory.AgentContextCompactionMiddleware;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryFlusher;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.memory.AgentUserMemoryMiddleware;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
@@ -108,8 +107,7 @@ class ReActAgentProviderTest {
                 intentNodeRegistry,
                 mcpClients,
                 new AgentMemoryProperties(),
-                mock(AgentMemoryPipeline.class),
-                mock(AgentMemoryApprovalService.class),
+                mock(AgentMemoryFlusher.class),
                 mock(AgentSkillRegistry.class)));
         AgentProperties agentProperties = new AgentProperties();
         model = mock(OpenAIChatModel.class);

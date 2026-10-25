@@ -18,9 +18,10 @@
 package com.nageoffer.ai.ragent.agent.memory;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONArray;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nageoffer.ai.ragent.agent.config.AgentProperties;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentMessageDO;
@@ -40,11 +41,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 记忆仲裁：抽取与取舍合成一次模型调用，解析失败整批抛出重来
+ * 记忆裁决：一次模型调用给出怎么改记忆以及改动原因
  */
 @Slf4j
 @Component
@@ -55,57 +57,96 @@ public class AgentMemoryJudge {
     private static final Duration JUDGE_TIMEOUT = Duration.ofSeconds(120);
     private static final String FINISH_REASON_STOP = "stop";
 
-    private static final String FENCE_TURNS = "recent_turns";
-    private static final String FENCE_MEMORIES = "existing_memories";
-
-    private static final String NO_MEMORIES = "（该用户目前没有已沉淀的记忆条目）";
-
-    /**
-     * 一批素材可能跨会话，换会话处插这一行；AGENT_MEMORY_EXTRACTION 提示词里原样引用了它，改动要两处一起改
-     */
-    private static final String CONVERSATION_BREAK = "——（以下换到另一段对话）——";
-
-    private static final String FIELD_ACTION = "action";
-    private static final String FIELD_ID = "id";
-    private static final String FIELD_CONTENT = "content";
-
     private final Model agentChatModel;
     private final AgentProperties agentProperties;
     private final AgentPromptResolver agentPromptResolver;
     private final AgentMemoryProperties memoryProperties;
+    private final ObjectMapper objectMapper;
 
     /**
-     * 判不出东西返回空列表，判失败一律抛出交由调用方结算
+     * 主动整理用，只判本轮请求，决策依据只能是这条请求
+     *
+     * @param existing   当前有效记忆
+     * @param request    本轮用户请求
+     * @param background 同会话里请求之前的几条消息，用来看懂「这个」「刚才那个」
+     * @param later      请求之后用户又说的话，避免把已经改口或清空的内容记回去
      */
-    public List<AgentMemoryDecision> judge(List<AgentMemoryItem> existing, List<AgentMessageDO> pending) {
-        int maxChars = memoryProperties.resolveMemoryMaxChars();
-        String prompt = agentPromptResolver.render(AgentPromptSlot.AGENT_MEMORY_EXTRACTION, Map.of(
-                "existing_memories", fence(FENCE_MEMORIES, renderMemories(existing)),
-                "recent_turns", fence(FENCE_TURNS, renderTurns(pending)),
-                "memory_max_chars", String.valueOf(maxChars)
-        ));
+    public AgentMemoryJudgement judgeFlush(List<AgentMemoryItem> existing, AgentMessageDO request,
+                                           List<AgentMessageDO> background, List<AgentMessageDO> later) {
+        FlushInput input = new FlushInput(existing, toViews(background), toView(request), toViews(later));
+        List<AgentMessageDO> sourceMessages = List.of(request);
+        String raw = ask(input);
+        return parse(raw, sourceMessages);
+    }
+
+    /**
+     * 后台学习用，判断一批还没整理过的用户发言，决策依据只能是这批发言
+     *
+     * @param existing   当前有效记忆
+     * @param messages   本批要判断的用户发言
+     * @param background 理解这批发言所需的其他消息，只看不引用
+     */
+    public AgentMemoryJudgement judgeBackground(List<AgentMemoryItem> existing, List<AgentMessageDO> messages,
+                                                List<AgentMessageDO> background) {
+        LearnInput input = new LearnInput(existing, toViews(background), toViews(messages));
+        String raw = ask(input);
+        return parse(raw, messages);
+    }
+
+    /**
+     * 问模型：规则作系统消息、材料序列化后作用户消息，返回模型最终回答的原文；失败一律抛出，由调用方按失败处理
+     * 原文只取正文，思考内容是单独的块，不混进来
+     */
+    private String ask(Object input) {
+        String prompt = agentPromptResolver.render(
+                AgentPromptSlot.AGENT_MEMORY_EXTRACTION,
+                Map.of("memory_max_chars", String.valueOf(memoryProperties.resolveMemoryMaxChars()))
+        );
         if (StrUtil.isBlank(prompt)) {
             throw new IllegalStateException("长期记忆抽取提示词为空");
         }
+        String userJson = toJson(input);
+        List<Msg> messages = List.of(
+                Msg.builder().name("system").role(MsgRole.SYSTEM).textContent(prompt).build(),
+                Msg.builder().name("user").role(MsgRole.USER).textContent(userJson).build());
 
-        // 素材以数据身份放在用户消息里，「围栏内是数据」的声明由提示词给
-        List<Msg> messages = List.of(Msg.builder().name("user").role(MsgRole.USER).textContent(prompt).build());
         ChatResponse response = agentChatModel.stream(messages, null, buildOptions())
                 .singleOrEmpty()
                 .blockOptional()
-                .orElseThrow(() -> new IllegalStateException("长期记忆仲裁返回为空"));
-        if (!FINISH_REASON_STOP.equals(response.getFinishReason())) {
-            throw new IllegalStateException("长期记忆仲裁未正常结束, 结束原因: " + response.getFinishReason());
-        }
+                .orElseThrow(() -> new IllegalStateException("长期记忆裁决返回为空"));
         String raw = Msg.builder().role(MsgRole.ASSISTANT).content(response.getContent()).build().getTextContent();
-        List<AgentMemoryDecision> decisions = parse(raw);
-        log.info("长期记忆仲裁完成, 素材消息: {}, 已有条目: {}, 决策: {}",
-                pending.size(), existing.size(), decisions.size());
-        return decisions;
+        // 解析之前先留原文：结束异常或解析失败时也看得到模型到底返回了什么
+        log.info("长期记忆裁决原文:\n{}", prettyForLog(raw));
+        if (!FINISH_REASON_STOP.equals(response.getFinishReason())) {
+            throw new IllegalStateException("长期记忆裁决未正常结束, 结束原因: " + response.getFinishReason());
+        }
+        return raw;
+    }
+
+    /**
+     * 只用于日志：能解析成 JSON 就缩进展开，解析不了（截断、夹了别的文字）就原样输出，不影响后面的业务解析
+     */
+    private String prettyForLog(String raw) {
+        try {
+            JsonNode json = objectMapper.readTree(LLMResponseCleaner.stripMarkdownCodeFence(raw));
+            // 空正文读出来是 MissingNode，序列化成 null 会误导，照原样输出
+            return json == null || json.isMissingNode() ? raw : objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    private String toJson(Object input) {
+        try {
+            return objectMapper.writeValueAsString(input);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("长期记忆裁决材料序列化失败", e);
+        }
     }
 
     /**
      * 与摘要相同：非流式取完整响应，超时与尝试次数显式指定，字符预算只写入提示词
+     * DeepSeek 一律开思考，其他供应商不发送思考参数；DeepSeek 思考模式下 temperature 不生效
      */
     private GenerateOptions buildOptions() {
         GenerateOptions.Builder options = GenerateOptions.builder()
@@ -115,140 +156,111 @@ public class AgentMemoryJudge {
                         .timeout(JUDGE_TIMEOUT)
                         .maxAttempts(agentProperties.getMaxRetries())
                         .build());
-        // 只给 DeepSeek 显式关闭思考，其他供应商不发送该字段
         if (ModelProvider.DEEP_SEEK.matches(agentProperties.getChat().getProvider())) {
-            options.additionalBodyParam("thinking", Map.of("type", "disabled"));
+            options.additionalBodyParam("thinking", Map.of("type", "enabled"));
+            // 经实际测试，默认思考深度和 low 均能较好处理，为减少耗时做此处理，单次调用耗时平均减少约 15%
+            options.reasoningEffort("low");
         }
         return options.build();
     }
 
     /**
-     * 数组元素认不全就整批抛出：漏掉半份决策比重跑一次贵得多
+     * 输出是 {"decisions":[...],"explanation":"..."}；格式不对、缺字段、来源不对都整批抛出，不当成空决策
      */
-    private List<AgentMemoryDecision> parse(String raw) {
-        if (StrUtil.isBlank(raw)) {
-            throw new IllegalStateException("长期记忆仲裁返回为空");
-        }
+    private AgentMemoryJudgement parse(String raw, List<AgentMessageDO> sourceMessages) {
         String stripped = LLMResponseCleaner.stripMarkdownCodeFence(raw);
-        JSONArray array;
+        Output output;
         try {
-            array = JSONUtil.parseArray(stripped);
-        } catch (Exception e) {
-            array = wrapSingleObject(stripped, e);
+            output = objectMapper.readValue(stripped, Output.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("长期记忆裁决输出不是约定的 JSON 对象: " + stripped, e);
         }
-        List<AgentMemoryDecision> decisions = new ArrayList<>(array.size());
-        for (Object item : array) {
-            if (!(item instanceof JSONObject json)) {
-                throw new IllegalStateException("长期记忆仲裁决策不是对象: " + StrUtil.maxLength(String.valueOf(item), 120));
-            }
-            AgentMemoryDecision decision = toDecision(json);
-            if (decision != null) {
-                decisions.add(decision);
-            }
+        String explanation = StrUtil.trimToNull(output.explanation());
+        if (output.decisions() == null || explanation == null) {
+            throw new IllegalStateException("长期记忆裁决输出缺少 decisions 或 explanation: " + stripped);
         }
-        return AgentMemoryDecision.containsClear(decisions) ? checkClearBatch(decisions) : decisions;
+        List<AgentMemoryDecision> decisions = new ArrayList<>(output.decisions().size());
+        for (DecisionOutput decision : output.decisions()) {
+            decisions.add(toDecision(require(decision, "决策为空"), sourceMessages));
+        }
+        return new AgentMemoryJudgement(decisions, explanation);
     }
 
     /**
-     * 单对象容错：提示词要的是数组，模型偶发在只有一条决策时裸输出对象不裹数组
-     * （生产实证 2026-10-05），包成单元素数组继续；不是决策形状就带着原始异常整批抛出
+     * 模型只选来源消息 id，表达时间取那条消息的入库时间，不信模型写的时间
      */
-    private JSONArray wrapSingleObject(String stripped, Exception cause) {
-        JSONObject object;
-        try {
-            object = JSONUtil.parseObj(stripped);
-        } catch (Exception ignored) {
-            throw new IllegalStateException("长期记忆仲裁输出不是 JSON 数组: " + StrUtil.maxLength(stripped, 200), cause);
-        }
-        if (!object.containsKey(FIELD_ACTION)) {
-            throw new IllegalStateException("长期记忆仲裁输出不是 JSON 数组: " + StrUtil.maxLength(stripped, 200), cause);
-        }
-        JSONArray single = new JSONArray();
-        single.add(object);
-        return single;
-    }
-
-    /**
-     * 清空批只许带清空之后要记的 ADD；混进替换或撤回说明模型没想清目标状态，整批抛出重判
-     * 不能先清空再让它们指不着目标自动丢弃：「清空后只记住我住南京」判成 CLEAR + SUPERSEDE 时，南京会被静默吞掉
-     */
-    private List<AgentMemoryDecision> checkClearBatch(List<AgentMemoryDecision> decisions) {
-        List<AgentMemoryDecision> checked = new ArrayList<>();
-        checked.add(AgentMemoryDecision.clear());
-        for (AgentMemoryDecision decision : decisions) {
-            switch (decision.action()) {
-                // 多个 CLEAR 幂等，收成一个
-                case CLEAR -> {
-                }
-                case ADD -> checked.add(decision);
-                case SUPERSEDE, RETRACT -> throw new IllegalStateException(
-                        "长期记忆仲裁把 CLEAR 与 " + decision.action() + " 放在同一批");
-            }
-        }
-        return checked;
-    }
-
-    /**
-     * 协议五种动作在这里收成四种：NOOP 只表示「这批没东西可记」，返回 null 就地跳过，不进提交环节
-     */
-    private AgentMemoryDecision toDecision(JSONObject json) {
-        String action = StrUtil.trimToEmpty(json.getStr(FIELD_ACTION)).toUpperCase();
-        String targetId = StrUtil.trimToNull(json.getStr(FIELD_ID));
-        String content = StrUtil.trimToNull(json.getStr(FIELD_CONTENT));
+    private AgentMemoryDecision toDecision(DecisionOutput output, List<AgentMessageDO> sourceMessages) {
+        String action = StrUtil.trimToEmpty(output.action()).toUpperCase();
+        String targetId = StrUtil.trimToNull(output.id());
+        String content = StrUtil.trimToNull(output.content());
+        AgentMessageDO source = requireSource(output.sourceMessageId(), sourceMessages);
         return switch (action) {
-            case "NOOP" -> null;
-            case "ADD" -> AgentMemoryDecision.add(require(content, "ADD 缺少 content"));
-            case "SUPERSEDE" -> AgentMemoryDecision.supersede(
-                    require(targetId, "SUPERSEDE 缺少 id"), require(content, "SUPERSEDE 缺少 content"));
-            case "RETRACT" -> AgentMemoryDecision.retract(require(targetId, "RETRACT 缺少 id"));
-            case "CLEAR" -> AgentMemoryDecision.clear();
-            default -> throw new IllegalStateException("长期记忆仲裁给出未知动作: " + StrUtil.maxLength(action, 40));
+            case "ADD" -> new AgentMemoryDecision(AgentMemoryDecision.Action.ADD, null,
+                    require(content, "ADD 缺少 content"), source.getId(), source.getCreateTime());
+            case "UPDATE" -> new AgentMemoryDecision(AgentMemoryDecision.Action.UPDATE,
+                    require(targetId, "UPDATE 缺少 id"), require(content, "UPDATE 缺少 content"),
+                    source.getId(), source.getCreateTime());
+            case "DELETE" -> new AgentMemoryDecision(AgentMemoryDecision.Action.DELETE,
+                    require(targetId, "DELETE 缺少 id"), null, source.getId(), source.getCreateTime());
+            default -> throw new IllegalStateException("长期记忆裁决给出未知动作: " + action);
         };
     }
 
-    private String require(String value, String message) {
+    /**
+     * 来源必须是本次允许引用的用户消息之一，按真实 id 原样匹配，不猜、不纠正
+     */
+    private AgentMessageDO requireSource(String sourceMessageId, List<AgentMessageDO> sourceMessages) {
+        for (AgentMessageDO message : sourceMessages) {
+            if (message.getId().equals(sourceMessageId)) {
+                return message;
+            }
+        }
+        throw new IllegalStateException("长期记忆裁决决策的来源不是本次可引用的用户消息: " + sourceMessageId);
+    }
+
+    private static <T> T require(T value, String message) {
         if (value == null) {
-            throw new IllegalStateException("长期记忆仲裁决策不完整, " + message);
+            throw new IllegalStateException("长期记忆裁决决策不完整, " + message);
         }
         return value;
     }
 
     /**
-     * 条目带 id 才有得指认，SUPERSEDE 与 RETRACT 全靠它
+     * 只有工具调用、没有正文的助手消息不进材料
      */
-    private String renderMemories(List<AgentMemoryItem> existing) {
-        if (existing == null || existing.isEmpty()) {
-            return NO_MEMORIES;
-        }
-        StringBuilder text = new StringBuilder();
-        for (AgentMemoryItem item : existing) {
-            text.append("id=").append(item.id()).append(" | ").append(item.content()).append('\n');
-        }
-        return text.toString().stripTrailing();
+    private static List<MessageView> toViews(List<AgentMessageDO> messages) {
+        return messages.stream().filter(message -> StrUtil.isNotBlank(message.getContent())).map(AgentMemoryJudge::toView).toList();
+    }
+
+    private static MessageView toView(AgentMessageDO message) {
+        return new MessageView(message.getId(), message.getConversationId(), message.getRole(),
+                message.getCreateTime(), message.getContent());
+    }
+
+    record Output(List<DecisionOutput> decisions, String explanation) {
+    }
+
+    record DecisionOutput(String action, String id, String content, String sourceMessageId) {
     }
 
     /**
-     * 素材只取用户消息，助手与工具结果不进来
-     * 换会话处插分隔行：模型看不到助手回答，不隔开会把这段对话里的「它」指到另一段对话说过的东西上
+     * 主动整理的材料：request 是唯一可引用的发言
      */
-    private String renderTurns(List<AgentMessageDO> pending) {
-        StringBuilder text = new StringBuilder();
-        String previousConversationId = null;
-        for (AgentMessageDO message : pending) {
-            String content = StrUtil.trimToEmpty(message.getContent());
-            if (content.isEmpty()) {
-                continue;
-            }
-            if (previousConversationId != null && !previousConversationId.equals(message.getConversationId())) {
-                text.append(CONVERSATION_BREAK).append('\n');
-            }
-            previousConversationId = message.getConversationId();
-            text.append("- ").append(content).append('\n');
-        }
-        return text.toString().stripTrailing();
+    record FlushInput(List<AgentMemoryItem> memories, List<MessageView> background, MessageView request,
+                      List<MessageView> later) {
     }
 
-    private String fence(String name, String body) {
-        return "<" + name + ">\n" + body + "\n</" + name + ">";
+    /**
+     * 后台学习的材料：messages 里的每条都可引用
+     */
+    record LearnInput(List<AgentMemoryItem> memories, List<MessageView> background, List<MessageView> messages) {
+    }
+
+    /**
+     * 模型需要的消息字段；time 与记忆的 expressedAt 同一格式
+     */
+    record MessageView(String messageId, String conversationId, String speaker,
+                       @JsonFormat(pattern = AgentMemoryItem.TIME_PATTERN, timezone = AgentMemoryItem.TIME_ZONE) Date time,
+                       String text) {
     }
 }

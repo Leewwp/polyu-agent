@@ -314,14 +314,12 @@ public final class ConcurrencyRegressionMain {
     private void awaitQuiet() throws Exception {
         long deadline=System.nanoTime()+Duration.ofSeconds(config.getInt("concurrency.settle-timeout-seconds",60)).toNanos();
         int quiet=0;
-        try(JdbcClient jdbc=new JdbcClient(config,"database")) {
-            while(System.nanoTime()<deadline) {
-                long processing=jdbc.queryLong("SELECT count(*) FROM t_agent_memory_extraction WHERE status='PROCESSING' AND user_id IN ("+literals(userIds())+")");
-                Map<String,Object> redis=probe.redisSnapshot(userIds(),taskIds());
-                if(processing==0&&number(redis.get("activeUserCount"))==0) quiet++; else quiet=0;
-                if(quiet>=4) return;
-                Thread.sleep(1000);
-            }
+        while(System.nanoTime()<deadline) {
+            long processing=probe.heldMemoryLocks(userIds());
+            Map<String,Object> redis=probe.redisSnapshot(userIds(),taskIds());
+            if(processing==0&&number(redis.get("activeUserCount"))==0) quiet++; else quiet=0;
+            if(quiet>=4) return;
+            Thread.sleep(1000);
         }
         check(phase+".settled","UNKNOWN","Background extraction or running keys did not become quiescent within the observation deadline.");
     }
@@ -468,7 +466,6 @@ public final class ConcurrencyRegressionMain {
     private List<String> conversationIds(){return turns.stream().map(t->t.live.snapshot().get("conversationId")).filter(java.util.Objects::nonNull).map(String::valueOf).distinct().toList();}
     private Map<String,String> markers(){Map<String,String> m=new LinkedHashMap<>();identities.forEach(u->m.put(u.userId,u.marker));return m;}
     private static int number(Object value){return value instanceof Number n?n.intValue():0;}
-    private static String literals(List<String> values){return values.isEmpty()?"NULL":values.stream().map(JdbcClient::literal).collect(java.util.stream.Collectors.joining(","));}
     private static String escape(String s){return s.replace("|","\\|").replace("\n"," ").replace("\r"," ");}
     static void write(Path file,Object value) throws Exception {Files.createDirectories(file.getParent());Files.writeString(file,SimpleJson.stringify(value)+"\n",StandardCharsets.UTF_8);}
     private static Map<String,String> arguments(String[] args){

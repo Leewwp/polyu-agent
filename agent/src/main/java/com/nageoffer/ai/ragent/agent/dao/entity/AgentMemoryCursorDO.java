@@ -15,22 +15,26 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.agent.memory;
+package com.nageoffer.ai.ragent.agent.dao.entity;
 
-import com.nageoffer.ai.ragent.agent.enums.AgentMemorySourceType;
+import lombok.Data;
 
-import java.util.List;
+import java.util.Date;
 
 /**
- * 一次提交的全部入参：快照期取到的凭证连同 Judge 决策一起交给提交侧复核
- * merges 只在容量顶到上限那次非空，与决策在同一事务里落地
+ * 每用户一行的长期记忆游标，读写全走注解 Mapper（要 ON CONFLICT 与条件推进）
  */
-public record AgentMemoryCommit(String userId,
-                                String extractionId,
-                                int attemptCount,
-                                long expectedRevision,
-                                String expectedWatermark,
-                                AgentMemorySourceType sourceType,
-                                List<AgentMemoryDecision> decisions,
-                                List<AgentMemoryMerge> merges) {
+@Data
+public class AgentMemoryCursorDO {
+
+    private String userId;
+
+    /**
+     * 已整理到的最后一条用户发言ID，之后的用户发言都待整理；为空表示从该用户第一条发言开始
+     */
+    private String lastMessageId;
+
+    private Date createTime;
+
+    private Date updateTime;
 }

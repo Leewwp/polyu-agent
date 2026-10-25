@@ -62,16 +62,10 @@ public enum AgentPromptSlot {
     AGENT_MEMORY_EXTRACTION("长期记忆抽取", Group.AGENT,
             Set.of(OrchestrationMode.AGENT),
             "WorkFlow 模式不沉淀跨会话事实",
-            Set.of("{existing_memories}", "{recent_turns}", "{memory_max_chars}"),
-            "产物不进对话，由代码按 JSON 数组解析后直接写库，解析失败整批作废；"
-                    + "写清什么该记、什么不该记、怎么指认已有条目、什么算要求清空全部，不要在这里规定回答风格"),
-
-    AGENT_MEMORY_CONSOLIDATION("长期记忆受限合并", Group.AGENT,
-            Set.of(OrchestrationMode.AGENT),
-            "WorkFlow 模式不沉淀跨会话事实",
-            Set.of("{existing_memories}", "{target_chars}"),
-            "仅当记忆总量顶到上限时才调用一次；产物不进对话，由代码按 JSON 数组解析后整组替换旧条目；"
-                    + "写清什么算同一件事，以及绝不许为了压体量删掉一条独立记忆"),
+            Set.of("{memory_max_chars}"),
+            "作为系统消息发送，已有记忆与带真实 id、时间的原始消息序列化成一个 JSON 对象作为一条用户消息传入，主动整理与后台学习共用；"
+                    + "产物是 ADD/UPDATE/DELETE 决策加 explanation 的 JSON 对象，决策由代码校验后写库，任何一条不合法整批作废，explanation 交给主 Agent 作回答依据；"
+                    + "写清什么该记、什么不该记、怎么指认已有条目与来源、表达先后怎么比、清空怎么折算成逐条删除，不要在这里规定回答风格"),
 
     /**
      * 同 KNOWLEDGE_TOOL_DESCRIPTION：随工具定义下发，模型在调用前就要读懂

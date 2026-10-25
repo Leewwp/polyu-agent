@@ -24,19 +24,15 @@ import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.dto.AgentMetaPayload;
-import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.enums.AgentSSEEventType;
 import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryLearner;
 import com.nageoffer.ai.ragent.agent.service.AgentChatService;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunHandle;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentStreamEventBridge;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
-import com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
@@ -81,9 +77,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentConversationService conversationService;
     private final StreamTaskManager taskManager;
     private final AgentRunGate runGate;
-    private final AgentMemoryProperties memoryProperties;
-    private final AgentMemoryPipeline memoryPipeline;
-    private final AgentMemoryApprovalService memoryApprovalService;
+    private final AgentMemoryLearner memoryLearner;
 
     @Override
     public void streamChat(String question, String conversationId, SseEmitter emitter) {
@@ -97,13 +91,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         try {
             if (StrUtil.isNotBlank(conversationId)
                     && conversationService.hasPendingConfirm(actualConversationId, userId)) {
-                // 记忆确认卡可能已随计划到期走不下去：按需结算并失效死卡再复查，30 分钟有效期不永久阻塞会话
-                for (String deadCard : memoryApprovalService.settleExpiredAndLocateDeadCards(userId, actualConversationId)) {
-                    conversationService.expirePendingConfirm(actualConversationId, userId, deadCard);
-                }
-                if (conversationService.hasPendingConfirm(actualConversationId, userId)) {
-                    throw new ClientException("上一步操作还在等你确认，请先确认或取消");
-                }
+                throw new ClientException("上一步操作还在等你确认，请先确认或取消");
             }
             startRun(question, userId, actualConversationId, taskId, emitter, releaseGate);
         } catch (RuntimeException | Error e) {
@@ -152,8 +140,8 @@ public class AgentChatServiceImpl implements AgentChatService {
         ActiveAgent activeAgent = agentProvider.getAgent();
 
         String title = conversationService.touchConversation(conversationId, userId, question);
-        // 必须在 addUserMessage 之前建立基线，否则本轮消息会被划进历史、漏抽
-        memoryPipeline.ensureExtractionBaseline(userId);
+        // 必须先于本轮发言入库：首次纳入长期记忆时后台游标停在已有发言上，本轮发言才不会被划进历史
+        memoryLearner.ensureCursor(userId);
         String questionMessageId = conversationService.addUserMessage(conversationId, userId, question);
         // 语言以原始问题判定一次：后续工具改写、query 重写都不再重新猜
         String answerLanguage = AnswerLanguages.detect(question);
@@ -214,46 +202,7 @@ public class AgentChatServiceImpl implements AgentChatService {
             conversationService.expirePendingConfirm(conversationId, userId, messageId);
             throw new ClientException("待确认的操作已失效，请重新提问");
         }
-        settleMemoryPlans(asking, userId, conversationId, messageId, approved);
         return asking.stream().map(toolCall -> new ConfirmResult(approved, toolCall)).toList();
-    }
-
-    /**
-     * 记忆变更计划的裁决结算，适配只认 apply_memory_change，其余确认卡一字不动
-     * 批准落 APPROVED 并绑定本次 toolCallId；拒绝终局推水位防旧指令重放
-     * 计划不可确认（过期/已处理/他人计划）时先失效卡片再报错，卡片不能永远挂着
-     */
-    private void settleMemoryPlans(List<ToolUseBlock> asking, String userId, String conversationId,
-                                   String messageId, boolean approved) {
-        for (ToolUseBlock toolCall : asking) {
-            if (!MemoryApplyTool.TOOL_NAME.equals(toolCall.getName())) {
-                continue;
-            }
-            Object operationId = toolCall.getInput() == null ? null : toolCall.getInput().get("operationId");
-            if (!(operationId instanceof String planId) || StrUtil.isBlank(planId)) {
-                conversationService.expirePendingConfirm(conversationId, userId, messageId);
-                throw new ClientException("该记忆变更计划编号缺失，请重新发起");
-            }
-            if (!approved) {
-                memoryApprovalService.reject(planId, userId);
-                continue;
-            }
-            AgentMemoryApprovalService.ApprovalTransition transition =
-                    memoryApprovalService.approve(planId, userId, toolCall.getId(), messageId);
-            switch (transition.outcome()) {
-                case APPROVED -> {
-                    return;
-                }
-                // 已执行过的计划再确认：不重复提交，续跑后执行工具会回放原结果
-                case ALREADY_APPLIED -> {
-                    return;
-                }
-                case NOT_CONFIRMABLE -> {
-                    conversationService.expirePendingConfirm(conversationId, userId, messageId);
-                    throw new ClientException(transition.reason());
-                }
-            }
-        }
     }
 
     /**
@@ -350,7 +299,6 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .runHandle(runHandle)
                 .conversationService(conversationService)
                 .catalog(activeAgent.catalog())
-                .approvalService(memoryApprovalService)
                 .conversationId(scope.conversationId())
                 .userId(scope.userId())
                 .title(scope.title())
@@ -403,24 +351,14 @@ public class AgentChatServiceImpl implements AgentChatService {
     }
 
     /**
-     * 轮次结束后异步抽取长期记忆
+     * 轮次结束后异步尝试一次后台学习，按用户累计够门槛才真正调模型
      */
     private void scheduleMemoryExtraction(String userId, String conversationId) {
-        if (!memoryProperties.isLongTermEnabled()) {
-            return;
-        }
-        Mono.fromCallable(() -> memoryPipeline.extract(userId, conversationId, AgentMemoryTriggerType.BACKGROUND))
+        // 结果日志在 AgentMemoryLearner 里打；用户已拿到答复，这里只记意外异常
+        Mono.fromCallable(() -> memoryLearner.learn(userId))
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(outcome -> {
-                            if (outcome.idle()) {
-                                return;
-                            }
-                            log.info("轮次结束后台记忆抽取完成, userId: {}, conversationId: {}, 状态: {}, 落库: {}",
-                                    userId, conversationId, outcome.status(), outcome.applied());
-                        },
-                        // 用户已拿到答复，失败只记日志
-                        e -> log.error("轮次结束后台记忆抽取异常, userId: {}, conversationId: {}",
-                                userId, conversationId, e));
+                }, e -> log.error("轮次结束后台记忆抽取异常, userId: {}, conversationId: {}", userId, conversationId, e));
     }
 
     /**

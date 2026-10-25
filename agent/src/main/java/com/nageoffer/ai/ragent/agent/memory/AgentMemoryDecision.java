@@ -17,16 +17,16 @@
 
 package com.nageoffer.ai.ragent.agent.memory;
 
-import java.util.List;
+import java.util.Date;
 
 /**
- * Judge 的一条决策，描述的是「处理完本批之后该长什么样」而不是逐句事件
+ * Judge 的一条决策，描述「这些发言处理完之后，记忆相对当前有效条目要改什么」，每条都带依据的那次用户表达
+ *
+ * @param sourceMessageId 依据的真实用户消息 id，模型选的
+ * @param expressedAt     那条消息的入库时间，由程序按 id 查到，不是模型写的
  */
-public record AgentMemoryDecision(Action action, String targetId, String content) {
+public record AgentMemoryDecision(Action action, String targetId, String content, String sourceMessageId, Date expressedAt) {
 
-    /**
-     * 只列真会改库的动作；协议里的 NOOP 在 AgentMemoryJudge.toDecision 就解析成 null，到不了这里
-     */
     public enum Action {
 
         /**
@@ -35,45 +35,13 @@ public record AgentMemoryDecision(Action action, String targetId, String content
         ADD,
 
         /**
-         * 新事实取代旧条目，两步在同一事务里
+         * 在原行改写某条已有条目的正文与依据，正文不变即只换依据
          */
-        SUPERSEDE,
+        UPDATE,
 
         /**
-         * 用户明确要求忘掉某条目
+         * 删掉某条已有条目，用户要求忘掉某件事或清空全部时都用它
          */
-        RETRACT,
-
-        /**
-         * 用户明确要求清空全部长期记忆；同批只许再带清空之后要记的 ADD，由 AgentMemoryJudge 解析时把关
-         */
-        CLEAR
-    }
-
-    public static AgentMemoryDecision add(String content) {
-        return new AgentMemoryDecision(Action.ADD, null, content);
-    }
-
-    public static AgentMemoryDecision supersede(String targetId, String content) {
-        return new AgentMemoryDecision(Action.SUPERSEDE, targetId, content);
-    }
-
-    public static AgentMemoryDecision retract(String targetId) {
-        return new AgentMemoryDecision(Action.RETRACT, targetId, null);
-    }
-
-    public static AgentMemoryDecision clear() {
-        return new AgentMemoryDecision(Action.CLEAR, null, null);
-    }
-
-    static boolean containsClear(List<AgentMemoryDecision> decisions) {
-        return decisions.stream().anyMatch(decision -> decision.action() == Action.CLEAR);
-    }
-
-    /**
-     * 会往记忆集里塞正文的两种动作，容量预演只看它们
-     */
-    public boolean introducesContent() {
-        return action == Action.ADD || action == Action.SUPERSEDE;
+        DELETE
     }
 }

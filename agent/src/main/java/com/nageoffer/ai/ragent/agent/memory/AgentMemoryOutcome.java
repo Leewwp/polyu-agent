@@ -17,22 +17,13 @@
 
 package com.nageoffer.ai.ragent.agent.memory;
 
+import java.util.List;
+
 /**
- * 一次抽取的结局；mutated 表示记忆集整体有没有变（含合并/淘汰），与 applied 独立
- * cleared 表示执行过清空，clearedItems 是清掉的条数，两者分开是因为「原本就空」也得单独告诉用户
- * operationId 仅在 PLAN_PREPARED 时非空：受审批次冻结成计划后，靠它把编号带回给模型
+ * 一次整理的结局：状态说明有没有提交，changes 是已提交的实际变更，explanation 是 Judge 的判定说明
+ * 没提交时两者都为空，不把 Judge 的计划当成已完成的操作
  */
-public record AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated,
-                                 boolean cleared, int clearedItems, String operationId) {
-
-    public AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated) {
-        this(status, applied, pending, mutated, false, 0, null);
-    }
-
-    public AgentMemoryOutcome(Status status, int applied, int pending, boolean mutated,
-                              boolean cleared, int clearedItems) {
-        this(status, applied, pending, mutated, cleared, clearedItems, null);
-    }
+public record AgentMemoryOutcome(Status status, List<String> changes, String explanation) {
 
     public enum Status {
 
@@ -42,102 +33,46 @@ public record AgentMemoryOutcome(Status status, int applied, int pending, boolea
         DISABLED,
 
         /**
-         * 水位之后没有待处理的用户消息
-         */
-        NOTHING_PENDING,
-
-        /**
-         * 后台门槛没到，攒够再说；flush 不受它挡
-         */
-        BELOW_THRESHOLD,
-
-        /**
-         * 同用户已有在飞抽取
+         * 该用户的记忆正被另一次整理处理，这次没动
          */
         BUSY,
 
         /**
-         * 仲裁调用或解析失败，这次抽取留待下次机会
+         * 只有后台会出现：游标之后没有待整理的用户发言
+         */
+        NOTHING_PENDING,
+
+        /**
+         * 只有后台会出现：待整理的用户发言不足门槛，不调模型
+         */
+        BELOW_THRESHOLD,
+
+        /**
+         * 本次处理成功：可能写了记忆，也可能合法地不改；changes 只列内容变更，为空时原因看 explanation
+         */
+        COMMITTED,
+
+        /**
+         * 读取、模型调用或解析失败，决策不合执行要求被整批拒绝，或后台提交时游标已被推过，确认什么都没写
          */
         FAILED,
 
         /**
-         * 快照失配，本批作废
+         * 本批新内容自身超出容量上限，什么都没写
          */
-        CONFLICT,
+        CAPACITY_EXCEEDED,
 
         /**
-         * 容量拒收，只拒新增不删旧
+         * 提交调用抛出异常，库里是否已写入无法确认
          */
-        CAPACITY_REJECTED,
-
-        /**
-         * 判完没落东西，水位照推
-         */
-        SETTLED_EMPTY,
-
-        /**
-         * 判完有落库
-         */
-        WRITTEN,
-
-        /**
-         * 只有显式整理会出现：连跑几批都判完了，却还没轮到本次请求那条消息
-         */
-        INCOMPLETE,
-
-        /**
-         * 本批含撤回/清空：已冻结完整计划进台账，未执行任何变更；operationId 待用户确认
-         */
-        PLAN_PREPARED,
-
-        /**
-         * 后台专属：该用户已有待审计划，暂缓本轮后台抽取；前台 flush 会领取同一计划而非新建
-         */
-        PLAN_PENDING
+        UNKNOWN
     }
 
-    static AgentMemoryOutcome of(Status status, int pending) {
-        return new AgentMemoryOutcome(status, 0, pending, false);
+    public static AgentMemoryOutcome of(Status status) {
+        return new AgentMemoryOutcome(status, List.of(), "");
     }
 
-    static AgentMemoryOutcome planPrepared(String operationId, int pending) {
-        return new AgentMemoryOutcome(Status.PLAN_PREPARED, 0, pending, false, false, 0, operationId);
-    }
-
-    /**
-     * 这批判完并结算了，水位已推过它；显式整理据此决定要不要接着跑下一批
-     */
-    boolean settled() {
-        return status == Status.WRITTEN || status == Status.SETTLED_EMPTY;
-    }
-
-    /**
-     * 接上后一批：后一批没判完就以它为准，判完了则任一批落过库都算 WRITTEN
-     * applied 累计的是生效决策数，不是新增条数；后一批清空过的话，前面几批写的已随之失效，计数只认清空之后
-     */
-    AgentMemoryOutcome then(AgentMemoryOutcome next) {
-        boolean anyMutated = mutated || next.mutated;
-        int totalPending = pending + next.pending;
-        Status merged = next.settled() && status == Status.WRITTEN ? Status.WRITTEN : next.status;
-        if (next.cleared) {
-            return new AgentMemoryOutcome(merged, next.applied, totalPending, anyMutated, true, next.clearedItems);
-        }
-        return new AgentMemoryOutcome(merged, applied + next.applied, totalPending, anyMutated,
-                cleared, clearedItems);
-    }
-
-    AgentMemoryOutcome withStatus(Status override) {
-        return new AgentMemoryOutcome(override, applied, pending, mutated, cleared, clearedItems);
-    }
-
-    /**
-     * 压根没起跑，一次模型都没叫；后台每轮都会撞上这四种，不值得留 INFO
-     */
-    public boolean idle() {
-        return status == Status.DISABLED
-                || status == Status.NOTHING_PENDING
-                || status == Status.BELOW_THRESHOLD
-                || status == Status.PLAN_PENDING;
+    static AgentMemoryOutcome committed(AgentMemoryEdit edit, AgentMemoryJudgement judgement) {
+        return new AgentMemoryOutcome(Status.COMMITTED, edit.changes(), judgement.explanation());
     }
 }

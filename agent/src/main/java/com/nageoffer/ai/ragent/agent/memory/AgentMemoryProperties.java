@@ -71,14 +71,9 @@ public class AgentMemoryProperties {
     private static final int MEMORY_MAX_CEIL_CHARS = 6000;
 
     /**
-     * 后台抽取门槛：待处理用户消息够这么多条才值得叫一次模型，flush 不受它挡
+     * 后台抽取门槛：该用户待整理的发言够这么多条才值得叫一次模型，按用户累计，flush 不受它挡
      */
     private static final int MEMORY_EXTRACT_MIN_TURNS = 3;
-
-    /**
-     * 受限合并压到这个比例即停，留出余量防边界抖动；容量淘汰拿它当下限，不当目标
-     */
-    private static final double CONSOLIDATION_STOP_RATIO = 0.75D;
 
     /**
      * 会话上下文工程预算（字符），换模型只需要动这一个数
@@ -150,12 +145,5 @@ public class AgentMemoryProperties {
 
     public int resolveExtractMinTurns() {
         return MEMORY_EXTRACT_MIN_TURNS;
-    }
-
-    /**
-     * 受限合并的停手水位，兼任容量淘汰的硬下限
-     */
-    public int resolveConsolidationStopChars() {
-        return (int) (resolveMemoryMaxChars() * CONSOLIDATION_STOP_RATIO);
     }
 }

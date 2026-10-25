@@ -29,7 +29,7 @@ final class ConcurrencyProbe {
 
     private static final List<String> AGENT_TABLES = List.of(
             "t_agent_conversation", "t_agent_message", "t_agent_state", "t_agent_memory",
-            "t_agent_memory_extraction", "t_agent_context_compaction", "t_agent_memory_control");
+            "t_agent_context_compaction", "t_agent_memory_cursor");
     private static final List<String> BUSINESS_TABLES = List.of(
             "t_product", "t_product_sku", "t_order", "t_order_item", "t_logistics_trace",
             "t_after_sale", "t_cart", "t_coupon", "t_user_coupon", "t_ticket");
@@ -94,8 +94,7 @@ final class ConcurrencyProbe {
             }
             String sessionColumn = switch (table) {
                 case "t_agent_state" -> "session_id";
-                case "t_agent_conversation", "t_agent_message", "t_agent_memory_extraction",
-                        "t_agent_context_compaction" -> "conversation_id";
+                case "t_agent_conversation", "t_agent_message", "t_agent_context_compaction" -> "conversation_id";
                 default -> null;
             };
             String filter = userFilter;
@@ -104,7 +103,7 @@ final class ConcurrencyProbe {
             }
             ctes.add(table + "_scoped AS (SELECT t.* FROM " + table + " t WHERE " + filter + ")");
             String order = table.equals("t_agent_state") ? "t.user_id, t.session_id, t.state_key"
-                    : table.equals("t_agent_memory_control") ? "t.user_id" : "t.id";
+                    : table.equals("t_agent_memory_cursor") ? "t.user_id" : "t.id";
             tableExpressions.add(JdbcClient.literal(table) + ", (SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY "
                     + order + "), '[]'::jsonb) FROM " + table + "_scoped t)");
         }
@@ -143,8 +142,6 @@ final class ConcurrencyProbe {
             messages.stream().filter(row -> "assistant".equals(text(row, "role")))
                     .forEach(row -> statuses.merge(text(row, "message_status"), 1L, Long::sum));
             summary.put("assistantStatuses", statuses);
-            summary.put("processingExtractions", rows(tables, "t_agent_memory_extraction").stream()
-                    .filter(row -> userId.equals(text(row, "user_id")) && "PROCESSING".equals(text(row, "status"))).count());
             userSummary.add(summary);
         }
         for (Map<String, Object> row : rows(tables, "t_agent_message")) {
@@ -154,7 +151,7 @@ final class ConcurrencyProbe {
                 nonterminal.add(violation);
             }
         }
-        // The runner retries settling before judging these: PROCESSING extraction is legal during a run.
+        // The runner retries settling before judging these: a held memory lock is legal during a run.
         snapshot.put("nonterminalMessages", nonterminal);
         snapshot.put("violations", violations);
         snapshot.put("summary", userSummary);
@@ -166,6 +163,25 @@ final class ConcurrencyProbe {
                         + "the current custom PgAgentStateStore has not been exercised by this run."));
         snapshot.put("readOnly", true);
         return snapshot;
+    }
+
+    /** Long-term memory extraction in flight holds the per-user memory lock; counts users whose lock is held. */
+    long heldMemoryLocks(List<String> userIds) throws IOException {
+        List<String> keys = distinctIds(userIds).stream().map(user -> "ragent:agent:memory-lock:" + user).toList();
+        if (keys.isEmpty()) return 0;
+        List<String> command = new ArrayList<>(List.of("EVAL", REDIS_READ_SCRIPT, String.valueOf(keys.size())));
+        command.addAll(keys);
+        try (RedisRespClient redis = new RedisRespClient(config)) {
+            Object response = redis.command(command.toArray(String[]::new));
+            if (!(response instanceof List<?> list) || list.size() != keys.size()) {
+                throw new IOException("Redis 记忆锁采样返回格式异常");
+            }
+            long held = 0;
+            for (int i = 0; i < keys.size(); i++) {
+                if (Boolean.TRUE.equals(redisState(keys.get(i), list.get(i)).get("exists"))) held++;
+            }
+            return held;
+        }
     }
 
     /** One Redis command gives actual simultaneous ownership, rather than sequential GET observations. */
@@ -352,7 +368,7 @@ final class ConcurrencyProbe {
 
     private static String relationshipSql(boolean includeState) {
         List<String> checks = new ArrayList<>();
-        for (String table : List.of("t_agent_message", "t_agent_state", "t_agent_memory_extraction", "t_agent_context_compaction")) {
+        for (String table : List.of("t_agent_message", "t_agent_state", "t_agent_context_compaction")) {
             if (table.equals("t_agent_state") && !includeState) continue;
             String conv = table.equals("t_agent_state") ? "session_id" : "conversation_id";
             String identity = table.equals("t_agent_state") ? "t.session_id || ':' || t.state_key" : "t.id";
@@ -364,12 +380,6 @@ final class ConcurrencyProbe {
         checks.add("SELECT jsonb_build_object('kind','invalidReplyOwner','table','t_agent_message','id',t.id,'userId',t.user_id,"
                 + "'replyTo',t.reply_to_message_id) FROM t_agent_message_scoped t LEFT JOIN t_agent_message p ON p.id=t.reply_to_message_id"
                 + " WHERE t.reply_to_message_id IS NOT NULL AND (p.id IS NULL OR p.user_id<>t.user_id OR p.conversation_id<>t.conversation_id OR p.role<>'user')");
-        for (String endpoint : List.of("from_message_id", "to_message_id")) {
-            checks.add("SELECT jsonb_build_object('kind','invalidExtractionEndpointOwner','table','t_agent_memory_extraction',"
-                    + "'id',t.id,'userId',t.user_id,'endpoint'," + JdbcClient.literal(endpoint) + ",'messageId',t." + endpoint + ")"
-                    + " FROM t_agent_memory_extraction_scoped t LEFT JOIN t_agent_message m ON m.id=t." + endpoint
-                    + " WHERE m.id IS NULL OR m.user_id<>t.user_id OR m.conversation_id<>t.conversation_id OR m.role<>'user'");
-        }
         if (includeState) {
             for (String identityField : List.of("user_id", "session_id")) {
                 String field = JdbcClient.literal(identityField);
@@ -380,9 +390,6 @@ final class ConcurrencyProbe {
                         + " AND (t.payload->>" + field + ") IS DISTINCT FROM t." + identityField);
             }
         }
-        checks.add("SELECT jsonb_build_object('kind','invalidMemorySuccessorOwner','table','t_agent_memory','id',t.id,'userId',t.user_id,"
-                + "'supersededBy',t.superseded_by) FROM t_agent_memory_scoped t LEFT JOIN t_agent_memory m ON m.id=t.superseded_by"
-                + " WHERE t.superseded_by IS NOT NULL AND (m.id IS NULL OR m.user_id<>t.user_id)");
         checks.add("SELECT jsonb_build_object('kind','conversationSharedByUsers','table','t_agent_conversation',"
                 + "'conversationId',t.conversation_id,'ownerCount',count(DISTINCT c.user_id))"
                 + " FROM t_agent_conversation_scoped t JOIN t_agent_conversation c ON c.conversation_id=t.conversation_id"

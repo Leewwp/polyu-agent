@@ -20,7 +20,7 @@ package com.nageoffer.ai.ragent.agent.tool;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryOutcome;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryOutcome.Status;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryFlusher;
 import com.nageoffer.ai.ragent.agent.memory.AgentUserMemoryMiddleware;
 import com.nageoffer.ai.ragent.agent.trace.AgentToolBodyTracer;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
@@ -37,7 +37,6 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * 记忆整理工具：模型只有触发权没有内容写入权，记什么忘什么由服务端仲裁
@@ -51,7 +50,7 @@ public class MemoryFlushTool implements AgentTool {
     public static final String DISPLAY_NAME = "记忆整理";
 
     private final String description;
-    private final AgentMemoryPipeline memoryPipeline;
+    private final AgentMemoryFlusher memoryFlusher;
 
     @Override
     public String getName() {
@@ -64,7 +63,7 @@ public class MemoryFlushTool implements AgentTool {
     }
 
     /**
-     * 无参：给了参数就等于把内容写入权交出去，模型能凭空捏造要记的事实
+     * 无参：当前选择只给模型触发权，记什么由服务端读取对话原文后交给 Judge 仲裁，不让模型把自己的转述或猜测直接作为待写内容
      */
     @Override
     public Map<String, Object> getParameters() {
@@ -81,105 +80,73 @@ public class MemoryFlushTool implements AgentTool {
     }
 
     private ToolResultBlock execute(ToolCallParam param) {
-        if (param == null) {
-            return buildResult(null, "工具调用参数不能为空", true);
+        ToolUseBlock toolUse = param == null ? null : param.getToolUseBlock();
+        RuntimeContext context = param == null ? null : param.getRuntimeContext();
+        Object requestId = context == null ? null : context.get(AgentTraceContextKeys.REPLY_TO_MESSAGE_ID);
+        if (toolUse == null || StrUtil.isBlank(toolUse.getId()) || context == null
+                || StrUtil.isBlank(context.getUserId()) || StrUtil.isBlank(context.getSessionId())
+                || !(requestId instanceof String requestMessageId) || StrUtil.isBlank(requestMessageId)) {
+            throw new IllegalArgumentException("记忆整理未执行：当前会话的调用信息不完整，本次调用未写入或修改长期记忆。"
+                    + "请如实告知用户本次未能保存记忆，不要声称已记住，也不要在本轮重复调用此工具。");
         }
-        String toolCallId = Optional.ofNullable(param.getToolUseBlock())
-                .map(ToolUseBlock::getId)
-                .orElse(null);
-        RuntimeContext runtimeContext = param.getRuntimeContext();
-        String userId = Optional.ofNullable(runtimeContext)
-                .map(RuntimeContext::getUserId)
-                .orElse(null);
-        String conversationId = Optional.ofNullable(runtimeContext)
-                .map(RuntimeContext::getSessionId)
-                .orElse(null);
-        // 本轮答复挂的那条用户消息就是本次请求；拿不到就判不了「处理到了没有」，不能硬跑后报成功
-        String requestMessageId = runtimeContext == null
-                ? null
-                : runtimeContext.get(AgentTraceContextKeys.REPLY_TO_MESSAGE_ID) instanceof String id ? id : null;
-        if (StrUtil.isBlank(userId) || StrUtil.isBlank(conversationId) || StrUtil.isBlank(requestMessageId)) {
-            log.warn("记忆整理工具拿不到会话身份或本次请求, 本次不整理");
-            return buildResult(toolCallId, "当前会话无法整理记忆，本次内容未能写入", true);
-        }
+        String toolCallId = toolUse.getId();
+        String userId = context.getUserId();
+        String conversationId = context.getSessionId();
+
         try {
-            AgentMemoryOutcome outcome = memoryPipeline.flush(userId, conversationId, requestMessageId);
-            // 刷新认「记忆集变没变」不认「落了几条决策」：合并落库而决策全灭时 applied 为零、库已经变了
-            if (outcome.mutated()) {
-                refreshSnapshot(runtimeContext, userId);
-            }
-            log.info("记忆整理工具调用完成, userId: {}, conversationId: {}, 结局: {}, 落库: {}",
-                    userId, conversationId, outcome.status(), outcome.applied());
+            AgentMemoryOutcome outcome = memoryFlusher.flush(userId, requestMessageId);
+            refreshSnapshot(context, userId);
+
+            log.info("记忆整理完成, userId={}, conversationId={}, status={}, 内容变更={}",
+                    userId, conversationId, outcome.status(), outcome.changes().size());
+
             return render(toolCallId, outcome);
         } catch (Exception e) {
-            log.error("记忆整理工具调用异常, userId: {}, conversationId: {}", userId, conversationId, e);
-            return buildResult(toolCallId, "记忆整理异常，本次内容未能写入", true);
+            log.error("记忆整理工具执行异常, userId={}, conversationId={}",
+                    userId, conversationId, e);
+
+            return buildResult(toolCallId,
+                    "记忆整理执行异常，无法确认本次内容是否已写入长期记忆。"
+                            + "请勿声称已经保存，也不要在本轮重复调用此工具。",
+                    true);
         }
     }
 
     /**
-     * 落库已成事实，刷新失败只让本轮后续推理看到旧视图，不该把成功报成失败
+     * 刷新与提交分开：刷新失败只让本轮后续推理看到旧视图，不改变整理结局
      */
     private void refreshSnapshot(RuntimeContext runtimeContext, String userId) {
         try {
-            runtimeContext.put(AgentUserMemoryMiddleware.SNAPSHOT_KEY, memoryPipeline.reloadSnapshot(userId));
+            runtimeContext.put(AgentUserMemoryMiddleware.SNAPSHOT_KEY, memoryFlusher.reloadSnapshot(userId));
         } catch (Exception e) {
-            log.warn("长期记忆快照刷新失败, 本轮沿用旧视图, userId: {}", userId, e);
+            log.warn("长期记忆快照刷新失败, 当前会话记忆视图未更新, userId={}", userId, e);
         }
     }
 
     /**
-     * 没写进去的一律 ERROR，不留 default 确保新增枚举值编译期报错
+     * 只有 COMMITTED 返回 SUCCESS；不设置 default，确保新增枚举值时编译器提示未覆盖
+     * 只报已提交的变更与判定说明，怎么据此回答用户写在工具声明里，不在每次结果里重复
      */
     private ToolResultBlock render(String toolCallId, AgentMemoryOutcome outcome) {
-        if (outcome.cleared() && (outcome.status() == Status.WRITTEN || outcome.status() == Status.SETTLED_EMPTY)) {
-            return buildResult(toolCallId, clearedText(outcome), false);
-        }
-        return switch (outcome.status()) {
-            case WRITTEN -> buildResult(toolCallId, "记忆已更新，本次生效 " + outcome.applied() + " 条", false);
-            case SETTLED_EMPTY -> buildResult(toolCallId, outcome.mutated()
-                    ? "本批对话没有需要新记住的内容，已顺手合并精简了既有记忆"
-                    : "本批对话已整理完，其中没有需要长期记住的内容", false);
-            case INCOMPLETE -> buildResult(toolCallId, "只整理了较早积压的一部分对话，还没处理到本次请求，本次内容尚未生效", true);
-            case NOTHING_PENDING -> buildResult(toolCallId, "最近的对话都已整理过，这次没有新内容需要处理", false);
-            // 门槛只挡后台批，flush 走到这里说明管道分叉错了
-            case BELOW_THRESHOLD -> throw new IllegalStateException("记忆整理工具收到只属于后台抽取的门槛结局");
-            // 同理：待审计划在场时后台只暂缓，flush 领取的是 PLAN_PREPARED
-            case PLAN_PENDING -> throw new IllegalStateException("记忆整理工具收到只属于后台抽取的待审暂缓结局");
-            // 受审计划已冻结：交给执行工具走用户确认，编号必须原样带回
-            case PLAN_PREPARED -> buildResult(toolCallId, planPreparedText(outcome), false);
-            case BUSY -> buildResult(toolCallId, "记忆整理进行中，本次未能处理，请稍后再试", true);
-            case CAPACITY_REJECTED -> buildResult(toolCallId, "记忆容量已达上限，本次内容未能写入", true);
-            case DISABLED -> buildResult(toolCallId, "记忆功能当前未开启，本次内容不会被记住", true);
-            // 快照过期是良性的：水位没推，同一区间下一轮 turn release 会重新抽一次
-            case CONFLICT -> buildResult(toolCallId, "记忆刚被另一次整理改动，本次未写入，下次对话时会再试一次", true);
-            case FAILED -> buildResult(toolCallId, "记忆整理失败，本次内容未能写入", true);
+        Status status = outcome.status();
+        String text = switch (status) {
+            case COMMITTED -> (outcome.changes().isEmpty()
+                    ? "整理完成，这次没有产生记忆变更。"
+                    : "整理完成，本次实际发生的记忆变更如下：\n- " + String.join("\n- ", outcome.changes()))
+                    + explanationOf(outcome);
+            case NOTHING_PENDING, BELOW_THRESHOLD -> throw new IllegalStateException(
+                    "记忆整理工具收到只属于后台学习的结局: " + status);
+            case BUSY -> "另一次记忆整理正在进行，这次调用没有执行新的记忆变更";
+            case CAPACITY_EXCEEDED -> "这次要记下的内容超出了长期记忆的容量上限，这次没有写入任何变更";
+            case DISABLED -> "长期记忆功能当前未开启，本次内容不会被记住";
+            case FAILED -> "记忆整理没有完成（读取、判断或校验未通过），这次没有写入任何变更";
+            case UNKNOWN -> "记忆整理的提交结果无法确认，可能已写入也可能没有";
         };
+        return buildResult(toolCallId, text, status != Status.COMMITTED);
     }
 
-    /**
-     * 计划已备好但一行记忆都还没动：文案只交代「待确认」，编号交给执行工具，不许在此宣称已删除/已清空
-     */
-    private String planPreparedText(AgentMemoryOutcome outcome) {
-        return "这批发言里包含撤回或清空长期记忆的请求，已生成具体变更计划等待用户确认，当前尚未改动任何记忆。"
-                + "请调用 apply_memory_change 工具提交该计划，参数 operationId 填「" + outcome.operationId() + "」。"
-                + "在用户确认并看到执行结果之前，不要说已经删除或清空。";
-    }
-
-    /**
-     * 清空单列文案：普通的「生效 N 条」会被模型说成清空了，原本就空的也得如实交代
-     * 清空之后只报生效变更数：跨批时后面几批还可能改写或撤回清空后记下的条目，说成「新记下」会多报
-     */
-    private String clearedText(AgentMemoryOutcome outcome) {
-        if (outcome.applied() == 0) {
-            return outcome.clearedItems() > 0
-                    ? "已清空全部长期记忆，共清除 " + outcome.clearedItems() + " 条"
-                    : "长期记忆原本就是空的，当前已无长期记忆";
-        }
-        String cleared = outcome.clearedItems() > 0
-                ? "已清空全部旧的长期记忆，共清除 " + outcome.clearedItems() + " 条"
-                : "长期记忆原本就是空的，无需清除";
-        return cleared + "；清空之后的发言又生效了 " + outcome.applied() + " 条记忆变更";
+    private static String explanationOf(AgentMemoryOutcome outcome) {
+        return outcome.explanation().isBlank() ? "" : "\n判定说明：" + outcome.explanation();
     }
 
     private ToolResultBlock buildResult(String toolCallId, String text, boolean isError) {

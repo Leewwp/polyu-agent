@@ -288,9 +288,7 @@ public final class ConcurrencyReportMain {
         }
         if(finalSnapshot) {
             long nonterminal=objects(scoped.get("t_agent_message")).stream().filter(r->!Set.of("NORMAL","INTERRUPTED","CANCELLED").contains(text(r,"message_status"))).count();
-            long processing=objects(scoped.get("t_agent_memory_extraction")).stream().filter(r->text(r,"status").equals("PROCESSING")).count();
             check("database.final-terminal","integrity",nonterminal==0&&objects(snapshot.get("nonterminalMessages")).isEmpty()?"PASS":"FAIL","Nonterminal messages="+nonterminal);
-            check("database.final-processing","integrity",processing==0?"PASS":"FAIL","PROCESSING extractions="+processing);
             check("database.relationships","integrity",objects(snapshot.get("relationshipViolations")).isEmpty()?"PASS":"FAIL",SimpleJson.stringify(snapshot.get("relationshipViolations")));
         }
     }
@@ -489,7 +487,7 @@ public final class ConcurrencyReportMain {
         md.append("\n当前 Agent state 布局：`").append(escape(text(stateSchema,"layout"))).append("`；与工作区存储结构兼容：")
                 .append(stateSchema.get("checkoutCompatible")).append("；使用官方 user:session 复合键：").append(stateSchema.get("officialCompositeSession"))
                 .append("；探针可解析：").append(stateSchema.get("compatible")).append("。\n\n")
-                .append("所有已接受请求逐条核对 task/message 唯一性、持久化 owner/conversation、reply_to 原问题、助手正文与状态；取消须落 INTERRUPTED，最终不得残留非终态消息或 PROCESSING 提取。状态匹配支持按同一 USER 输入至下一 USER 输入的边界，顺序拼接多条 assistant TextBlock，跳过工具与推理内容。所有平台边界已扫描全字段 foreign marker。\n\n")
+                .append("所有已接受请求逐条核对 task/message 唯一性、持久化 owner/conversation、reply_to 原问题、助手正文与状态；取消须落 INTERRUPTED，最终不得残留非终态消息。状态匹配支持按同一 USER 输入至下一 USER 输入的边界，顺序拼接多条 assistant TextBlock，跳过工具与推理内容。所有平台边界已扫描全字段 foreign marker。\n\n")
                 .append("| 业务/向量表 | 开始行数 | 结束行数 | 完整行聚合指纹相同 |\n|---|---:|---:|---|\n");
         for(Map<String,Object> comparison:objects(analysis.get("aggregateFingerprints")))
             md.append('|').append(comparison.get("table")).append('|').append(map(comparison.get("before")).getOrDefault("rows","未采集")).append('|')

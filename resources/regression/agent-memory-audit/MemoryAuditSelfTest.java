@@ -35,8 +35,6 @@ public final class MemoryAuditSelfTest {
             System.setErr(quiet);
             noExtraction(root);
             delayedExtraction(root);
-            unrelatedExtraction(root);
-            processingTimeout(root);
             requiredTimeout(root);
             finalReadFailure(root);
             sessionWriteFailure(root);
@@ -47,7 +45,7 @@ public final class MemoryAuditSelfTest {
             summaryExport();
             summaryRunner(root);
         } finally { System.setOut(stdout); System.setErr(stderr); }
-        System.out.println("PASS: 10 collection checks, account lifecycle checks, summary evidence checks and 7 summary runner checks; temporary evidence: " + root);
+        System.out.println("PASS: 8 collection checks, account lifecycle checks, summary evidence checks and 7 summary runner checks; temporary evidence: " + root);
     }
 
     private static void noExtraction(Path root) throws Exception {
@@ -58,24 +56,10 @@ public final class MemoryAuditSelfTest {
     private static void delayedExtraction(Path root) throws Exception {
         AtomicInteger calls = new AtomicInteger();
         Run run = run(root, "delayed", true, () -> switch (calls.incrementAndGet()) {
-            case 1, 2, 3 -> state();
-            case 4 -> state(row("new", "session-id", "PROCESSING"));
-            default -> state(row("new", "session-id", "WRITTEN"));
+            case 1, 2, 3, 4 -> state("c-0");
+            default -> state("c-1");
         }, MemoryAuditSelfTest::answer);
-        expect(run.code == 0 && "SETTLED".equals(run.turn.get("observationStatus")), "wait for a new terminal extraction");
-    }
-
-    private static void unrelatedExtraction(Path root) throws Exception {
-        Run run = run(root, "unrelated", false,
-                () -> state(row("other", "other-session", "WRITTEN")), MemoryAuditSelfTest::answer);
-        expect("NOT_OBSERVED".equals(run.turn.get("observationStatus")), "other sessions are not this turn's evidence");
-    }
-
-    private static void processingTimeout(Path root) throws Exception {
-        Run run = run(root, "processing", false,
-                () -> state(row("old", "session-id", "PROCESSING")), MemoryAuditSelfTest::answer);
-        expect(run.code == 3 && "TIMEOUT".equals(run.turn.get("observationStatus")), "existing PROCESSING must time out nonzero");
-        expect("COMPLETED".equals(run.turn.get("chatStatus")), "observation timeout does not erase successful chat");
+        expect(run.code == 0 && "SETTLED".equals(run.turn.get("observationStatus")), "wait for the cursor to advance");
     }
 
     private static void requiredTimeout(Path root) throws Exception {
@@ -86,8 +70,8 @@ public final class MemoryAuditSelfTest {
     private static void finalReadFailure(Path root) throws Exception {
         AtomicInteger calls = new AtomicInteger();
         Run run = run(root, "finalfail", true, () -> switch (calls.incrementAndGet()) {
-            case 1 -> state();
-            case 2 -> state(row("new", "session-id", "NOOP"));
+            case 1 -> state("c-0");
+            case 2 -> state("c-1");
             default -> throw new IOException("final observation unavailable");
         }, MemoryAuditSelfTest::answer);
         expect(run.code == 3 && run.turn.containsKey("afterObservationError"), "record final read failure");
@@ -276,13 +260,12 @@ public final class MemoryAuditSelfTest {
         return new SummaryRun(code, SimpleJson.object(SimpleJson.parse(Files.readString(out.resolve("summary-run.json")))), commands);
     }
 
-    @SafeVarargs
-    private static Map<String,Object> state(List<String>... rows) {
-        return Map.of("observedAt", "offline", "extractions", List.of(rows));
+    private static Map<String,Object> state() {
+        return Map.of("observedAt", "offline", "cursor", List.of());
     }
 
-    private static List<String> row(String id, String conversation, String status) {
-        return List.of(id, conversation, "from", "to", status, "0", "0", "offline");
+    private static Map<String,Object> state(String cursor) {
+        return Map.of("observedAt", "offline", "cursor", List.of(List.of(cursor, "offline", "offline")));
     }
 
     private static AgentChatClient.AgentTurnResult answer() {

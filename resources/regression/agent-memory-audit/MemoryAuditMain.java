@@ -227,7 +227,7 @@ public final class MemoryAuditMain {
                         turn.put("sessionPersistenceError", describe(e));
                     }
                     try {
-                        awaitMemory(turn, before, result.conversationId(), request.requireExtraction(), timing, observer);
+                        awaitMemory(turn, before, request.requireExtraction(), result.tools().contains("flush_memory"), timing, observer);
                     } catch (Exception e) {
                         observationFailure(turn, "await", e);
                         if (e instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -272,32 +272,35 @@ public final class MemoryAuditMain {
         } finally { future.cancel(true); executor.shutdownNow(); }
     }
 
-    private static void awaitMemory(Map<String,Object> turn, Map<String,Object> before, String conversationId,
-                                    boolean required, Timing timing, Callable<Map<String,Object>> observer) throws Exception {
-        Set<String> previousIds = new HashSet<>();
-        for (List<String> row : extractionRows(before)) previousIds.add(row.get(0));
+    /**
+     * 主动整理在本轮里同步完成，本轮调过 flush_memory 即已结算；否则看后台游标有没有越过轮前位置，失败与未触发都不推游标
+     */
+    private static void awaitMemory(Map<String,Object> turn, Map<String,Object> before, boolean required, boolean flushed,
+                                    Timing timing, Callable<Map<String,Object>> observer) throws Exception {
+        if (flushed) {
+            Map<String,Object> state = observer.call();
+            turn.put("immediate", state);
+            turn.put("memoryObservedAt", state.get("observedAt"));
+            turn.put("observationStatus", "SETTLED");
+            turn.put("settledBy", "flush_memory");
+            return;
+        }
+        String previous = cursorOf(before);
         long start = System.nanoTime();
         boolean first = true;
         while (true) {
             Map<String,Object> state = observer.call();
             if (first) { turn.put("immediate", state); first = false; }
             turn.put("memoryObservedAt", state.get("observedAt"));
-            List<List<String>> added = new ArrayList<>();
-            boolean pending = false;
-            for (List<String> row : extractionRows(state)) {
-                if (row.get(4).equals("PROCESSING")) pending = true;
-                if (row.get(1).equals(conversationId) && !previousIds.contains(row.get(0))) added.add(row);
-            }
-            turn.put("observedNewExtractions", added);
-            boolean settled = !added.isEmpty() && added.stream()
-                    .allMatch(row -> Set.of("WRITTEN", "NOOP", "DROPPED", "CONFLICT").contains(row.get(4)));
+            String current = cursorOf(state);
+            turn.put("observedCursor", current);
             long elapsed = (System.nanoTime() - start) / 1_000_000;
             turn.put("observationElapsedMillis", elapsed);
-            if (settled && !pending) {
+            if (!current.equals(previous)) {
                 turn.put("observationStatus", "SETTLED");
                 return;
             }
-            if (!required && added.isEmpty() && !pending && elapsed >= timing.discoveryWindowMillis()) {
+            if (!required && elapsed >= timing.discoveryWindowMillis()) {
                 turn.put("observationStatus", "NOT_OBSERVED");
                 return;
             }
@@ -310,8 +313,9 @@ public final class MemoryAuditMain {
     }
 
     @SuppressWarnings("unchecked")
-    private static List<List<String>> extractionRows(Map<String,Object> state) {
-        return (List<List<String>>) state.get("extractions");
+    private static String cursorOf(Map<String,Object> state) {
+        List<List<String>> rows = (List<List<String>>) state.get("cursor");
+        return rows == null || rows.isEmpty() ? "" : rows.get(0).get(0);
     }
 
     private static void observationFailure(Map<String,Object> turn, String stage, Exception error) {
@@ -333,8 +337,8 @@ public final class MemoryAuditMain {
         Map<String,Object> state = new LinkedHashMap<>();
         state.put("observedAt", Instant.now().toString());
         state.put("userId", userId);
-        state.put("memories", jdbc.queryRows("SELECT id, content, source_type, COALESCE(invalid_at::text,''), COALESCE(superseded_by,''), create_time::text FROM t_agent_memory WHERE user_id = " + uid + " ORDER BY create_time, id"));
-        state.put("extractions", jdbc.queryRows("SELECT id, conversation_id, from_message_id, to_message_id, status, decision_count::text, attempt_count::text, create_time::text FROM t_agent_memory_extraction WHERE user_id = " + uid + " ORDER BY create_time,id"));
+        state.put("memories", jdbc.queryRows("SELECT id, content, source_type, COALESCE(invalid_at::text,''), create_time::text, update_time::text FROM t_agent_memory WHERE user_id = " + uid + " ORDER BY create_time, id"));
+        state.put("cursor", jdbc.queryRows("SELECT COALESCE(last_message_id,''), create_time::text, update_time::text FROM t_agent_memory_cursor WHERE user_id = " + uid));
         state.put("compactions", jdbc.queryRows("SELECT conversation_id, generation::text, summary_chars::text, context_chars_before::text, context_chars_after::text, summary, create_time::text FROM t_agent_context_compaction WHERE user_id = " + uid + " ORDER BY create_time,id"));
         List<Object> contexts = new ArrayList<>();
         AgentStateProbe probe = new AgentStateProbe(jdbc);

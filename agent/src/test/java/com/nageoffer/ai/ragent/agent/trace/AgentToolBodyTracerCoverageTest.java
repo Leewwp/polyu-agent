@@ -17,8 +17,7 @@
 
 package com.nageoffer.ai.ragent.agent.trace;
 
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryFlusher;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.skill.AgentSkillMaskingMiddleware;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog;
@@ -108,6 +107,8 @@ class AgentToolBodyTracerCoverageTest {
         facts = new AgentToolExecutionFacts("t-9001", Clock.systemUTC());
         ctx = RuntimeContext.builder().userId("u-1001").sessionId("c-2002").build();
         ctx.put(AgentToolExecutionFacts.RUNTIME_CONTEXT_KEY, facts);
+        // 记忆整理工具要知道本次请求是哪条消息，生产路径由聊天入口写入
+        ctx.put(AgentTraceContextKeys.REPLY_TO_MESSAGE_ID, "m-3003");
     }
 
     @AfterEach
@@ -206,8 +207,7 @@ class AgentToolBodyTracerCoverageTest {
                 intentNodeRegistry,
                 mcpClients,
                 memoryProperties,
-                mock(AgentMemoryPipeline.class),
-                mock(AgentMemoryApprovalService.class),
+                mock(AgentMemoryFlusher.class),
                 skillRegistry);
         return catalog.buildToolkit(catalog.resolve(prompts));
     }
