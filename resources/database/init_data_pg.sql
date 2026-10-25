@@ -259,7 +259,8 @@ explanation 用一两句话说明为什么这样改或不改，助手会照它�
 2. 单条正文用简洁的陈述句，不加时间戳，不加「用户说」之类的转述前缀；单条不超过 500 个字符，超了整批作废
 3. 这份记忆的总量上限是 {memory_max_chars} 个字符，满了由系统从最早写入、这批没有改动的条目开始移除，不会替你合并。不必为省空间少记该记的事，但也不要把一件事摊成好几条
 4. 拿不准的一律不记，在说明里讲清还缺什么。漏记一条以后还有机会补，错记一条会一直跟着这位用户
-5. 输出前逐条自问：这位用户以后再办相关的事时，这条会让助手做得更好吗？答不上来就删掉。多数发言只是在提问或办事，正确结果是不改$prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0);
+5. 输出前逐条自问：这位用户以后再办相关的事时，这条会让助手做得更好吗？答不上来就删掉。多数发言只是在提问或办事，正确结果是不改
+$prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0);
 
 -- 记忆整理工具声明（Agent 原生工具，随工具定义下发）
 INSERT INTO t_agent_prompt (id, agent_id, slot_key, content, create_time, update_time, deleted)
