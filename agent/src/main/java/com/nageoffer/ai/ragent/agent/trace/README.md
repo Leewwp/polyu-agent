@@ -22,7 +22,7 @@ OTel 语义约定里同一份事实经常有两三种写法，全写上去只会
  {"callIndex":8,"name":"search_knowledge","state":"awaiting","executed":false}]
 ```
 
-哪几条在等确认、跑没跑都在，而且是属性能进索引。遮蔽的技能码也还在 `shortCircuitDetail()` 上。
+哪几条在等确认、跑没跑都在，而且是属性能进索引。遮蔽短路只记原因 `masked`，提示文案是固定的，`shortCircuitDetail()` 为空。
 
 ## 不许跟着删的
 

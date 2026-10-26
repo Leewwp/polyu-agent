@@ -56,7 +56,7 @@ public class AgentConfirmCall {
     private List<AgentConfirmField> fields;
 
     /**
-     * 完整调用参数 JSON：只作服务端内部载体（死卡检测经 operationIdOf 回读，见 AgentMemoryApprovalService），
+     * 完整调用参数 JSON：只作服务端内部载体，
      * 随块落库与 trace 留痕；面向用户的出参一律走 {@link #scrubbedCopy()} 剥离，不随载荷下发
      */
     private String arguments;

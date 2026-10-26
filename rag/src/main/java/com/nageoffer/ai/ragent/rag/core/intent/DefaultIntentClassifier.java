@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.core.intent;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.map.MapBuilder;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.google.gson.JsonArray;
@@ -233,10 +234,11 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             log.info("当前问题：{}\n意图识别树如下所示：{}\n",
                     question,
                     JSONUtil.toJsonPrettyStr(
-                            scores.stream().peek(each -> {
-                                IntentNode node = each.getNode();
-                                node.setChildren(null);
-                            }).collect(Collectors.toList())
+                            scores.stream().map(ns -> MapBuilder.<String, Object>create(true)
+                                    .put("id", ns.getNode().getId())
+                                    .put("path", ns.getNode().getFullPath())
+                                    .put("score", ns.getScore())
+                                    .build()).toList()
                     )
             );
             return scores;

@@ -15,29 +15,14 @@
  * limitations under the License.
  */
 
-package com.nageoffer.ai.ragent.agent.dao.entity;
+package com.nageoffer.ai.ragent.agent.memory;
 
-import lombok.Data;
-
-import java.util.Date;
+import java.util.List;
 
 /**
- * 每用户一行的长期记忆控制面，读写全走注解 Mapper（要 ON CONFLICT 与 FOR UPDATE）
+ * 一次 Judge 调用的结论：要怎样改记忆，以及为什么这样改或不改；空决策即合法的不改
+ * 只由解析处在校验通过后构造；下游只读这份原始结论，Edit 另生成执行计划，所以不额外做不可修改拷贝
+ * 说明不代表已经保存，保存与否以提交结果为准
  */
-@Data
-public class AgentMemoryControlDO {
-
-    private String userId;
-
-    /**
-     * 记忆集版本号，提交期与水位一同双校验
-     */
-    private Long revision;
-
-    /**
-     * 建行时刻兼抽取下界，接入之前的历史消息永不倒灌
-     */
-    private Date createTime;
-
-    private Date updateTime;
+public record AgentMemoryJudgement(List<AgentMemoryDecision> decisions, String explanation) {
 }

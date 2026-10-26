@@ -85,7 +85,7 @@ audit create temporal
 audit ask temporal A "$audit_suite/temporal-short-a1.txt"
 ```
 
-核对首轮没有调用 `flush_memory`、没有抽取台账和有效记忆；如果已经提取杭州，本次积压前提不成立，换新账号重试，不计为通过或失败。`NOT_OBSERVED` 只表示尚未观察到台账，不能单独证明不存在后台任务。确认前提后继续：
+核对首轮没有调用 `flush_memory`、游标没有越过这一句、也没有有效记忆；如果已经提取杭州，本次积压前提不成立，换新账号重试，不计为通过或失败。`NOT_OBSERVED` 只表示尚未观察到游标前移，不能单独证明不存在后台任务。确认前提后继续：
 
 ```bash
 audit ask temporal B "$audit_suite/temporal-b1.txt" --require-extraction
@@ -97,7 +97,7 @@ audit snapshot temporal
 
 逐步核对：
 
-1. A：`temporal-short-a1.txt`。必须检查没有调用 `flush_memory`、没有抽取台账，才满足旧消息积压前提。否则标为前提未满足，不能冒充通过。
+1. A：`temporal-short-a1.txt`。必须检查没有调用 `flush_memory`、游标没有越过这一句，才满足旧消息积压前提。否则标为前提未满足，不能冒充通过。
 2. B：`temporal-b1.txt`。确认南京已实际成为有效记忆。
 3. A：`temporal-a2.txt`。
 4. A：`temporal-a3.txt`。继续触发积压整理，核对实际入口和记忆变化；可能是前台 flush，也可能是后台提取，本次历史实测为前台 `FLUSH`。
@@ -181,18 +181,18 @@ java -cp resources/regression/agent-memory-audit/artifacts/classes \
 
 | 状态 | 含义 |
 | --- | --- |
-| `SETTLED` | 观察到本会话的新抽取已结束，具体结果仍需检查台账 |
-| `NOT_OBSERVED` | 短暂观察期未见新抽取，不证明以后不会开始 |
+| `SETTLED` | 本轮调用了 `flush_memory`（主动整理在本轮内同步完成），或观察到后台游标前移；具体结果仍需检查记忆条目 |
+| `NOT_OBSERVED` | 短暂观察期内游标没动，不证明以后不会整理 |
 | `TIMEOUT` | 等到上限仍不满足观察条件 |
 | `ERROR` / `NOT_STARTED` | 观察失败 / 未进入观察 |
 
-`--require-extraction` 用于必须发生提取的步骤；未观察到新台账结算就返回非零。默认 `NOT_OBSERVED` 可返回 0；已见任务仍在处理而超时则返回非零。失败、放弃或 `NOOP` 都不能直接当作业务成功。
+`--require-extraction` 用于必须发生提取的步骤；本轮既没调 `flush_memory`、也没观察到后台游标前移就返回非零。默认 `NOT_OBSERVED` 可返回 0。结算只说明整理已提交（含判下来没有要改的），不能直接当作业务成功，要再看 `memories`。
 
 退出码：0 采集结束；1 参数、登录、文件等失败；2 聊天失败/超时；3 数据库观察失败/超时（包括聊天前）；4 会话或 latest 辅助文件保存失败。最终读库失败也保存已收到的回答、ID 和错误，不丢掉整轮。
 
 采集器可配置毫秒值：`audit.chat-timeout-millis`（600000）、`audit.observation-timeout-millis`（45000）、`audit.poll-interval-millis`（1500）、`audit.discovery-window-millis`（3000）。这些不修改服务策略。
 
-聊天超时限制客户端等候，不保证服务端已取消；观察超时是轮询预算，单次数据库查询仍受现有 `database.statement-timeout-seconds` 约束。超时后先核对台账，不自动重发同一轮问题。
+聊天超时限制客户端等候，不保证服务端已取消；观察超时是轮询预算，单次数据库查询仍受现有 `database.statement-timeout-seconds` 约束。超时后先核对游标与记忆条目，不自动重发同一轮问题。
 
 ## 留存证据
 
@@ -205,7 +205,7 @@ java -cp resources/regression/agent-memory-audit/artifacts/classes \
 数据库观测数组的列顺序：
 
 - `memories`：ID、内容、来源、失效时间、替代者 ID、创建时间。
-- `extractions`：ID、会话 ID、起始消息 ID、结束消息 ID、状态、决策数量、尝试次数、创建时间。
+- `cursor`：已整理到的最后一条用户消息 ID、游标创建时间、最近推进时间（没有游标则为空数组）。
 - `compactions`：会话 ID、代数、摘要字符数、压缩前字符数、压缩后字符数、摘要正文、创建时间。
 
 `environment.json` 中的模型与阈值是本地 YAML 声明，不冒充 JVM 运行期覆盖值。`resolved-memory-prompts.json` 是当时实际 Redis 解析缓存里的记忆提示词（若缓存存在）。摘要审计表只存验收后文本；缺小节但无裁节日志时，不能确定是模型漏写还是程序裁掉。

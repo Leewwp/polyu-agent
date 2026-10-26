@@ -21,17 +21,13 @@ import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
 import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
-import com.nageoffer.ai.ragent.agent.enums.AgentMemoryTriggerType;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryOutcome;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryLearner;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.trace.AgentTraceContextKeys;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpMeta;
-import com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool;
 import io.agentscope.core.tool.mcp.McpMeta;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
@@ -92,7 +88,6 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class AgentChatServiceImplTest {
@@ -104,9 +99,7 @@ class AgentChatServiceImplTest {
     private AgentConversationService conversationService;
     private StreamTaskManager taskManager;
     private AgentRunGate runGate;
-    private AgentMemoryProperties memoryProperties;
-    private AgentMemoryPipeline memoryPipeline;
-    private AgentMemoryApprovalService memoryApprovalService;
+    private AgentMemoryLearner memoryLearner;
     private AtomicInteger gateReleased;
     private ReActAgent agent;
     private AgentChatServiceImpl service;
@@ -118,12 +111,8 @@ class AgentChatServiceImplTest {
         taskManager = mock(StreamTaskManager.class);
         runGate = mock(AgentRunGate.class);
         agent = mock(ReActAgent.class);
-        memoryProperties = new AgentMemoryProperties();
-        memoryProperties.setLongTermEnabled(false);
-        memoryPipeline = mock(AgentMemoryPipeline.class);
-        memoryApprovalService = mock(AgentMemoryApprovalService.class);
-        service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
-                memoryProperties, memoryPipeline, memoryApprovalService);
+        memoryLearner = mock(AgentMemoryLearner.class);
+        service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate, memoryLearner);
 
         gateReleased = new AtomicInteger();
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(gateReleased::incrementAndGet);
@@ -133,8 +122,8 @@ class AgentChatServiceImplTest {
                 .thenReturn("会话标题");
         when(conversationService.addUserMessage(anyString(), anyString(), anyString())).thenReturn("m-3003");
         // 每轮收尾都会调一次，不给默认结局其余用例会在后台线程上吃 NPE
-        when(memoryPipeline.extract(anyString(), anyString(), any(AgentMemoryTriggerType.class)))
-                .thenReturn(new AgentMemoryOutcome(AgentMemoryOutcome.Status.BELOW_THRESHOLD, 0, 1, false));
+        when(memoryLearner.learn(anyString()))
+                .thenReturn(AgentMemoryOutcome.of(AgentMemoryOutcome.Status.BELOW_THRESHOLD));
         UserContext.set(LoginUser.builder().userId(USER_ID).username("tester").build());
     }
 
@@ -186,7 +175,7 @@ class AgentChatServiceImplTest {
         verify(conversationService, never()).touchConversation(anyString(), anyString(), anyString());
         verify(conversationService, never()).addUserMessage(anyString(), anyString(), anyString());
         verify(taskManager, never()).register(anyString(), anyString(), any());
-        verifyNoInteractions(agentProvider, agent, memoryPipeline);
+        verifyNoInteractions(agentProvider, agent, memoryLearner);
         assertThat(gateReleased.get()).isOne();
     }
 
@@ -217,20 +206,19 @@ class AgentChatServiceImplTest {
     }
 
     /**
-     * 轮次收尾触发抽取，且必须离开请求线程
+     * 轮次收尾触发后台整理，且必须离开请求线程
      */
     @Test
     void shouldTriggerBackgroundExtractionOffTheRequestThread() throws Exception {
-        memoryProperties.setLongTermEnabled(true);
         CountDownLatch extracted = new CountDownLatch(1);
         AtomicReference<Thread> extractThread = new AtomicReference<>();
         AtomicInteger releasedWhenExtracting = new AtomicInteger(-1);
-        when(memoryPipeline.extract(USER_ID, CONVERSATION_ID, AgentMemoryTriggerType.BACKGROUND))
+        when(memoryLearner.learn(USER_ID))
                 .thenAnswer(invocation -> {
                     extractThread.set(Thread.currentThread());
                     releasedWhenExtracting.set(gateReleased.get());
                     extracted.countDown();
-                    return new AgentMemoryOutcome(AgentMemoryOutcome.Status.WRITTEN, 1, 3, true);
+                    return new AgentMemoryOutcome(AgentMemoryOutcome.Status.COMMITTED, List.of("新增：用户住在杭州"), "");
                 });
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
 
@@ -242,32 +230,17 @@ class AgentChatServiceImplTest {
     }
 
     /**
-     * 控制行建行时刻是抽取下界，必须先于本轮消息落库：反过来首条消息成「历史」，永久漏出抽取范围
+     * 游标界线由入口决定：建游标必须先于本轮发言入库，反过来首条发言会被划进接入前的历史
      */
     @Test
-    void shouldEnsureBaselineBeforeSavingUserMessage() {
-        memoryProperties.setLongTermEnabled(true);
+    void shouldEnsureCursorBeforeSavingUserMessage() {
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
 
-        service.streamChat("我对花生严重过敏", CONVERSATION_ID, new SseEmitter());
+        service.streamChat("我一直戴眼镜", CONVERSATION_ID, new SseEmitter());
 
-        InOrder inOrder = inOrder(memoryPipeline, conversationService);
-        inOrder.verify(memoryPipeline).ensureExtractionBaseline(USER_ID);
-        inOrder.verify(conversationService).addUserMessage(CONVERSATION_ID, USER_ID, "我对花生严重过敏");
-    }
-
-    /**
-     * 关掉开关连异步线程都不该起
-     */
-    @Test
-    void shouldSkipBackgroundExtractionWhenLongTermDisabled() {
-        memoryProperties.setLongTermEnabled(false);
-        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
-
-        service.streamChat("问题", CONVERSATION_ID, new SseEmitter());
-
-        verify(memoryPipeline).ensureExtractionBaseline(USER_ID);
-        verifyNoMoreInteractions(memoryPipeline);
+        InOrder inOrder = inOrder(memoryLearner, conversationService);
+        inOrder.verify(memoryLearner).ensureCursor(USER_ID);
+        inOrder.verify(conversationService).addUserMessage(CONVERSATION_ID, USER_ID, "我一直戴眼镜");
     }
 
     /**
@@ -380,67 +353,6 @@ class AgentChatServiceImplTest {
 
         verify(agent).streamEvents(any(Msg.class), runtimeContext.capture());
         assertThat(contextId(runtimeContext.getValue(), AnswerLanguages.RUNTIME_CONTEXT_KEY)).isEqualTo("en");
-    }
-
-    /**
-     * 记忆计划确认（#278）：同意先把台账行迁到 APPROVED 并绑定本次 toolCallId，续跑照常
-     */
-    @Test
-    void shouldApproveMemoryPlanBeforeResuming() {
-        prepareMemoryPlanConfirmation();
-        when(memoryApprovalService.approve("e-7001", USER_ID, "call-9", "m-4004"))
-                .thenReturn(AgentMemoryApprovalService.ApprovalTransition.approved());
-
-        service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter());
-
-        verify(memoryApprovalService).approve("e-7001", USER_ID, "call-9", "m-4004");
-        verify(agent).streamEvents(any(Msg.class), any(RuntimeContext.class));
-    }
-
-    /**
-     * 记忆计划拒绝：台账终局结算推水位，续跑交给拒绝中间件解释，报错路径不拦
-     */
-    @Test
-    void shouldRejectMemoryPlanOnDeny() {
-        prepareMemoryPlanConfirmation();
-
-        service.confirmPendingTool(CONVERSATION_ID, "m-4004", false, new SseEmitter());
-
-        verify(memoryApprovalService).reject("e-7001", USER_ID);
-        verify(agent).streamEvents(any(Msg.class), any(RuntimeContext.class));
-    }
-
-    /**
-     * 计划已过期再点同意：卡片先失效再报错，会话不卡死，也不启动续跑
-     */
-    @Test
-    void shouldExpireCardWhenMemoryPlanNotConfirmable() {
-        prepareMemoryPlanConfirmation();
-        when(memoryApprovalService.approve(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(AgentMemoryApprovalService.ApprovalTransition.notFound("该计划已超过 30 分钟有效期，请重新发起"));
-
-        assertThatThrownBy(() -> service.confirmPendingTool(CONVERSATION_ID, "m-4004", true, new SseEmitter()))
-                .isInstanceOf(ClientException.class)
-                .hasMessageContaining("30 分钟");
-        InOrder order = inOrder(conversationService);
-        order.verify(conversationService).expirePendingConfirm(CONVERSATION_ID, USER_ID, "m-4004");
-        verify(agent, never()).streamEvents(any(Msg.class), any(RuntimeContext.class));
-    }
-
-    private void prepareMemoryPlanConfirmation() {
-        ToolUseBlock asking = ToolUseBlock.builder()
-                .id("call-9")
-                .name(MemoryApplyTool.TOOL_NAME)
-                .input(Map.of("operationId", "e-7001"))
-                .state(ToolCallState.ASKING)
-                .build();
-        when(agent.getAgentState(USER_ID, CONVERSATION_ID)).thenReturn(AgentState.builder()
-                .userId(USER_ID).sessionId(CONVERSATION_ID)
-                .addMessage(AssistantMessage.builder().content(asking).build())
-                .build());
-        when(conversationService.getPendingConfirm(CONVERSATION_ID, USER_ID, "m-4004"))
-                .thenReturn(new AgentConfirmSettlement("会话标题", "m-3003"));
-        when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class))).thenReturn(Flux.empty());
     }
 
     @ParameterizedTest
@@ -714,7 +626,6 @@ class AgentChatServiceImplTest {
 
     @Test
     void shouldUnregisterTaskWhenStartupFails() {
-        memoryProperties.setLongTermEnabled(true);
         when(agent.streamEvents(any(Msg.class), any(RuntimeContext.class)))
                 .thenThrow(new IllegalStateException("上游没起来"));
 
@@ -725,7 +636,7 @@ class AgentChatServiceImplTest {
         verify(taskManager).unregister(anyString());
         verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
         verify(agent, never()).saveAgentState(anyString(), anyString());
-        verify(memoryPipeline, never()).extract(anyString(), anyString(), any());
+        verify(memoryLearner, never()).learn(anyString());
         assertThat(gateReleased.get()).isOne();
     }
 
@@ -762,7 +673,6 @@ class AgentChatServiceImplTest {
     @Test
     void shouldKeepConfirmPendingWhenRegistrationFails() {
         prepareConfirmation();
-        memoryProperties.setLongTermEnabled(true);
         IllegalStateException failure = new IllegalStateException("Redis 写入失败");
         doThrow(failure).when(taskManager).register(anyString(), anyString(), any());
 
@@ -771,7 +681,7 @@ class AgentChatServiceImplTest {
         verify(conversationService, never()).settlePendingConfirm(anyString(), anyString(), anyString(), anyBoolean());
         verify(agent).clearStateCache(USER_ID, CONVERSATION_ID);
         verify(agent, never()).saveAgentState(anyString(), anyString());
-        verifyNoInteractions(memoryPipeline);
+        verifyNoInteractions(memoryLearner);
         assertThat(gateReleased.get()).isOne();
     }
 

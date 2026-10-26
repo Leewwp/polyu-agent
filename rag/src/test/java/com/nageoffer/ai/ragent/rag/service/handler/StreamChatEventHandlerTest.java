@@ -31,9 +31,13 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class StreamChatEventHandlerTest {
 
@@ -75,5 +79,43 @@ class StreamChatEventHandlerTest {
         verify(memoryService).append(eq("c-1"), eq(USER_ID), message.capture());
         assertThat(message.getValue().getContent()).isEqualTo("正文一\n\n正文二");
         assertThat(message.getValue().getThinkingContent()).isEqualTo("推理一\n\n推理二");
+    }
+
+    @Test
+    void shouldStillFinishCancelledStreamWhenTitleLookupFails() throws Exception {
+        ConversationMemoryService memoryService = mock(ConversationMemoryService.class);
+        StreamTaskManager taskManager = mock(StreamTaskManager.class);
+        ConversationGroupService conversationGroupService = mock(ConversationGroupService.class);
+        // 构造时查一次标题判定是否下发，收尾时再查一次并模拟数据库异常
+        when(conversationGroupService.findConversation("c-1", USER_ID))
+                .thenReturn(null)
+                .thenThrow(new IllegalStateException("标题查询失败"));
+        SseEmitter emitter = mock(SseEmitter.class);
+
+        StreamChatEventHandler handler = new StreamChatEventHandler(StreamChatHandlerParams.builder()
+                .emitter(emitter)
+                .conversationId("c-1")
+                .taskId("t-1")
+                .modelProperties(new AIModelProperties())
+                .memoryService(memoryService)
+                .conversationGroupService(conversationGroupService)
+                .taskManager(taskManager)
+                .build());
+
+        ArgumentCaptor<Runnable> finalizer = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskManager).register(eq("t-1"), eq(USER_ID), finalizer.capture());
+
+        handler.onContent("已生成的内容");
+        clearInvocations(emitter);
+
+        // 标题查询失败只能降级，不能把 CANCEL/DONE 和断流一起带走
+        finalizer.getValue().run();
+
+        verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
+        verify(emitter).complete();
+        ArgumentCaptor<ChatMessage> interrupted = ArgumentCaptor.forClass(ChatMessage.class);
+        verify(memoryService).append(eq("c-1"), eq(USER_ID), interrupted.capture());
+        assertThat(interrupted.getValue().getContent()).isEqualTo("已生成的内容");
+        assertThat(interrupted.getValue().getMessageStatus()).isEqualTo(ChatMessage.MessageStatus.INTERRUPTED);
     }
 }

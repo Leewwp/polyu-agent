@@ -44,7 +44,7 @@ public final class AgentToolExecutionFacts {
     public static final String RUNTIME_CONTEXT_KEY = "ragent_tool_execution_facts";
 
     /**
-     * 短路原因：我方技能遮蔽，detail 是触发遮蔽的 skillCode
+     * 短路原因：我方技能遮蔽，提示文案是固定的，detail 不另记
      */
     public static final String SHORT_CIRCUIT_MASKED = "masked";
 

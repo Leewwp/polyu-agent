@@ -71,14 +71,9 @@ public class AgentMemoryProperties {
     private static final int MEMORY_MAX_CEIL_CHARS = 6000;
 
     /**
-     * 后台抽取门槛：待处理用户消息够这么多条才值得叫一次模型，flush 不受它挡
+     * 后台抽取门槛：该用户待整理的发言够这么多条才值得叫一次模型，按用户累计，flush 不受它挡
      */
     private static final int MEMORY_EXTRACT_MIN_TURNS = 3;
-
-    /**
-     * 受限合并压到这个比例即停，留出余量防边界抖动；容量淘汰拿它当下限，不当目标
-     */
-    private static final double CONSOLIDATION_STOP_RATIO = 0.75D;
 
     /**
      * 会话上下文工程预算（字符），换模型只需要动这一个数
@@ -98,15 +93,6 @@ public class AgentMemoryProperties {
      * 关掉即停抽取与注入，已沉淀的条目原样保留；与 summaryEnabled 同性质的运维出口
      */
     private boolean longTermEnabled = true;
-
-    /**
-     * 撤回/清空 HITL 审批开关（#278，环境变量映射 AGENT_MEMORY_HITL_APPROVAL_ENABLED）：
-     * 新功能一律 flag 默认关（CLAUDE.md 工程纪律，同 RAG_CALENDAR_ENABLED 先例），启用时点归维护者
-     * 关态=受审批次走既有直接落库路径、不挂载 apply_memory_change、不领取/暂缓待审计划——
-     * 上线出问题时的行为回退面；注意迁移 261005 仍是先决条件（抽取入口无条件查询 plan_* 列），
-     * flag 关态不减部署顺序义务
-     */
-    private boolean hitlApprovalEnabled = false;
 
     /**
      * 允许清理的工具白名单；默认值须可变，绑定器直接 clear + addAll
@@ -150,12 +136,5 @@ public class AgentMemoryProperties {
 
     public int resolveExtractMinTurns() {
         return MEMORY_EXTRACT_MIN_TURNS;
-    }
-
-    /**
-     * 受限合并的停手水位，兼任容量淘汰的硬下限
-     */
-    public int resolveConsolidationStopChars() {
-        return (int) (resolveMemoryMaxChars() * CONSOLIDATION_STOP_RATIO);
     }
 }

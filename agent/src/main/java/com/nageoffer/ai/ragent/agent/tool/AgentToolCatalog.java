@@ -19,8 +19,7 @@ package com.nageoffer.ai.ragent.agent.tool;
 
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryPipeline;
+import com.nageoffer.ai.ragent.agent.memory.AgentMemoryFlusher;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryProperties;
 import com.nageoffer.ai.ragent.agent.skill.SkillLoadTool;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpClients.RemoteTool;
@@ -46,7 +45,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 主 Agent 工具目录：固定注册 search_knowledge，并按意图树配置挂载当前可用的 MCP 工具
@@ -61,15 +59,13 @@ public class AgentToolCatalog {
      * Toolkit 按名注册会覆盖，这几个名字不许 MCP 工具占用
      */
     private static final Set<String> RESERVED_TOOL_NAMES = Set.of(
-            KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME, MemoryApplyTool.TOOL_NAME,
-            SkillLoadTool.TOOL_NAME);
+            KnowledgeSearchTool.TOOL_NAME, MemoryFlushTool.TOOL_NAME, SkillLoadTool.TOOL_NAME);
 
     private final KnowledgeSearchFacade knowledgeSearchFacade;
     private final IntentNodeRegistry intentNodeRegistry;
     private final AgentMcpClients mcpClients;
     private final AgentMemoryProperties memoryProperties;
-    private final AgentMemoryPipeline memoryPipeline;
-    private final AgentMemoryApprovalService memoryApprovalService;
+    private final AgentMemoryFlusher memoryFlusher;
     private final AgentSkillRegistry skillRegistry;
 
     /**
@@ -92,12 +88,7 @@ public class AgentToolCatalog {
         toolkit.registerAgentTool(new KnowledgeSearchTool(
                 catalog.knowledgeToolDescription, knowledgeSearchFacade));
         if (catalog.memoryToolDescription != null) {
-            toolkit.registerAgentTool(new MemoryFlushTool(catalog.memoryToolDescription, memoryPipeline));
-            // 执行工具与整理工具成对挂载：只准备不执行，或只执行没来源，都不成闭环
-            // 审批开关关闭时不挂载（flag 默认关）：flush 不会产出 PLAN_PREPARED，挂了也没有可执行计划
-            if (memoryProperties.isHitlApprovalEnabled()) {
-                toolkit.registerAgentTool(new MemoryApplyTool(memoryApprovalService));
-            }
+            toolkit.registerAgentTool(new MemoryFlushTool(catalog.memoryToolDescription, memoryFlusher));
         } else if (memoryProperties.isLongTermEnabled()) {
             log.warn("AGENT_MEMORY_TOOL_DESCRIPTION 提示词为空, 本次不挂载 {}", MemoryFlushTool.TOOL_NAME);
         }
@@ -139,45 +130,24 @@ public class AgentToolCatalog {
 
     /**
      * 意图树配置与 AgentScope 发现的工具取交集，无工具或与内置工具重名的记入 unavailableToolIds
-     * 两处排序都为了指纹稳定，只排组内不够：分组序取决于各组最小的节点 id
+     * 一个工具只有一个节点（管理端与唯一索引共同保证），两处排序都为了指纹稳定
      */
     private McpResolution resolveMcpTools() {
-        Map<String, List<IntentNode>> nodesByToolId = intentNodeRegistry.listMcpToolNodes().stream()
-                .sorted(Comparator.comparing(IntentNode::getId))
-                .collect(Collectors.groupingBy(
-                        node -> node.getMcpToolId().trim(),
-                        LinkedHashMap::new,
-                        Collectors.toList()));
-
         List<McpToolBinding> bindings = new ArrayList<>();
         List<String> unavailableToolIds = new ArrayList<>();
-        nodesByToolId.forEach((toolId, nodes) -> {
+        for (IntentNode node : intentNodeRegistry.listMcpToolNodes()) {
+            String toolId = node.getMcpToolId().trim();
             RemoteTool remote = mcpClients.get(toolId);
             if (remote == null || RESERVED_TOOL_NAMES.contains(toolId)) {
                 unavailableToolIds.add(toolId);
-                return;
+                continue;
             }
-            bindings.add(toBinding(toolId, nodes, remote));
-        });
+            String displayName = StrUtil.isNotBlank(node.getName()) ? node.getName() : toolId;
+            bindings.add(McpToolBinding.of(toolId, displayName, node.getDescription(), node.isRequireConfirm(), remote));
+        }
         bindings.sort(Comparator.comparing(McpToolBinding::toolId));
         unavailableToolIds.sort(Comparator.naturalOrder());
         return new McpResolution(bindings, unavailableToolIds);
-    }
-
-    private McpToolBinding toBinding(String toolId, List<IntentNode> nodes, RemoteTool remote) {
-        String displayName = nodes.stream()
-                .map(IntentNode::getName)
-                .filter(StrUtil::isNotBlank)
-                .findFirst()
-                .orElse(toolId);
-        String description = nodes.stream()
-                .map(IntentNode::getDescription)
-                .filter(StrUtil::isNotBlank)
-                .distinct()
-                .collect(Collectors.joining("\n"));
-        // 同一工具挂在多个意图下，任一节点勾选即需确认
-        boolean confirmConfigured = nodes.stream().anyMatch(IntentNode::isRequireConfirm);
-        return McpToolBinding.of(toolId, displayName, description, confirmConfigured, remote);
     }
 
     private record McpResolution(List<McpToolBinding> bindings, List<String> unavailableToolIds) {
@@ -259,9 +229,6 @@ public class AgentToolCatalog {
             names.put(KnowledgeSearchTool.TOOL_NAME, KnowledgeSearchTool.DISPLAY_NAME);
             if (memoryToolDescription != null) {
                 names.put(MemoryFlushTool.TOOL_NAME, MemoryFlushTool.DISPLAY_NAME);
-                // 显示名注册表不随 flag 增删（static 无实例配置）：挂载与否由 buildToolkit 按开关决定，
-                // 关态没有 apply 卡片，这里的表项不会被用到
-                names.put(MemoryApplyTool.TOOL_NAME, MemoryApplyTool.DISPLAY_NAME);
             }
             if (hasSkills) {
                 names.put(SkillLoadTool.TOOL_NAME, SkillLoadTool.DISPLAY_NAME);

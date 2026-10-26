@@ -24,7 +24,7 @@ import java.util.stream.Stream;
 
 /**
  * /agent/v1/chat 与确认接口的 SSE 客户端
- * 与 agent-memory 那份不同：卡片轮回答可以为空，确认卡要能拒，所以不在缺回答时抛错
+ * 确认卡轮次允许回答为空，客户端仍需返回卡片信息以便拒绝操作
  */
 final class CompactionSseClient {
 
@@ -32,12 +32,20 @@ final class CompactionSseClient {
     private static final String CONFIRM_PATH = "/agent/v1/chat/confirm";
 
     private final RagentHttpClient http;
-    private final HttpClient client;
+    private final Duration connectTimeout;
 
     CompactionSseClient(RagentHttpClient http, InitializerConfig config) {
         this.http = http;
-        this.client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(config.getInt("server.connect-timeout-seconds", 5)))
+        this.connectTimeout = Duration.ofSeconds(config.getInt("server.connect-timeout-seconds", 5));
+    }
+
+    /**
+     * 每次请求使用独立的 HttpClient
+     * 共享客户端曾在长 SSE 流中断后持续返回 closed，导致后续轮次无法发送
+     */
+    private HttpClient newClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(connectTimeout)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
@@ -49,7 +57,8 @@ final class CompactionSseClient {
     }
 
     /**
-     * 确认卡一律拒绝：回归不许真的办事，被拒之后模型怎么接话也是被测内容
+     * 拒绝确认卡，避免回归测试执行实际业务操作
+     * 拒绝后的模型响应也纳入轮次记录
      */
     Reply deny(String conversationId, String messageId, Duration timeout) throws IOException, InterruptedException {
         Map<String, Object> body = new LinkedHashMap<>();
@@ -68,13 +77,13 @@ final class CompactionSseClient {
                 .header("Accept", "text/event-stream")
                 .header("Authorization", http.authorization())
                 .build();
-        HttpResponse<Stream<String>> response = client.send(request, HttpResponse.BodyHandlers.ofLines());
+        HttpResponse<Stream<String>> response = newClient().send(request, HttpResponse.BodyHandlers.ofLines());
         try (Stream<String> lines = response.body()) {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IOException("HTTP " + response.statusCode() + "，" + label);
             }
             Accumulator accumulator = new Accumulator();
-            // 请求超时只覆盖到响应头，流开始之后靠截止时间兜住一直不结束的流
+            // 请求超时只覆盖接收响应头的阶段，开始读流后另行检查截止时间
             Instant deadline = Instant.now().plus(timeout);
             lines.forEach(line -> {
                 if (Instant.now().isAfter(deadline)) {
@@ -91,18 +100,22 @@ final class CompactionSseClient {
     }
 
     /**
-     * results 每条是「工具名\n结果」；confirmMessageId 非空表示本轮停在确认卡上，cardTools 是卡上待确认的工具名
+     * results 按「工具名\n结果」保存工具返回内容
+     * confirmMessageId 非空表示本轮正在等待确认，cardTools 保存待确认的工具名
+     * cardCalls 保留确认卡中的调用 ID 和原始参数，供后续检查使用
      */
     record Reply(String conversationId, String answer, List<String> tools, List<String> results,
-                 List<String> cardTools, String confirmMessageId, List<String> errors, String messageStatus) {
+                 List<String> cardTools, List<Map<String, Object>> cardCalls, String confirmMessageId,
+                 List<String> errors, String messageStatus) {
     }
 
-    private static final class Accumulator {
+    static final class Accumulator {
 
         private final StringBuilder data = new StringBuilder();
         private final StringBuilder answer = new StringBuilder();
         private final Set<String> tools = new LinkedHashSet<>();
         private final List<String> cardTools = new ArrayList<>();
+        private final List<Map<String, Object>> cardCalls = new ArrayList<>();
         private final List<String> results = new ArrayList<>();
         private final List<String> errors = new ArrayList<>();
         private String event;
@@ -170,9 +183,17 @@ final class CompactionSseClient {
                     Object calls = body.get("calls");
                     if (calls != null) {
                         for (Object call : SimpleJson.array(calls)) {
-                            String toolName = SimpleJson.string(SimpleJson.object(call), "name");
+                            Map<String, Object> rawCall = SimpleJson.object(call);
+                            String toolName = SimpleJson.string(rawCall, "name");
                             if (toolName != null) {
                                 cardTools.add(toolName);
+                                // 原样保存服务端返回的 arguments，缺少参数时保留 null
+                                // 后续检查据此区分参数缺失和参数值错误
+                                Map<String, Object> recorded = new LinkedHashMap<>();
+                                recorded.put("name", toolName);
+                                recorded.put("toolCallId", rawCall.get("toolCallId"));
+                                recorded.put("arguments", rawCall.get("arguments"));
+                                cardCalls.add(recorded);
                             }
                         }
                     }
@@ -188,7 +209,7 @@ final class CompactionSseClient {
 
         Reply toReply() {
             return new Reply(conversationId, answer.toString(), List.copyOf(tools), List.copyOf(results),
-                    List.copyOf(cardTools), confirmMessageId, List.copyOf(errors), messageStatus);
+                    List.copyOf(cardTools), List.copyOf(cardCalls), confirmMessageId, List.copyOf(errors), messageStatus);
         }
 
         private static Map<String, Object> asObject(String payload) {

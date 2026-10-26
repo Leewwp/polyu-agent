@@ -128,7 +128,7 @@ public class StreamTaskManager {
             owner.set(ownerUserId, CANCEL_TTL);
         }
         if (isTaskCancelledInRedis(taskId, taskInfo)) {
-            onCancelFinalizer.run();
+            runFinalizerOnce(taskId, taskInfo);
         }
     }
 
@@ -244,13 +244,29 @@ public class StreamTaskManager {
             return;
         }
 
-        if (taskInfo.cancelAction != null) {
-            taskInfo.cancelAction.run();
+        // 避免cancelAction执行抛出的异常被finally逻辑中抛出的异常覆盖掉
+        // 将finalizer收尾操作抛出的异常挂到 suppressed 上 (目前异常不会被处理）
+        Throwable failure = null;
+        try {
+            if (taskInfo.cancelAction != null) {
+                taskInfo.cancelAction.run();
+            }
+        } catch (Throwable t) {
+            failure = t;
         }
-
-        // 在取消时执行收尾回调，保存已累积的内容
-        if (taskInfo.finalizer != null) {
-            taskInfo.finalizer.run();
+        try {
+            if (taskInfo.finalizer != null) {
+                runFinalizerOnce(taskId, taskInfo);
+            }
+        } catch (Throwable t) {
+            if (failure == null) {
+                failure = t;
+            } else if (failure != t) {
+                failure.addSuppressed(t);
+            }
+        }
+        if (failure != null) {
+            log.error("取消流式任务失败，taskId：{}，发起方：{}", taskId, requester, failure);
         }
     }
 
@@ -261,6 +277,18 @@ public class StreamTaskManager {
         // 清理Redis
         redissonClient.getBucket(cancelKey(taskId)).deleteAsync();
         redissonClient.getBucket(ownerKey(taskId)).deleteAsync();
+    }
+
+    /**
+     * 收尾回调最多尝试一次
+     * register 侧 和 cancel 侧 因时序问题会重复执行收尾操作 -> 两次重复的 SSE 事件推送与落库
+     */
+    private void runFinalizerOnce(String taskId, StreamTaskInfo taskInfo) {
+        if (!taskInfo.finalizerClaimed.compareAndSet(false, true)) {
+            log.info("流式任务收尾已执行过，忽略重复触发，taskId：{}", taskId);
+            return;
+        }
+        taskInfo.finalizer.run();
     }
 
     private String cancelKey(String taskId) {
@@ -278,6 +306,7 @@ public class StreamTaskManager {
 
     private static final class StreamTaskInfo {
         private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicBoolean finalizerClaimed = new AtomicBoolean(false);
         private volatile String ownerUserId;
         private volatile Runnable cancelAction;
         private volatile Runnable finalizer;
