@@ -13,7 +13,8 @@ services:
       - rocketmq
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD-SHELL", "grep -q 'The Name Server boot success' /home/rocketmq/logs/rocketmqlogs/namesrv.log || exit 1" ]
+      # TCP 存活探测：grep boot 行死于日志轮转（2026-10-26 生产判例，同 repo prod compose）
+      test: [ "CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/9876' || exit 1" ]
       interval: 10s
       timeout: 5s
       retries: 10
