@@ -32,14 +32,12 @@ import com.nageoffer.ai.ragent.agent.dto.AgentToolProgress;
 import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.enums.AgentSSEEventType;
 import com.nageoffer.ai.ragent.agent.enums.AgentToolStatus;
-import com.nageoffer.ai.ragent.agent.memory.AgentMemoryApprovalService;
 import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolBatchFact;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolFact;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolSourceStash;
-import com.nageoffer.ai.ragent.agent.tool.MemoryApplyTool;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.event.AgentEvent;
@@ -102,7 +100,6 @@ public class AgentStreamEventBridge {
     private final AgentRunHandle runHandle;
     private final AgentConversationService conversationService;
     private final ResolvedCatalog catalog;
-    private final AgentMemoryApprovalService approvalService;
     private final String conversationId;
     private final String userId;
     private final String title;
@@ -149,7 +146,7 @@ public class AgentStreamEventBridge {
 
     @Builder
     public AgentStreamEventBridge(AgentRunHandle runHandle, AgentConversationService conversationService,
-                                  ResolvedCatalog catalog, AgentMemoryApprovalService approvalService,
+                                  ResolvedCatalog catalog,
                                   String conversationId, String userId, String title,
                                   String replyToMessageId, String answerLanguage,
                                   Clock clock, AgentToolExecutionFacts facts) {
@@ -157,7 +154,6 @@ public class AgentStreamEventBridge {
         this.sender = runHandle.getSender();
         this.conversationService = conversationService;
         this.catalog = catalog;
-        this.approvalService = approvalService;
         this.conversationId = conversationId;
         this.userId = userId;
         this.title = title;
@@ -330,20 +326,6 @@ public class AgentStreamEventBridge {
 
     private AgentConfirmCall toConfirmCall(ToolUseBlock toolCall) {
         Map<String, Object> input = toolCall.getInput();
-        // 记忆变更计划：卡片主视图与折叠区都换服务端冻结的那份内容，用户批准的是计划本身而不是一个编号
-        if (MemoryApplyTool.TOOL_NAME.equals(toolCall.getName()) && approvalService != null) {
-            AgentMemoryApprovalService.PlanCardProjection projection = approvalService.describeForCard(
-                    input == null ? null : StrUtil.toStringOrNull(input.get("operationId")), userId);
-            if (projection != null) {
-                return AgentConfirmCall.builder()
-                        .toolCallId(toolCall.getId())
-                        .name(toolCall.getName())
-                        .displayName(catalog.displayNameOf(toolCall.getName()))
-                        .fields(projection.fields())
-                        .arguments(projection.arguments())
-                        .build();
-            }
-        }
         return AgentConfirmCall.builder()
                 .toolCallId(toolCall.getId())
                 .name(toolCall.getName())
