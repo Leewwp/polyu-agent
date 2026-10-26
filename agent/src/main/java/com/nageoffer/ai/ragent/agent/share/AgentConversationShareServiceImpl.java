@@ -61,11 +61,11 @@ import java.util.Set;
  * role/content/createTime +（v2）assistant 条目的可选 sources 投影；
  * blocks/思考/耗时/ID/身份字段一律不进快照（隐私负面清单）。
  *
- * <p>范围解析（#138；#310 增补 selection）：scope full=现行整段快照零变更；
- * turn/through 由服务端从联合过滤后的消息集合重投影（不信任前端传入的任何消息内容或角色），
+ * <p>范围解析（#138；#310 收敛两档）：scope full=现行整段快照零变更；
+ * selection=显式勾选的多轮集合，由服务端从联合过滤后的消息集合重投影
+ * （不信任前端传入的任何消息内容或角色），逐锚点解析轮成员后按物理顺序拼接（可跨轮不连续）；
  * Turn 解析以 replyToMessageId 为权威并叠两层防御（userId 联合过滤+物理 Turn 窗口），
- * legacy 空白 replyTo 才允许顺序 fallback（缺数据可 fallback、矛盾数据拒绝）；
- * selection=显式勾选的多轮集合（锚点列表逐轮解析后按物理顺序拼接，可跨轮不连续）。
+ * legacy 空白 replyTo 才允许顺序 fallback（缺数据可 fallback、矛盾数据拒绝）。
  * 快照存储与公开读路径零改动——payload 本就是终选消息数组的值拷贝、scope 不落库（#310 事实前提）。
  */
 @Slf4j
@@ -100,8 +100,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
 
     @Override
     public AgentShareCreatedVO createShare(String conversationId, String userId, String role,
-                                           String scope, String anchorAssistantMessageId,
-                                           List<String> anchorAssistantMessageIds) {
+                                           String scope, List<String> anchorAssistantMessageIds) {
         Assert.notBlank(userId, () -> new ClientException("未获取到当前登录用户"));
         // 游客硬阻断（issue #91 增补，2026-09-19 维护者裁定）：游客为临时身份，cookie
         // 丢失后其分享成为无人可撤销的孤儿、仅剩 admin 兜底；与前端按钮对 guest 隐藏互为双保险
@@ -109,12 +108,9 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
         Assert.notBlank(conversationId, () -> new ClientException("会话ID不能为空"));
         AgentShareScope shareScope = AgentShareScope.resolve(scope)
                 .orElseThrow(() -> new ClientException("无效的分享范围"));
-        // 新旧档互不越界（#310）：turn/through 读单值锚点字段，selection 读锚点列表字段；
-        // 各自必填校验同路径——参数非法在 DB 查询前拒绝
+        // selection 必带非空锚点列表（full 不要求且忽略）——参数非法在 DB 查询前拒绝
         if (AgentShareScope.SELECTION == shareScope) {
             Assert.notEmpty(anchorAssistantMessageIds, () -> new ClientException("该分享范围必须指定锚点消息"));
-        } else if (AgentShareScope.FULL != shareScope) {
-            Assert.notBlank(anchorAssistantMessageId, () -> new ClientException("该分享范围必须指定锚点消息"));
         }
 
         AgentConversationDO conversation = conversationMapper.selectOne(
@@ -134,14 +130,6 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
         List<AgentMessageDO> selected = switch (shareScope) {
             // full=现行整段快照语义零变更（含未完成轮非空内容的现行包含行为）
             case FULL -> messages;
-            // 兼容保留（#310）：前端弹窗收敛 full/selection 两档后，turn/through 仅供滚动部署
-            // 窗口内旧 bundle 调用，下一常规发布周期后由清理票 #312 移除
-            case TURN -> resolveAnchorTurn(messages, anchorAssistantMessageId).members();
-            case THROUGH -> {
-                AnchorTurn turn = resolveAnchorTurn(messages, anchorAssistantMessageId);
-                // 按消息顺序从开头到锚点轮末尾（不含后续轮）
-                yield messages.subList(0, turn.lastMemberIndex() + 1);
-            }
             // selection（#310）：显式勾选的多轮集合——逐锚点解析轮成员后按物理顺序拼接
             case SELECTION -> selectByAnchors(messages, anchorAssistantMessageIds);
         };
@@ -179,7 +167,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
 
     /**
      * SELECTION 多锚点选段（#310）：逐锚点复用 {@link #resolveAnchorTurn} 解析轮成员
-     * ——任一锚点非法即整单拒绝（与单锚档同一口径，无差异化文案防探测）；成员汇总为
+     * ——任一锚点非法即整单拒绝（统一文案防探测）；成员汇总为
      * 消息 ID 集合后按会话物理顺序（查询已 orderByAsc id）重投影拼接：乱序传入归一、
      * 重复锚点/同轮多锚天然去重、不连续轮次集合天然支持。不设数量上限——
      * 选段载荷恒为 FULL 全量载荷的子集。
@@ -189,7 +177,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
         for (String anchorId : anchorAssistantMessageIds) {
             // 列表内 null/空白元素=不可解析锚点：整单拒绝（防脏值静默产出缺轮选段或 NPE）
             Assert.notBlank(anchorId, () -> new ClientException(ANCHOR_INVALID_MESSAGE));
-            resolveAnchorTurn(messages, anchorId).members()
+            resolveAnchorTurn(messages, anchorId)
                     .forEach(member -> selectedIds.add(member.getId()));
         }
         return messages.stream()
@@ -198,7 +186,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
     }
 
     /**
-     * 锚点 Turn 解析（#138）：replyToMessageId 权威 + 物理窗口防御 + fallback 收紧。
+     * 锚点 Turn 解析（#138，selection 锚点共用）：replyToMessageId 权威 + 物理窗口防御 + fallback 收紧。
      *
      * <p>anchor 须为联合过滤集合内 role=assistant 且可分享口径（NORMAL+content 非空）的消息，
      * 任一不满足统一拒绝（无差异化文案防探测）。root 定位两分支：
@@ -211,7 +199,7 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
      * （与前端 groupTurns 同构），窗口内 assistant 全归本 Turn；命中仅日志级。</li>
      * </ul>
      */
-    private AnchorTurn resolveAnchorTurn(List<AgentMessageDO> messages, String anchorId) {
+    private List<AgentMessageDO> resolveAnchorTurn(List<AgentMessageDO> messages, String anchorId) {
         AgentMessageDO anchor = findById(messages, anchorId)
                 .orElseThrow(() -> new ClientException(ANCHOR_INVALID_MESSAGE));
         // 可分享口径与前端 Shareable Turn Anchor 同构：NORMAL（缺省按 NORMAL）+ content 非空白
@@ -246,7 +234,6 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
         }
         List<AgentMessageDO> members = new ArrayList<>();
         members.add(root);
-        int lastMemberIndex = rootIndex;
         for (int i = rootIndex + 1; i < windowEnd; i++) {
             AgentMessageDO message = messages.get(i);
             boolean sameTurn = authoritative
@@ -254,10 +241,9 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
                     : !ROLE_USER.equals(message.getRole());
             if (sameTurn) {
                 members.add(message);
-                lastMemberIndex = i;
             }
         }
-        return new AnchorTurn(members, lastMemberIndex);
+        return members;
     }
 
     private Optional<AgentMessageDO> findById(List<AgentMessageDO> messages, String id) {
@@ -293,12 +279,6 @@ public class AgentConversationShareServiceImpl implements AgentConversationShare
             }
         }
         return messages.size();
-    }
-
-    /**
-     * 锚点所属 Turn：members=turn 范围投影源；lastMemberIndex=轮末成员下标（through 截断点）
-     */
-    private record AnchorTurn(List<AgentMessageDO> members, int lastMemberIndex) {
     }
 
     @Override
