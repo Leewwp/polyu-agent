@@ -18,6 +18,11 @@
 package com.nageoffer.ai.ragent.agent.memory;
 
 import cn.hutool.json.JSONArray;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import cn.hutool.json.JSONNull;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -40,7 +45,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Date;
@@ -63,7 +67,7 @@ import static org.mockito.Mockito.when;
 class AgentMemoryJudgeTest {
 
     private static final AgentMessageDO REQUEST = AgentMessageDO.builder().id("1900000000000000030").conversationId("c-1")
-            .userId("u-1").role("user").content("我一直戴眼镜，记住").createTime(Timestamp.valueOf("2026-10-21 10:54:30.123")).build();
+            .userId("u-1").role("user").content("我一直戴眼镜，记住").createTime(shanghai("2026-10-21 10:54:30.123")).build();
     private static final String EMPTY = "{\"decisions\":[],\"explanation\":\"这条发言没有需要长期记住的内容\"}";
 
     private Model model;
@@ -91,7 +95,7 @@ class AgentMemoryJudgeTest {
         answer(EMPTY);
         memoryProperties.setContextWindowChars(20_000);
         AgentMemoryItem existing = new AgentMemoryItem("2112739267528200192", "用户常驻杭州", "2112739257621254144",
-                Timestamp.valueOf("2026-10-21 10:54:26.471"));
+                shanghai("2026-10-21 10:54:26.471"));
         AgentMemoryItem legacy = new AgentMemoryItem("2112000000000000001", "用户是工程师", null, null);
 
         judge.judgeFlush(List.of(existing, legacy), REQUEST, List.of(
@@ -388,6 +392,15 @@ class AgentMemoryJudgeTest {
     private ChatResponse response(String text, String finishReason) {
         List<ContentBlock> content = text == null ? List.of() : List.of(TextBlock.builder().text(text).build());
         return ChatResponse.builder().content(content).finishReason(finishReason).build();
+    }
+
+    /**
+     * 序列化侧 @JsonFormat 固定 Asia/Shanghai，夹具也按该区构时，
+     * 测试不随运行环境的 JVM 时区漂移（CI=UTC 判例）
+     */
+    private static Timestamp shanghai(String text) {
+        LocalDateTime local = LocalDateTime.parse(text, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+        return Timestamp.from(local.atZone(ZoneId.of(AgentMemoryItem.TIME_ZONE)).toInstant());
     }
 
     private static AgentMessageDO message(String id, String conversationId, String role, String content) {
