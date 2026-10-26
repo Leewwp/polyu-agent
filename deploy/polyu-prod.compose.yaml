@@ -190,7 +190,11 @@ services:
     # （本机冒烟实测 namesrv unhealthy）；stdout 已由 json-file 轮转采集，文件日志随容器生命周期
     mem_limit: 512m
     healthcheck:
-      test: ["CMD-SHELL", "grep -q 'The Name Server boot success' /home/rocketmq/logs/rocketmqlogs/namesrv.log || exit 1"]
+      # TCP 存活探测（bash /dev/tcp 内建，零 fork）：原 grep boot 行检查在日志轮转后
+      # （2026-10-23 namesrv.log 20MB 轮转进 otherdays/）boot 行永久消失，healthy 翻
+      # unhealthy 达 64966 次（2026-10-26 deploy 因此卡死、app/nginx 半下线）——
+      # 日志轮转是必然事件，不能作存活依据；mqadmin 方案弃用（JVM fork 撞爆 mem_limit）
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/9876' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -229,9 +233,11 @@ services:
       - ${RMQ_STORE_DIR:-./rmq-store}:/home/rocketmq/store
     mem_limit: 1536m
     healthcheck:
-      # 日志行检查（与 namesrv 同款）。曾用 mqadmin clusterList：每次探测在容器内 fork 一个
-      # JVM，叠加 broker 堆撞爆 mem_limit 被 cgroup OOM kill（本机冒烟实测），弃用
-      test: ["CMD-SHELL", "grep -q 'boot success' /home/rocketmq/logs/rocketmqlogs/broker.log || exit 1"]
+      # TCP 存活探测（bash /dev/tcp 内建，零 fork）。曾用 mqadmin clusterList：每次探测在
+      # 容器内 fork 一个 JVM，叠加 broker 堆撞爆 mem_limit 被 cgroup OOM kill（本机冒烟
+      # 实测），弃用；后改 grep boot 行——与 namesrv 同样死于日志轮转（boot 行随 broker.log
+      # 轮转消失，仅时间未到，2026-10-26 namesrv 判例），一并改 TCP。
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/10911' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
