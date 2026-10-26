@@ -34,11 +34,11 @@ class AuditSnapshotMaskerTest {
         String snapshot = "{\"id\":\"1\",\"username\":\"testuser@outlook.com\",\"email\":\"alice@example.com\","
                 + "\"password\":\"$2a$10$hashhashhashhashhash\",\"role\":\"admin\"}";
         String masked = masker.maskSnapshot("USER", snapshot);
-        assertThat(masked).contains("\"we****om\"");
+        assertThat(masked).contains("\"te****om\"");
         assertThat(masked).contains("\"al****om\"");
         assertThat(masked).contains("\"password\":\"******\"");
         assertThat(masked).contains("\"role\":\"admin\"");
-        assertThat(masked).doesNotContain("weipei08").doesNotContain("outlook").doesNotContain("hashhash");
+        assertThat(masked).doesNotContain("testuser").doesNotContain("outlook").doesNotContain("hashhash");
     }
 
     @Test
