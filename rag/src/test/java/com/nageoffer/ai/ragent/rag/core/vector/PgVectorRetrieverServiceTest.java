@@ -66,6 +66,7 @@ class PgVectorRetrieverServiceTest {
         when(resultSet.getString("id")).thenReturn("c1");
         when(resultSet.getString("content")).thenReturn("报销需发票");
         when(resultSet.getString("collection_name")).thenReturn("kb-finance");
+        when(resultSet.getString("metadata")).thenReturn("{\"doc_id\":\"d1\"}");
         when(resultSet.getFloat("score")).thenReturn(0.9F);
 
         // execute(ConnectionCallback) 直接把回调跑在 mock 连接上
@@ -76,7 +77,7 @@ class PgVectorRetrieverServiceTest {
             return out.get();
         });
 
-        PgVectorRetrieverService service = new PgVectorRetrieverService(jdbcTemplate, embeddingService);
+        PgVectorRetrieverService service = new PgVectorRetrieverService(jdbcTemplate, embeddingService, new com.fasterxml.jackson.databind.ObjectMapper());
         List<RetrievedChunk> chunks = service.retrieve(RetrieveRequest.builder()
                 .query("报销流程")
                 .collectionNames(List.of("kb-finance", "kb-policy"))
@@ -101,6 +102,59 @@ class PgVectorRetrieverServiceTest {
 
         assertEquals(1, chunks.size());
         assertEquals("c1", chunks.get(0).getId());
+        // metadata 无 source_date 键 → sourceDate=null（组装层渲染「日期未知」）
+        assertTrue(chunks.get(0).getSourceDate() == null);
         verify(embeddingService, times(1)).embed("报销流程");
+    }
+
+    /**
+     * #321 日期元数据读回：向量行 metadata 的 source_date 键透传到 RetrievedChunk.sourceDate
+     * （#275 口径 yyyy-MM-dd；带时间戳截断到日），键缺失或不成形返回 null。
+     */
+    @Test
+    @DisplayName("#321：metadata source_date 透传（带日期/无日期/畸形三态）")
+    @SuppressWarnings("unchecked")
+    void readsSourceDateFromVectorMetadata() throws Exception {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        EmbeddingService embeddingService = mock(EmbeddingService.class);
+        when(embeddingService.embed("q")).thenReturn(List.of(1.0F));
+
+        Connection connection = mock(Connection.class);
+        Statement statement = mock(Statement.class);
+        PreparedStatement preparedStatement = mock(PreparedStatement.class);
+        ResultSet resultSet = mock(ResultSet.class);
+        when(connection.createStatement()).thenReturn(statement);
+        when(connection.prepareStatement(any(String.class))).thenReturn(preparedStatement);
+        when(preparedStatement.executeQuery()).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(true, true, true, false);
+        when(resultSet.getString("id")).thenReturn("c1", "c2", "c3");
+        when(resultSet.getString("content")).thenReturn("a", "b", "c");
+        when(resultSet.getString("collection_name")).thenReturn("kb");
+        when(resultSet.getFloat("score")).thenReturn(0.9F);
+        when(resultSet.getString("metadata")).thenReturn(
+                "{\"source_date\":\"2026-09-12\"}",
+                "{\"source_date\":\"2026-09-12T08:30:00\"}",
+                "{\"source_date\":\"26/27 学年\"}");
+
+        java.util.List<RetrievedChunk> out = new java.util.ArrayList<>();
+        when(jdbcTemplate.execute(any(ConnectionCallback.class))).thenAnswer(invocation -> {
+            ConnectionCallback<?> callback = invocation.getArgument(0);
+            out.clear();
+            out.addAll((List<RetrievedChunk>) callback.doInConnection(connection));
+            return out;
+        });
+
+        PgVectorRetrieverService service = new PgVectorRetrieverService(jdbcTemplate, embeddingService,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        List<RetrievedChunk> chunks = service.retrieve(RetrieveRequest.builder()
+                .query("q")
+                .collectionNames(List.of("kb"))
+                .topK(3)
+                .build());
+
+        assertEquals(3, chunks.size());
+        assertEquals("2026-09-12", chunks.get(0).getSourceDate());
+        assertEquals("2026-09-12", chunks.get(1).getSourceDate(), "ISO 带时间戳截断到日");
+        assertTrue(chunks.get(2).getSourceDate() == null, "非 yyyy-MM-dd 形态不作日期（学年形态红线，#376）");
     }
 }

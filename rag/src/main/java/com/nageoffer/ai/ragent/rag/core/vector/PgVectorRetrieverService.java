@@ -20,6 +20,8 @@ package com.nageoffer.ai.ragent.rag.core.vector;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrieveRequest;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,6 +39,7 @@ public class PgVectorRetrieverService implements VectorRetrieverService {
 
     private final JdbcTemplate jdbcTemplate;
     private final EmbeddingService embeddingService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public List<RetrievedChunk> retrieve(RetrieveRequest request) {
@@ -77,7 +80,7 @@ public class PgVectorRetrieverService implements VectorRetrieverService {
         // 提升召回率；迭代扫描保证过滤后仍能填满 LIMIT，消除过滤向量检索的召回悬崖（pgvector >= 0.8）
         String vectorLiteral = toVectorLiteral(vector);
         String placeholders = collectionNames.stream().map(c -> "?").collect(java.util.stream.Collectors.joining(", "));
-        String sql = "SELECT id, content, collection_name, 1 - (embedding <=> ?::vector) AS score FROM t_knowledge_vector "
+        String sql = "SELECT id, content, collection_name, metadata, 1 - (embedding <=> ?::vector) AS score FROM t_knowledge_vector "
                 + "WHERE collection_name IN (" + placeholders + ") ORDER BY embedding <=> ?::vector LIMIT ?";
 
         // noinspection SqlDialectInspection,SqlNoDataSourceInspection
@@ -101,12 +104,38 @@ public class PgVectorRetrieverService implements VectorRetrieverService {
                                 .text(rs.getString("content"))
                                 .collectionName(rs.getString("collection_name"))
                                 .score(rs.getFloat("score"))
+                                .sourceDate(resolveSourceDate(rs.getString("metadata")))
                                 .build());
                     }
                     return result;
                 }
             }
         });
+    }
+
+    /**
+     * 从向量行 metadata JSONB 解析证据日期（yyyy-MM-dd）。
+     * <p>
+     * 日期来源=灌库任务级 metadata 的 source_date 键（#275 口径：新闻=publish_time、
+     * 校历=date_start，由灌库侧写入；带时间戳的 ISO 值截断到日）。键缺失、为空或
+     * 不成形时返回 null，由上下文组装层渲染「日期未知」——当前存量语料无日期键，
+     * 该通道为结构化日期透传（data-ragent-date 标记）预留的读回半边。
+     */
+    private String resolveSourceDate(String metadataJson) {
+        if (metadataJson == null || metadataJson.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(metadataJson).path("source_date");
+            if (!node.isTextual()) {
+                return null;
+            }
+            String value = node.asText().trim();
+            return value.matches("\\d{4}-\\d{2}-\\d{2}.*") ? value.substring(0, 10) : null;
+        } catch (Exception e) {
+            log.debug("metadata source_date 解析失败，按无日期处理：{}", e.getMessage());
+            return null;
+        }
     }
 
     private float[] normalize(float[] vector) {
