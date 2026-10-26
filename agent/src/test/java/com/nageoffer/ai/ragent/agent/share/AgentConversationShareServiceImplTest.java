@@ -68,12 +68,11 @@ import static org.mockito.Mockito.when;
  * 断言面与旧版一致——快照白名单（blocks/thinking/ID/userId 一律不进载荷）、
  * 创建守卫（游客硬阻断/非本人/无问答）、sources 投影白名单与去重、
  * 载荷序列化 round-trip、module 视图到 VO 的投影、撤销委托形状；
- * #138 增补 scope 矩阵（full 零变更/turn/through）、String anchor 统一拒绝、
- * replyTo 权威+物理 Turn 窗口、fallback 收紧五例、消息查询会话+用户联合过滤；
- * #310 增补 selection 矩阵——单锚对拍旧 turn 逐字段一致、多锚不连续按物理顺序拼接、
- * 乱序归一、重复/同轮锚去重、列表必填非空、非法锚点（含列表脏元素）整单拒绝、
- * 携带旧单值字段互不越界（selection 忽略单值锚、与不带对拍一致）；
- * turn/through 兼容期全部既有用例原样保留全绿（清理门：#312）。
+ * scope 契约面=full/selection 两档（#310 收敛，#312 移除旧档 turn/through——
+ * 调用旧值与任何未知值一致拒绝）：full 整段快照零变更、selection 矩阵——
+ * 单锚单轮、多锚不连续按物理顺序拼接、乱序归一、重复/同轮锚去重、
+ * 列表必填非空、非法锚点（含列表脏元素）整单拒绝、
+ * replyTo 权威+物理 Turn 窗口、fallback 收紧、消息查询会话+用户联合过滤。
  */
 class AgentConversationShareServiceImplTest {
 
@@ -153,7 +152,7 @@ class AgentConversationShareServiceImplTest {
                 message("m3", "assistant", "Apply online via the **portal**.", List.of(knowledgeBlock("d1"))),
                 message("m4", "user", "thanks")));
 
-        AgentShareCreatedVO created = shareService.createShare("c1", "u1", "user", null, null, null);
+        AgentShareCreatedVO created = shareService.createShare("c1", "u1", "user", null, null);
 
         assertNotNull(created);
         assertEquals("t".repeat(43), created.getToken());
@@ -185,7 +184,7 @@ class AgentConversationShareServiceImplTest {
                 message("m1", "user", "如何申请宿舍？"),
                 message("m2", "assistant", "在线申请即可。")));
 
-        shareService.createShare("c1", "u1", "user", null, null, null);
+        shareService.createShare("c1", "u1", "user", null, null);
 
         verify(shareSnapshotService).create(any(), anyString(), anyString(), eq("zh"), anyString());
     }
@@ -210,7 +209,7 @@ class AgentConversationShareServiceImplTest {
                         knowledgeBlock("d2", "d3"),
                         foreignToolBlock))));
 
-        shareService.createShare("c1", "u1", "user", null, null, null);
+        shareService.createShare("c1", "u1", "user", null, null);
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -243,7 +242,7 @@ class AgentConversationShareServiceImplTest {
                 message("m2", "assistant", "答", List.of(
                         AgentBlock.builder().kind("answer").text("答").build()))));
 
-        shareService.createShare("c1", "u1", "user", null, null, null);
+        shareService.createShare("c1", "u1", "user", null, null);
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -255,7 +254,7 @@ class AgentConversationShareServiceImplTest {
     void createShareRejectsGuestHard() {
         // 游客硬阻断（issue #91 增补）：与前端按钮隐藏互为双保险
         ClientException rejected = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "g1", "guest", null, null, null));
+                () -> shareService.createShare("c1", "g1", "guest", null, null));
         assertEquals("游客身份不支持创建分享，请登录后使用", rejected.getMessage());
         verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
         verify(conversationMapper, never()).selectOne(any());
@@ -266,18 +265,18 @@ class AgentConversationShareServiceImplTest {
         // 非本人（eq userId 查不到行）→ 统一「会话不存在或无权分享」，不泄漏存在性
         when(conversationMapper.selectOne(any())).thenReturn(null);
         ClientException foreign = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u2", "user", null, null, null));
+                () -> shareService.createShare("c1", "u2", "user", null, null));
         assertEquals("会话不存在或无权分享", foreign.getMessage());
 
         // 只有提问没有回答：不可分享
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(List.of(message("m1", "user", "q")));
-        ClientException noAnswer = assertThrows(ClientException.class, () -> shareService.createShare("c1", "u1", "user", null, null, null));
+        ClientException noAnswer = assertThrows(ClientException.class, () -> shareService.createShare("c1", "u1", "user", null, null));
         assertEquals("会话中没有可分享的问答内容", noAnswer.getMessage());
 
         // 空会话同理
         when(messageMapper.selectList(any())).thenReturn(List.of());
-        assertThrows(ClientException.class, () -> shareService.createShare("c1", "u1", "user", null, null, null));
+        assertThrows(ClientException.class, () -> shareService.createShare("c1", "u1", "user", null, null));
         verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
     }
 
@@ -289,7 +288,7 @@ class AgentConversationShareServiceImplTest {
                 message("m1", "user", "问"),
                 message("m2", "assistant", "答")));
 
-        shareService.createShare("c1", "u1", "user", null, null, null);
+        shareService.createShare("c1", "u1", "user", null, null);
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -371,7 +370,7 @@ class AgentConversationShareServiceImplTest {
                 message("m1", "user", "问"),
                 message("m2", "assistant", "答")));
 
-        AgentShareCreatedVO created = shareService.createShare("c1", "u1", "user", null, null, null);
+        AgentShareCreatedVO created = shareService.createShare("c1", "u1", "user", null, null);
         assertNull(created.getExpireTime());
     }
 
@@ -454,7 +453,7 @@ class AgentConversationShareServiceImplTest {
 
     @Test
     void createShareExplicitFullKeepsLegacySemanticsUnchanged() {
-        // scope=full 显式值=现行整段快照零变更；anchor 提供也被忽略；
+        // scope=full 显式值=现行整段快照零变更；锚点列表提供也被忽略；
         // 未完成轮非空内容（INTERRUPTED）仍按现行行为包含——#138 验收口径：full=现行整段快照语义零变更，过滤未完成轮属未来另开的决策
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(List.of(
@@ -463,7 +462,7 @@ class AgentConversationShareServiceImplTest {
                 scopedMessage("m3", "user", "Q2", null, "NORMAL"),
                 scopedMessage("m4", "assistant", "A2", "m3", "NORMAL")));
 
-        shareService.createShare("c1", "u1", "user", "full", "m2", null);
+        shareService.createShare("c1", "u1", "user", "full", null);
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -473,12 +472,13 @@ class AgentConversationShareServiceImplTest {
     }
 
     @Test
-    void createShareTurnScopesToAnchorTurnOnly() {
-        // turn=锚点所属完整 Turn：只含轮 2（Q2+A2），前后轮与窗口内游离 assistant 均不入选
+    void createShareSelectionSingleAnchorScopesToThatTurn() {
+        // selection 单锚（「只勾一轮」场景）：快照只含锚点所属轮 2（Q2+A2），
+        // 前后轮与窗口内游离 assistant 均不入选
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
 
-        shareService.createShare("c1", "u1", "user", "turn", "m6", null);
+        shareService.createShare("c1", "u1", "user", "selection", List.of("m6"));
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -488,99 +488,6 @@ class AgentConversationShareServiceImplTest {
         assertEquals("Q2", payload.getMessages().get(0).getContent());
         assertEquals("assistant", payload.getMessages().get(1).getRole());
         assertEquals("A2", payload.getMessages().get(1).getContent());
-    }
-
-    @Test
-    void createShareTurnIncludesConfirmContinuationInSameTurn() {
-        // 确认续跑产生的多 assistant（同 replyTo 根）归同一 Turn；挂起确认卡空正文自然跳过；
-        // 窗口外同 replyTo 的 assistant（物理位置在下一轮窗口内）不被拉入——窗口层防御
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversationWithSources());
-
-        shareService.createShare("c1", "u1", "user", "turn", "m2", null);
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloadCaptor.getValue());
-        assertEquals(3, payload.getMessages().size());
-        assertEquals("Q1", payload.getMessages().get(0).getContent());
-        assertEquals("A1-first", payload.getMessages().get(1).getContent());
-        assertEquals("A1-resumed", payload.getMessages().get(2).getContent());
-        // scoped 选段仍走 v2 sources 投影
-        assertEquals(1, payload.getMessages().get(1).getSources().size());
-        assertEquals("d1", payload.getMessages().get(1).getSources().get(0).getDocId());
-        // 隐私负面清单：thinking/replyTo/ID 不随选段外发
-        assertTrue(!payloadCaptor.getValue().contains("SECRET-THINKING"));
-        assertTrue(!payloadCaptor.getValue().contains("SECRET-TOOL-RESULT"));
-    }
-
-    /** 轮 1 首答携带检索来源块，其余同 threeTurnConversation（按 id 定点替换，免下标耦合） */
-    private List<AgentMessageDO> threeTurnConversationWithSources() {
-        return withReplaced(threeTurnConversation(),
-                scopedMessage("m2", "assistant", "A1-first", "m1", "NORMAL", List.of(knowledgeBlock("d1"))));
-    }
-
-    @Test
-    void createShareThroughCutsFromStartToAnchorTurnEnd() {
-        // through=按消息顺序从开头到锚点轮末尾：轮 1 全量（含确认续答）+轮 2，轮 3 不含；
-        // 锚点轮末尾之后的游离 assistant（m7 位于 m6 之后）也在截断点之外
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-
-        shareService.createShare("c1", "u1", "user", "through", "m6", null);
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloadCaptor.getValue());
-        assertEquals(5, payload.getMessages().size());
-        assertEquals("Q1", payload.getMessages().get(0).getContent());
-        assertEquals("A1-first", payload.getMessages().get(1).getContent());
-        assertEquals("A1-resumed", payload.getMessages().get(2).getContent());
-        assertEquals("Q2", payload.getMessages().get(3).getContent());
-        assertEquals("A2", payload.getMessages().get(4).getContent());
-    }
-
-    @Test
-    void createShareSelectionSingleAnchorMatchesLegacyTurnSnapshot() {
-        // #310 对拍验收：selection 单锚（迁移期「只勾一轮」场景）与旧 turn 同锚点的快照逐字段一致，
-        // 迁移期用户无感知差异；快照为终选消息数组的值拷贝、scope 不落库，对拍即载荷 JSON 全等
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-
-        shareService.createShare("c1", "u1", "user", "turn", "m6", null);
-        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m6"));
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService, times(2)).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        List<String> payloads = payloadCaptor.getAllValues();
-        assertEquals(payloads.get(0), payloads.get(1));
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloads.get(1));
-        assertEquals(2, payload.getMessages().size());
-        assertEquals("user", payload.getMessages().get(0).getRole());
-        assertEquals("Q2", payload.getMessages().get(0).getContent());
-        assertEquals("assistant", payload.getMessages().get(1).getRole());
-        assertEquals("A2", payload.getMessages().get(1).getContent());
-    }
-
-    @Test
-    void createShareSelectionIgnoresLegacySingleAnchorField() {
-        // #310 互不越界直接用例：scope=selection 时携带旧单值字段 anchorAssistantMessageId 被完全忽略，
-        // 行为与不带时逐字节一致（单值字段仅供 turn/through 兼容期读取，#312 消亡）——
-        // 此处填本会话合法锚 m6：若被读取即会把轮 2 拉入选段、对拍立败
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-
-        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2", "m9"));
-        shareService.createShare("c1", "u1", "user", "selection", "m6", List.of("m2", "m9"));
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService, times(2)).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        List<String> payloads = payloadCaptor.getAllValues();
-        assertEquals(payloads.get(0), payloads.get(1));
-        // 对拍基准=多锚不连续形状（轮 1 含续答+轮 3、轮 2 不入选）：单值字段既未收窄也未放宽选段
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloads.get(1));
-        assertEquals(List.of("Q1", "A1-first", "A1-resumed", "Q3", "A3"),
-                payload.getMessages().stream().map(AgentShareSnapshotItem::getContent).toList());
     }
 
     @Test
@@ -590,7 +497,7 @@ class AgentConversationShareServiceImplTest {
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
 
-        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2", "m9"));
+        shareService.createShare("c1", "u1", "user", "selection", List.of("m2", "m9"));
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -610,7 +517,7 @@ class AgentConversationShareServiceImplTest {
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
 
-        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m9", "m2"));
+        shareService.createShare("c1", "u1", "user", "selection", List.of("m9", "m2"));
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -625,7 +532,7 @@ class AgentConversationShareServiceImplTest {
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
 
-        shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2", "m4", "m2"));
+        shareService.createShare("c1", "u1", "user", "selection", List.of("m2", "m4", "m2"));
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
@@ -637,10 +544,10 @@ class AgentConversationShareServiceImplTest {
 
     @Test
     void createShareSelectionRequiresNonEmptyAnchorList() {
-        // #310 契约：scope=selection 时锚点列表必填非空——与旧档缺锚同路径（同文案、DB 查询前）拒绝
+        // #310 契约：scope=selection 时锚点列表必填非空——参数非法在 DB 查询前（同文案）拒绝
         for (List<String> absent : new List[]{null, List.of()}) {
             ClientException rejected = assertThrows(ClientException.class,
-                    () -> shareService.createShare("c1", "u1", "user", "selection", null, absent));
+                    () -> shareService.createShare("c1", "u1", "user", "selection", absent));
             assertEquals("该分享范围必须指定锚点消息", rejected.getMessage());
         }
         verify(conversationMapper, never()).selectOne(any());
@@ -657,43 +564,43 @@ class AgentConversationShareServiceImplTest {
         // ① 不可解析：集合内不存在
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
         ClientException missing = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m6", "missing")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6", "missing")));
         assertEquals("锚点消息不存在或不属于该会话", missing.getMessage());
 
         // ② 非本人/跨会话：联合过滤集合内不可见（与不存在同文案防探测）
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
         ClientException foreign = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m6", "m777-other-owner")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6", "m777-other-owner")));
         assertEquals("锚点消息不存在或不属于该会话", foreign.getMessage());
 
         // ③ 非 assistant：锚点指向 user 消息
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
         ClientException userAnchor = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m6", "m1")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6", "m1")));
         assertEquals("锚点消息不存在或不属于该会话", userAnchor.getMessage());
 
         // ④ 非 NORMAL：卡轮/生成中轮不可选（沿用 Shareable 语义）
         when(messageMapper.selectList(any())).thenReturn(withReplaced(threeTurnConversation(),
                 scopedMessage("m2", "assistant", "partial", "m1", "INTERRUPTED")));
         ClientException interrupted = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m2")));
         assertEquals("锚点消息不存在或不属于该会话", interrupted.getMessage());
 
         // ⑤ 空 content：空白正文不可作锚
         when(messageMapper.selectList(any())).thenReturn(withReplaced(threeTurnConversation(),
                 scopedMessage("m2", "assistant", "  ", "m1", "NORMAL")));
         ClientException blankContent = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m2")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m2")));
         assertEquals("锚点消息不存在或不属于该会话", blankContent.getMessage());
 
         // ⑥ 列表脏元素：空白/null 锚点字符串=不可解析锚，整单拒绝而非 NPE/静默跳过
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
         ClientException blankElement = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, List.of("m6", " ")));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6", " ")));
         assertEquals("锚点消息不存在或不属于该会话", blankElement.getMessage());
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
         ClientException nullElement = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "selection", null, java.util.Arrays.asList("m6", null)));
+                () -> shareService.createShare("c1", "u1", "user", "selection", java.util.Arrays.asList("m6", null)));
         assertEquals("锚点消息不存在或不属于该会话", nullElement.getMessage());
 
         verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
@@ -701,10 +608,10 @@ class AgentConversationShareServiceImplTest {
 
     @Test
     void createShareStillRejectsUnknownScopeVariantsAndBlankDefaultsFull() {
-        // #310 既有严格风格不变：值精确匹配小写字面量，新增档的大小写/前缀变体同拒
+        // 既有严格风格不变：值精确匹配小写字面量，两档的大小写/前缀变体同拒
         for (String invalid : new String[]{"Selection", "SELECTION", "select"}) {
             ClientException rejected = assertThrows(ClientException.class,
-                    () -> shareService.createShare("c1", "u1", "user", invalid, null, List.of("m2")));
+                    () -> shareService.createShare("c1", "u1", "user", invalid, List.of("m2")));
             assertEquals("无效的分享范围", rejected.getMessage());
         }
         verify(conversationMapper, never()).selectOne(any());
@@ -712,7 +619,7 @@ class AgentConversationShareServiceImplTest {
         // 空白仍默认 full：整段快照（提供锚点列表也被忽略——full/full 缺省不读列表字段）
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-        shareService.createShare("c1", "u1", "user", "  ", null, List.of("m9"));
+        shareService.createShare("c1", "u1", "user", "  ", List.of("m9"));
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
         verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
         AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloadCaptor.getValue());
@@ -722,64 +629,50 @@ class AgentConversationShareServiceImplTest {
     }
 
     @Test
-    void createShareFallsBackSequentiallyOnNullReplyTo() {
-        // legacy 缺数据（null replyTo）：顺序 fallback 与前端 groupTurns 同构——
-        // anchor 向前最近一条 user 起到下一 user 前
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(List.of(
-                scopedMessage("m1", "user", "Q1", null, "NORMAL"),
-                scopedMessage("m2", "assistant", "A1", null, "NORMAL"),
-                scopedMessage("m3", "user", "Q2", null, "NORMAL"),
-                scopedMessage("m4", "assistant", "A2", null, "NORMAL")));
+    void createShareSelectionFallsBackSequentiallyOnMissingReplyTo() {
+        // legacy 缺数据（null/空白 replyTo）：顺序 fallback 与前端 groupTurns 同构——
+        // 锚点向前最近一条 user 起到下一 user 前，窗口内 assistant 全归本 Turn
+        for (String missing : new String[]{null, " "}) {
+            when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
+            when(messageMapper.selectList(any())).thenReturn(List.of(
+                    scopedMessage("m1", "user", "Q1", null, "NORMAL"),
+                    scopedMessage("m2", "assistant", "A1", null, "NORMAL"),
+                    scopedMessage("m3", "user", "Q2", null, "NORMAL"),
+                    scopedMessage("m4", "assistant", "A2", missing, "NORMAL")));
 
-        shareService.createShare("c1", "u1", "user", "turn", "m4", null);
+            shareService.createShare("c1", "u1", "user", "selection", List.of("m4"));
+        }
 
         ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloadCaptor.getValue());
-        assertEquals(2, payload.getMessages().size());
-        assertEquals("Q2", payload.getMessages().get(0).getContent());
-        assertEquals("A2", payload.getMessages().get(1).getContent());
+        verify(shareSnapshotService, times(2)).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
+        for (String json : payloadCaptor.getAllValues()) {
+            AgentConversationSharePayload payload = AgentConversationSharePayload.parse(json);
+            assertEquals(List.of("Q2", "A2"),
+                    payload.getMessages().stream().map(AgentShareSnapshotItem::getContent).toList());
+        }
     }
 
     @Test
-    void createShareFallsBackSequentiallyOnBlankReplyTo() {
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-        when(messageMapper.selectList(any())).thenReturn(List.of(
-                scopedMessage("m1", "user", "Q1", null, "NORMAL"),
-                scopedMessage("m2", "assistant", "A1", null, "NORMAL"),
-                scopedMessage("m3", "user", "Q2", null, "NORMAL"),
-                scopedMessage("m4", "assistant", "A2", " ", "NORMAL")));
-
-        shareService.createShare("c1", "u1", "user", "through", "m4", null);
-
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(shareSnapshotService).create(any(), anyString(), anyString(), anyString(), payloadCaptor.capture());
-        AgentConversationSharePayload payload = AgentConversationSharePayload.parse(payloadCaptor.getValue());
-        assertEquals(4, payload.getMessages().size());
-    }
-
-    @Test
-    void createShareRejectsNonBlankButInvalidReplyTo() {
+    void createShareSelectionRejectsNonBlankButInvalidReplyTo() {
         // fallback 收紧：矛盾数据拒绝猜测——非空 replyTo 无效即持久化关系冲突统一拒绝，不静默 fallback
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
 
         // ① 非空但目标不存在
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversationWithAnchorReplyTo("ghost-id"));
         ClientException dangling = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m6", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6")));
         assertEquals("消息关联关系异常，无法解析所属问答轮", dangling.getMessage());
 
         // ② 非空但目标在他会话/异属主——联合过滤集合内同样不可见（集合内不存在）
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversationWithAnchorReplyTo("m777-other-owner"));
         ClientException crossConversation = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m6", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6")));
         assertEquals("消息关联关系异常，无法解析所属问答轮", crossConversation.getMessage());
 
         // ③ 非空但目标是 assistant（非 user）
         when(messageMapper.selectList(any())).thenReturn(threeTurnConversationWithAnchorReplyTo("m2"));
         ClientException nonUser = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "through", "m6", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m6")));
         assertEquals("消息关联关系异常，无法解析所属问答轮", nonUser.getMessage());
 
         verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
@@ -797,43 +690,7 @@ class AgentConversationShareServiceImplTest {
     }
 
     @Test
-    void createShareRejectsInvalidAnchorUniformly() {
-        // anchor 校验统一文案（无差异化防探测）：不存在/跨会话/跨属主/非 assistant/不可分享口径一律同文案
-        when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
-
-        // ① 集合内不存在（含锚点属于他会话/异属主的形态——联合过滤后均不可见）
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-        ClientException missing = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "missing", null));
-        assertEquals("锚点消息不存在或不属于该会话", missing.getMessage());
-
-        // ② 锚点指向 user 消息
-        when(messageMapper.selectList(any())).thenReturn(threeTurnConversation());
-        ClientException userAnchor = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m1", null));
-        assertEquals("锚点消息不存在或不属于该会话", userAnchor.getMessage());
-
-        // ③ INTERRUPTED 完成态之外不可作锚
-        when(messageMapper.selectList(any())).thenReturn(List.of(
-                scopedMessage("m1", "user", "Q1", null, "NORMAL"),
-                scopedMessage("m2", "assistant", "partial", "m1", "INTERRUPTED")));
-        ClientException interrupted = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m2", null));
-        assertEquals("锚点消息不存在或不属于该会话", interrupted.getMessage());
-
-        // ④ 空白正文不可作锚
-        when(messageMapper.selectList(any())).thenReturn(List.of(
-                scopedMessage("m1", "user", "Q1", null, "NORMAL"),
-                scopedMessage("m2", "assistant", "  ", "m1", "NORMAL")));
-        ClientException blank = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "through", "m2", null));
-        assertEquals("锚点消息不存在或不属于该会话", blank.getMessage());
-
-        verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
-    }
-
-    @Test
-    void createShareRejectsAnchorOutsideItsRootPhysicalWindow() {
+    void createShareSelectionRejectsAnchorOutsideItsRootPhysicalWindow() {
         // 矛盾数据拒绝猜测（补强）：权威路径下锚点必须落在其 replyTo 根消息的物理窗口内——
         // 前指（锚点在根之前）或越窗（根与锚点之间隔着下一轮 user）都按关联冲突统一拒绝，
         // 不产出不含锚点本身的选段
@@ -845,7 +702,7 @@ class AgentConversationShareServiceImplTest {
                 scopedMessage("m2", "user", "Q1", null, "NORMAL"),
                 scopedMessage("m3", "user", "Q2", null, "NORMAL")));
         ClientException forward = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m1", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m1")));
         assertEquals("消息关联关系异常，无法解析所属问答轮", forward.getMessage());
 
         // ② 越窗：根 user 与 anchor 之间物理上隔着下一轮 user（窗口右界先到）
@@ -854,14 +711,14 @@ class AgentConversationShareServiceImplTest {
                 scopedMessage("m2", "user", "Q2", null, "NORMAL"),
                 scopedMessage("m3", "assistant", "A2", "m1", "NORMAL")));
         ClientException beyondWindow = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "through", "m3", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m3")));
         assertEquals("消息关联关系异常，无法解析所属问答轮", beyondWindow.getMessage());
 
         verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
-    void createShareRejectsHeadlessFallbackTurn() {
+    void createShareSelectionRejectsHeadlessFallbackTurn() {
         // 顺序 fallback 找不到前置 user（headless 异常段）：明确拒绝而非猜一个轮
         when(conversationMapper.selectOne(any())).thenReturn(conversation("c1", "u1"));
         when(messageMapper.selectList(any())).thenReturn(List.of(
@@ -870,16 +727,16 @@ class AgentConversationShareServiceImplTest {
                 scopedMessage("m3", "assistant", "A1", "m2", "NORMAL")));
 
         ClientException headless = assertThrows(ClientException.class,
-                () -> shareService.createShare("c1", "u1", "user", "turn", "m1", null));
+                () -> shareService.createShare("c1", "u1", "user", "selection", List.of("m1")));
         assertEquals("该轮没有可分享的提问内容", headless.getMessage());
     }
 
     @Test
     void createShareRejectsInvalidScopeValue() {
-        // 三值合法精确匹配；其他非空值（含大小写变体）一律业务异常
+        // 两值合法精确匹配；其他非空值（含大小写变体）一律业务异常
         for (String invalid : new String[]{"chapter", "FULL", "Turn"}) {
             ClientException rejected = assertThrows(ClientException.class,
-                    () -> shareService.createShare("c1", "u1", "user", invalid, "m2", null));
+                    () -> shareService.createShare("c1", "u1", "user", invalid, null));
             assertEquals("无效的分享范围", rejected.getMessage());
         }
         verify(conversationMapper, never()).selectOne(any());
@@ -887,24 +744,23 @@ class AgentConversationShareServiceImplTest {
     }
 
     @Test
-    void createShareRequiresAnchorForScopedShare() {
-        // turn/through 必带 anchor（missing/null/blank 同拒）；full 不要求
-        for (String scope : new String[]{"turn", "through"}) {
-            for (String absent : new String[]{null, "", " "}) {
-                ClientException rejected = assertThrows(ClientException.class,
-                        () -> shareService.createShare("c1", "u1", "user", scope, absent, null));
-                assertEquals("该分享范围必须指定锚点消息", rejected.getMessage());
-            }
+    void createShareRejectsRemovedLegacyScopeValues() {
+        // #312 清理：旧值 turn/through 与任何未知值一致的拒绝形态——不再解析为选段档
+        for (String legacy : new String[]{"turn", "through"}) {
+            ClientException rejected = assertThrows(ClientException.class,
+                    () -> shareService.createShare("c1", "u1", "user", legacy, null));
+            assertEquals("无效的分享范围", rejected.getMessage());
         }
         verify(conversationMapper, never()).selectOne(any());
+        verify(shareSnapshotService, never()).create(any(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
     void createShareRejectsGuestForEveryScope() {
         // 游客硬阻断任意 scope 全拒（issue #91 增补维持），到达不了消息查询
-        for (String scope : new String[]{null, "full", "turn", "through"}) {
+        for (String scope : new String[]{null, "full", "selection"}) {
             ClientException rejected = assertThrows(ClientException.class,
-                    () -> shareService.createShare("c1", "g1", "guest", scope, "m2", null));
+                    () -> shareService.createShare("c1", "g1", "guest", scope, null));
             assertEquals("游客身份不支持创建分享，请登录后使用", rejected.getMessage());
         }
         verify(conversationMapper, never()).selectOne(any());
@@ -920,7 +776,7 @@ class AgentConversationShareServiceImplTest {
                 scopedMessage("m1", "user", "Q1", null, "NORMAL"),
                 scopedMessage("m2", "assistant", "A1", "m1", "NORMAL")));
 
-        shareService.createShare("c1", "u1", "user", null, null, null);
+        shareService.createShare("c1", "u1", "user", null, null);
 
         @SuppressWarnings({"unchecked", "rawtypes"})
         ArgumentCaptor<Wrapper<AgentMessageDO>> captor = ArgumentCaptor.forClass((Class) Wrapper.class);

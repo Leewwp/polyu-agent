@@ -34,25 +34,18 @@ public class AgentShareCreateRequest {
     private String conversationId;
 
     /**
-     * 分享范围 full|turn|through（issue #138）；missing/null/blank=full，
-     * 其他非空值业务异常拒绝；full 不要求 anchor（有也忽略）
+     * 分享范围 full|selection（issue #138；#310 收敛两档）；missing/null/blank=full，
+     * 其他非空值业务异常拒绝；full 不要求锚点（有也忽略）
      *
      * @see com.nageoffer.ai.ragent.agent.share.AgentShareScope
      */
     private String scope;
 
     /**
-     * 锚点 assistant 消息 ID（turn/through 必带）：turn=锚点所属完整 Turn、
-     * through=从开头到锚点轮末尾。**全链 String**——消息主键为 VARCHAR(20) 雪花
-     * （18-19 位超 JS Number 安全整数），禁止 Long/parseLong/parseInt
-     */
-    private String anchorAssistantMessageId;
-
-    /**
      * 锚点 assistant 消息 ID 列表（selection 必带非空，#310）：一次勾选多轮问答，
      * 可跨轮不连续。勾选顺序与结果无关——服务端按会话物理顺序拼接；重复锚点按同轮去重；
      * 任一锚点非法整单拒绝。**全链 String**——列表元素为字符串（雪花 18-19 位超 JS Number
-     * 安全整数），禁止 Number/long 直传。turn/through 旧档不读本字段（新旧档互不越界）
+     * 安全整数），禁止 Number/long 直传
      */
     private List<String> anchorAssistantMessageIds;
 }
