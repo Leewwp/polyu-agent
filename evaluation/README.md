@@ -108,6 +108,7 @@ python3 make_calibration_sheet.py --dir $RAW --n 20 \
 | `ranking_metrics.py` | 确定性排序指标：两臂 MRR@10/NDCG@10/Hit@10 与差值簇级 bootstrap CI + 池重叠诊断（因果口径见下文） |
 | `make_calibration_sheet.py` | A5 人工抽检双产物：盲评表（不含 RAGAS 分与分层）+ 对账表（分数与分层，填写完成后用）；语言×臂均衡分层 |
 | `gen_chains.py` / `run_chains.py` / `judge_b.py` / `summarize_b.py` | agent.memory 评测：链生成/跑链/盲评裁判/体积汇总 |
+| `redteam/` | 红队探针回归夹具：`probes-redteam-public-v1.jsonl`（12 题，注入/越狱/完全无关/纯闲聊/诱导编造五类，中英各半）+ `run_probes.py`（/rag/v3/chat SSE 采集）+ `judge_redteam.py`（机械禁例层 + LLM 行为判层，判分合同见脚本 docstring；终判人工合议）——题集 schema 与跑法见 `redteam/README.md` |
 
 ## 采集面口径（重要）
 
