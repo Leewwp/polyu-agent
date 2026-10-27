@@ -80,6 +80,17 @@ jobs:
             exit 1
           fi
 
+      # 2026-10-26 判例（#399）：grep 日志行式 healthcheck 死于日志轮转——boot 行随轮转
+      # 永久消失，healthy 翻 unhealthy（namesrv 曾连续假阳性 64966 次），deploy 的
+      # depends_on 等待超时卡死、app/nginx 半下线。存活检查一律 TCP 探测
+      # （timeout N bash -c '</dev/tcp/127.0.0.1/<port>'，零 fork；mqadmin 因 OOM 判例弃用）。
+      - name: tripwire — log-grep healthcheck must not return
+        run: |
+          if grep -rnE 'test:.*grep.*\.log' deploy/ resources/docker/ --include='*.yaml' --include='*.yml'; then
+            echo "::error::grep 日志行式 healthcheck 回归——存活检查须用 TCP 探测（#399 判例）"
+            exit 1
+          fi
+
   dependency-audit:
     runs-on: ubuntu-latest
     permissions:
