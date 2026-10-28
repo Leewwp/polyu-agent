@@ -6,7 +6,7 @@ import { DailyDigestPage } from "./DailyDigestPage";
 import { FeedLangProvider } from "@/components/feed/feedLang";
 import { resetPageTitleForTests } from "@/hooks/usePageTitle";
 import { dailyDigestRssUrl, fetchDailyDigest, fetchDailyDigestList } from "@/services/newsService";
-import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestHigherEdEntry, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
 
 /**
  * 公开日报页（#241 报刊范式，原型 proto/238 转正）：
@@ -872,6 +872,153 @@ describe("DailyDigestPage", () => {
       // 英文优先、英文缺位回退中文
       expect(screen.getByText("32nd Congregation")).toBeTruthy();
       expect(screen.getByText("艺墟2026")).toBeTruthy();
+    } finally {
+      window.localStorage.removeItem("polyu.feed.lang");
+    }
+  });
+
+  // ─────────────── #412「八校/高教」独立栏目 ───────────────
+
+  /** 栏目行工厂（#410 注册源语义：platform=media、official=false；date 精度=归期代表值） */
+  function higherEdRow(overrides: Partial<NewsDailyDigestHigherEdEntry> = {}): NewsDailyDigestHigherEdEntry {
+    return {
+      itemId: 501,
+      seq: 1,
+      url: "https://www.jupas.edu.hk/en/news/updates-on-hku-programme",
+      titleZh: "港大课程更新公告",
+      titleEn: "Updates on HKU Programme (JS6224)",
+      summaryZh: "摘要",
+      summaryEn: "Summary",
+      category: "admission",
+      publishTime: "2026-10-02T15:59:59+08:00",
+      publishTimePrecision: "date",
+      source: {
+        sourceKey: "jupas-news",
+        platform: "media",
+        official: false,
+        displayName: "JUPAS 新闻公告",
+        displayNameEn: "JUPAS News & Announcements"
+      },
+      ...overrides
+    };
+  }
+
+  it("#412 renders the higher-ed band with source identity, ordered by snapshot seq, linking to detail and original", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    // 数组故意乱序（seq 2 在前）——客户端按快照序兜底排序
+    vi.mocked(fetchDailyDigest).mockResolvedValue(
+      digestFixture({
+        higherEdEntries: [
+          higherEdRow({
+            seq: 2,
+            itemId: 502,
+            titleZh: "教资会质素核证报告",
+            titleEn: "UGC quality assurance report",
+            url: "https://www.ugc.edu.hk/eng/ugc/press.html",
+            source: {
+              sourceKey: "ugc-whatnews",
+              platform: "media",
+              official: false,
+              displayName: "教资会最新动态",
+              displayNameEn: "UGC What's New"
+            }
+          }),
+          higherEdRow()
+        ]
+      })
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByLabelText("八校/高教")).toBeTruthy(), { timeout: 5000 });
+    // 栏目头：名称+计数+范围说明（计数限定栏目内断言——翻期格徽章同为「N 条」文案）
+    const band = screen.getByLabelText("八校/高教");
+    expect(within(band).getByText("2 条")).toBeTruthy();
+    expect(within(band).getByText("联校课程 · 招生政策 · 高教动态")).toBeTruthy();
+    // 来源标识（快照直映徽章）：JUPAS/UGC 双源可辨识
+    expect(screen.getByText("JUPAS 新闻公告")).toBeTruthy();
+    expect(screen.getByText("教资会最新动态")).toBeTruthy();
+    // 快照序决定 DOM 序：JUPAS 行在前、UGC 行在后
+    const first = screen.getByText("港大课程更新公告");
+    const second = screen.getByText("教资会质素核证报告");
+    expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // 标题=站内详情链接；原文=官方外链新窗打开（栏目内两行各一枚外链，取首页行断言）
+    expect(within(band).getByRole("link", { name: "港大课程更新公告" }).getAttribute("href")).toBe("/news/501");
+    const external = within(band).getAllByLabelText("查看原文")[0];
+    expect(external.getAttribute("href")).toBe("https://www.jupas.edu.hk/en/news/updates-on-hku-programme");
+    expect(external.getAttribute("target")).toBe("_blank");
+    // B 线条目不混入主资讯流（生成端分流，主版面标题里没有 B 线条目）
+    expect(mainHeadlines()).not.toContain("港大课程更新公告");
+    expect(mainHeadlines()).not.toContain("教资会质素核证报告");
+  });
+
+  it("#412 hides the higher-ed band entirely when the window has no B-line entries", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue(digestFixture());
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("研究突破甲")).toBeTruthy(), { timeout: 5000 });
+    expect(screen.queryByLabelText("八校/高教")).toBeNull();
+    expect(screen.queryByText("联校课程 · 招生政策 · 高教动态")).toBeNull();
+  });
+
+  it("#412 keeps the higher-ed band on a recess issue (supply decoupled from news volume)", async () => {
+    vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+    vi.mocked(fetchDailyDigest).mockResolvedValue({
+      ...recessFixture("2026-10-01"),
+      higherEdEntries: [higherEdRow()]
+    });
+    renderPage("/daily/2026-10-01");
+
+    await waitFor(() => expect(screen.getByText("本日休刊")).toBeTruthy(), { timeout: 5000 });
+    // 空刊降级版式：主流程零条仍出 B 线栏目（供给与资讯量解耦）+休刊说明并存
+    expect(screen.getByLabelText("八校/高教")).toBeTruthy();
+    expect(screen.getByText("港大课程更新公告")).toBeTruthy();
+    expect(screen.getByText(/不是生成故障/)).toBeTruthy();
+  });
+
+  it("#412 renders the higher-ed band bilingually under the English UI language", async () => {
+    window.localStorage.setItem("polyu.feed.lang", "en");
+    try {
+      vi.mocked(fetchDailyDigestList).mockResolvedValue(SUMMARIES);
+      vi.mocked(fetchDailyDigest).mockResolvedValue(
+        digestFixture({
+          higherEdEntries: [
+            higherEdRow(),
+            // 英文缺位回退中文
+            higherEdRow({
+              seq: 2,
+              itemId: 503,
+              titleEn: null,
+              titleZh: "教资会动态",
+              source: {
+                sourceKey: "ugc-whatnews",
+                platform: "media",
+                official: false,
+                displayName: "教资会最新动态",
+                displayNameEn: "UGC What's New"
+              }
+            })
+          ]
+        })
+      );
+      renderPage();
+
+      await waitFor(
+        () => expect(screen.getByLabelText("HK universities & higher education")).toBeTruthy(),
+        { timeout: 5000 }
+      );
+      expect(screen.getByText("HK Unis & Higher Ed")).toBeTruthy();
+      expect(screen.getByText("2 items")).toBeTruthy();
+      expect(screen.getByText("CROSS-U · ADMISSIONS · HIGHER ED")).toBeTruthy();
+      // 英文优先、英文缺位回退中文
+      expect(screen.getByText("Updates on HKU Programme (JS6224)")).toBeTruthy();
+      expect(screen.getByText("教资会动态")).toBeTruthy();
+      // 信源徽章沿 SourceDot 单源口径（displayName 直映，与主条目徽章一致，不随语言切换）
+      expect(screen.getByText("JUPAS 新闻公告")).toBeTruthy();
+      expect(screen.getByText("教资会最新动态")).toBeTruthy();
+      // 外链 aria 标签英文（栏目内两行各一枚）
+      const band = screen.getByLabelText("HK universities & higher education");
+      expect(within(band).getAllByLabelText("Original article").length).toBe(2);
     } finally {
       window.localStorage.removeItem("polyu.feed.lang");
     }

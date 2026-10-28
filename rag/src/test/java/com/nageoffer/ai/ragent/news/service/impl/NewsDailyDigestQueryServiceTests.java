@@ -18,12 +18,14 @@
 package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestActivityVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestHigherEdEntryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestHigherEdDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.fetch.NewsFetchProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,7 +70,8 @@ class NewsDailyDigestQueryServiceTests {
         itemStore = new FakeDailyDigestNewsItemStore();
         service = new NewsDailyDigestQueryServiceImpl(digestStore.digestMapper,
                 digestStore.digestItemMapper, digestStore.digestKeyDateMapper,
-                digestStore.digestActivityMapper, itemStore.mapper, new NewsFetchProperties());
+                digestStore.digestActivityMapper, digestStore.digestHigherEdMapper,
+                itemStore.mapper, new NewsFetchProperties());
     }
 
     // ==================== 装配（真刊+真快照） ====================
@@ -238,6 +241,99 @@ class NewsDailyDigestQueryServiceTests {
         NewsDailyDigestVO detail = service.getDetail(DATE);
         assertNotNull(detail.getActivities());
         assertTrue(detail.getActivities().isEmpty(), "无版面快照行=空列表（前端整段隐藏，不渲染空壳）");
+    }
+
+    // ==================== 「八校/高教」栏目透出（#412 B 线） ====================
+
+    /** 栏目快照行工厂（#410 注册源语义：platform=media、official=false） */
+    private NewsDailyDigestHigherEdDO.NewsDailyDigestHigherEdDOBuilder higherEdRow(
+            Long digestId, long itemId, int seq, String sourceKey) {
+        return NewsDailyDigestHigherEdDO.builder()
+                .digestId(digestId).itemId(itemId).seq(seq)
+                .url("https://www.jupas.edu.hk/en/news/item-" + itemId)
+                .urlHash("hash-he-" + itemId)
+                .titleZh("八校动态" + itemId).titleEn("Cross-U update " + itemId)
+                .summaryZh("摘要" + itemId).summaryEn("Summary " + itemId)
+                .category("admission")
+                .sourceKey(sourceKey).sourcePlatform("media").sourceOfficial(false)
+                .sourceDisplayName("JUPAS 新闻公告").sourceDisplayNameEn("JUPAS News & Announcements")
+                .publishTime(Date.from(LocalDateTime.of(2026, 10, 2, 9, 0).atZone(HKT).toInstant()))
+                .publishTimePrecision("date");
+    }
+
+    @Test
+    void detailCarriesHigherEdSectionSnapshotOrderedBySeqWithSourceIdentity() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        seedLiveItem(501L, "published");
+        seedLiveItem(502L, "published");
+        Long digestId = digestStore.headers().get(0).getId();
+        digestStore.digestHigherEdMapper.insert(higherEdRow(digestId, 501L, 1, "jupas-news").build());
+        digestStore.digestHigherEdMapper.insert(higherEdRow(digestId, 502L, 2, "ugc-whatnews")
+                .sourceDisplayName("教资会最新动态").sourceDisplayNameEn("UGC What's New")
+                .build());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        List<NewsDailyDigestHigherEdEntryVO> section = detail.getHigherEdEntries();
+        assertEquals(2, section.size());
+        assertEquals(List.of(1, 2), section.stream().map(NewsDailyDigestHigherEdEntryVO::getSeq).toList());
+        NewsDailyDigestHigherEdEntryVO first = section.get(0);
+        assertEquals(501L, first.getItemId());
+        assertEquals("八校动态501", first.getTitleZh());
+        assertEquals("https://www.jupas.edu.hk/en/news/item-501", first.getUrl());
+        assertEquals("admission", first.getCategory());
+        assertEquals("date", first.getPublishTimePrecision());
+        // 来源标识（快照直映，页面徽章可辨识——不与理大本校新闻混淆）
+        assertNotNull(first.getSource());
+        assertEquals("jupas-news", first.getSource().getSourceKey());
+        assertEquals("media", first.getSource().getPlatform());
+        assertEquals(Boolean.FALSE, first.getSource().getOfficial());
+        assertEquals("JUPAS 新闻公告", first.getSource().getDisplayName());
+        assertEquals("JUPAS News & Announcements", first.getSource().getDisplayNameEn());
+        assertEquals("ugc-whatnews", section.get(1).getSource().getSourceKey());
+        // 主条目面不受栏目影响（B 线条目不进 items）
+        assertEquals(1, detail.getItems().size());
+        assertEquals(1L, detail.getItems().get(0).getItemId());
+    }
+
+    @Test
+    void detailWithoutHigherEdRowsYieldsEmptySectionList() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        assertNotNull(detail.getHigherEdEntries());
+        assertTrue(detail.getHigherEdEntries().isEmpty(), "无 B 线内容=空列表（栏目整段隐藏，优雅缺席）");
+    }
+
+    @Test
+    void hiddenBlineLiveItemDisqualifiesSectionRowWithoutIntroFallback() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        seedLiveItem(501L, "published");
+        seedLiveItem(502L, "hidden");
+        Long digestId = digestStore.headers().get(0).getId();
+        digestStore.digestHigherEdMapper.insert(higherEdRow(digestId, 501L, 1, "jupas-news").build());
+        digestStore.digestHigherEdMapper.insert(higherEdRow(digestId, 502L, 2, "jupas-news").build());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        // 主动下架复检与主条目同一判据：源行仍存在且 status!=published → 失格过滤
+        assertEquals(List.of(501L),
+                detail.getHigherEdEntries().stream()
+                        .map(NewsDailyDigestHigherEdEntryVO::getItemId).toList());
+        // 导语不因 B 线失格回退（概括面只覆盖主流程，主条目零失格）
+        assertEquals("本期导语", detail.getIntroZh());
+        assertEquals(Boolean.FALSE, detail.getIntroDegraded());
+    }
+
+    @Test
+    void purgedBlineSourceRowKeepsSectionRowReadable() {
+        seedDigest("本期导语", NewsDailyDigestDO.INTRO_SOURCE_LLM, 1L);
+        seedLiveItem(1L, "published");
+        // 501 不 seed 活行=模拟 90 天保留清理已删除源行——快照独立性：栏目行保留展示
+        Long digestId = digestStore.headers().get(0).getId();
+        digestStore.digestHigherEdMapper.insert(higherEdRow(digestId, 501L, 1, "ugc-whatnews").build());
+        NewsDailyDigestVO detail = service.getDetail(DATE);
+        assertEquals(1, detail.getHigherEdEntries().size());
+        assertEquals("八校动态501", detail.getHigherEdEntries().get(0).getTitleZh(),
+                "源行清理后栏目快照仍完整（快照独立性）");
     }
 
     // ==================== hide 失格与导语回退 ====================

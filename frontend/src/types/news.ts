@@ -166,6 +166,35 @@ export interface NewsDailyDigestActivity {
   ongoing: boolean;
 }
 
+/** 日报「八校/高教」独立栏目条目快照（#412 B 线：后端 NewsDailyDigestHigherEdEntryVO，
+ * 读取期下架复检后的生效口径——八校联校课程与交换/JUPAS 与研究生政策/UGC 高教政策
+ * 三类横向信息；不与理大本校新闻混淆，不进主资讯流 items） */
+export interface NewsDailyDigestHigherEdEntry {
+  /** 溯源条目 id（点击进 /news/{id} 详情；源行被保留清理后详情 404 属预期） */
+  itemId: number;
+  /** 栏内序（1 起，发布时间倒序——与主流程条目同一排序口径） */
+  seq: number;
+  /** 原文 URL 快照（JUPAS/UGC 官方原文永久外链） */
+  url: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  summaryZh: string | null;
+  summaryEn: string | null;
+  category: NewsCategory;
+  /** ISO 时间串或 null */
+  publishTime: string | null;
+  /** 发布时间精度快照（#275）：date=只显日期（不显示 23:59:59 代表值时刻） */
+  publishTimePrecision?: "date" | "datetime" | "unknown";
+  /** 信源元数据快照（来源标识徽章） */
+  source: {
+    sourceKey: string;
+    platform: string;
+    official: boolean | null;
+    displayName: string | null;
+    displayNameEn: string | null;
+  } | null;
+}
+
 /** 日报详情（后端 NewsDailyDigestVO：读取期下架复检后的生效口径） */
 export interface NewsDailyDigest {
   /** YYYY-MM-DD（HKT 窗口闭端日） */
@@ -179,7 +208,7 @@ export interface NewsDailyDigest {
   storedIntroSource: string;
   /** true=有快照条目失格，导语已回退模板 */
   introDegraded: boolean;
-  /** 快照总条数（生成时刻） */
+  /** 主资讯流快照条数（生成时刻口径；不含栏目行） */
   itemCount: number;
   /** 读取期复检后可见条数 */
   visibleCount: number;
@@ -189,6 +218,9 @@ export interface NewsDailyDigest {
   keyDates?: NewsDailyDigestKeyDate[];
   /** 校园活动版面（#330）：空=窗口零活动，版面整段隐藏；空刊仍携带（供给与资讯量解耦） */
   activities?: NewsDailyDigestActivity[];
+  /** 「八校/高教」独立栏目（#412）：空=窗口零 B 线条目，栏目整段隐藏（优雅缺席）；
+   * B 线条目不进 items（主资讯流不含 B 线条目）；空刊仍携带（供给与资讯量解耦） */
+  higherEdEntries?: NewsDailyDigestHigherEdEntry[];
   buildTime: string;
 }
 
