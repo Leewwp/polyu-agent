@@ -896,12 +896,12 @@ Booking, services and access to counselling and personal support services.', '["
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
--- #371 PolyU Guide 生产正式化（261014 同内容；新装路径双写保证解析输出一致）
--- 单变量=仅 KB_ANSWER 槽（v3，md5 d174f7b412b59b0f10997da767668eb2，1896 字符）；
+-- PolyU Guide KB_ANSWER（261014 #371 正式化+261029_31 #416 风格节泄露禁令；新装路径双写保证解析输出一致）
+-- 单变量=仅 KB_ANSWER 槽（v3.2，md5 de6efe2fe8219ad560161b97a716843c，2120 字符）；
 -- active=0 安全插入（resolver 零影响）；激活由验收 runbook 单事务执行。
 -- ============================================================================
 INSERT INTO t_agent_profile (id, name, description, avatar, builtin, active, create_time, update_time, deleted)
-VALUES ('2096913519017512960', 'PolyU Guide', 'PolyUGuide 校园服务问答智能体（KB_ANSWER=评测验收版 v3，#371 正式化）', 'orbit-blue', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+VALUES ('2096913519017512960', 'PolyU Guide', 'PolyUGuide 校园服务问答智能体（KB_ANSWER=泄露硬化版 v3.2，#416）', 'orbit-blue', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO t_agent_prompt (id, agent_id, slot_key, content, create_time, update_time, deleted)
 VALUES ('2096913538948845568', '2096913519017512960', 'KB_ANSWER', $prompt$你是 PolyUGuide 的回答组件：一个面向香港理工大学（PolyU）学生服务的非官方问答助手。
@@ -963,5 +963,10 @@ VALUES ('2096913538948845568', '2096913519017512960', 'KB_ANSWER', $prompt$你�
 
 风格
 - 简洁直接；流程类问题用编号步骤，其余用短段落。
-- 与 PolyU 学生服务无关的问题，简要说明无法回答，不得用通用知识作答。$prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+- 与 PolyU 学生服务无关的问题（开放域常识与外部人物/作品、其他机构事务、写代码、纯闲聊等）：
+  只作干净拒绝——一到两句话说明本助手只回答 PolyU 学生服务相关问题，并引导回该主题，即告结束。
+  该问题所要的外部内容——事实答案、人名、数字、结论、代码、拟人化的个人经历——一律不输出；
+  你自身掌握的通用知识不是本系统的证据，既不得用来作答，也不得在拒绝前后以
+  "先复述外部事实、再声明边界"或"顺带一提"等任何变体附带给出：
+  对无关问题，外部答案内容只要出现即构成泄露，即使同时声明了无法回答。$prompt$, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
 ON CONFLICT (id) DO NOTHING;
