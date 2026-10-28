@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.knowledge.sink;
 
 import cn.hutool.crypto.SecureUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.nageoffer.ai.ragent.core.chunk.model.ChunkMetadata;
 import com.nageoffer.ai.ragent.core.chunk.model.EmbeddedChunk;
 import com.nageoffer.ai.ragent.core.ingest.DocumentRef;
 import com.nageoffer.ai.ragent.core.ingest.VectorTarget;
@@ -34,6 +35,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,6 +74,8 @@ public class RelationalChunkSink implements ChunkSink {
                     .charCount(content.length())
                     .tokenCount(StringUtils.hasText(content) ? tokenCounterService.countTokens(content) : 0)
                     .embeddingText(chunk.embeddingText())
+                    .sourceDate(extrasDate(chunk, ChunkMetadata.KEY_SOURCE_DATE))
+                    .activityEndDate(extrasDate(chunk, ChunkMetadata.KEY_ACTIVITY_END_DATE))
                     .enabled(1)
                     .createdBy(username)
                     .updatedBy(username)
@@ -79,6 +83,24 @@ public class RelationalChunkSink implements ChunkSink {
         }
         chunkMapper.insert(rows);
         log.debug("关系库块写入完成 docId={} 块数={}", doc.docId(), rows.size());
+    }
+
+    /**
+     * 日期元数据（#411）从块元数据扩展位读回列值：摄取期 {@code ChunkDateAnnotator} 已把
+     * yyyy-MM-dd 落进扩展位（同一份事实流向向量库 JSONB 与本表双列），键缺失/畸形保持 NULL
+     * （「日期未知」语义，不虚构不推算）
+     */
+    private LocalDate extrasDate(EmbeddedChunk chunk, String key) {
+        Object value = chunk.metadata().extras().get(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(String.valueOf(value));
+        } catch (Exception e) {
+            log.warn("块日期元数据畸形，按日期未知处理：chunkId={} key={} value={}", chunk.chunkId(), key, value);
+            return null;
+        }
     }
 
     @Override
