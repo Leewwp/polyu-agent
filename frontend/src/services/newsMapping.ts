@@ -293,7 +293,7 @@ export function mapTopic(vo: NewsTopicVO): NewsTopic {
 
 /** ==================== 日报（#212）：/public/news/daily/** VO → 前端类型 ==================== */
 
-import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
+import type { NewsDailyDigest, NewsDailyDigestActivity, NewsDailyDigestHigherEdEntry, NewsDailyDigestItem, NewsDailyDigestKeyDate, NewsDailyDigestSummary } from "@/types/news";
 
 /** 后端 NewsDailyDigestItemVO 形状 */
 export interface NewsDailyDigestItemVO {
@@ -338,6 +338,21 @@ export interface NewsDailyDigestActivityVO {
   ongoing: boolean | null;
 }
 
+/** 后端 NewsDailyDigestHigherEdEntryVO 形状（#412 B 线：读取期下架复检后的生效口径） */
+export interface NewsDailyDigestHigherEdEntryVO {
+  itemId: number;
+  seq: number;
+  url: string;
+  titleZh: string | null;
+  titleEn: string | null;
+  summaryZh: string | null;
+  summaryEn: string | null;
+  category: string;
+  publishTime: string | null;
+  publishTimePrecision?: string | null;
+  source: NewsItemVO["source"];
+}
+
 /** 后端 NewsDailyDigestVO 形状 */
 export interface NewsDailyDigestVO {
   digestDate: string;
@@ -353,6 +368,7 @@ export interface NewsDailyDigestVO {
   items: NewsDailyDigestItemVO[];
   keyDates?: NewsDailyDigestKeyDateVO[] | null;
   activities?: NewsDailyDigestActivityVO[] | null;
+  higherEdEntries?: NewsDailyDigestHigherEdEntryVO[] | null;
   buildTime: string;
 }
 
@@ -427,6 +443,23 @@ function mapDailyDigestActivity(vo: NewsDailyDigestActivityVO): NewsDailyDigestA
   };
 }
 
+/** 「八校/高教」栏目快照直映（#412 B 线：快照列即展示字段，来源徽章直映） */
+function mapDailyDigestHigherEdEntry(vo: NewsDailyDigestHigherEdEntryVO): NewsDailyDigestHigherEdEntry {
+  return {
+    itemId: vo.itemId,
+    seq: vo.seq,
+    url: vo.url,
+    titleZh: vo.titleZh,
+    titleEn: vo.titleEn,
+    summaryZh: vo.summaryZh,
+    summaryEn: vo.summaryEn,
+    category: (vo.category as NewsDailyDigestHigherEdEntry["category"]) || "other",
+    publishTime: vo.publishTime,
+    publishTimePrecision: (vo.publishTimePrecision ?? "unknown") as NewsDailyDigestHigherEdEntry["publishTimePrecision"],
+    source: vo.source ?? null
+  };
+}
+
 export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
   return {
     digestDate: vo.digestDate,
@@ -442,6 +475,7 @@ export function mapDailyDigest(vo: NewsDailyDigestVO): NewsDailyDigest {
     items: (vo.items ?? []).map((item) => mapDailyDigestItem(item)),
     keyDates: (vo.keyDates ?? []).map((row) => mapDailyDigestKeyDate(row)),
     activities: (vo.activities ?? []).map((row) => mapDailyDigestActivity(row)),
+    higherEdEntries: (vo.higherEdEntries ?? []).map((row) => mapDailyDigestHigherEdEntry(row)),
     buildTime: vo.buildTime
   };
 }

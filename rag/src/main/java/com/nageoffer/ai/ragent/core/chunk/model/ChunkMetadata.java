@@ -48,6 +48,15 @@ public record ChunkMetadata(
     public static final String KEY_ASSETS = "assets";
     public static final String KEY_SOURCE_FILE = "source_file";
     public static final String KEY_SHEET_NAME = "sheet_name";
+    /**
+     * 发布时间（#411 日期元数据，#275 口径 yyyy-MM-dd）：文档级事实，摄取期标注见
+     * {@code ChunkDateAnnotator}；向量库 JSONB 同键由读回通道透传组装层
+     */
+    public static final String KEY_SOURCE_DATE = "source_date";
+    /**
+     * 活动截止日期（#411 日期元数据，yyyy-MM-dd）：条目级事实，仅含显式截止标记的块携带
+     */
+    public static final String KEY_ACTIVITY_END_DATE = "activity_end_date";
 
     public ChunkMetadata {
         outlinePath = immutableCopy(outlinePath);

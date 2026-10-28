@@ -29,6 +29,7 @@ import com.nageoffer.ai.ragent.infra.enums.Tier;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestHigherEdDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
@@ -36,6 +37,7 @@ import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsSourceDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsTopicDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestActivityMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestHigherEdMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
@@ -119,6 +121,18 @@ import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
  * -max-entries 默认 10）；过期活动（结束日早于刊日）经投影窗口合同自动
  * 移出，窗口零活动=零快照行（读取面整段隐藏）。
  *
+ * <p><b>「八校/高教」独立栏目（#412，父票 #406 B 线）</b>：每刊额外装配
+ * 「八校/高教」横向信息栏目快照行（t_news_daily_digest_higher_ed）——
+ * 八校联校课程与交换 / JUPAS 与研究生政策 / UGC 高教政策（#319 裁定三类）。
+ * 候选与主资讯流<b>同一窗口、同一公开资格判据</b>，只按 source_key ∈
+ * rag.news.digest-higher-ed-source-keys（#410 注册的 B 线官方源）分流：
+ * 命中者落栏目快照、<b>不落主资讯流快照</b>（理大主流程不含 B 线条目）；
+ * source 行缺失/未注册的条目 fail-open 留在主流程。栏内序=publish_time
+ * DESC, id DESC（与主流程同一确定性排序）；容量=digest-higher-ed-max-entries
+ * （默认 30=3 源×日准入 10 理论上界，防御性护栏非选材过滤器——量级护栏
+ * 主锚=准入侧每源日上限）。窗口零条目=零快照行（读取面整段隐藏，优雅缺席）。
+ * 导语与 item_count 只反映主流程（B 线条目不进导语概括面）。
+ *
  * <p><b>幂等</b>：digest_date 库级唯一；重建=按日期先删后插（快照行经
  * digest_id 外键 ON DELETE CASCADE 随旧刊头带走），同日期重跑只产一刊。
  * 单事务包住删+插，中途失败不产生半刊（下一轮重跑再建）。
@@ -156,6 +170,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
     private final NewsDailyDigestItemMapper digestItemMapper;
     private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
     private final NewsDailyDigestActivityMapper digestActivityMapper;
+    private final NewsDailyDigestHigherEdMapper digestHigherEdMapper;
     private final NewsItemMapper itemMapper;
     private final NewsItemTopicMapper itemTopicMapper;
     private final NewsTopicMapper topicMapper;
@@ -173,6 +188,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                                       NewsDailyDigestItemMapper digestItemMapper,
                                       NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                       NewsDailyDigestActivityMapper digestActivityMapper,
+                                      NewsDailyDigestHigherEdMapper digestHigherEdMapper,
                                       NewsItemMapper itemMapper,
                                       NewsItemTopicMapper itemTopicMapper,
                                       NewsTopicMapper topicMapper,
@@ -182,7 +198,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                                       NewsLlmBudgetService llmBudgetService,
                                       PromptTemplateLoader promptTemplateLoader,
                                       NewsFetchProperties properties) {
-        this(digestMapper, digestItemMapper, digestKeyDateMapper, digestActivityMapper,
+        this(digestMapper, digestItemMapper, digestKeyDateMapper, digestActivityMapper, digestHigherEdMapper,
                 itemMapper, itemTopicMapper, topicMapper, sourceMapper, keyDateMapper,
                 activityQueryService, llmBudgetService, promptTemplateLoader, properties,
                 new ObjectMapper(), Date::new);
@@ -195,6 +211,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                                NewsDailyDigestItemMapper digestItemMapper,
                                NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                NewsDailyDigestActivityMapper digestActivityMapper,
+                               NewsDailyDigestHigherEdMapper digestHigherEdMapper,
                                NewsItemMapper itemMapper,
                                NewsItemTopicMapper itemTopicMapper,
                                NewsTopicMapper topicMapper,
@@ -210,6 +227,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
         this.digestItemMapper = digestItemMapper;
         this.digestKeyDateMapper = digestKeyDateMapper;
         this.digestActivityMapper = digestActivityMapper;
+        this.digestHigherEdMapper = digestHigherEdMapper;
         this.itemMapper = itemMapper;
         this.itemTopicMapper = itemTopicMapper;
         this.topicMapper = topicMapper;
@@ -232,8 +250,14 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
         Date windowEndDate = Date.from(windowEnd.toInstant());
         // 候选=窗口内统一公开资格条目（确定性序：publish_time DESC, id DESC；上限=防御容量界）
         List<NewsItemDO> candidates = selectWindowCandidates(windowStart, windowEndDate);
-        List<NewsDailyDigestItemDO> snapshots = buildSnapshots(candidates);
-        // 导语：空刊零调用；非空单次 LLM（可失败回退模板）
+        // 「八校/高教」分流（#412）：候选与主流程同窗同判据，只按 source_key 分流——
+        // B 线源条目落独立栏目不落主资讯流；source 行缺失/未注册 fail-open 留主流程
+        Map<Long, NewsSourceDO> sources = sourceMapByIds(
+                candidates.stream().map(NewsItemDO::getSourceId).collect(Collectors.toSet()));
+        List<NewsItemDO> mainCandidates = partitionMainFlow(candidates, sources);
+        List<NewsDailyDigestItemDO> snapshots = buildSnapshots(mainCandidates, sources);
+        // 导语：空刊零调用；非空单次 LLM（可失败回退模板）——概括面只覆盖主流程
+        // （B 线条目已分流进「八校/高教」栏目，不进导语输入，#412）
         String introSource;
         String introZh;
         String introEn;
@@ -242,7 +266,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
             introZh = NewsDailyDigestTemplates.emptyIntroZh(digestDate);
             introEn = NewsDailyDigestTemplates.emptyIntroEn(digestDate);
         } else {
-            IntroOutcome intro = generateIntro(digestDate, windowStart, windowEndDate, candidates);
+            IntroOutcome intro = generateIntro(digestDate, windowStart, windowEndDate, mainCandidates);
             introSource = intro.source();
             introZh = intro.zh();
             introEn = intro.en();
@@ -286,11 +310,21 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
             snapshot.setSeq(++activitySeq);
             digestActivityMapper.insert(snapshot);
         }
-        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}，校历关键日期 {} 条（窗口 [{},{}]），校园活动 {} 项（窗口 [{},{}]）",
+        // 「八校/高教」独立栏目（#412）：纯数据零 LLM，独立于资讯量——窗口零
+        // B 线条目=零快照行（读取面整段隐藏）；快照行经 digest_id 级联随重建带走
+        List<NewsDailyDigestHigherEdDO> higherEdSnapshots = buildHigherEdSnapshots(candidates, sources);
+        int higherEdSeq = 0;
+        for (NewsDailyDigestHigherEdDO snapshot : higherEdSnapshots) {
+            snapshot.setDigestId(header.getId());
+            snapshot.setSeq(++higherEdSeq);
+            digestHigherEdMapper.insert(snapshot);
+        }
+        log.info("[news][daily] 日报 {} 生成完成：快照 {} 条，导语产出={}，校历关键日期 {} 条（窗口 [{},{}]），校园活动 {} 项（窗口 [{},{}]），八校/高教栏目 {} 条",
                 digestDate, snapshots.size(), introSource, keyDateSnapshots.size(),
                 digestDate, digestDate.plusDays(properties.effectiveDigestKeyDateWindowDays() - 1L),
                 activitySnapshots.size(),
-                digestDate, digestDate.plusDays(properties.effectiveDigestActivityWindowDays() - 1L));
+                digestDate, digestDate.plusDays(properties.effectiveDigestActivityWindowDays() - 1L),
+                higherEdSnapshots.size());
         return new DigestBuildResult(digestDate, snapshots.size(), introSource, true);
     }
 
@@ -338,16 +372,16 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
 
     /**
      * 快照构建：条目展示字段全冗余（标题/摘要/URL/分类/主题/信源元数据），
-     * 源行后续被 90 天保留清理删除不影响快照可读性
+     * 源行后续被 90 天保留清理删除不影响快照可读性；sources=调用侧已解析的
+     * 信源映射（与「八校/高教」分流共用一次批量解析，#412）
      */
-    private List<NewsDailyDigestItemDO> buildSnapshots(List<NewsItemDO> candidates) {
+    private List<NewsDailyDigestItemDO> buildSnapshots(List<NewsItemDO> candidates,
+                                                       Map<Long, NewsSourceDO> sources) {
         if (candidates.isEmpty()) {
             return List.of();
         }
         Map<Long, List<String>> topicSlugs = topicSlugsByItemIds(
                 candidates.stream().map(NewsItemDO::getId).collect(Collectors.toSet()));
-        Map<Long, NewsSourceDO> sources = sourceMapByIds(
-                candidates.stream().map(NewsItemDO::getSourceId).collect(Collectors.toSet()));
         List<NewsDailyDigestItemDO> snapshots = new ArrayList<>(candidates.size());
         for (NewsItemDO item : candidates) {
             NewsSourceDO source = item.getSourceId() == null ? null : sources.get(item.getSourceId());
@@ -373,6 +407,68 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
                     .build());
         }
         return snapshots;
+    }
+
+    // ==================== 「八校/高教」独立栏目（#412 B 线，纯数据零 LLM） ====================
+
+    /**
+     * 主流程分流（#412）：剔除 source_key ∈ rag.news.digest-higher-ed-source-keys
+     * 的候选（它们落「八校/高教」栏目，理大主资讯流不含 B 线条目）——判据按
+     * 候选条目解析出的信源行 source_key；source 行缺失/未注册 fail-open 留主流程
+     * （只对可辨识的 B 线源分流，不因信源注册表缺行丢内容）
+     */
+    private List<NewsItemDO> partitionMainFlow(List<NewsItemDO> candidates, Map<Long, NewsSourceDO> sources) {
+        return candidates.stream()
+                .filter(item -> {
+                    NewsSourceDO source = item.getSourceId() == null ? null : sources.get(item.getSourceId());
+                    return source == null || !properties.isHigherEdSource(source.getSourceKey());
+                })
+                .toList();
+    }
+
+    /**
+     * 「八校/高教」栏目快照构建（生成期冻结，#412）：
+     * <ul>
+     * <li>候选与主流程<b>同一窗口、同一公开资格判据</b>（selectWindowCandidates
+     *     的原候选集），只按 source_key ∈ digest-higher-ed-source-keys（#410
+     *     注册的 B 线官方源）分流——本方法不重复实现窗口语义；</li>
+     * <li>栏内序=候选序（publish_time DESC, id DESC，与主流程同一确定性排序，
+     *     批量快照随 seq 直映）；</li>
+     * <li>容量=digest-higher-ed-max-entries（默认 30=3 源×日准入 10 理论上界，
+     *     防御性护栏非选材过滤器——量级护栏主锚=准入侧每源日上限）；</li>
+     * <li>窗口零 B 线条目=空列表（读取面整段隐藏，优雅缺席）；展示字段全冗余
+     *     快照（item_id/source_* 只作溯源，90 天保留清理删除源行不连带）。</li>
+     * </ul>
+     */
+    private List<NewsDailyDigestHigherEdDO> buildHigherEdSnapshots(List<NewsItemDO> candidates,
+                                                                   Map<Long, NewsSourceDO> sources) {
+        return candidates.stream()
+                .filter(item -> {
+                    NewsSourceDO source = item.getSourceId() == null ? null : sources.get(item.getSourceId());
+                    return source != null && properties.isHigherEdSource(source.getSourceKey());
+                })
+                .limit(properties.effectiveDigestHigherEdMaxEntries())
+                .map(item -> {
+                    NewsSourceDO source = sources.get(item.getSourceId());
+                    return NewsDailyDigestHigherEdDO.builder()
+                            .itemId(item.getId())
+                            .url(item.getUrl())
+                            .urlHash(item.getUrlHash())
+                            .titleZh(item.getTitleZh())
+                            .titleEn(item.getTitleEn())
+                            .summaryZh(item.getSummaryZh())
+                            .summaryEn(item.getSummaryEn())
+                            .category(item.getCategory())
+                            .sourceKey(source.getSourceKey())
+                            .sourcePlatform(source.getPlatform())
+                            .sourceOfficial(source.getOfficial())
+                            .sourceDisplayName(source.getDisplayName())
+                            .sourceDisplayNameEn(source.getDisplayNameEn())
+                            .publishTime(item.getPublishTime())
+                            .publishTimePrecision(PublishTimePrecision.orUnknown(item.getPublishTimePrecision()))
+                            .build();
+                })
+                .toList();
     }
 
     // ==================== 校历关键日期栏目（#316 L1，纯数据零 LLM） ====================

@@ -21,6 +21,8 @@ import com.nageoffer.ai.ragent.calendar.dao.entity.KeyDateDO;
 import com.nageoffer.ai.ragent.infra.model.LlmBudgetExhaustedException;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestHigherEdDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemTopicDO;
@@ -38,13 +40,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -83,6 +89,8 @@ class NewsDailyDigestServiceTests {
     private PromptTemplateLoader promptLoader;
     private NewsFetchProperties properties;
     private NewsDailyDigestService service;
+    /** 信源注册表种子（#412 分流判据=source_key，selectBatchIds 按需返回） */
+    private Map<Long, NewsSourceDO> sourceRows;
 
     @BeforeEach
     void setUp() {
@@ -101,13 +109,37 @@ class NewsDailyDigestServiceTests {
         NewsItemTopicMapper itemTopicMapper = mock(NewsItemTopicMapper.class);
         NewsTopicMapper topicMapper = mock(NewsTopicMapper.class);
         NewsSourceMapper sourceMapper = mock(NewsSourceMapper.class);
+        sourceRows = new HashMap<>();
+        when(sourceMapper.selectBatchIds(any(Collection.class))).thenAnswer(invocation -> {
+            Collection<? extends Serializable> ids = invocation.getArgument(0, Collection.class);
+            List<NewsSourceDO> matched = new ArrayList<>();
+            for (Serializable id : ids) {
+                NewsSourceDO row = sourceRows.get(((Number) id).longValue());
+                if (row != null) {
+                    matched.add(row);
+                }
+            }
+            return matched;
+        });
         when(promptLoader.render(any(), any())).thenReturn("rendered-prompt");
         properties = new NewsFetchProperties();
         service = new NewsDailyDigestServiceImpl(digestStore.digestMapper, digestStore.digestItemMapper,
-                digestStore.digestKeyDateMapper, digestStore.digestActivityMapper,
+                digestStore.digestKeyDateMapper, digestStore.digestActivityMapper, digestStore.digestHigherEdMapper,
                 itemStore.mapper, itemTopicMapper, topicMapper, sourceMapper,
                 keyDateStore.mapper, activityPort, budgetService, promptLoader, properties,
                 new ObjectMapper(), () -> NOW);
+    }
+
+    /** 信源注册行工厂（#412：分流判据按 source_key 解析） */
+    private static NewsSourceDO source(long id, String sourceKey) {
+        NewsSourceDO row = new NewsSourceDO();
+        row.setId(id);
+        row.setSourceKey(sourceKey);
+        row.setPlatform("media");
+        row.setOfficial(false);
+        row.setDisplayName("来源-" + sourceKey);
+        row.setDisplayNameEn("Source " + sourceKey);
+        return row;
     }
 
     // ==================== 条目工厂 ====================
@@ -530,6 +562,141 @@ class NewsDailyDigestServiceTests {
         assertEquals(NewsDailyDigestDO.INTRO_SOURCE_EMPTY, result.introSource());
         assertEquals(1, digestStore.activities().size(), "空刊也有 L2 版面行（保底内容）");
         verify(budgetService, never()).call(any(), any());
+    }
+
+    // ==================== 「八校/高教」独立栏目（#412 B 线：分流=主流程排除+独立栏目+供给解耦） ====================
+
+    /** B 线条目工厂（#410 注册源语义：platform=media、official=false） */
+    private NewsItemDO.NewsItemDOBuilder blineItem() {
+        return visibleItem().category("admission")
+                .titleZh("八校动态")
+                .titleEn("Cross-university update")
+                .url("https://www.jupas.edu.hk/en/x");
+    }
+
+    @Test
+    void higherEdSectionRoutesBlineItemsOutOfMainFlow() {
+        // 信源注册表：理大官网源 + #410 B 线三源（分流判据=解析出的 source_key）
+        sourceRows.put(7L, source(7L, "polyu-news"));
+        sourceRows.put(21L, source(21L, "jupas-news"));
+        sourceRows.put(22L, source(22L, "ugc-whatnews"));
+        itemStore.seed(visibleItem().id(40L).sourceId(7L)
+                .publishTime(hkt(2026, 10, 2, 9, 0)).build());
+        // B 线两条：发布更晚者栏内在前（publish_time DESC 与主流程同一排序）
+        itemStore.seed(blineItem().id(51L).sourceId(21L)
+                .publishTime(hkt(2026, 10, 2, 10, 0)).build());
+        itemStore.seed(blineItem().id(52L).sourceId(22L)
+                .publishTime(hkt(2026, 10, 2, 11, 30)).build());
+        stubLlmSuccess("导", "Intro");
+        service.rebuildForDate(DIGEST_DATE);
+
+        // 主流程不含 B 线条目（理大主资讯流零 B 线）
+        List<Long> mainItemIds = digestStore.items().stream()
+                .map(NewsDailyDigestItemDO::getItemId).toList();
+        assertEquals(List.of(40L), mainItemIds, "主流程只剩理大本校条目");
+
+        // 独立栏目：B 线条目全量落栏目，seq=发布时间倒序，来源字段快照可辨识
+        List<NewsDailyDigestHigherEdDO> section = digestStore.higherEd();
+        assertEquals(List.of(52L, 51L),
+                section.stream().map(NewsDailyDigestHigherEdDO::getItemId).toList());
+        assertEquals(List.of(1, 2),
+                section.stream().map(NewsDailyDigestHigherEdDO::getSeq).toList());
+        assertEquals("ugc-whatnews", section.get(0).getSourceKey());
+        assertEquals("来源-ugc-whatnews", section.get(0).getSourceDisplayName());
+        assertEquals("media", section.get(0).getSourcePlatform());
+        assertEquals(Boolean.FALSE, section.get(0).getSourceOfficial());
+        assertEquals("jupas-news", section.get(1).getSourceKey());
+        assertEquals("https://www.jupas.edu.hk/en/x", section.get(1).getUrl());
+        assertEquals("八校动态", section.get(1).getTitleZh());
+        // 刊头计数=主流程条数（B 线不进主资讯流量）
+        assertEquals(1, digestStore.headers().get(0).getItemCount());
+    }
+
+    @Test
+    void higherEdSectionEmptyWindowLandsZeroRowsAndRerunLeavesNoResidue() {
+        // 无 B 线内容日期=零栏目行（优雅缺席：不空占位、不报错），出刊照常
+        sourceRows.put(7L, source(7L, "polyu-news"));
+        itemStore.seed(visibleItem().id(40L).sourceId(7L)
+                .publishTime(hkt(2026, 10, 2, 9, 0)).build());
+        stubLlmSuccess("导", "Intro");
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, digestStore.higherEd().size(), "无 B 线内容=零栏目行");
+        assertEquals(1, digestStore.items().size());
+
+        // B 线内容出现后重建：级联带走旧行，只保留新一份（幂等不留残行）
+        sourceRows.put(21L, source(21L, "jupas-programme-changes"));
+        itemStore.seed(blineItem().id(61L).sourceId(21L)
+                .publishTime(hkt(2026, 10, 2, 10, 0)).build());
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(List.of(61L),
+                digestStore.higherEd().stream().map(NewsDailyDigestHigherEdDO::getItemId).toList(),
+                "重建=按窗口全量重算（先删后插经级联），无残行无重复");
+        assertEquals(1, digestStore.items().size(), "重建后主流程仍只有本校条目");
+    }
+
+    @Test
+    void higherEdSectionCapsToLimitOnOverflow() {
+        // 防御容量护栏：候选超上限按序截断（量级护栏主锚=准入侧日上限，本界兜异常态）
+        sourceRows.put(21L, source(21L, "jupas-news"));
+        for (int i = 1; i <= 4; i++) {
+            itemStore.seed(blineItem().id(70L + i).sourceId(21L)
+                    .titleZh("八校动态" + i)
+                    .publishTime(hkt(2026, 10, 2, 9, i)).build());
+        }
+        properties.setDigestHigherEdMaxEntries(2);
+        service.rebuildForDate(DIGEST_DATE);
+        List<NewsDailyDigestHigherEdDO> section = digestStore.higherEd();
+        assertEquals(List.of(74L, 73L),
+                section.stream().map(NewsDailyDigestHigherEdDO::getItemId).toList(),
+                "超限按 publish_time DESC 截断（取最近发布）");
+    }
+
+    @Test
+    void higherEdSectionUnknownSourceFailsOpenToMainFlow() {
+        // source 行缺失/未注册：fail-open 留主流程（只对可辨识的 B 线源分流，不丢内容）
+        itemStore.seed(visibleItem().id(80L).sourceId(99L)
+                .publishTime(hkt(2026, 10, 2, 9, 0)).build());
+        itemStore.seed(visibleItem().id(81L).sourceId(null)
+                .publishTime(hkt(2026, 10, 2, 10, 0)).build());
+        stubLlmSuccess("导", "Intro");
+        service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, digestStore.higherEd().size());
+        assertEquals(2, digestStore.items().size(), "未知信源条目留在主流程");
+    }
+
+    @Test
+    void higherEdSectionLandsOnEmptyNewsDigestToo() {
+        // 空刊降级版式（后端面）：主流程零条+栏目有条——itemCount=0、导语=空刊
+        // 模板（零 LLM 调用），B 线条目仍照常落栏目行（供给与资讯量解耦）
+        sourceRows.put(21L, source(21L, "jupas-news"));
+        itemStore.seed(blineItem().id(91L).sourceId(21L)
+                .publishTime(hkt(2026, 10, 2, 10, 0)).build());
+        NewsDailyDigestService.DigestBuildResult result = service.rebuildForDate(DIGEST_DATE);
+        assertEquals(0, result.itemCount());
+        assertEquals(NewsDailyDigestDO.INTRO_SOURCE_EMPTY, result.introSource());
+        assertEquals(1, digestStore.higherEd().size(), "空刊也有 B 线栏目行（供给解耦）");
+        verify(budgetService, never()).call(any(), any());
+    }
+
+    @Test
+    void higherEdSectionExcludedFromIntroPromptInput() {
+        // 导语概括面只覆盖主流程：B 线条目不进导语提示词输入
+        sourceRows.put(7L, source(7L, "polyu-news"));
+        sourceRows.put(21L, source(21L, "jupas-news"));
+        itemStore.seed(visibleItem().id(40L).sourceId(7L)
+                .titleZh("理大本校动态")
+                .publishTime(hkt(2026, 10, 2, 9, 0)).build());
+        itemStore.seed(blineItem().id(51L).sourceId(21L)
+                .titleZh("八校动态")
+                .publishTime(hkt(2026, 10, 2, 10, 0)).build());
+        stubLlmSuccess("导", "Intro");
+        service.rebuildForDate(DIGEST_DATE);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<java.util.Map<String, String>> slots = ArgumentCaptor.forClass(java.util.Map.class);
+        verify(promptLoader).render(eq("prompt/news-digest-intro.st"), slots.capture());
+        String lines = slots.getValue().get("item_lines");
+        assertTrue(lines.contains("理大本校动态"));
+        assertFalse(lines.contains("八校动态"), "B 线条目不进导语输入（概括面只覆盖主流程）");
     }
 
     // ==================== 提示词与请求形状 ====================

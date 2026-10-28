@@ -3,12 +3,12 @@
 
 --- section: kb-doc-block ---
 <content data-ragent-date="{date}" data-ragent-doc-id="{doc_id}">
-{chunks}
+{asof_fact}{chunks}
 </content>
 
 --- section: kb-doc-block-anonymous ---
 <content data-ragent-date="{date}">
-{chunks}
+{asof_fact}{chunks}
 </content>
 
 --- section: snippet-rules ---

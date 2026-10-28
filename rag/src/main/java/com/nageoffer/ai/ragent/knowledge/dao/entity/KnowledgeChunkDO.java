@@ -28,6 +28,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.util.Date;
 
 /**
@@ -121,4 +122,16 @@ public class KnowledgeChunkDO {
      */
     @TableLogic
     private Integer deleted;
+
+    /**
+     * 发布时间（#411 日期元数据）：页面发布/更新日期（#275 口径），文档级事实文档内同值传播；
+     * NULL=日期未知（不虚构不推算）
+     */
+    private LocalDate sourceDate;
+
+    /**
+     * 活动截止日期（#411 日期元数据）：条目级截止事实，仅含显式截止标记的块落值、文档内不传播；
+     * NULL=无截止语义或日期未知
+     */
+    private LocalDate activityEndDate;
 }

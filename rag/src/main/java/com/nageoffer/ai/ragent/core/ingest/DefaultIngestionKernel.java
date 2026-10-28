@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.core.ingest;
 
 import com.nageoffer.ai.ragent.core.chunk.ChunkingService;
+import com.nageoffer.ai.ragent.core.chunk.dates.ChunkDateAnnotator;
 import com.nageoffer.ai.ragent.core.chunk.model.Chunk;
 import com.nageoffer.ai.ragent.core.chunk.model.EmbeddedChunk;
 import com.nageoffer.ai.ragent.core.ingest.embed.ChunkEmbeddingService;
@@ -101,9 +102,13 @@ public class DefaultIngestionKernel implements IngestionKernel {
         List<EmbeddedChunk> embedded = chunkEmbeddingService.embed(chunks, target);
         long embedMillis = System.currentTimeMillis() - embedStart;
 
+        // ④.5 日期标注（#411）：确定性抽取发布/截止两族日期事实进块元数据扩展位，
+        // 全部索引落点经唯一序列化点自动携带（向量 JSONB source_date 读回通道、关系库双列）
+        List<EmbeddedChunk> annotated = ChunkDateAnnotator.annotate(embedded);
+
         // ⑤ index：扇出到全部落点，事务边界在写入器内
         long indexStart = System.currentTimeMillis();
-        chunkIndexWriter.replaceDocument(target, doc, embedded);
+        chunkIndexWriter.replaceDocument(target, doc, annotated);
         long indexMillis = System.currentTimeMillis() - indexStart;
 
         return new IngestionOutcome(mimeType, parser.getParserType(), blocks.size(), chunks,

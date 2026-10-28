@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.news.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestActivityVO;
+import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestHigherEdEntryVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestItemVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestKeyDateVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestSummaryVO;
@@ -26,10 +27,12 @@ import com.nageoffer.ai.ragent.news.controller.vo.NewsDailyDigestVO;
 import com.nageoffer.ai.ragent.news.controller.vo.NewsSourceMetaVO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestActivityDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestDO;
+import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestHigherEdDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestItemDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsDailyDigestKeyDateDO;
 import com.nageoffer.ai.ragent.news.dao.entity.NewsItemDO;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestActivityMapper;
+import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestHigherEdMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestItemMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestKeyDateMapper;
 import com.nageoffer.ai.ragent.news.dao.mapper.NewsDailyDigestMapper;
@@ -113,6 +116,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
     private final NewsDailyDigestItemMapper digestItemMapper;
     private final NewsDailyDigestKeyDateMapper digestKeyDateMapper;
     private final NewsDailyDigestActivityMapper digestActivityMapper;
+    private final NewsDailyDigestHigherEdMapper digestHigherEdMapper;
     private final NewsItemMapper itemMapper;
     private final NewsFetchProperties properties;
 
@@ -121,12 +125,14 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                                            NewsDailyDigestItemMapper digestItemMapper,
                                            NewsDailyDigestKeyDateMapper digestKeyDateMapper,
                                            NewsDailyDigestActivityMapper digestActivityMapper,
+                                           NewsDailyDigestHigherEdMapper digestHigherEdMapper,
                                            NewsItemMapper itemMapper,
                                            NewsFetchProperties properties) {
         this.digestMapper = digestMapper;
         this.digestItemMapper = digestItemMapper;
         this.digestKeyDateMapper = digestKeyDateMapper;
         this.digestActivityMapper = digestActivityMapper;
+        this.digestHigherEdMapper = digestHigherEdMapper;
         this.itemMapper = itemMapper;
         this.properties = properties;
     }
@@ -186,6 +192,11 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                                 .eq(NewsDailyDigestActivityDO::getDigestId, header.getId())
                                 .orderByAsc(NewsDailyDigestActivityDO::getSeq))
                 .stream().map(this::toActivityVO).toList();
+        // 「八校/高教」独立栏目（#412 B 线）：快照直映零 LLM；主动下架复检与
+        // 主条目同一判据（源行仍存在且 status!=published → 失格过滤；源行已
+        // 清理 → 保留）——复检独立于主条目面，B 线失格不触发导语回退（导语
+        // 概括面只覆盖主流程）；空列表=栏目整段隐藏（优雅缺席）
+        List<NewsDailyDigestHigherEdEntryVO> higherEdEntries = visibleHigherEdEntries(header.getId());
         return NewsDailyDigestVO.builder()
                 .digestDate(header.getDigestDate())
                 .windowStart(header.getWindowStart())
@@ -200,6 +211,7 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .items(visible)
                 .keyDates(keyDates)
                 .activities(activities)
+                .higherEdEntries(higherEdEntries)
                 .buildTime(header.getBuildTime())
                 .build();
     }
@@ -474,6 +486,61 @@ public class NewsDailyDigestQueryServiceImpl implements NewsDailyDigestQueryServ
                 .dateStart(snapshot.getDateStart())
                 .dateEnd(snapshot.getDateEnd())
                 .ongoing(snapshot.getOngoing())
+                .build();
+    }
+
+    /**
+     * 「八校/高教」栏目可见集（#412）：快照行 seq 升序直映 + 主动下架复检
+     * （判据与主条目单源：源行仍存在且 status!=published → 失格；源行已
+     * 清理 → 保留——快照独立性）；零快照行=空列表（栏目整段隐藏）
+     */
+    private List<NewsDailyDigestHigherEdEntryVO> visibleHigherEdEntries(Long digestId) {
+        List<NewsDailyDigestHigherEdDO> snapshots = digestHigherEdMapper.selectList(
+                new LambdaQueryWrapper<NewsDailyDigestHigherEdDO>()
+                        .eq(NewsDailyDigestHigherEdDO::getDigestId, digestId)
+                        .orderByAsc(NewsDailyDigestHigherEdDO::getSeq));
+        if (snapshots.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> sourceItemIds = snapshots.stream()
+                .map(NewsDailyDigestHigherEdDO::getItemId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> liveStatus = new HashMap<>();
+        if (!sourceItemIds.isEmpty()) {
+            for (NewsItemDO live : itemMapper.selectList(new LambdaQueryWrapper<NewsItemDO>()
+                    .in(NewsItemDO::getId, sourceItemIds))) {
+                liveStatus.put(live.getId(), live.getStatus());
+            }
+        }
+        return snapshots.stream()
+                .filter(row -> {
+                    String status = liveStatus.get(row.getItemId());
+                    return status == null || "published".equals(status);
+                })
+                .map(this::toHigherEdVO)
+                .toList();
+    }
+
+    /** 「八校/高教」栏目快照直映（快照列即展示字段，来源徽章字段直映，#412） */
+    private NewsDailyDigestHigherEdEntryVO toHigherEdVO(NewsDailyDigestHigherEdDO snapshot) {
+        NewsSourceMetaVO source = NewsSourceMetaVO.builder()
+                .sourceKey(snapshot.getSourceKey())
+                .platform(snapshot.getSourcePlatform())
+                .official(snapshot.getSourceOfficial())
+                .displayName(snapshot.getSourceDisplayName())
+                .displayNameEn(snapshot.getSourceDisplayNameEn())
+                .build();
+        return NewsDailyDigestHigherEdEntryVO.builder()
+                .itemId(snapshot.getItemId())
+                .seq(snapshot.getSeq())
+                .url(snapshot.getUrl())
+                .titleZh(snapshot.getTitleZh())
+                .titleEn(snapshot.getTitleEn())
+                .summaryZh(snapshot.getSummaryZh())
+                .summaryEn(snapshot.getSummaryEn())
+                .category(snapshot.getCategory())
+                .publishTime(snapshot.getPublishTime())
+                .publishTimePrecision(PublishTimePrecision.orUnknown(snapshot.getPublishTimePrecision()))
+                .source(source)
                 .build();
     }
 

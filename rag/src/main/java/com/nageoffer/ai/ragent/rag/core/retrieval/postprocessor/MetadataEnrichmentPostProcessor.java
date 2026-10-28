@@ -35,7 +35,8 @@ import java.util.Map;
  * 元数据富化后置处理器
  * <p>
  * 处于处理链末端（Rerank 之后），对最终 Top-K 结果按 chunkId 回表补齐文档归属信息
- * （文档ID、文档内序号、文档标题），供上下文组装时按文档聚合与标注来源
+ * （文档ID、文档内序号、文档标题）与 #411 双日期列（发布/截止，仅补空缺），
+ * 供上下文组装时按文档聚合、标注来源与 as-of 状态计算（#413）
  * <p>
  * 只富化、不重排：保持进入时的相关性顺序不变
  */
@@ -83,12 +84,27 @@ public class MetadataEnrichmentPostProcessor implements SearchResultPostProcesso
             chunk.setDocId(meta.docId());
             chunk.setChunkIndex(meta.chunkIndex());
             chunk.setDocName(meta.docName());
+            fillDateIfBlank(chunk, meta);
         }
 
         // 2）按 docId 补标题：图谱证据的 chunk.id 非向量库主键、上一步未命中，但已带归属 docId，
         // 据此补真实文档标题，使其与同源向量证据在上下文里聚合进同一文档块
         fillDocNamesByDocId(chunks);
         return chunks;
+    }
+
+    /**
+     * 回填 #411 双日期列（yyyy-MM-dd）：仅补空缺、不覆盖检索通道已读回的值（如向量通道
+     * metadata JSONB 的 source_date，两处同源同值）；列 NULL 保持 null=「日期未知」语义。
+     * 供组装层 as-of 状态计算（#413）消费
+     */
+    private void fillDateIfBlank(RetrievedChunk chunk, ChunkMeta meta) {
+        if (StrUtil.isBlank(chunk.getSourceDate()) && StrUtil.isNotBlank(meta.sourceDate())) {
+            chunk.setSourceDate(meta.sourceDate());
+        }
+        if (StrUtil.isBlank(chunk.getActivityEndDate()) && StrUtil.isNotBlank(meta.activityEndDate())) {
+            chunk.setActivityEndDate(meta.activityEndDate());
+        }
     }
 
     /**
