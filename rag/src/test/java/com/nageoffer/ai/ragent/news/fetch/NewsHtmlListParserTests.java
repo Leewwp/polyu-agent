@@ -386,4 +386,95 @@ class NewsHtmlListParserTests {
         assertThrows(NewsFetchStructureException.class, () ->
                 NewsHtmlListParser.parse(emptyLibViews.getBytes(), "https://www.lib.polyu.edu.hk/news"));
     }
+
+    @Test
+    void jupasNewsJsonEndpointYieldsFilterTableRows() throws Exception {
+        // #410 第 6 族（jupas-news）：JSON {"html": filterTable 行}——相对链接以
+        // 端点 URL 为 base 绝对化；日期 d MMM uuuu 复用 SPEED 族既有格式
+        List<NewsHtmlListParser.ListEntry> entries = NewsHtmlListParser.parse(
+                fixture("jupas-news.json"), "https://www.jupas.edu.hk/en/news/json_news_filter/all/");
+        assertEquals(7, entries.size());
+        NewsHtmlListParser.ListEntry first = entries.get(0);
+        assertEquals("https://www.jupas.edu.hk/en/news/updates-on-hku-programme-js6224", first.link());
+        assertEquals("Updates on HKU Programme (JS6224)", first.title());
+        assertEquals("23 Oct 2026", first.dateText());
+        assertEquals("HKU", first.categoryHint());
+        // 日期文本→D 23:59:59 HKT 归期代表值、精度 date（#275，与既有 HTML 族同口径）
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate(first.dateText());
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATE, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(2026, hkt.get(Calendar.YEAR));
+        assertEquals(Calendar.OCTOBER, hkt.get(Calendar.MONTH));
+        assertEquals(23, hkt.get(Calendar.DAY_OF_MONTH));
+    }
+
+    @Test
+    void jupasProgrammeChangeJsonSplitsPerCatalogue() throws Exception {
+        // #410 第 7 族（jupas-programme-changes）：JSON 数组按 catalogue 拆条
+        // （15 行→35 条）；链接沿官方页 JS 构造 /en/programme/<inst小写>/<catalogue>
+        List<NewsHtmlListParser.ListEntry> entries = NewsHtmlListParser.parse(
+                fixture("jupas-programme-changes.json"), "https://www.jupas.edu.hk/en/programmes-offered/programme-changes/data/");
+        assertEquals(35, entries.size());
+        NewsHtmlListParser.ListEntry first = entries.get(0);
+        assertEquals("https://www.jupas.edu.hk/en/programme/hku/JS6224", first.link());
+        assertEquals("HKU JS6224: Short Description update", first.title());
+        assertEquals("23 Oct 2026", first.dateText());
+        assertEquals("Short Description", first.categoryHint());
+        // 多 catalogue 行逐目录拆条（HKU JS6224,JS6999 行的第二条）
+        assertEquals("https://www.jupas.edu.hk/en/programme/hku/JS6999", entries.get(1).link());
+        // SSSDP 11 目录行全量拆条、LingnanU 小写 slug
+        assertTrue(entries.stream().anyMatch(e -> e.link().equals("https://www.jupas.edu.hk/en/programme/sssdp/JSSV13")));
+        assertTrue(entries.stream().anyMatch(e -> e.link().equals("https://www.jupas.edu.hk/en/programme/lingnanu/JS7204")));
+    }
+
+    @Test
+    void jupasProgrammeChangeInstitutionWideRowLandsOnProgrammeListPage() {
+        // 机构级行（"All the Programmes" 官方页 JS 落机构课程列表页）单条不拆
+        String json = "[{\"information_updated\":\"First Year Intake\","
+                + "\"jupas_catalog_no\":\"All the Programmes\",\"institution\":\"PolyU\",\"posting_date\":\"08 Oct 2026\"}]";
+        List<NewsHtmlListParser.ListEntry> entries = NewsHtmlListParser.parse(
+                json.getBytes(), "https://www.jupas.edu.hk/en/programmes-offered/programme-changes/data/");
+        assertEquals(1, entries.size());
+        assertEquals("https://www.jupas.edu.hk/en/programmes-offered/polyu/", entries.get(0).link());
+        assertEquals("PolyU all programmes: First Year Intake update", entries.get(0).title());
+    }
+
+    @Test
+    void ugcWhatnewsCarouselYieldsTitleDateLink() throws Exception {
+        // #410 第 8 族（ugc-whatnews）：#carouselnew 轮播 10 条；首页横幅轮播
+        // （纯图片 item）与 Recommended 区 h5 不入族；日期 (dd.mm.yyyy) 新格式
+        List<NewsHtmlListParser.ListEntry> entries = NewsHtmlListParser.parse(
+                fixture("ugc-whatnews.html"), "https://www.ugc.edu.hk/eng/ugc/index.html");
+        assertEquals(10, entries.size());
+        NewsHtmlListParser.ListEntry first = entries.get(0);
+        assertEquals("https://www.ugc.edu.hk/eng/ugc/about/press_speech_other/press/2026/pr20261009.html", first.link());
+        assertTrue(first.title().startsWith("Research Grants Council to present public lecture"));
+        assertEquals("09.10.2026", first.dateText());
+        // dd.mm.yyyy 日/月序（pr20261009 文件名锚定）→ 2026-10-09
+        NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate(first.dateText());
+        assertNotNull(parsed);
+        assertEquals(PublishTimePrecision.DATE, parsed.precision());
+        Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+        hkt.setTime(parsed.instant());
+        assertEquals(2026, hkt.get(Calendar.YEAR));
+        assertEquals(Calendar.OCTOBER, hkt.get(Calendar.MONTH));
+        assertEquals(9, hkt.get(Calendar.DAY_OF_MONTH));
+        // 非新闻稿条目（RGC 资助机会 call letter）同样成条
+        assertTrue(entries.stream().anyMatch(e -> e.link().endsWith("/eng/rgc/funding_opport/jrfs/call_letter.html")));
+    }
+
+    @Test
+    void bLineJsonEndpointsFailClosedOnEmpty() {
+        // 三源中 jupas 两源入 allow-empty（赛季空窗），但空 JSON 数组的 fail-closed
+        // 边界仍在（#186）：非 allow-empty 调用面（解析层直测）零条目=结构失配
+        assertThrows(NewsFetchStructureException.class, () ->
+                NewsHtmlListParser.parse("[]".getBytes(), "https://www.jupas.edu.hk/en/programmes-offered/programme-changes/data/"));
+        assertThrows(NewsFetchStructureException.class, () ->
+                NewsHtmlListParser.parse("{\"html\":\"\"}".getBytes(), "https://www.jupas.edu.hk/en/news/json_news_filter/all/"));
+        // 坏 JSON（花括号起头但非合法文档）同样零条目 fail-closed
+        assertThrows(NewsFetchStructureException.class, () ->
+                NewsHtmlListParser.parse("{\"broken".getBytes(), "https://www.jupas.edu.hk/en/news/json_news_filter/all/"));
+    }
 }

@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.news.fetch;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -35,8 +37,9 @@ import java.util.regex.Pattern;
 /**
  * HTML 列表页条目发现解析器（HTML_LIST 型）
  *
- * <p>覆盖四个已知模板族，按「首个产出条目的族胜出」自动探测——扩源=加
- * t_news_source 行即可命中同族模板，无代码改动：
+ * <p>覆盖已知模板族，按「首个产出条目的族胜出」自动探测——扩源=加
+ * t_news_source 行即可命中同族模板，无代码改动；JSON 响应体（JUPAS 两端点，
+ * #410）按首字符分流到 JSON 族，HTML 响应走 HTML 族链：
  * <ol>
  *   <li>PolyU 官网列表族（media-releases / campus-releases / 批 2 alumni-news、
  *       fb-news、fhss-news 同组件库）：{@code a.border-hover-shadow-list__itm}，
@@ -52,6 +55,17 @@ import java.util.regex.Pattern;
  *       .views-news-events-posted 的裸文本节点（"Friday, September 18, 2026 - 08:30"，
  *       前 .badge 为类别 News/Event/Notice）。列表页无 URL slug 日期可回退，
  *       日期元素缺失的行 publishTime=null 由调用方跳过。</li>
+ *   <li>JUPAS 新闻公告 JSON 端点族（#410 B 线，jupas-news）：响应体为 JSON
+ *       {@code {"html":"<tr data-posted=…>…"}}（列表页 JS 取数口），html 字段内
+ *       filterTable 行=td.c-pd 日期（"23 Oct 2026"）+ td.c-is 发布机构 + td.c-nt 标题锚；</li>
+ *   <li>JUPAS 联招课程变更 JSON 端点族（#410 B 线，jupas-programme-changes）：
+ *       响应体为 JSON 数组 {@code [{information_updated, jupas_catalog_no, institution,
+ *       posting_date}]}，按 catalogue 逐条拆分，条目链接沿官方页 JS 构造口径
+ *       {@code /en/programme/<inst小写>/<catalogue>}（机构级 "All …" 行落
+ *       /en/programmes-offered/<inst小写>/ 单条）；</li>
+ *   <li>UGC 官网首页 What's-new 轮播族（#410 B 线，ugc-whatnews）：
+ *       {@code .carousel-showsixmoveone .item} 内 h5 标题 + p.newsDate
+ *       （"(09.10.2026)" dd.mm.yyyy）+ Read more 锚。</li>
  * </ol>
  *
  * <p>实现裁量（已记录）：设计上写「复用 HtmlDocumentParser」，但该解析器的
@@ -76,10 +90,18 @@ public final class NewsHtmlListParser {
             DateTimeFormatter.ofPattern("MMMM d, uuuu", Locale.ENGLISH);
 
     /**
-     * "30 Sep 2026"（SPEED 站 d MMM uuuu 无逗号，#276 第 5 族）
+     * "30 Sep 2026"（SPEED 站 d MMM uuuu 无逗号，#276 第 5 族；JUPAS 两端点
+     * posting date 同形态，#410 复用零新增）
      */
     private static final DateTimeFormatter ENGLISH_DATE_NO_COMMA =
             DateTimeFormatter.ofPattern("d MMM uuuu", Locale.ENGLISH);
+
+    /**
+     * "09.10.2026"（UGC 首页 What's-new 轮播 dd.mm.yyyy，#410 第 8 族——
+     * 日/月序由 UGC 新闻稿文件名 prYYYYMMDD 锚定）
+     */
+    private static final DateTimeFormatter DOTTED_DATE =
+            DateTimeFormatter.ofPattern("d.MM.uuuu", Locale.ENGLISH);
 
     /**
      * media-releases 详情 URL 内的 /2026/0910_slug/ 日期段
@@ -121,29 +143,167 @@ public final class NewsHtmlListParser {
      * {@code failClosed=false} 静默收空列表；首页仍应走 fail-closed 重载
      */
     public static List<ListEntry> parse(byte[] html, String baseUri, boolean failClosed) {
-        Document document = Jsoup.parse(new String(html, StandardCharsets.UTF_8), baseUri);
         List<ListEntry> entries = new ArrayList<>();
-        entries.addAll(parseOfficialListFamily(document));
-        if (!entries.isEmpty()) {
-            return entries;
-        }
-        entries.addAll(parsePrnFamily(document));
-        if (!entries.isEmpty()) {
-            return entries;
-        }
-        entries.addAll(parseRecentFocusFamily(document));
-        if (!entries.isEmpty()) {
-            return entries;
-        }
-        entries.addAll(parseLibViewsFamily(document));
-        if (entries.isEmpty()) {
-            entries.addAll(parseSpeedFamily(document));
+        // #410 B 线：JUPAS 两端点为 JSON 列表响应（列表页 JS 取数口），按响应体
+        // 首字符分流——HTML 页面不从 { 或 [ 起头，既有五族不受影响；JSON 两族
+        // 均零条目（含坏 JSON）时落到统一 fail-closed（#186 结构失配语义不变）
+        String body = new String(html, StandardCharsets.UTF_8).stripLeading();
+        if (body.startsWith("{") || body.startsWith("[")) {
+            entries.addAll(parseJupasNewsFilterFamily(html, baseUri));
+            if (entries.isEmpty()) {
+                entries.addAll(parseJupasProgrammeChangeFamily(html, baseUri));
+            }
+        } else {
+            Document document = Jsoup.parse(body, baseUri);
+            entries.addAll(parseOfficialListFamily(document));
+            if (!entries.isEmpty()) {
+                return entries;
+            }
+            entries.addAll(parsePrnFamily(document));
+            if (!entries.isEmpty()) {
+                return entries;
+            }
+            entries.addAll(parseRecentFocusFamily(document));
+            if (!entries.isEmpty()) {
+                return entries;
+            }
+            entries.addAll(parseLibViewsFamily(document));
+            if (entries.isEmpty()) {
+                entries.addAll(parseSpeedFamily(document));
+            }
+            if (entries.isEmpty()) {
+                entries.addAll(parseUgcCarouselFamily(document));
+            }
         }
         if (failClosed && entries.isEmpty()) {
             throw new NewsFetchStructureException("HTML 列表页解析零条目（模板改版嫌疑，fail-closed）");
         }
         return entries;
     }
+
+    /** Jackson 只读树（JSON 两族共用；坏 JSON 返回 null 由 fail-closed 兜底） */
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private static JsonNode readJsonRoot(byte[] json) {
+        try {
+            return OBJECT_MAPPER.readTree(new String(json, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * JUPAS 新闻公告族（#410 第 6 族，jupas-news）：JSON {@code {"html": "<tr…>"}}
+     * ——html 字段解出后按 filterTable 行取三列（日期/发布机构/标题锚），链接以
+     * 端点 URL 为 base 绝对化（html 片段内为站内相对路径）
+     */
+    private static List<ListEntry> parseJupasNewsFilterFamily(byte[] json, String baseUri) {
+        JsonNode root = readJsonRoot(json);
+        if (root == null || !root.isObject()) {
+            return List.of();
+        }
+        String rowsHtml = root.path("html").asText("");
+        if (rowsHtml.isBlank()) {
+            return List.of();
+        }
+        List<ListEntry> entries = new ArrayList<>();
+        // 孤立 tr 片段（html 字段内容）裸解析会被 jsoup 剥掉表格标签——外裹合成
+        // <table> 保住行/列结构再选列
+        for (Element anchor : Jsoup.parse("<table>" + rowsHtml + "</table>", baseUri).select("td.c-nt a[href]")) {
+            String link = anchor.absUrl("href");
+            if (link.isBlank()) {
+                continue;
+            }
+            Element row = anchor.closest("tr");
+            entries.add(new ListEntry(link, textOrNull(anchor),
+                    row == null ? null : textOrNull(row.selectFirst("td.c-pd")),
+                    row == null ? null : textOrNull(row.selectFirst("td.c-is")),
+                    null));
+        }
+        return entries;
+    }
+
+    /**
+     * JUPAS 联招课程变更族（#410 第 7 族，jupas-programme-changes）：JSON 数组行
+     * （institution/jupas_catalog_no/information_updated/posting_date）按 catalogue
+     * 拆条；标题=官方行字段确定性拼接（"<机构> <catalogue>: <变更项> update"），
+     * 发布机构在标题内即八校确定性门的标题证据；链接沿官方页 JS 构造口径
+     */
+    private static List<ListEntry> parseJupasProgrammeChangeFamily(byte[] json, String baseUri) {
+        JsonNode root = readJsonRoot(json);
+        if (root == null || !root.isArray()) {
+            return List.of();
+        }
+        List<ListEntry> entries = new ArrayList<>();
+        for (JsonNode row : root) {
+            String institution = row.path("institution").asText("");
+            String catalogues = row.path("jupas_catalog_no").asText("");
+            String infoUpdated = row.path("information_updated").asText("");
+            String postingDate = row.path("posting_date").asText("");
+            if (institution.isBlank() || catalogues.isBlank() || infoUpdated.isBlank() || postingDate.isBlank()) {
+                continue;
+            }
+            String instSlug = institution.toLowerCase(Locale.ROOT);
+            if (catalogues.startsWith("All")) {
+                entries.add(new ListEntry(resolveAgainstBase(baseUri, "/en/programmes-offered/" + instSlug + "/"),
+                        institution + " all programmes: " + infoUpdated + " update",
+                        postingDate, infoUpdated, null));
+                continue;
+            }
+            for (String catalogue : catalogues.split(",")) {
+                String cat = catalogue.strip();
+                if (cat.isEmpty()) {
+                    continue;
+                }
+                entries.add(new ListEntry(resolveAgainstBase(baseUri, "/en/programme/" + instSlug + "/" + cat),
+                        institution + " " + cat + ": " + infoUpdated + " update",
+                        postingDate, infoUpdated, null));
+            }
+        }
+        return entries;
+    }
+
+    /** 站内绝对路径挂到端点 host（官方页 JS 同款 join；端点非绝对 http(s) 时原样返回） */
+    private static String resolveAgainstBase(String baseUri, String absolutePath) {
+        try {
+            return java.net.URI.create(baseUri).resolve(absolutePath).toString();
+        } catch (Exception e) {
+            return absolutePath;
+        }
+    }
+
+    /**
+     * UGC 首页 What's-new 轮播族（#410 第 8 族，ugc-whatnews）：以轮播容器 id
+     * #carouselnew 定位（全页唯一，横幅轮播/Recommended 区不共享该 id），条目=h5
+     * 标题 + p.newsDate 日期文本（"(09.10.2026)" 括号内 dd.mm.yyyy）+ Read more
+     * 锚；id 随改版消失即零条目→fail-closed（#186 模板改版语义）
+     */
+    private static List<ListEntry> parseUgcCarouselFamily(Document document) {
+        List<ListEntry> entries = new ArrayList<>();
+        for (Element item : document.select("#carouselnew .item")) {
+            Element anchor = item.selectFirst("a[href]");
+            if (anchor == null || anchor.absUrl("href").isBlank()) {
+                continue;
+            }
+            entries.add(new ListEntry(anchor.absUrl("href"),
+                    textOrNull(item.selectFirst("h5")),
+                    dottedDateText(item.selectFirst(".newsDate")),
+                    null, null));
+        }
+        return entries;
+    }
+
+    /** "(09.10.2026)" → "09.10.2026"（dd.mm.yyyy，日/月序由 UGC 新闻稿文件名 prYYYYMMDD 锚定） */
+    private static String dottedDateText(Element newsDate) {
+        if (newsDate == null) {
+            return null;
+        }
+        Matcher matcher = PARENTHESIZED_DOTTED_DATE.matcher(newsDate.text());
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static final Pattern PARENTHESIZED_DOTTED_DATE =
+            Pattern.compile("\\((\\d{1,2}\\.\\d{1,2}\\.\\d{4})\\)");
 
     private static List<ListEntry> parseOfficialListFamily(Document document) {
         List<ListEntry> entries = new ArrayList<>();
@@ -349,9 +509,9 @@ public final class NewsHtmlListParser {
         return null;
     }
 
-    /** 裸日期解析（三格式轮试）；不含任何时刻/时区尾巴 */
+    /** 裸日期解析（轮试）；不含任何时刻/时区尾巴 */
     private static LocalDate parseBareDate(String text) {
-        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH, ENGLISH_DATE_NO_COMMA)) {
+        for (DateTimeFormatter formatter : List.of(ENGLISH_DATE, ENGLISH_DATE_ALT, ENGLISH_DATE_FULL_MONTH, ENGLISH_DATE_NO_COMMA, DOTTED_DATE)) {
             try {
                 return LocalDate.parse(text, formatter);
             } catch (Exception ignore) {
