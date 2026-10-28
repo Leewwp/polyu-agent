@@ -19,9 +19,12 @@ package com.nageoffer.ai.ragent.rag.service.pipeline;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.convention.SourceRef;
+import com.nageoffer.ai.ragent.framework.eval.EvalContextDump;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
@@ -49,7 +52,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 流式对话流水线
@@ -81,24 +88,122 @@ public class StreamChatPipeline {
      * 执行流式对话管道
      */
     public void execute(StreamChatContext ctx) {
+        dumpChatRequest(ctx);
         detectAnswerLanguage(ctx);
         loadMemory(ctx);
         rewriteQuery(ctx);
         resolveIntents(ctx);
 
         if (handleGuidance(ctx)) {
+            dumpPipelineExit(ctx, "guidance");
             return;
         }
         if (handleSystemOnly(ctx)) {
+            dumpPipelineExit(ctx, "system_only");
             return;
         }
 
         RetrievalContext retrievalCtx = retrieve(ctx);
         if (handleEmptyRetrieval(ctx, retrievalCtx)) {
+            dumpPipelineExit(ctx, "empty_retrieval");
             return;
         }
 
         streamRagResponse(ctx, retrievalCtx);
+    }
+
+    // ==================== 评测埋点（#371 回放专用，RAG_EVAL_DUMP_FILE 门控，不进 main） ====================
+
+    /**
+     * 段键事件：associate.py 按 chat_request.taskId 分段归属后续事件（同 #331/#332 合同）
+     */
+    private void dumpChatRequest(StreamChatContext ctx) {
+        if (!EvalContextDump.enabled()) {
+            return;
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("taskId", ctx.getTaskId());
+        m.put("conversationId", ctx.getConversationId());
+        m.put("question", ctx.getQuestion());
+        m.put("deepThinking", ctx.isDeepThinking());
+        EvalContextDump.write("chat_request", m);
+    }
+
+    private void dumpPipelineExit(StreamChatContext ctx, String stage) {
+        if (!EvalContextDump.enabled()) {
+            return;
+        }
+        EvalContextDump.write("pipeline_exit", Map.of("taskId", ctx.getTaskId(), "stage", stage));
+    }
+
+    /**
+     * 实收检索事件：kb_context_full=enrich 后合成真实输入（含引用编号态），chunks=候选
+     * （text 抹锚点与合成输入同口径）；associate.received_chunks 按子串命中判实收/截断。
+     */
+    private void dumpKbSearch(StreamChatContext ctx, RetrievalContext retrievalCtx) {
+        if (!EvalContextDump.enabled()) {
+            return;
+        }
+        String full = retrievalCtx.getKbContext() == null ? "" : retrievalCtx.getKbContext();
+        List<Map<String, Object>> chunks = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        if (retrievalCtx.getIntentChunks() != null) {
+            for (List<RetrievedChunk> chunkList : retrievalCtx.getIntentChunks().values()) {
+                if (chunkList == null) {
+                    continue;
+                }
+                for (RetrievedChunk chunk : chunkList) {
+                    if (chunk == null || chunk.getId() == null || !seen.add(chunk.getId())) {
+                        continue;
+                    }
+                    String text = citationContextEnricher.stripDocIdAnchors(
+                            chunk.getText() == null ? "" : chunk.getText());
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("id", chunk.getId());
+                    row.put("docId", chunk.getDocId());
+                    row.put("docName", chunk.getDocName());
+                    row.put("collectionName", chunk.getCollectionName());
+                    row.put("chunkIndex", chunk.getChunkIndex());
+                    row.put("score", chunk.getScore());
+                    row.put("rerankScore", chunk.getRerankScore());
+                    row.put("chars", text.length());
+                    row.put("text", text);
+                    chunks.add(row);
+                }
+            }
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("query", ctx.getQuestion());
+        m.put("rewritten", ctx.getRewriteResult() == null || ctx.getRewriteResult().rewrittenQuestion() == null
+                ? "" : ctx.getRewriteResult().rewrittenQuestion());
+        m.put("hasKb", true);
+        m.put("kbContextChars", full.length());
+        m.put("kb_context_full", full);
+        m.put("chunks", chunks);
+        EvalContextDump.write("kb_search", m);
+    }
+
+    /**
+     * 合成消息事件：逐条 role/sha256/chars，SYSTEM 与 USER 落全文（三层 hash 第三层=
+     * 实际发送 system 提示的 sha256，随 CurrentDateFact/围栏/引用/语言约束合成逐题核验）
+     */
+    private void dumpAnswerMessages(List<ChatMessage> messages) {
+        if (!EvalContextDump.enabled()) {
+            return;
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (ChatMessage msg : messages) {
+            String content = msg.getContent() == null ? "" : msg.getContent();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("role", msg.getRole() == null ? "" : msg.getRole().name());
+            row.put("chars", content.length());
+            row.put("sha256", DigestUtil.sha256Hex(content));
+            if (msg.getRole() == ChatMessage.Role.SYSTEM || msg.getRole() == ChatMessage.Role.USER) {
+                row.put("content_full", content);
+            }
+            rows.add(row);
+        }
+        EvalContextDump.write("kb_answer_msgs", Map.of("messages", rows));
     }
 
     // ==================== 流水线阶段 ====================
@@ -198,6 +303,8 @@ public class StreamChatPipeline {
         // 装配 grounding 片段随消息落库 供答案后推荐追问生成 grounding（不参与 prompt）
         ctx.getCallback().onGroundingChunks(groundingChunksAssembler.assemble(retrievalCtx.getIntentChunks()));
 
+        dumpKbSearch(ctx, retrievalCtx);
+
         StreamCancellationHandle handle = streamLLMResponse(
                 ctx.getRewriteResult(),
                 retrievalCtx,
@@ -253,6 +360,7 @@ public class StreamChatPipeline {
                 true,
                 answerLanguage
         );
+        dumpAnswerMessages(messages);
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
                 .thinking(deepThinking)
