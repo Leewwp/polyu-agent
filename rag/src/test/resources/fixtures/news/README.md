@@ -40,3 +40,15 @@ SAO 学生发展组活动日历真实响应快照（裁剪件：7 条留 4——
 robots 实判：`www.polyu.edu.hk/robots.txt` Disallow 仅各子站 search-results 与 `/cpa/souvenirs/`，API 路径 `/en/api/sitecore/calendar/get` 未禁（大学级 events 源同判例）。
 
 sao-events 特记（与大学级 events 的差异）：calendar id 不同（`6840C445…` vs `F45B40DE…`）；`eventTypeList` 仅 Student Development 一类；**跨段活动按日期段拆条**（CLF 9/3-4 与 9/7-8 两条，详情页 slug 含日期段 `-090304`/`-090708`，URL 去重后仍独立成条）；日历渐进排期——下月空数组属正常空态（2026-11 实采 `{"events":[],"eventTypeList":[]}` 32 字节），源列 `allow-empty-sources`（#186 有效空语义），空月断言钉在 `NewsEventsJsonParserTests#saoEmptyMonthIsValidEmptyOnlyWhenNotFailClosed`。
+
+## #410 新增（2026-10-29，分支 `feat/410-bline-official-sources`）
+
+B 线三源真实响应快照：JUPAS 两端点为整件（页面 JS 取数口原样，分别为 JSON `{html: filterTable 行}` 与 JSON 数组）；UGC 为首页 What's-new 轮播区块裁剪件（横幅轮播留纯图片首帧证伪、Recommended 区 h5 随页随带但不在 `#carouselnew .item` 选择器域内）。抓取口径与生产同款：UA=`polyuguide-feed/1.0 (+https://polyuguide.com)`，生产腾讯 HK 出口 `curl -4` 直连（本机直连对 jupas/ugc 出口差异不可复现生产判例）。快照为真实第三方内容，仅作本项目测试夹具使用，不额外公开传播。
+
+| fixture | source_key | 抓取 URL | 实采状态 | 解析族 | sha256 |
+|---|---|---|---|---|---|
+| jupas-news.json | jupas-news | https://www.jupas.edu.hk/en/news/json_news_filter/all/ | 200，7 行，整件 | JUPAS 新闻 JSON 端点族（#410 第 6 族） | 1eb7ab15d334256edeee0c49d769d7c6aa1aadf1e40dd25bc3ea4dc90fce1c4f |
+| jupas-programme-changes.json | jupas-programme-changes | https://www.jupas.edu.hk/en/programmes-offered/programme-changes/data/ | 200，15 行（拆条 35），整件 | JUPAS 课程变更 JSON 数组族（#410 第 7 族） | 4fea82beb7cdb320a38e97f81260dfd743f8b2554efdf46f519e4921f39fe452 |
+| ugc-whatnews.html | ugc-whatnews | https://www.ugc.edu.hk/eng/ugc/index.html | 200，轮播 10 条全留 | UGC 首页 What's-new 轮播族（#410 第 8 族，dd.MM.uuuu 日期格式新增） | 4fcd4f1c66b9c135b382e839e1afe0202803d856fc5e83f014025ac343ebb14d |
+
+robots 实判（抓取时生产侧原样复核）：`www.jupas.edu.hk/robots.txt` 与 `www.ugc.edu.hk/robots.txt` 均 HTTP 404——REP 404=允许全抓（`NewsHttpFetchClient`「robots 4xx 视为允许」既有口径）；无 Crawl-delay。日/月序锚点：UGC newsDate `(09.10.2026)` 对应新闻稿文件名 `pr20261009`。

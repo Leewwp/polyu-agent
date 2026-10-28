@@ -89,7 +89,8 @@ class NewsGateWordlistBindingTest {
     }
 
     /**
-     * 端到端：真实 application.yaml 整档过绑定器，门三源与词表量级可从属性对象读出
+     * 端到端：真实 application.yaml 整档过绑定器，门生效源（#277 媒体三源+#410 B 线
+     * 官方三源）与词表量级可从属性对象读出
      */
     @Test
     void 真实yaml整档绑定后门配置可达() {
@@ -102,7 +103,8 @@ class NewsGateWordlistBindingTest {
                 .bind("rag.news", Bindable.of(NewsFetchProperties.class)).get();
 
         assertThat(bound.getGateSourceKeys())
-                .containsExactlyInAnyOrder("scmp-education", "rthk-local-news", "gia-news");
+                .containsExactlyInAnyOrder("scmp-education", "rthk-local-news", "gia-news",
+                        "jupas-news", "jupas-programme-changes", "ugc-whatnews");
         assertThat(bound.getUnambiguousTerms())
                 .as("词表规模应与 yaml 显式清单一致（30+ 项），缩水说明绑定退回了 Java 默认拷贝")
                 .hasSizeGreaterThanOrEqualTo(30)
