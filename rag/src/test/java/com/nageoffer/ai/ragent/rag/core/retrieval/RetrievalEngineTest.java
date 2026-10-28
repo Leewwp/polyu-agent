@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.core.retrieval;
 
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunkKey;
+import com.nageoffer.ai.ragent.rag.config.RAGConfigProperties;
 import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
@@ -99,7 +100,9 @@ class RetrievalEngineTest {
                 any(SubQuestionIntent.class), any(RetrievalBudget.class)))
                 .thenReturn(new KnowledgeRetrievalResult(List.of(globalChunk), Map.of(), Set.of()));
         ContextFormatter contextFormatter = new DefaultContextFormatter(
-                new PromptTemplateLoader(new DefaultResourceLoader()));
+                new PromptTemplateLoader(new DefaultResourceLoader()),
+                () -> java.time.LocalDate.of(2026, 10, 29),
+                asofDisabledProps());
 
         RetrievalContext result = engine(multiChannel, contextFormatter).retrieve(List.of(
                 new SubQuestionIntent("问题", List.of(
@@ -185,8 +188,13 @@ class RetrievalEngineTest {
                 contextFormatter,
                 mock(PromptTemplateLoader.class),
                 multiChannel,
-                Runnable::run
-        );
+                Runnable::run);
+    }
+
+    private RAGConfigProperties asofDisabledProps() {
+        RAGConfigProperties props = new RAGConfigProperties();
+        props.setAsofEnabled(false);
+        return props;
     }
 
     private NodeScore intent(String id) {

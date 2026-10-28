@@ -107,4 +107,11 @@ public class RetrievedChunk {
      * 证据来源未携带日期（如知识库文档、联网检索）时保持 null，由上下文组装层渲染「日期未知」标记
      */
     private String sourceDate;
+
+    /**
+     * 活动截止日期元数据（yyyy-MM-dd，#411 双日期列）：报名/申请/缴费等条目级截止事实，
+     * null=无截止语义或日期未知（不虚构不推算）。
+     * 与 {@link #sourceDate} 两族语义独立（发布≠截止，不得互替），组装层据此做 as-of 状态计算（#413）
+     */
+    private String activityEndDate;
 }

@@ -18,14 +18,17 @@
 package com.nageoffer.ai.ragent.rag.core.prompt;
 
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
+import com.nageoffer.ai.ragent.rag.config.RAGConfigProperties;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -37,11 +40,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 2. 只注入内部 docId 与日期标记作为属性，文档名（含文件名）绝不进上下文；docId 缺失的块单独成组
  * 3. 同文档的块按 index 排好后用单换行顺次拼接
  * 4. 日期元数据透传（#327）：每条证据块带日期标记——有日期显日期，无日期显「日期未知」
+ * 5. as-of 日期事实注入（#413，开关 rag.asof.enabled）：带日期证据块首注入〔日期事实〕行
+ *    （确定性状态+截至声明），无日期维持「日期未知」降级且不注入；开关关闭=既有口径零变化
  */
 class DefaultContextFormatterTest {
 
+    /** 固定判定基准日：时钟注入可测（#413 验收门），全部 as-of 判定可固定复现 */
+    private static final LocalDate AS_OF = LocalDate.of(2026, 10, 29);
+
+    /** 既有契约默认走开关关闭态（生产默认），行为与 #413 之前完全一致 */
     private DefaultContextFormatter formatter() {
-        return new DefaultContextFormatter(new PromptTemplateLoader(new DefaultResourceLoader()));
+        return formatter(false);
+    }
+
+    private DefaultContextFormatter formatter(boolean asofEnabled) {
+        RAGConfigProperties props = new RAGConfigProperties();
+        props.setAsofEnabled(asofEnabled);
+        return new DefaultContextFormatter(
+                new PromptTemplateLoader(new DefaultResourceLoader()), () -> AS_OF, props);
     }
 
     private RetrievedChunk chunk(String id, String text, String docId, String docName, Integer index, float score) {
@@ -57,6 +73,16 @@ class DefaultContextFormatterTest {
                 .id(id).text(text).score(score)
                 .docId(docId).docName(docName).chunkIndex(index)
                 .sourceDate(sourceDate)
+                .build();
+    }
+
+    private RetrievedChunk chunk(String id, String text, String docId, String docName, Integer index, float score,
+                                 String sourceDate, String activityEndDate) {
+        return RetrievedChunk.builder()
+                .id(id).text(text).score(score)
+                .docId(docId).docName(docName).chunkIndex(index)
+                .sourceDate(sourceDate)
+                .activityEndDate(activityEndDate)
                 .build();
     }
 
@@ -249,5 +275,159 @@ class DefaultContextFormatterTest {
 
         assertTrue(result.contains("data-ragent-date=\"2026-09-12\""));
         assertFalse(result.contains("data-ragent-date=\"日期未知\""), "同文档任一块带日期即整块按该日期标注");
+    }
+
+    // ==================== as-of 日期事实注入（#413）====================
+
+    @Test
+    void expiredDeadlineCarriesExpiredFactLine() {
+        // 截止日已过：块首注入〔日期事实〕行=已过期+截至声明；截止日期回落进日期标记（该组无发布日期）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("d1", "授课型研究生申请截止正文", "docTpg", "taught-postgraduate", 0, 0.9f,
+                        null, "2026-10-20"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"2026-10-20\""), "仅有截止日期的证据标记真实日期而非日期未知");
+        assertTrue(result.contains("〔日期事实〕截止日期 2026-10-20：已过期，截止日已过（截至 2026-10-29，香港时间）"),
+                "过期事实行须含确定性状态与截至声明：" + result);
+        assertTrue(result.indexOf("〔日期事实〕") < result.indexOf("授课型研究生申请截止正文"),
+                "事实行在块首、先于证据正文");
+    }
+
+    @Test
+    void deadlineTodayCarriesOngoingTodayFactLine() {
+        // 截止日即当日：进行中且今日为截止日（HKT 日界内同日不算过期）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("d1", "当日截止正文", "docT", "通知", 0, 0.9f, null, AS_OF.toString()));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("〔日期事实〕截止日期 " + AS_OF + "：进行中，今日为截止日（截至 " + AS_OF + "，香港时间）"),
+                result);
+    }
+
+    @Test
+    void futureDeadlineCarriesOngoingFactLine() {
+        // 截止日在未来：进行中、尚未截止
+        List<RetrievedChunk> chunks = List.of(
+                chunk("d1", "未来截止正文", "docF", "通知", 0, 0.9f, null, "2026-11-15"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("〔日期事实〕截止日期 2026-11-15：进行中，尚未截止（截至 2026-10-29，香港时间）"),
+                result);
+    }
+
+    @Test
+    void futureSourceDateCarriesNotStartedFactLine() {
+        // 资料日期在未来：未开始（描述的未来安排尚未生效）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("s1", "未来学年安排正文", "docFuture", "年度日程", 0, 0.9f, "2027-01-05"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("〔日期事实〕资料日期 2027-01-05：未开始，日期在未来（截至 2026-10-29，香港时间）"),
+                result);
+    }
+
+    @Test
+    void pastSourceDateOnlyCarriesOngoingFactLine() {
+        // 仅有已过发布日期、无截止语义：现行资料（不虚构过期——#376 红线）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("s1", "图书馆开放时间正文", "docLib", "图书馆页面", 0, 0.9f, "2026-09-02"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("〔日期事实〕资料日期 2026-09-02：进行中，现行资料（截至 2026-10-29，香港时间）"),
+                result);
+        assertFalse(result.contains("已过期"), "无截止日期不得判过期");
+    }
+
+    @Test
+    void bothDatesPresentFactLineFollowsDeadline() {
+        // 同块双日期（如 Annual Schedule：发布 2026-07-21+缴费截止 2026-09-01）：状态由截止族裁决
+        List<RetrievedChunk> chunks = List.of(
+                chunk("b1", "年度日程缴费正文", "docAnnual", "年度日程", 0, 0.9f, "2026-07-21", "2026-09-01"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"2026-07-21\""), "发布日期仍是标记首选");
+        assertTrue(result.contains("〔日期事实〕截止日期 2026-09-01：已过期，截止日已过（截至 2026-10-29，香港时间）"),
+                result);
+    }
+
+    @Test
+    void undatedEvidenceKeepsUnknownMarkerWithoutFactLine() {
+        // 双日期缺失：维持「日期未知」降级，且不注入事实行（缺失即缺失，不虚构）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("u1", "无日期知识库正文", "docUnknown", "页面", 0, 0.9f));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"日期未知\""));
+        assertFalse(result.contains("〔日期事实〕"), "无日期证据不得注入事实行");
+    }
+
+    @Test
+    void malformedDateValuesDegradeToUnknown() {
+        // 读回链路意外形态的日期值按无日期处理，不抛异常不虚构
+        List<RetrievedChunk> chunks = List.of(
+                chunk("m1", "畸形日期正文", "docMal", "页面", 0, 0.9f, "not-a-date", "2026/13/40"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"日期未知\""), "畸形日期值不得进标记");
+        assertFalse(result.contains("〔日期事实〕"), "畸形日期值不得产事实行");
+    }
+
+    @Test
+    void asofDisabledKeepsLegacyOutputExactly() {
+        // 开关关闭=既有口径：截止日期不回落进标记、无事实行（回滚面与 #413 之前逐字节一致）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("d1", "截止类正文", "docTpg", "通知", 0, 0.9f, null, "2026-10-20"));
+
+        String result = formatter(false).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("data-ragent-date=\"日期未知\""), "开关关闭时截止日期不回落进标记");
+        assertFalse(result.contains("〔日期事实〕"), "开关关闭时不注入事实行");
+        assertEquals("<content data-ragent-date=\"日期未知\" data-ragent-doc-id=\"docTpg\">\n截止类正文\n</content>",
+                result.trim(), "开关关闭时输出与既有格式化契约完全一致");
+    }
+
+    @Test
+    void clockIsInjectableAndDrivesAsOfDeclaration() {
+        // 时钟注入可测：同一证据，基准日不同→截至声明与状态随之确定变化（不直接 new 时间源）
+        List<RetrievedChunk> chunks = List.of(
+                chunk("c1", "时钟注入正文", "docClock", "通知", 0, 0.9f, null, "2026-10-29"));
+
+        RAGConfigProperties enabled = new RAGConfigProperties();
+        enabled.setAsofEnabled(true);
+        DefaultContextFormatter dayBefore = new DefaultContextFormatter(
+                new PromptTemplateLoader(new DefaultResourceLoader()), () -> LocalDate.of(2026, 10, 28), enabled);
+        DefaultContextFormatter dayOf = new DefaultContextFormatter(
+                new PromptTemplateLoader(new DefaultResourceLoader()), () -> AS_OF, enabled);
+
+        String before = dayBefore.formatKbContext(List.of(), Set.of(), chunks, 100);
+        String today = dayOf.formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(before.contains("尚未截止（截至 2026-10-28，香港时间）"), before);
+        assertTrue(today.contains("今日为截止日（截至 2026-10-29，香港时间）"), today);
+    }
+
+    @Test
+    void factLineStaysInsideContentFenceWithDocIdAnchor() {
+        // 事实行注入不得破坏锚点结构：标签行保持 docId 收尾（CitationContextEnricher 正则依赖），
+        // 且事实行不出现在标签行上
+        List<RetrievedChunk> chunks = List.of(
+                chunk("f1", "围栏结构正文", "docFence", "通知", 0, 0.9f, null, "2026-10-20"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("<content data-ragent-date=\"2026-10-20\" data-ragent-doc-id=\"docFence\">"),
+                "标签行须保持既有结构");
+        assertTrue(result.replace("\r\n", "\n")
+                        .contains("<content data-ragent-date=\"2026-10-20\" data-ragent-doc-id=\"docFence\">\n〔日期事实〕"),
+                "事实行紧跟标签行之后、在 <content> 围栏内：" + result);
     }
 }
