@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.knowledge.service.impl;
 
 import cn.hutool.core.collection.CollUtil;
+import com.nageoffer.ai.ragent.core.chunk.dates.ChunkDateFacts;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeChunkDO;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeChunkMapper;
@@ -48,9 +49,11 @@ public class ChunkMetadataResolver {
     private final KnowledgeDocumentMapper documentMapper;
 
     /**
-     * 分块所属文档的元数据
+     * 分块所属文档的元数据；sourceDate/activityEndDate 为 #411 双日期列的 yyyy-MM-dd 读回
+     * （NULL 列解析为 null，组装层按「日期未知」降级）
      */
-    public record ChunkMeta(String docId, Integer chunkIndex, String docName) {
+    public record ChunkMeta(String docId, Integer chunkIndex, String docName,
+                            String sourceDate, String activityEndDate) {
     }
 
     /**
@@ -90,7 +93,9 @@ public class ChunkMetadataResolver {
             result.put(chunk.getId(), new ChunkMeta(
                     chunk.getDocId(),
                     chunk.getChunkIndex(),
-                    docNameById.get(chunk.getDocId())));
+                    docNameById.get(chunk.getDocId()),
+                    ChunkDateFacts.toIsoDay(chunk.getSourceDate()),
+                    ChunkDateFacts.toIsoDay(chunk.getActivityEndDate())));
         }
         return result;
     }
