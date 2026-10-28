@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { dayLabels, feedDateLabels, formatUpdatedLabel, hktClockSafe, hktDateKey, mapHotEntry, mapNewsItem, mapTopic } from "./newsMapping";
+import { dayLabels, feedDateLabels, formatUpdatedLabel, hktClockSafe, hktDateKey, mapDailyDigest, mapHotEntry, mapNewsItem, mapTopic } from "./newsMapping";
 
 /**
  * 真数据映射层单测：HKT 日期件（切日/今天昨天/普通日双语）、
@@ -155,6 +155,71 @@ describe("mapHotEntry", () => {
     expect(entry.heat).toBe(7);
     expect(entry.tags).toEqual(["fresh"]);
     expect(entry.sources).toHaveLength(2);
+  });
+});
+
+describe("mapDailyDigest（#412「八校/高教」栏目透出）", () => {
+  it("carries higherEdEntries through the VO→frontend mapping with source identity intact", () => {
+    const mapped = mapDailyDigest({
+      digestDate: "2026-10-24",
+      windowStart: "2026-10-23 08:00",
+      windowEnd: "2026-10-24 08:00",
+      introZh: "导语",
+      introEn: "Intro",
+      storedIntroSource: "llm",
+      introDegraded: false,
+      itemCount: 0,
+      visibleCount: 0,
+      disqualifiedCount: 0,
+      items: [],
+      higherEdEntries: [
+        {
+          itemId: 3855,
+          seq: 1,
+          url: "https://www.jupas.edu.hk/en/programme/hku/JS6224",
+          titleZh: null,
+          titleEn: "Updates on HKU Programme (JS6224)",
+          summaryZh: null,
+          summaryEn: null,
+          category: "other",
+          publishTime: "2026-10-23T15:59:59.000Z",
+          publishTimePrecision: "date",
+          source: {
+            sourceKey: "jupas-news",
+            platform: "media",
+            official: false,
+            displayName: "JUPAS 新闻公告",
+            displayNameEn: "JUPAS News & Announcements"
+          }
+        }
+      ],
+      buildTime: "2026-10-24T08:40:00+08:00"
+    });
+    // 映射层不得丢字段（真实页判例：漏映射=栏目整段不渲染）
+    expect(mapped.higherEdEntries).toHaveLength(1);
+    const entry = mapped.higherEdEntries![0];
+    expect(entry.itemId).toBe(3855);
+    expect(entry.publishTimePrecision).toBe("date");
+    expect(entry.source?.sourceKey).toBe("jupas-news");
+    expect(entry.source?.displayName).toBe("JUPAS 新闻公告");
+  });
+
+  it("yields an empty section list when the VO carries no B-line entries", () => {
+    const mapped = mapDailyDigest({
+      digestDate: "2026-10-29",
+      windowStart: "2026-10-28 08:00",
+      windowEnd: "2026-10-29 08:00",
+      introZh: "导语",
+      introEn: "Intro",
+      storedIntroSource: "llm",
+      introDegraded: false,
+      itemCount: 1,
+      visibleCount: 1,
+      disqualifiedCount: 0,
+      items: [],
+      buildTime: "2026-10-29T08:40:00+08:00"
+    });
+    expect(mapped.higherEdEntries).toEqual([]);
   });
 });
 

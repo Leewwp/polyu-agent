@@ -15,6 +15,7 @@ import {
   dailyMonthKey,
   dailyMonthLabel,
   hktClockSafe,
+  hktDateKey,
   hktTodayKey
 } from "@/services/newsMapping";
 import {
@@ -29,6 +30,7 @@ import type {
   NewsCategory,
   NewsDailyDigest,
   NewsDailyDigestActivity,
+  NewsDailyDigestHigherEdEntry,
   NewsDailyDigestItem,
   NewsDailyDigestKeyDate,
   NewsDailyDigestSummary
@@ -62,7 +64,11 @@ import { cn } from "@/lib/utils";
  *   切期关闭旧目录抽屉；
  * - 头部固定栏目：#316 L1 校历关键日期 + #330 L2 校园活动（「进行中/
  *   即将来临」两组、日历块卡片、与 L1 视觉区分）——均纯数据快照零 LLM、
- *   空窗整段隐藏、空刊保底呈现。
+ *   空窗整段隐藏、空刊保底呈现；
+ * - 尾部独立栏目：#412「八校/高教」——B 线注册源（#410）的过门进刊条目
+ *   （联校课程/JUPAS 与研究生政策/UGC 高教政策），生成端分流不进主资讯流
+ *   （items 不含 B 线条目）、置于主版面之后不淹没主流程；来源徽章直映
+ *   快照（JUPAS/UGC 可辨识）；空=整段隐藏、空刊仍呈现（供给解耦）。
  */
 
 /** 版序 = feed 类目 chips 序（#237 Q7：版序沿用 feed 类目序；other 兜底最后） */
@@ -176,16 +182,19 @@ function deriveIssue(digest: NewsDailyDigest): DerivedIssue {
   };
 }
 
-function SourceDot({ item }: { item: NewsDailyDigestItem }) {
-  const label = item.source?.displayName ?? item.source?.displayNameEn ?? "";
-  if (!item.source) {
+/** 信源徽章（结构化 source 快照——主条目与「八校/高教」栏目条目共用，#412） */
+type SourceSnapshot = NonNullable<NewsDailyDigestItem["source"] | NewsDailyDigestHigherEdEntry["source"]>;
+
+function SourceDot({ source }: { source: SourceSnapshot | null }) {
+  const label = source?.displayName ?? source?.displayNameEn ?? "";
+  if (!source) {
     return <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">未知来源</span>;
   }
   return (
     <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--feed-text-secondary)]">
       <i
         className="h-[7px] w-[7px] flex-none rounded-full"
-        style={{ backgroundColor: NEWS_PLATFORM_COLORS[item.source.platform] ?? NEWS_PLATFORM_COLOR_DEFAULT }}
+        style={{ backgroundColor: NEWS_PLATFORM_COLORS[source.platform] ?? NEWS_PLATFORM_COLOR_DEFAULT }}
       />
       {label}
     </span>
@@ -212,7 +221,7 @@ function EntryCard({ item, headline = false }: { item: NewsDailyDigestItem; head
           </span>
         )}
         <span className="text-xs tabular-nums text-[var(--feed-text-tertiary)]">{time}</span>
-        <SourceDot item={item} />
+        <SourceDot source={item.source} />
         <span className="rounded-full bg-[var(--polyu-red-50)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--polyu-red-dark)]">
           {zh ? NEWS_CATEGORY_LABELS_ZH[item.category] : NEWS_CATEGORY_LABELS_EN[item.category]}
         </span>
@@ -469,7 +478,7 @@ function SectionBlocks({ derived }: { derived: DerivedIssue }) {
                 <Link to={`/news/${item.itemId}`} className="line-clamp-1 min-w-0 flex-1 text-[13px] font-medium text-[var(--feed-text-primary)] hover:text-[var(--polyu-red)]">
                   {(zh ? item.titleZh : item.titleEn) || ""}
                 </Link>
-                <SourceDot item={item} />
+                <SourceDot source={item.source} />
               </div>
             ))}
           </div>
@@ -645,6 +654,83 @@ function ActivityCard({ row, zh }: { row: NewsDailyDigestActivity; zh: boolean }
     <a className={cls} href={row.url} target="_blank" rel="noopener noreferrer">
       {body}
     </a>
+  );
+}
+
+/**
+ * 「八校/高教」独立栏目（#412 B 线，父票 #406）：八校联校课程与交换 /
+ * JUPAS 与研究生政策 / UGC 高教政策三类横向信息——B 线注册源（#410）的
+ * 过门进刊条目，独立栏目呈现、来源可辨识（信源徽章直映快照），不与理大
+ * 本校新闻混淆、不进主资讯流（生成端已分流，items 不含 B 线条目）。
+ * - 窗口零 B 线条目=整段隐藏（优雅缺席：不空占位不报错）；空刊（休刊卡）
+ *   仍照常呈现——供给与资讯量解耦；
+ * - 条目=紧凑行卡（快讯行同形态）：HKT 发布日期（date 精度只显日期）+
+ *   标题（进 /news/{id} 详情）+信源徽章+原文外链（官方原文，新窗打开）；
+ * - 量级护栏在生成端（准入每源日上限+栏目容量界），读取面零逻辑。
+ */
+function HigherEdBand({ entries }: { entries: NewsDailyDigestHigherEdEntry[] }) {
+  const { lang } = useFeedLang();
+  const zh = lang === "zh";
+  if (entries.length === 0) {
+    return null;
+  }
+  // 客户端按快照序兜底排序（后端 seq 升序返回，防御数组乱序）
+  const rows = [...entries].sort((a, b) => a.seq - b.seq);
+  return (
+    <section id="sec-higher-ed" className="mb-6 scroll-mt-[76px]" aria-label={zh ? "八校/高教" : "HK universities & higher education"}>
+      {/* 红底横幅题头（固定栏目视觉语言）：栏目名+计数+范围说明（横向信息≠理大本校资讯） */}
+      <div className="mb-3 flex items-baseline gap-2.5 rounded-xl bg-[var(--polyu-red-50)] px-3.5 py-2">
+        <h2 className="text-[15.5px] font-bold text-[var(--polyu-red-dark)]">
+          {zh ? "八校/高教" : "HK Unis & Higher Ed"}
+        </h2>
+        <span className="text-[11.5px] font-semibold tabular-nums text-[var(--polyu-red-dark)]">
+          {zh ? `${rows.length} 条` : `${rows.length} items`}
+        </span>
+        <span className="ml-auto text-[10px] font-semibold tracking-[0.08em] text-[var(--polyu-red-dark)]">
+          {zh ? "联校课程 · 招生政策 · 高教动态" : "CROSS-U · ADMISSIONS · HIGHER ED"}
+        </span>
+      </div>
+      <div className="grid gap-2">
+        {rows.map((row) => (
+          <HigherEdRow key={row.itemId} row={row} zh={zh} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** 栏目行卡：HKT 发布日期+标题（站内详情）+信源徽章+官方原文外链 */
+function HigherEdRow({ row, zh }: { row: NewsDailyDigestHigherEdEntry; zh: boolean }) {
+  const title = (zh ? row.titleZh : row.titleEn) || (zh ? row.titleEn : row.titleZh) || "";
+  // date 精度=publish_time 为 23:59:59 归期代表值（#275）——只显 HKT 历日，不显时刻
+  const publish = row.publishTime ? new Date(row.publishTime) : null;
+  const dateKey = publish && !Number.isNaN(publish.getTime()) ? hktDateKey(publish) : "";
+  return (
+    <div className="flex items-center gap-2.5 rounded-xl border border-[var(--feed-line)] bg-[var(--feed-card)] px-3.5 py-2 shadow-sm">
+      {dateKey && (
+        <span className="flex-none text-[11px] tabular-nums text-[var(--feed-text-tertiary)]">
+          {zh ? zhDate(dateKey) : enDate(dateKey)}
+        </span>
+      )}
+      <Link
+        to={`/news/${row.itemId}`}
+        className="line-clamp-1 min-w-0 flex-1 text-[13px] font-medium text-[var(--feed-text-primary)] hover:text-[var(--polyu-red)]"
+      >
+        {title}
+      </Link>
+      <SourceDot source={row.source} />
+      {isSafeUrl(row.url) && (
+        <a
+          href={row.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={zh ? "查看原文" : "Original article"}
+          className="flex-none text-[12px] text-[var(--feed-text-tertiary)] transition-colors hover:text-[var(--polyu-red)]"
+        >
+          ↗
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -1101,6 +1187,9 @@ function IssueBody({
       ) : (
         <EmptyIssueCard digest={digest} />
       )}
+      {/* #412「八校/高教」独立栏目：B 线横向信息置于主资讯流之后（不淹没主流程）；
+          空=整段隐藏；空刊（休刊卡）仍呈现——供给与资讯量解耦 */}
+      <HigherEdBand entries={digest.higherEdEntries ?? []} />
       {hasCatalog && <PrevNext summaries={summaries} selectedDate={digest.digestDate} />}
       <div className="mt-6 border-t border-[var(--feed-line-soft)] pt-4 text-center">
         <span className="text-[11.5px] text-[var(--feed-text-tertiary)]">

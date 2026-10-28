@@ -113,6 +113,14 @@ public class NewsDailyDigestVO {
     private List<NewsDailyDigestActivityVO> activities;
 
     /**
+     * 「八校/高教」独立栏目条目快照（#412 B 线：B 线注册源的过门进刊条目，
+     * 读取期下架复检后的生效口径）。B 线条目不落 items（理大主流程不含
+     * B 线条目）；窗口零条目=空列表，前端整段隐藏不渲染空壳（优雅缺席）；
+     * 空刊（items 为空）仍照常携带——供给与资讯量解耦
+     */
+    private List<NewsDailyDigestHigherEdEntryVO> higherEdEntries;
+
+    /**
      * 生成时刻
      */
     private Date buildTime;

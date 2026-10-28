@@ -1408,7 +1408,7 @@ CREATE TABLE t_news_daily_digest (
 COMMENT ON TABLE t_news_daily_digest IS '资讯日报刊头（#212：HKT 日期唯一一刊；快照独立于 t_news_item 90 天清理——条目内容冗余在快照行表，本表只存刊头/导语/统计）';
 COMMENT ON COLUMN t_news_daily_digest.digest_date IS 'HKT 日报日期=窗口闭端日：窗口=[前一 08:00, 本日 08:00) 左闭右开；publish_time 恰落 08:00:00.000 归属下一期';
 COMMENT ON COLUMN t_news_daily_digest.intro_source IS '导语产出方式：llm=预算护栏内单次调用；fallback=LLM 失败/预算耗尽的固定模板（零新增调用）；empty=空刊模板（零调用）';
-COMMENT ON COLUMN t_news_daily_digest.item_count IS '生成时刻的快照条数；读取期主动下架复检后的可见条数以接口实时过滤为准';
+COMMENT ON COLUMN t_news_daily_digest.item_count IS '生成时刻的主资讯流快照条数（不含八校/高教与校历/活动栏目行）；读取期主动下架复检后的可见条数以接口实时过滤为准';
 COMMENT ON COLUMN t_news_daily_digest.status IS 'published=现行刊；rebuild_pending=预留（主动下架降级态），当前默认回退路径=读取期零调用过滤+模板导语';
 
 CREATE TABLE t_news_daily_digest_item (
@@ -1483,6 +1483,32 @@ COMMENT ON COLUMN t_news_daily_digest_activity.seq IS '版面内序（1 起，�
 COMMENT ON COLUMN t_news_daily_digest_activity.date_start IS '活动开始日（#323 模型：publish_time=活动开始，投影换算 HKT 历日；版面按活动实体日期组织，非 publish_time 窗口）';
 COMMENT ON COLUMN t_news_daily_digest_activity.date_end IS '活动结束日（activity_end_time 换算 HKT 历日；date-only 结束证据按当日 23:59:59 含端代表值入库，投影为当日历日）';
 COMMENT ON COLUMN t_news_daily_digest_activity.ongoing IS '进行中=开始日 < 刊日 且 结束日 >= 刊日（当日开始归「即将来临」，与 L1 关键日期「当日开始不标进行中」同口径；as-of=刊日生成期冻结，不随读取时刻漂移）';
+
+CREATE TABLE t_news_daily_digest_higher_ed (
+  id                     BIGSERIAL PRIMARY KEY,
+  digest_id              BIGINT       NOT NULL REFERENCES t_news_daily_digest(id) ON DELETE CASCADE,
+  item_id                BIGINT       NOT NULL,    -- 溯源 t_news_item.id（无外键：90 天保留清理删除不连带）
+  seq                    INT          NOT NULL,    -- 栏内序（1 起，publish_time DESC、id 兜底）
+  url                    VARCHAR(1024) NOT NULL,   -- 原文永久外链（JUPAS/UGC 官方原文）
+  url_hash               VARCHAR(64),
+  title_zh               VARCHAR(512),
+  title_en               VARCHAR(512),
+  summary_zh             TEXT,
+  summary_en             TEXT,
+  category               VARCHAR(32)  NOT NULL DEFAULT 'other',
+  source_key             VARCHAR(64)  NOT NULL,    -- B 线源 key 快照（分流判据的生成期留证）
+  source_platform        VARCHAR(16),
+  source_official        BOOLEAN,
+  source_display_name    VARCHAR(128),             -- 来源标识（页面徽章直映）
+  source_display_name_en VARCHAR(128),
+  publish_time           TIMESTAMP,                -- 窗口归属锚（与主流程同窗同判）
+  publish_time_precision VARCHAR(8)   NOT NULL DEFAULT 'unknown',  -- date/datetime/unknown（#275）
+  CONSTRAINT uq_news_daily_digest_higher_ed UNIQUE (digest_id, item_id)
+);
+CREATE INDEX idx_news_daily_digest_higher_ed_digest ON t_news_daily_digest_higher_ed(digest_id);
+COMMENT ON TABLE t_news_daily_digest_higher_ed IS '日报八校/高教独立栏目快照（#412 B 线：八校联校课程与交换/JUPAS 与研究生政策/UGC 高教政策三类横向信息；纯数据零 LLM；B 线源条目不落 t_news_daily_digest_item——理大主资讯流不含 B 线条目；(digest_id,item_id) 唯一；刊头删除级联带走）';
+COMMENT ON COLUMN t_news_daily_digest_higher_ed.seq IS '栏内序（1 起，确定性：publish_time DESC、id 兜底——与主流程条目同一排序口径；容量=防御性护栏非选材过滤器）';
+COMMENT ON COLUMN t_news_daily_digest_higher_ed.source_key IS 'B 线源 key 快照（生成期分流判据留证：∈ rag.news.digest-higher-ed-source-keys，#410 注册源）';
 
 CREATE TABLE t_site_feedback (
   id            BIGSERIAL PRIMARY KEY,

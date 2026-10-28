@@ -267,6 +267,41 @@ public class NewsFetchProperties {
         return digestActivityMaxEntries > 0 ? digestActivityMaxEntries : 10;
     }
 
+    // ================== 日报「八校/高教」独立栏目（#412，父票 #406 B 线） ==================
+
+    /**
+     * 「八校/高教」栏目分流源集（#412）：source_key 命中本集的窗口条目落
+     * 独立栏目快照（t_news_daily_digest_higher_ed），<b>不落主资讯流快照</b>
+     * （t_news_daily_digest_item——理大主流程不含 B 线条目）。集=已注册的
+     * B 线官方源（#410 三源：八校联校课程与交换 / JUPAS 与研究生政策 /
+     * UGC 高教政策，#319 裁定三类）；后续 B 线扩源时同步追加本集与
+     * gate-source-keys。source 行缺失/未注册的条目 fail-open 留在主流程
+     * （只对可辨识的 B 线源分流）。
+     */
+    private java.util.Set<String> digestHigherEdSourceKeys = java.util.Set.of(
+            "jupas-news", "jupas-programme-changes", "ugc-whatnews");
+
+    /**
+     * 「八校/高教」栏目最大条数：防御性容量护栏（非选材过滤器——栏目内容=
+     * 窗口内全部过门 B 线条目）；默认 30=3 源×日准入上限 10（#410 各 10/日）
+     * 的理论上界，量级护栏主锚=准入侧每源日上限，本界只兜异常态
+     */
+    private int digestHigherEdMaxEntries = 30;
+
+    /**
+     * source_key 是否分流进「八校/高教」栏目（生成分流判据，#412）
+     */
+    public boolean isHigherEdSource(String sourceKey) {
+        return sourceKey != null && digestHigherEdSourceKeys.contains(sourceKey);
+    }
+
+    /**
+     * 「八校/高教」栏目最大条数有效值（非正回退 30）
+     */
+    public int effectiveDigestHigherEdMaxEntries() {
+        return digestHigherEdMaxEntries > 0 ? digestHigherEdMaxEntries : 30;
+    }
+
     /**
      * 日报单刊快照条数硬上界有效值（非正回退 200）
      */
