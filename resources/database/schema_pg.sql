@@ -245,10 +245,14 @@ CREATE TABLE t_knowledge_chunk (
     updated_by     VARCHAR(255),
     create_time    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted        SMALLINT    NOT NULL DEFAULT 0
+    deleted        SMALLINT    NOT NULL DEFAULT 0,
+    source_date       DATE,
+    activity_end_date DATE
 );
 CREATE INDEX idx_doc_id ON t_knowledge_chunk (doc_id);
 COMMENT ON TABLE t_knowledge_chunk IS '知识库文档分块表';
+COMMENT ON COLUMN t_knowledge_chunk.source_date IS '发布时间（#411 日期元数据）：页面发布/更新日期（#275 口径 yyyy-MM-dd），文档级事实按块序取首个显式发布标记后文档内同值传播；NULL=日期未知（不虚构不推算），同键透传向量 metadata JSONB 供读回通道消费';
+COMMENT ON COLUMN t_knowledge_chunk.activity_end_date IS '活动截止日期（#411 日期元数据）：报名/申请/缴费截止等条目级截止事实（date-only），仅含显式截止标记的块落值、文档内不传播；NULL=无截止语义或日期未知（不虚构不推算），以 activity_end_date 键透传向量 metadata JSONB 供组装层 as-of 计算消费';
 
 CREATE TABLE t_knowledge_document_chunk_log (
     id                 VARCHAR(20)      NOT NULL PRIMARY KEY,

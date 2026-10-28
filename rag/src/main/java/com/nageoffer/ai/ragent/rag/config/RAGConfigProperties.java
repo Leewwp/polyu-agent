@@ -70,6 +70,17 @@ public class RAGConfigProperties {
     private Boolean contextEnrichEnabled;
 
     /**
+     * as-of 日期事实注入开关（#413）
+     * <p>
+     * 开启后组装层按 HKT 当前日期对带日期证据做确定性状态计算（已过期/进行中/未开始），
+     * 在上下文文档块内注入〔日期事实〕行与「截至 YYYY-MM-DD」声明，截止日期亦回落进日期标记；
+     * 关闭则组装输出与既有口径完全一致（有日期显日期、无日期显「日期未知」、无状态行）
+     * 默认值：{@code false}（重放判据门 #414 过门后再开生产）
+     */
+    @Value("${rag.asof.enabled:false}")
+    private Boolean asofEnabled;
+
+    /**
      * 回答行内引用（数字角标）开关
      * <p>
      * 开启后为进入上下文的资料注入请求级引用编号，并动态追加行内引用规则，模型在正文末尾输出 {@code [N](#cite-N)}
