@@ -129,4 +129,71 @@ class EightUniversityGateTests {
                 "The University of Hong Kong (HKU) is looking to secure more laboratory space."));
         assertTrue(gate.mentions(null, "香港科技大學研究團隊宣布突破"));
     }
+
+    // ================== HKU 站名承袭排除语境（#409） ==================
+
+    @Test
+    void hkuStationMtrNameDoesNotAdmit() {
+        // #318/doc100 id 225 判例（17 天全窗唯一误收）：rthk 观塘线新闻，触发词 HKU
+        // 实为「HKU station」港铁港大站站名（通勤者受访语境），新闻本体为交通故障——
+        // 站名承袭语境不算八校命中，拒绝过门
+        assertFalse(gate.mentions("Kwun Tong Line train service back to normal",
+                "Savina, who was commuting from HKU station to Lam Tin for work, "
+                        + "said her journey was delayed on Tuesday morning."),
+                "id 225 判例回归：仅 HKU station 站名触发不得过门");
+        assertFalse(gate.mentions("hku station exit reopened after lift maintenance", null),
+                "小写站名语境同样排除");
+        assertFalse(gate.mentions("西港岛线港大站客流上升", null),
+                "中文站名「港大站」承袭「港大」同样排除（同一港铁站的中文站名）");
+    }
+
+    @Test
+    void stationExclusionOnlyMasksStationUsage() {
+        // 排除语境只抹除站名用法，不吞真高校语义命中：
+        assertTrue(gate.mentions("HKU stationery shop reopens on campus", null),
+                "stationery≠station（station 后接字母非站名）：HKU 真高校语境命中不受排除影响");
+        assertTrue(gate.mentions("New exit planned at HKU station, University of Hong Kong says",
+                "the works will finish by 2027."),
+                "同文并存站名与真校名全名：全名命中不受站名排除影响");
+        assertTrue(gate.mentions("港大站上盖的香港大学舍堂", null),
+                "中文同文并存：真全名「香港大学」仍命中");
+    }
+
+    // ================== doc100 全窗普查回归（#318 口径 16 条） ==================
+
+    @Test
+    void doc100CensusSamplesKeepVerdicts() {
+        // #318 实测口径：10-10…10-26 观察窗过门 16 条（全量普查），门域正确性 15/16=93.8%。
+        // 本排除语境落地后同一样本面=16/16（id 225 转拒绝，其余 15 条判定不变）。
+        // id 213 RSS 原描述已随轮转不可回放（触发证据不可复核），无法入回归。
+        assertTrue(gate.mentions("RGC public lecture on child development",
+                "Speakers from Hong Kong Polytechnic University and the Chinese University of Hong Kong."));
+        assertTrue(gate.mentions("Government appoints HA Board members",
+                "She is a professor at Hong Kong Polytechnic University."));
+        assertTrue(gate.mentions("Chronic disease co-care programme eases burden",
+                "HKU research led by the University of Hong Kong's medical school."));
+        assertTrue(gate.mentions("Shih Wing-ching speaks at HKU Innovation Week 2026", null));
+        assertFalse(gate.mentions("Kwun Tong Line train service back to normal",
+                "Savina, who was commuting from HKU station to Lam Tin for work."),
+                "id 225：修复后转拒绝（基线 93.8% → 同样本面 100%）");
+        assertTrue(gate.mentions("HKMA ART framework for responsible AI",
+                "Advisors include the University of Hong Kong."));
+        assertTrue(gate.mentions("HKUST RAISe+ funding scheme launch", null));
+        assertTrue(gate.mentions("HMRF research fellowship opens for applications",
+                "The University of Hong Kong and Chinese University of Hong Kong are eligible hosts."));
+        assertTrue(gate.mentions("Call to strengthen lift engineer qualifications",
+                "A Polytechnic University expert was interviewed."));
+        assertTrue(gate.mentions("LCQ20: fire drills and emergency response",
+                "PolyU and Hong Kong Polytechnic University were named in the reply."));
+        assertTrue(gate.mentions("LCQ2: university campus access control",
+                "PolyU, HKU, HKUST and HKBU were listed one by one in the reply."));
+        assertTrue(gate.mentions("Hong Kong FinTech Week x StartmeupHK 2026",
+                "Hong Kong Polytechnic University is among the participants."));
+        assertTrue(gate.mentions("CS speech at EdUHK renaming anniversary gala", null));
+        assertTrue(gate.mentions("GBA talent conference",
+                "City University of Hong Kong joins; the event is hosted in the Greater "
+                        + "Bay Area with Hong Kong participation."));
+        assertTrue(gate.mentions("Third medical school preparatory working group meets",
+                "HKUST confirms progress on the third medical school."));
+    }
 }
