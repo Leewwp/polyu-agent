@@ -716,7 +716,19 @@ INSERT INTO t_news_source (source_key, platform, display_name, display_name_en, 
   -- eventTypeList 仅 Student Development，9 月实采 7 条含 Campus Life Festival 两段日期拆条；
   -- 日历渐进排期=下月空数组正常空态，源列 rag.news.allow-empty-sources（#186 有效空语义）。
   -- 走既有 EventsApiNewsFetcher/NewsEventsJsonParser 零代码；seed 停用铁律同 #276。
-  ('sao-events',      'official', '学生事务处学生活动日历', 'SAO Event Calendar',     'https://www.polyu.edu.hk/sao/news-and-events/event-calendar/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=6840C445F9424C878A295D68627EBC4D&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual')
+  ('sao-events',      'official', '学生事务处学生活动日历', 'SAO Event Calendar',     'https://www.polyu.edu.hk/sao/news-and-events/event-calendar/', 'https://www.polyu.edu.hk/en/api/sitecore/calendar/get?id=6840C445F9424C878A295D68627EBC4D&date=YYYY/MM', 'JSON_API', TRUE, FALSE, 'manual'),
+  -- #410 B 线八校/高教官方三源（2026-10-29 生产侧查定，探索留档=票面评论+升级脚本
+  -- upgrades/v2.0.0/261029_02_bline_official_source_seed.sql 同款）：JUPAS 两端点为
+  -- 列表页 JS 取数口（JSON html 字段/JSON 数组，HTML_LIST 第 6/7 族按 catalogue 拆条）；
+  -- ugc-whatnews 用首页 What's-new 轮播（年稳定 URL，逐年滚动的 /press/<年>/ 年页不用）。
+  -- 门覆盖（标题面）：jupas-news 4/7、jupas-programme-changes 10/15 行（19/35 目录）、
+  -- ugc-whatnews 当前 0/10（press 标题 2024-26 全量 EN 6/49，全为质素核证系列，
+  -- ~2-3 条/年）。身份口径沿 #277（媒体/政府自有官网=platform media/official FALSE）；
+  -- 独立组 jupas×2/ugc；gate-source-keys+admission cap 10/日+jupas 两源 allow-empty
+  -- 随 application.yaml；robots 两域 404=允许（REP）；seed 停用铁律同 #276。
+  ('jupas-news',              'media', 'JUPAS 新闻公告',     'JUPAS News & Announcements', 'https://www.jupas.edu.hk/en/news/', 'https://www.jupas.edu.hk/en/news/json_news_filter/all/', 'HTML_LIST', FALSE, FALSE, 'manual'),
+  ('jupas-programme-changes', 'media', 'JUPAS 联招课程变更', 'JUPAS Programme Changes',     'https://www.jupas.edu.hk/en/programmes-offered/programme-changes/', 'https://www.jupas.edu.hk/en/programmes-offered/programme-changes/data/', 'HTML_LIST', FALSE, FALSE, 'manual'),
+  ('ugc-whatnews',            'media', '教资会最新动态',     'UGC What''s New',             'https://www.ugc.edu.hk/eng/ugc/index.html', 'https://www.ugc.edu.hk/eng/ugc/index.html', 'HTML_LIST', FALSE, FALSE, 'manual')
 ON CONFLICT (source_key) DO NOTHING;
 
 -- 独立来源组映射（2026-09-30，#187 事件投票去重键）：同机构多 feed/聚合口归同组只计一票。
@@ -738,6 +750,11 @@ UPDATE t_news_source SET independence_group = 'rthk'
 WHERE independence_group IS NULL AND source_key = 'rthk-local-news';
 UPDATE t_news_source SET independence_group = 'hksar-gia'
 WHERE independence_group IS NULL AND source_key = 'gia-news';
+-- #410 B 线官方三源按发布机构独立组（JUPAS 两源同机构一票；UGC 含其 RGC 物件归同组）
+UPDATE t_news_source SET independence_group = 'jupas'
+WHERE independence_group IS NULL AND source_key IN ('jupas-news', 'jupas-programme-changes');
+UPDATE t_news_source SET independence_group = 'ugc'
+WHERE independence_group IS NULL AND source_key = 'ugc-whatnews';
 UPDATE t_news_source SET independence_group = 'gnews'
 WHERE independence_group IS NULL AND source_key LIKE 'gnews-%';
 
