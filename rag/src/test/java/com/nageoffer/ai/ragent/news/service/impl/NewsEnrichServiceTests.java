@@ -142,6 +142,26 @@ class NewsEnrichServiceTests {
     }
 
     @Test
+    void parsePayloadRepairsTrailingCommas() {
+        // 生产回执实录（news/227/248）：qwen 偶发在数组/对象末元素后多写逗号
+        // （「Unexpected character ','」）——确定性剥除后重解析
+        NewsEnrichService.NewsSummaryPayload payload = service.parsePayload("""
+                {"title_zh":"标题","title_en":"Title","summary_zh":"摘要","summary_en":"Summary",
+                 "category":"event","topics":["campus",],}
+                """);
+        assertEquals("event", payload.category());
+        assertEquals(List.of("campus"), payload.topics());
+    }
+
+    @Test
+    void hostOfExtractsLowercaseHostOrNull() {
+        assertEquals("www.polyu.edu.hk", NewsEnrichService.hostOf("https://www.polyu.edu.hk/en/events/2026/"));
+        assertEquals("sao.polyu.edu.hk", NewsEnrichService.hostOf("HTTPS://SAO.PolyU.edu.hk/x?sc_lang=en"));
+        assertNull(NewsEnrichService.hostOf(null));
+        assertNull(NewsEnrichService.hostOf("not a url"));
+    }
+
+    @Test
     void enrichPendingItemsIsolatesPerItemFailure() {
         NewsItemDO first = item(1);
         NewsItemDO second = item(2);

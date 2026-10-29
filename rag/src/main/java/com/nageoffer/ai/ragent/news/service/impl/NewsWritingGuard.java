@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.news.service.impl;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,12 +33,15 @@ import java.util.regex.Pattern;
  * <b>1. 双语完整性</b>：summary_zh/summary_en 均须非空——半语种输出不得发布
  * （双语回退归明示零调用回退路径，不得靠缺语种混过发布）。<br>
  * <b>2. 事实保真（数字面）</b>：标题中的全部数字（金额/日期/名额等关键事实的
- * 最小载体）必须在摘要双语任一中原样再现（去千分位后比对）。标题是抓取链路
- * 唯一无截断的全文输入，以它为保真契约面；中文数字改写（如「一万」）会被
- * 判失真拒绝——提示词已明令数字原样保留，拒绝后走回退不冒坏数字。<br>
+ * 最小载体）必须在摘要双语任一中原样再现（去千分位后比对；公文序号如 LCQ20
+ * 的编号先剥离——发文序号不属保真事实）。标题是抓取链路唯一无截断的全文输入，
+ * 以它为保真契约面；中文数字改写（如「一万」）会被判失真拒绝——提示词已明令
+ * 数字原样保留，拒绝后走回退不冒坏数字。<br>
  * <b>3. 身份词表（校园+AI 双词表）</b>：摘要中出现的身份词（机构/公司别名族）
  * 必须在原文输入（标题+送模型的正文）中有同族支撑——防止把 DeepMind 的发布
  * 写成 OpenAI、把理大新闻安到港大头上（AIHOT 式身份漂移守卫的本地化）。
+ * 例外：条目 URL 属 {@link #OFFICIAL_DOMAIN_FAMILIES} 官方域名时，本校族身份词
+ * 由域名自证（官方页面归属是信源事实，正文模板页可以不含身份词字面）。
  *
  * <p>守卫拒绝不触发无限付费重试：新鲜响应拒绝→回执保留一次免费复用；复用响应
  * 再拒→回执隔离（POISONED）+条目转明示零调用回退（见 NewsEnrichService）。
@@ -48,16 +52,38 @@ final class NewsWritingGuard {
      * 校园身份词表（别名族：族内任一别名出现即视为提及该机构；同族任一别名
      * 在原文出现即视为有支撑）——本港高校族，防跨校安错头
      */
+    static final Set<String> POLYU_FAMILY = Set.of("香港理工大学", "理大", "PolyU",
+            "The Hong Kong Polytechnic University", "Hong Kong Polytechnic University");
+    static final Set<String> HKU_FAMILY = Set.of("香港大学", "港大", "HKU",
+            "The University of Hong Kong", "University of Hong Kong");
+    static final Set<String> CUHK_FAMILY = Set.of("香港中文大学", "中大", "CUHK",
+            "The Chinese University of Hong Kong", "Chinese University of Hong Kong");
+    static final Set<String> HKUST_FAMILY = Set.of("香港科技大学", "科大", "HKUST",
+            "Hong Kong University of Science and Technology");
+    static final Set<String> CITYU_FAMILY = Set.of("香港城市大学", "城大", "CityU",
+            "City University of Hong Kong");
+    static final Set<String> HKBU_FAMILY = Set.of("香港浸會大學", "香港浸会大学", "浸大", "HKBU",
+            "Hong Kong Baptist University");
+    static final Set<String> LINGNAN_FAMILY = Set.of("嶺南大學", "岭南大学", "Lingnan");
+
     static final List<Set<String>> CAMPUS_IDENTITY_FAMILIES = List.of(
-            Set.of("香港理工大学", "理大", "PolyU", "The Hong Kong Polytechnic University",
-                    "Hong Kong Polytechnic University"),
-            Set.of("香港大学", "港大", "HKU", "The University of Hong Kong", "University of Hong Kong"),
-            Set.of("香港中文大学", "中大", "CUHK", "The Chinese University of Hong Kong",
-                    "Chinese University of Hong Kong"),
-            Set.of("香港科技大学", "科大", "HKUST", "Hong Kong University of Science and Technology"),
-            Set.of("香港城市大学", "城大", "CityU", "City University of Hong Kong"),
-            Set.of("香港浸會大學", "香港浸会大学", "浸大", "HKBU", "Hong Kong Baptist University"),
-            Set.of("嶺南大學", "岭南大学", "Lingnan"));
+            POLYU_FAMILY, HKU_FAMILY, CUHK_FAMILY, HKUST_FAMILY, CITYU_FAMILY, HKBU_FAMILY, LINGNAN_FAMILY);
+
+    /**
+     * 官方域名 → 本校身份族的自证面：官方站点的页面本身即归属证据——
+     * polyu.edu.hk 的活动/公告模板页正文可以一个身份词都不出现（日期/地点/主办方走
+     * 数据区块，正文块只剩骨架文本），摘要按信源归属写「理大/PolyU」不是身份漂移。
+     * 只放开域名对应的那一族：polyu.edu.hk 页面被写成港大/中大照旧要求文本支撑；
+     * 多校聚合源（JUPAS/UGC/gov.hk）无映射、零放开
+     */
+    static final Map<String, Set<String>> OFFICIAL_DOMAIN_FAMILIES = Map.ofEntries(
+            Map.entry("polyu.edu.hk", POLYU_FAMILY),
+            Map.entry("hku.hk", HKU_FAMILY),
+            Map.entry("cuhk.edu.hk", CUHK_FAMILY),
+            Map.entry("ust.hk", HKUST_FAMILY),
+            Map.entry("cityu.edu.hk", CITYU_FAMILY),
+            Map.entry("hkbu.edu.hk", HKBU_FAMILY),
+            Map.entry("ln.edu.hk", LINGNAN_FAMILY));
 
     /**
      * AI 身份词表（AI 源内容的公司/机构别名族，#188 启源后主消费面；
@@ -82,6 +108,13 @@ final class NewsWritingGuard {
      */
     private static final Pattern NUMBER = Pattern.compile("\\d+(?:,\\d{3})*(?:\\.\\d+)?");
 
+    /**
+     * 标题中的公文序号形态：立法会答问「LCQ20: …」「LCQ 2: …」的数字是发文编号，
+     * 不属金额/名额/日期类保真事实（摘要按语义可不复现）。只剥 LCQ 前缀形态，
+     * 不泛化到其他字母数字组合
+     */
+    private static final Pattern TITLE_SERIAL = Pattern.compile("(?i)\\bLCQ\\s*\\d+\\b");
+
     private NewsWritingGuard() {
     }
 
@@ -102,6 +135,17 @@ final class NewsWritingGuard {
      * @param contentText 送模型的正文（可能截断；无正文时传 null）——身份支撑判定面
      */
     static void enforce(NewsEnrichService.NewsSummaryPayload payload, String titleLine, String contentText) {
+        enforce(payload, titleLine, contentText, null);
+    }
+
+    /**
+     * 全参形态：sourceHost=条目 URL 主机名（小写，可空）——命中 {@link #OFFICIAL_DOMAIN_FAMILIES}
+     * 时本校族身份词视为有支撑（官方页面自证归属，见其 javadoc）
+     *
+     * @param sourceHost 条目 URL 主机名，非官方域名传 null
+     */
+    static void enforce(NewsEnrichService.NewsSummaryPayload payload, String titleLine, String contentText,
+                        String sourceHost) {
         if (payload == null) {
             throw new RejectionException("载荷为空");
         }
@@ -111,19 +155,52 @@ final class NewsWritingGuard {
             throw new RejectionException("双语摘要不完整（zh=" + zhPresent + ", en=" + enPresent + "），半语种输出不得发布");
         }
         String summaryUnion = payload.summary_zh() + "\n" + payload.summary_en();
-        for (String required : numbersOf(titleLine)) {
+        for (String required : numbersOf(stripTitleSerials(titleLine))) {
             if (!numbersOf(summaryUnion).contains(required)) {
                 throw new RejectionException("标题关键数字未在摘要中原样保留：" + required + "（金额/名额/日期等事实保真守卫）");
             }
         }
         String input = (titleLine == null ? "" : titleLine) + "\n" + (contentText == null ? "" : contentText);
+        Set<String> selfAttestedFamily = officialFamilyOf(sourceHost);
         List<Set<String>> families = new ArrayList<>(CAMPUS_IDENTITY_FAMILIES);
         families.addAll(AI_IDENTITY_FAMILIES);
         for (Set<String> family : families) {
+            if (family == selfAttestedFamily) {
+                continue;
+            }
             if (mentionsAny(summaryUnion, family) && !mentionsAny(input, family)) {
                 throw new RejectionException("摘要提及身份词族 " + family + " 但原文无同族支撑（身份/事实防幻觉守卫）");
             }
         }
+    }
+
+    /**
+     * 官方域名后缀匹配（host 等于域名或以「.域名」结尾，如 sao.polyu.edu.hk）→
+     * 对应本校身份族；非官方域名/null 返回 null（零放开）
+     */
+    static Set<String> officialFamilyOf(String host) {
+        if (host == null || host.isBlank()) {
+            return null;
+        }
+        String normalized = host.toLowerCase(Locale.ROOT);
+        for (Map.Entry<String, Set<String>> entry : OFFICIAL_DOMAIN_FAMILIES.entrySet()) {
+            String domain = entry.getKey();
+            if (normalized.equals(domain) || normalized.endsWith("." + domain)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 标题公文序号剥离：数字保真合同面剔除 LCQ 编号（见 {@link #TITLE_SERIAL}），
+     * 序号词本身保留（「LCQ20:」→「LCQ:」，标题他处出现的同数字事实不受影响）
+     */
+    static String stripTitleSerials(String titleLine) {
+        if (titleLine == null || titleLine.isEmpty()) {
+            return titleLine;
+        }
+        return TITLE_SERIAL.matcher(titleLine).replaceAll("LCQ");
     }
 
     /**
@@ -142,7 +219,10 @@ final class NewsWritingGuard {
     }
 
     /**
-     * 文本是否提及词族任一别名（ASCII 大小写不敏感，CJK 子串包含）
+     * 文本是否提及词族任一别名——ASCII 别名按词边界匹配（子串匹配会把 submit/
+     * commit/limit 里的 "mit" 当成 MIT 提及、把 metaverse 当成 Meta 提及；边界定义
+     * 与 regex \b 一致=前后字符不得为字母/数字/下划线，"PolyU's"/"polyu.edu.hk"
+     * 照常命中），CJK 别名保持子串包含（中文无词边界）
      */
     private static boolean mentionsAny(String text, Set<String> family) {
         if (text == null || text.isEmpty()) {
@@ -150,7 +230,7 @@ final class NewsWritingGuard {
         }
         for (String alias : family) {
             if (alias.chars().allMatch(c -> c < 128)) {
-                if (text.toLowerCase(Locale.ROOT).contains(alias.toLowerCase(Locale.ROOT))) {
+                if (containsAsciiWord(text, alias)) {
                     return true;
                 }
             } else if (text.contains(alias)) {
@@ -158,5 +238,26 @@ final class NewsWritingGuard {
             }
         }
         return false;
+    }
+
+    private static boolean containsAsciiWord(String text, String asciiAlias) {
+        String lower = text.toLowerCase(Locale.ROOT);
+        String alias = asciiAlias.toLowerCase(Locale.ROOT);
+        int from = 0;
+        int index;
+        while ((index = lower.indexOf(alias, from)) >= 0) {
+            int end = index + alias.length();
+            boolean leftBoundary = index == 0 || !isWordChar(lower.charAt(index - 1));
+            boolean rightBoundary = end >= lower.length() || !isWordChar(lower.charAt(end));
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+            from = index + 1;
+        }
+        return false;
+    }
+
+    private static boolean isWordChar(char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
     }
 }
