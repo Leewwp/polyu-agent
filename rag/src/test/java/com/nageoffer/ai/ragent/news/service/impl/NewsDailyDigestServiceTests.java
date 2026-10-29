@@ -652,6 +652,34 @@ class NewsDailyDigestServiceTests {
     }
 
     @Test
+    void higherEdOverflowWarnsOnTruncation() {
+        // 触界不再静默：截断时 WARN 留证（对齐 digest-max-items 注释宣称的「截断+WARN」
+        // 意图，#412 复审 P2——越界丢最旧若无日志，护栏形同虚设、异常态不可观测）
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(NewsDailyDigestServiceImpl.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            sourceRows.put(22L, source(22L, "jupas-news"));
+            for (int i = 1; i <= 3; i++) {
+                itemStore.seed(blineItem().id(82L + i).sourceId(22L)
+                        .titleZh("八校动态" + i)
+                        .publishTime(hkt(2026, 10, 2, 9, i)).build());
+            }
+            properties.setDigestHigherEdMaxEntries(2);
+            service.rebuildForDate(DIGEST_DATE);
+            assertTrue(appender.list.stream().anyMatch(event ->
+                            event.getLevel() == ch.qos.logback.classic.Level.WARN
+                                    && event.getFormattedMessage().contains("触容量护栏")),
+                    "触界截断必须 WARN 留证");
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
     void higherEdSectionUnknownSourceFailsOpenToMainFlow() {
         // source 行缺失/未注册：fail-open 留主流程（只对可辨识的 B 线源分流，不丢内容）
         itemStore.seed(visibleItem().id(80L).sourceId(99L)

@@ -98,10 +98,13 @@ public final class NewsHtmlListParser {
 
     /**
      * "09.10.2026"（UGC 首页 What's-new 轮播 dd.mm.yyyy，#410 第 8 族——
-     * 日/月序由 UGC 新闻稿文件名 prYYYYMMDD 锚定）
+     * 日/月序由 UGC 新闻稿文件名 prYYYYMMDD 锚定）。日/月均取 1 位模式宽
+     * （d.M）：发现正则 {@link #PARENTHESIZED_DOTTED_DATE} 放行 \d{1,2} 的
+     * 补零与非补零形态，解析宽度须与之一致——d.MM 会拒判非补零月份
+     * （如 9.1.2026），拒判=静默丢条，极端下整轮零条误触结构失配隔离
      */
     private static final DateTimeFormatter DOTTED_DATE =
-            DateTimeFormatter.ofPattern("d.MM.uuuu", Locale.ENGLISH);
+            DateTimeFormatter.ofPattern("d.M.uuuu", Locale.ENGLISH);
 
     /**
      * media-releases 详情 URL 内的 /2026/0910_slug/ 日期段

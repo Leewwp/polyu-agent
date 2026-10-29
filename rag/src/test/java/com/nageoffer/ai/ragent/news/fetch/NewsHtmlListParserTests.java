@@ -477,4 +477,22 @@ class NewsHtmlListParserTests {
         assertThrows(NewsFetchStructureException.class, () ->
                 NewsHtmlListParser.parse("{\"broken".getBytes(), "https://www.jupas.edu.hk/en/news/json_news_filter/all/"));
     }
+
+    @Test
+    void dottedDateAcceptsPaddedAndUnpaddedDayAndMonth() {
+        // #410 复审 P2：发现正则 \d{1,2}\.\d{1,2}\.\d{4} 放行非补零形态，解析宽度
+        // 必须对齐——d.MM 只吃补零月份时 9.1.2026/09.1.2026 拒判静默丢条，极端下
+        // ugc 源整轮零条误触 STRUCTURE_MISMATCH 隔离。四种补零/非补零形态均须解析
+        // 为同一日期（2026-01-09，dd.mm.yyyy 日/月序）
+        for (String form : List.of("09.01.2026", "9.1.2026", "09.1.2026", "9.01.2026")) {
+            NewsHtmlListParser.ParsedDate parsed = NewsHtmlListParser.parseDate(form);
+            assertNotNull(parsed, "补零/非补零形态均须解析：" + form);
+            assertEquals(PublishTimePrecision.DATE, parsed.precision(), form);
+            Calendar hkt = Calendar.getInstance(TimeZone.getTimeZone("Asia/Hong_Kong"));
+            hkt.setTime(parsed.instant());
+            assertEquals(2026, hkt.get(Calendar.YEAR), form);
+            assertEquals(Calendar.JANUARY, hkt.get(Calendar.MONTH), form);
+            assertEquals(9, hkt.get(Calendar.DAY_OF_MONTH), form);
+        }
+    }
 }

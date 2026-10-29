@@ -196,4 +196,28 @@ class EightUniversityGateTests {
         assertTrue(gate.mentions("Third medical school preparatory working group meets",
                 "HKUST confirms progress on the third medical school."));
     }
+
+    // ================== 站名官方全名/限定变体排除（#409 复审补遗） ==================
+
+    @Test
+    void fullOfficialStationNamesDoNotAdmit() {
+        // 站名官方全名承袭校名全名：「香港大學站/香港大学站」整串即含「香港大學/香港大学」
+        // 词条原文——排除语境须先抹官方全名站名，否则全名站名标题伪过门；
+        // 「HKU MTR station」为英文侧港铁限定形，同族排除
+        assertFalse(gate.mentions("香港大學站出口扶梯維修", null), "繁体官方全名站名不得过门");
+        assertFalse(gate.mentions("香港大学站客流管制", null), "简体官方全名站名不得过门");
+        assertFalse(gate.mentions("HKU MTR station reopened after maintenance", null),
+                "HKU MTR station 承袭短形+港铁限定同样排除");
+        assertFalse(gate.mentions("西港島線香港大學站湧人潮", null),
+                "整串含官方全名站名的通勤语境不得借校名全名过门");
+    }
+
+    @Test
+    void fullStationExclusionDoesNotSwallowRealSchoolSemantics() {
+        // 全名站名排除只抹站名用法，真校名语义不回退：
+        assertTrue(gate.mentions("香港大學站上蓋的香港大學舍堂", null),
+                "同文并存的真校名全名「香港大學」仍命中（只抹站名、不吞整文）");
+        assertTrue(gate.mentions("HKU MTR station works, HKU campus unaffected", null),
+                "站名与真校名缩写并存：非站名 HKU 语境命中不受排除影响");
+    }
 }
