@@ -35,6 +35,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -206,7 +207,8 @@ public class DefaultContextFormatter implements ContextFormatter {
      * <p>
      * #413 as-of：开关开启时带日期证据在块首注入〔日期事实〕行——状态由 {@link AsOfFacts} 按
      * 注入的基准日确定性算好（已过期/进行中/未开始+截至声明），模型只做语言表达、不做日期推断；
-     * 无日期证据维持「日期未知」降级、不注入事实行
+     * 无日期证据维持「日期未知」降级、不注入事实行；组级日期事实歧义时同样不注入
+     * （守卫口径见 {@link #renderAsOfFact}，宁缺事实行、不产虚构判定）
      */
     private String renderDocBlock(List<RetrievedChunk> group) {
         List<RetrievedChunk> ordered = group.stream()
@@ -247,8 +249,9 @@ public class DefaultContextFormatter implements ContextFormatter {
      * 与上游 yyyy-MM-dd 口径归一
      * <p>
      * #413 as-of 开关开启时：全组无发布日期但有活动截止日期的证据回落到截止日期（条目级日期也是
-     * 该证据的真实日期，如「报名截止 2026-10-20」），其语义由块内〔日期事实〕行说明；开关关闭时
-     * 维持既有口径（仅发布日期，其余「日期未知」）
+     * 该证据的真实日期，如「报名截止 2026-10-20」），其语义由块内〔日期事实〕行说明（组级日期
+     * 歧义时事实行守歧义不渲染，见 {@link #renderAsOfFact}——标记是展示口径、仍按首见值）；
+     * 开关关闭时维持既有口径（仅发布日期，其余「日期未知」）
      */
     private String resolveDateMarker(List<RetrievedChunk> group, boolean asofEnabled) {
         LocalDate source = parseDate(firstNonBlank(group, RetrievedChunk::getSourceDate));
@@ -279,15 +282,60 @@ public class DefaultContextFormatter implements ContextFormatter {
      * 渲染本文档块的 as-of 事实行（含结尾换行，随块首注入）；无日期事实（双 null 或值畸形）返回空串
      * <p>
      * 畸形日期值按无日期处理（上游 #411 写入已是 yyyy-MM-dd，此处守的是读回链路的意外形态）
+     * <p>
+     * #411 语义守卫（组级歧义不渲染，#413）：截止日期是条目级事实、不跨条目
+     * 传播——组内截止日（或发布日）取值不唯一、或事实行的双日期输入无法溯源自同一块
+     * （跨块拼组合出没有任何单块持有的判定）时，单一事实行无法对整块正文成立，返回
+     * 空串守歧义：宁缺事实行、不产虚构判定（同组多截止日时，首块的过期判定不得盖在
+     * 含未过期截止日的正文上）。日期标记属性不受本守卫影响，仍按组首见值
      */
     private String renderAsOfFact(List<RetrievedChunk> group) {
         LocalDate source = parseDate(firstNonBlank(group, RetrievedChunk::getSourceDate));
         LocalDate end = parseDate(firstNonBlank(group, RetrievedChunk::getActivityEndDate));
+        if (source == null && end == null) {
+            return "";
+        }
+        if (groupDateFactsAmbiguous(group, source, end)) {
+            return "";
+        }
         String fact = AsOfFacts.factLine(asOfDateSource.get(), source, end);
         return fact == null ? "" : PromptFenceSanitizer.neutralize(fact) + "\n";
     }
 
-    private LocalDate parseDate(String value) {
+    /**
+     * 组级日期事实歧义判定（#411「截止=条目级不传播」语义）：
+     * <ul>
+     *   <li>任一日期族组内可解析取值不唯一（不同块给出不同截止日/发布日）——单一
+     *       事实行只能陈述其中一个日期，对持有另一日期的正文即误导；</li>
+     *   <li>双日期齐备但没有任何一块同时持有这对日期——事实行输入系 {@link #firstNonBlank}
+     *       各取其一跨块拼成，该组合判定不属于任何真实条目。</li>
+     * </ul>
+     * 无日期块不参与投票（条目缺日期=无事实可冲突，非歧义源）
+     */
+    private static boolean groupDateFactsAmbiguous(List<RetrievedChunk> group, LocalDate source, LocalDate end) {
+        if (distinctParsedDates(group, RetrievedChunk::getSourceDate).size() > 1
+                || distinctParsedDates(group, RetrievedChunk::getActivityEndDate).size() > 1) {
+            return true;
+        }
+        if (source != null && end != null) {
+            return group.stream().noneMatch(chunk ->
+                    source.equals(parseDate(chunk.getSourceDate())) && end.equals(parseDate(chunk.getActivityEndDate())));
+        }
+        return false;
+    }
+
+    /**
+     * 组内某日期族的全部可解析取值（畸形值按无日期处理、不入集）
+     */
+    private static Set<LocalDate> distinctParsedDates(List<RetrievedChunk> group, Function<RetrievedChunk, String> getter) {
+        return group.stream()
+                .map(getter)
+                .map(DefaultContextFormatter::parseDate)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    private static LocalDate parseDate(String value) {
         if (StrUtil.isBlank(value)) {
             return null;
         }

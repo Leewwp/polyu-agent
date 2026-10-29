@@ -430,4 +430,51 @@ class DefaultContextFormatterTest {
                         .contains("<content data-ragent-date=\"2026-10-20\" data-ragent-doc-id=\"docFence\">\n〔日期事实〕"),
                 "事实行紧跟标签行之后、在 <content> 围栏内：" + result);
     }
+
+    @Test
+    void multiDeadlineGroupSuppressesWholeBlockFactLine() {
+        // #413 复审 P1：同文档组内两块各持不同截止日（D1 已过期 / D2 未过期）——
+        // 整块单一事实行只能陈述其一，过期判定会盖在含未过期截止日的正文上（#411
+        // 摄取侧刻意避免的虚构）；歧义守卫=不渲染事实行，宁缺不误导
+        List<RetrievedChunk> chunks = List.of(
+                chunk("d1", "旧截止条目正文", "docMulti", "通知", 0, 0.9f, "2026-07-01", "2026-10-20"),
+                chunk("d2", "新截止条目正文", "docMulti", "通知", 1, 0.8f, "2026-07-01", "2026-11-15"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertFalse(result.contains("〔日期事实〕"),
+                "组内截止日不唯一时不得渲染误导性整块事实行：" + result);
+        assertFalse(result.contains("已过期"), "过期判定不得盖在含未过期截止日的整块上");
+        // 日期标记属性不受守卫影响（标记是组级展示口径，仍按首见值——#327 契约不变）
+        assertTrue(result.contains("data-ragent-date=\"2026-07-01\""));
+        assertTrue(result.contains("旧截止条目正文"), "歧义守卫只拦事实行，不吞证据正文");
+        assertTrue(result.contains("新截止条目正文"));
+    }
+
+    @Test
+    void crossChunkAssembledDatePairSuppressesFactLine() {
+        // 跨块混源：发布日与截止日分属不同块、没有任何单块同时持有这对日期——
+        // firstNonBlank 各取其一拼出的组合判定不属于任何真实条目，守歧义不渲染
+        List<RetrievedChunk> chunks = List.of(
+                chunk("s1", "仅发布日正文", "docMix", "通知", 0, 0.9f, "2026-07-01"),
+                chunk("e1", "仅截止日正文", "docMix", "通知", 1, 0.8f, null, "2026-11-15"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertFalse(result.contains("〔日期事实〕"), "跨块拼接的双日期组合不得产事实行：" + result);
+    }
+
+    @Test
+    void homogeneousMultiChunkGroupStillRendersFactLine() {
+        // 守卫只拦歧义：组内日期事实一致（同发布日、唯一截止日且截止块同时持有
+        // 双日期）时照常渲染——正常文档（发布日全块同值+截止日在单块）不受影响
+        List<RetrievedChunk> chunks = List.of(
+                chunk("h1", "同质块一", "docHomo", "通知", 0, 0.9f, "2026-07-01"),
+                chunk("h2", "同质块二（含截止）", "docHomo", "通知", 1, 0.8f, "2026-07-01", "2026-11-15"));
+
+        String result = formatter(true).formatKbContext(List.of(), Set.of(), chunks, 100);
+
+        assertTrue(result.contains("〔日期事实〕截止日期 2026-11-15：进行中，尚未截止（截至 2026-10-29，香港时间）"),
+                "无歧义多块组照常注入事实行：" + result);
+    }
 }

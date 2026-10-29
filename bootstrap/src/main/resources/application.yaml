@@ -234,8 +234,10 @@ rag:
       - jupas-news
       - jupas-programme-changes
       - ugc-whatnews
-    digest-higher-ed-max-entries: 30  # 「八校/高教」栏目容量防御护栏（#412）：非选材过滤器；30=3 源×日准入 10 理论上界，
-                             # 量级护栏主锚=准入侧每源日上限（admission-source-daily-caps 各 10/日），本界只兜异常态
+    digest-higher-ed-max-entries: 30  # 「八校/高教」栏目容量防御护栏（#412）：非选材过滤器；30 取「3 源×日准入 10」名义量级，
+                             # 但准入日限按当次发现条数计数、非窗口内发布条数（单源窗口可越日限、合计可越 30）——
+                             # 30 是防御界而非理论上界；量级护栏主锚=准入侧每源日上限（admission-source-daily-caps
+                             # 各 10/日），本界只兜异常态，触界截断保最新+WARN 留证
     digest-rss-site-url: "https://polyuguide.com"  # 日报 RSS 频道站点基准 URL（channel/link 前缀；部署异构时覆盖）
     site-base-url: "https://polyuguide.com"  # 站点 canonical 基准 URL（#213：feed.xml/sitemap/IndexNow 共用前缀；
                                              # 与 digest-rss-site-url 同默认、语义分离，部署异构时两者同步覆盖）

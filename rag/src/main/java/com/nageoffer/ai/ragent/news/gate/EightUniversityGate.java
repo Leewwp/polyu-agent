@@ -32,8 +32,9 @@ import java.util.regex.Pattern;
  *   <li><b>歧义短名需香港高校语境</b>（文本出现 Hong Kong / 独立 HK / 香港）：
  *       CityU、Lingnan、城市大学、中大/科大/城大/岭南——防公司名、地名与
  *       境外同名大学误命中；</li>
- *   <li><b>站名承袭排除语境</b>（#409）：「HKU station」「港大站」等承袭大学名的
- *       港铁站名在词条匹配前被抹除——站名用法不算八校命中（#318/doc100 id 225
+ *   <li><b>站名承袭排除语境</b>（#409）：「HKU station」「HKU MTR station」
+ *       「港大站」「香港大學站/香港大学站（官方全名）」等承袭大学名的港铁站名
+ *       在词条匹配前被抹除——站名用法不算八校命中（#318/doc100 id 225
  *       判例：通勤语境站名触发为 17 天观察窗唯一误收模式）；同文并存的真校名
  *       命中不受影响（只抹站名用法、不吞整文）；</li>
  *   <li><b>不设显式负词表</b>：单独 LU、泛词「大学/香港/教育」不在词表即天然不准入。</li>
@@ -46,14 +47,18 @@ import java.util.regex.Pattern;
 public final class EightUniversityGate {
 
     /**
-     * 站名承袭排除语境（#409）：承袭大学名的港铁站名——港大站（英文 HKU station）。
-     * 英文侧独立 token 的 HKU（前后非 ASCII 字母）后接空白+station（station 后
-     * 不得再接 ASCII 字母，防「HKU stationery」这类真高校语境被误抹）；中文侧
-     * 「港大站」整体。匹配前以等长空白抹除——站名用法不参与词条命中，其余文本
-     * （含同文真校名）不受影响。八校中仅港大存在同名港铁站，无其他站名可承袭。
+     * 站名承袭排除语境（#409）：承袭大学名的港铁站名——港大站，官方全名
+     * 「香港大學站/香港大学站」（繁简）。英文侧独立 token 的 HKU（前后非 ASCII
+     * 字母）后接空白+可选 MTR+station（station 后不得再接 ASCII 字母，防
+     * 「HKU stationery」这类真高校语境被误抹），覆盖「HKU station」与港铁
+     * 限定形「HKU MTR station」；中文侧「港大站」与官方全名「香港大學站/
+     * 香港大学站」各自整体（官方全名整串即含「香港大學/香港大学」校名全名
+     * 词条原文，不排除则全名站名标题伪过门）。匹配前以单空格抹除——站名用法
+     * 不参与词条命中，其余文本（含同文真校名）不受影响。八校中仅港大存在
+     * 同名港铁站，无其他站名可承袭
      */
     private static final Pattern STATION_NAME_INHERITANCE = Pattern.compile(
-            "(?i)(?<![A-Za-z])HKU(?![A-Za-z])\\s+station(?![A-Za-z])|港大站");
+            "(?i)(?<![A-Za-z])HKU(?![A-Za-z])\\s+(?:MTR\\s+)?station(?![A-Za-z])|港大站|香港大學站|香港大学站");
 
     private final List<Pattern> unambiguous;
     private final List<Pattern> contextual;
@@ -73,8 +78,9 @@ public final class EightUniversityGate {
         if (text.isBlank()) {
             return false;
         }
-        // 站名承袭排除语境（#409）：港铁站名用法先抹除（等长空白），再进词条匹配——
-        // 「HKU station」「港大站」不构成八校命中，同文其余真校名不受影响
+        // 站名承袭排除语境（#409）：港铁站名用法先抹除（单空格），再进词条匹配——
+        // 「HKU station」「HKU MTR station」「港大站」「香港大學站/香港大学站」
+        // 不构成八校命中，同文其余真校名不受影响
         String gateEvidence = STATION_NAME_INHERITANCE.matcher(text).replaceAll(" ");
         for (Pattern pattern : unambiguous) {
             if (pattern.matcher(gateEvidence).find()) {

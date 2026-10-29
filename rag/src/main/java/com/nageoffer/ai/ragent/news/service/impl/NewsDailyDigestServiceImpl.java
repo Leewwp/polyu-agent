@@ -129,8 +129,10 @@ import com.nageoffer.ai.ragent.news.fetch.PublishTimePrecision;
  * 命中者落栏目快照、<b>不落主资讯流快照</b>（理大主流程不含 B 线条目）；
  * source 行缺失/未注册的条目 fail-open 留在主流程。栏内序=publish_time
  * DESC, id DESC（与主流程同一确定性排序）；容量=digest-higher-ed-max-entries
- * （默认 30=3 源×日准入 10 理论上界，防御性护栏非选材过滤器——量级护栏
- * 主锚=准入侧每源日上限）。窗口零条目=零快照行（读取面整段隐藏，优雅缺席）。
+ * （默认 30，防御性护栏非选材过滤器——量级护栏主锚=准入侧每源日上限，且准入
+ * 日限按当次发现条数计数、非窗口内发布条数，窗口条数可越「3 源×10」名义值，
+ * 30 是防御界而非理论上界；触界截断保留最新一头并 WARN 留证）。窗口零条目=
+ * 零快照行（读取面整段隐藏，优雅缺席）。
  * 导语与 item_count 只反映主流程（B 线条目不进导语概括面）。
  *
  * <p><b>幂等</b>：digest_date 库级唯一；重建=按日期先删后插（快照行经
@@ -312,7 +314,7 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
         }
         // 「八校/高教」独立栏目（#412）：纯数据零 LLM，独立于资讯量——窗口零
         // B 线条目=零快照行（读取面整段隐藏）；快照行经 digest_id 级联随重建带走
-        List<NewsDailyDigestHigherEdDO> higherEdSnapshots = buildHigherEdSnapshots(candidates, sources);
+        List<NewsDailyDigestHigherEdDO> higherEdSnapshots = buildHigherEdSnapshots(digestDate, candidates, sources);
         int higherEdSeq = 0;
         for (NewsDailyDigestHigherEdDO snapshot : higherEdSnapshots) {
             snapshot.setDigestId(header.getId());
@@ -434,20 +436,33 @@ public class NewsDailyDigestServiceImpl implements NewsDailyDigestService {
      *     注册的 B 线官方源）分流——本方法不重复实现窗口语义；</li>
      * <li>栏内序=候选序（publish_time DESC, id DESC，与主流程同一确定性排序，
      *     批量快照随 seq 直映）；</li>
-     * <li>容量=digest-higher-ed-max-entries（默认 30=3 源×日准入 10 理论上界，
-     *     防御性护栏非选材过滤器——量级护栏主锚=准入侧每源日上限）；</li>
+     * <li>容量=digest-higher-ed-max-entries（默认 30，防御性护栏非选材过滤器——
+     *     量级护栏主锚=准入侧每源日上限，且准入日限按当次发现条数计数、非窗口内
+     *     发布条数，窗口条数可越「3 源×10」名义值，30 是防御界而非理论上界；
+     *     触界截断保留最新一头并 WARN 留证）；</li>
      * <li>窗口零 B 线条目=空列表（读取面整段隐藏，优雅缺席）；展示字段全冗余
      *     快照（item_id/source_* 只作溯源，90 天保留清理删除源行不连带）。</li>
      * </ul>
      */
-    private List<NewsDailyDigestHigherEdDO> buildHigherEdSnapshots(List<NewsItemDO> candidates,
+    private List<NewsDailyDigestHigherEdDO> buildHigherEdSnapshots(LocalDate digestDate,
+                                                                   List<NewsItemDO> candidates,
                                                                    Map<Long, NewsSourceDO> sources) {
-        return candidates.stream()
+        List<NewsItemDO> higherEdCandidates = candidates.stream()
                 .filter(item -> {
                     NewsSourceDO source = item.getSourceId() == null ? null : sources.get(item.getSourceId());
                     return source != null && properties.isHigherEdSource(source.getSourceKey());
                 })
-                .limit(properties.effectiveDigestHigherEdMaxEntries())
+                .toList();
+        int capacity = properties.effectiveDigestHigherEdMaxEntries();
+        if (higherEdCandidates.size() > capacity) {
+            // 防御护栏触界留证（对齐 digest-max-items「截断+WARN」宣称意图）：候选序=
+            // publish_time DESC，截断保留最新一头、静默丢最旧会掩盖准入侧异常态
+            // （准入日限按当次发现计数、非窗口发布计数，单源窗口内可越日限）
+            log.warn("[news][daily] 日报 {} 「八校/高教」栏目候选 {} 条触容量护栏 {}，截断保留最新一头、丢弃最旧 {} 条",
+                    digestDate, higherEdCandidates.size(), capacity, higherEdCandidates.size() - capacity);
+        }
+        return higherEdCandidates.stream()
+                .limit(capacity)
                 .map(item -> {
                     NewsSourceDO source = sources.get(item.getSourceId());
                     return NewsDailyDigestHigherEdDO.builder()
