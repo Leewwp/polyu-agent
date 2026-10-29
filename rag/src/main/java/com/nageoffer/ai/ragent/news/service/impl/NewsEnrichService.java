@@ -630,8 +630,9 @@ public class NewsEnrichService {
 
     /**
      * 解析 LLM 输出：剥代码围栏/前后缀后取首个 JSON 对象；非法 JSON 抛出（调用方隔离）。
-     * 尾逗号修复重试：qwen 偶发在数组/对象末元素后多写逗号（回执实录
-     * 「Unexpected character ','」），确定性剥除后重解析一次，仍失败才判无效
+     * 两类确定性修复后重解析一次：尾逗号剥除（qwen 偶发在数组/对象末元素后多写逗号）；
+     * 悬空段分隔符合并（qwen 偶发把段间 \n\n 写成独立字符串元素、拆断摘要字段：
+     * 「…段一…」,"\n\n","段二…" → 并回前值内部）。仍失败才判无效
      */
     NewsSummaryPayload parsePayload(String raw) {
         if (raw == null || raw.isBlank()) {
@@ -649,7 +650,8 @@ public class NewsEnrichService {
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
-            String repaired = candidate.replaceAll(",\\s*([}\\]])", "$1");
+            String repaired = candidate.replaceAll(",\\s*([}\\]])", "$1")
+                    .replaceAll("\",\\s*\"\\\\n\\\\n\",\\s*\"", "\\\\n\\\\n");
             if (!repaired.equals(candidate)) {
                 try {
                     return readPayload(repaired);
