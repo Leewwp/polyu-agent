@@ -151,4 +151,63 @@ class NewsWritingGuardTests {
         assertTrue(NewsWritingGuard.numbersOf(null).isEmpty());
         assertTrue(NewsWritingGuard.numbersOf("").isEmpty());
     }
+
+    // ================== 身份词边界/官方源自证/LCQ 序号（守卫判定面） ==================
+
+    @Test
+    void asciiSubstringInsideWordNoLongerCountsAsMention() {
+        // 词内子串不算提及：摘要英文 "submit/limited" 含子串 "mit"，不得判为提及 MIT 族
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("文化之夜开放现场报名。\n\n座位有限。",
+                        "Participants may submit the form on site. Seats are limited."),
+                "African Cultural Night / African Cultural Night",
+                "CF Wing Podium. Admission free."));
+        // 真提及照旧拦截：摘要写 MIT 而输入无支撑
+        assertRejected("MIT",
+                "Campus contest winners announced", "Campus contest winners announced",
+                "The contest ceremony was held on campus.",
+                "校园大赛揭晓获奖名单。\n\nMIT 团队参赛获特别奖。",
+                "Winners of the campus contest were announced.\n\nAn MIT team joined.");
+    }
+
+    @Test
+    void officialPolyuHostSelfAttestsPolyuFamilyOnly() {
+        // polyu.edu.hk 活动模板页正文只有日期/地点/主办方数据块，一个身份词都没有——
+        // 摘要按信源归属写「理大」有官方域名自证，不是身份漂移
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("理大学生事务部举办考试支持活动，11 月 17 至 19 日举行。\n\n欢迎参加。",
+                        "PolyU's exam support series runs 17-19 Nov for students."),
+                "Exam Support Series: Connected We Grow / Exam Support Series: Connected We Grow",
+                "Date 17 - 19 Nov 2026 Organiser Counselling and Wellness Section, SAO Time 11:30 - 14:30 Venue CF Wing",
+                "www.polyu.edu.hk"));
+        // 子域（sao.polyu.edu.hk）同样自证
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("理大活动公告。\n\n详见原文。",
+                        "PolyU event announcement for the campus community."),
+                "Exam Support Series / Exam Support Series",
+                "Date and venue blocks only.",
+                "sao.polyu.edu.hk"));
+        // 只放开本校族：polyu.edu.hk 页面被安到港大头上照旧拒绝（跨校防漂移不弱化）
+        assertRejected("香港大学",
+                "Exam Support Series", "Exam Support Series",
+                "Date and venue blocks only.",
+                "香港大学举办考试支持活动。\n\n欢迎参加。",
+                "The University of Hong Kong runs an exam support series.");
+    }
+
+    @Test
+    void lcqSerialNumbersExemptedFromFidelityContract() {
+        // 「LCQ20:」的 20 是立法会发文编号，不属保真事实——剥离后摘要不复现不判失真
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("政府书面回复立法会质询，说明消防演习与应变机制安排。\n\n详情见原文。",
+                        "The government gave a written reply on fire drills and contingency response."),
+                "LCQ20: Fire drills and contingency response mechanism / LCQ20: Fire drills",
+                "Following is a question by the Honourable Member and a written reply by the Secretary."));
+        // 剥离只针对 LCQ 前缀形态：标题他处的同数字仍是必须保真的事实
+        assertRejected("20",
+                "LCQ 2: 校园 20 幢宿舍加装门禁", "LCQ 2: access control",
+                "正文。",
+                "政府回应质询，说明宿舍门禁安排。\n\n分批实施。",
+                "The government replied on hostel access control.\n\nBatch rollout.");
+    }
 }

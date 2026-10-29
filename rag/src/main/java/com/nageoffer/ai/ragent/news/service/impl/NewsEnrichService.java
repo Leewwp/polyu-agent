@@ -362,7 +362,7 @@ public class NewsEnrichService {
         // T22 分段兜底：提示词已要求分段，模型偶发输出整段单块（样本实测 1/6）时按同规则补齐
         payload = applyParagraphFallback(payload);
         try {
-            NewsWritingGuard.enforce(payload, titleLine, content);
+            NewsWritingGuard.enforce(payload, titleLine, content, hostOf(item.getUrl()));
         } catch (NewsWritingGuard.RejectionException rejection) {
             // 守卫拒绝同样走回执无效回报（新鲜响应保留一次免费复用；复用响应隔离），
             // 阶段标 WRITING_GUARD 与 JSON 解析失败可区分（#382）
@@ -613,7 +613,25 @@ public class NewsEnrichService {
     }
 
     /**
-     * 解析 LLM 输出：剥代码围栏/前后缀后取首个 JSON 对象；非法 JSON 抛出（调用方隔离）
+     * 条目 URL 的主机名（小写）：写作守卫官方域名身份自证面的输入；
+     * 解析失败/无主机名返回 null（守卫零放开）
+     */
+    static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            String host = java.net.URI.create(url.strip()).getHost();
+            return host == null ? null : host.toLowerCase(Locale.ROOT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 解析 LLM 输出：剥代码围栏/前后缀后取首个 JSON 对象；非法 JSON 抛出（调用方隔离）。
+     * 尾逗号修复重试：qwen 偶发在数组/对象末元素后多写逗号（回执实录
+     * 「Unexpected character ','」），确定性剥除后重解析一次，仍失败才判无效
      */
     NewsSummaryPayload parsePayload(String raw) {
         if (raw == null || raw.isBlank()) {
@@ -625,18 +643,30 @@ public class NewsEnrichService {
         if (start < 0 || end <= start) {
             throw new IllegalArgumentException("LLM 输出不含 JSON 对象");
         }
+        String candidate = text.substring(start, end + 1);
         try {
-            NewsSummaryPayload payload = objectMapper.readValue(
-                    text.substring(start, end + 1), NewsSummaryPayload.class);
-            if (payload.category() == null || payload.category().isBlank()) {
-                throw new IllegalArgumentException("category 缺失");
-            }
-            return payload;
+            return readPayload(candidate);
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
+            String repaired = candidate.replaceAll(",\\s*([}\\]])", "$1");
+            if (!repaired.equals(candidate)) {
+                try {
+                    return readPayload(repaired);
+                } catch (Exception ignored) {
+                    // 修复后仍失败：按原始错误判无效
+                }
+            }
             throw new IllegalArgumentException("LLM 输出 JSON 解析失败：" + e.getMessage(), e);
         }
+    }
+
+    private NewsSummaryPayload readPayload(String json) throws Exception {
+        NewsSummaryPayload payload = objectMapper.readValue(json, NewsSummaryPayload.class);
+        if (payload.category() == null || payload.category().isBlank()) {
+            throw new IllegalArgumentException("category 缺失");
+        }
+        return payload;
     }
 
     /**
