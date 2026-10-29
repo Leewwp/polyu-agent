@@ -154,6 +154,19 @@ class NewsEnrichServiceTests {
     }
 
     @Test
+    void parsePayloadRepairsDanglingParagraphSeparators() {
+        // 生产回执实录（news/248/270）：qwen 偶发提前关闭字符串、把段间 \n\n
+        // 写成独立字符串元素、拆断摘要字段——并回前值内部后重解析
+        NewsEnrichService.NewsSummaryPayload payload = service.parsePayload("""
+                {"title_zh":"标题","title_en":"Title","summary_zh":"第一段：安排。",
+                  "\\n\\n",
+                  "第二段：参加方式。","summary_en":"Summary.","category":"admin","topics":["campus"]}
+                """);
+        assertEquals("第一段：安排。\n\n第二段：参加方式。", payload.summary_zh());
+        assertEquals("admin", payload.category());
+    }
+
+    @Test
     void hostOfExtractsLowercaseHostOrNull() {
         assertEquals("www.polyu.edu.hk", NewsEnrichService.hostOf("https://www.polyu.edu.hk/en/events/2026/"));
         assertEquals("sao.polyu.edu.hk", NewsEnrichService.hostOf("HTTPS://SAO.PolyU.edu.hk/x?sc_lang=en"));
