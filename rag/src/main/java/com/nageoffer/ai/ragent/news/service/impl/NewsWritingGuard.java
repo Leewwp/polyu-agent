@@ -222,22 +222,46 @@ final class NewsWritingGuard {
      * 文本是否提及词族任一别名——ASCII 别名按词边界匹配（子串匹配会把 submit/
      * commit/limit 里的 "mit" 当成 MIT 提及、把 metaverse 当成 Meta 提及；边界定义
      * 与 regex \b 一致=前后字符不得为字母/数字/下划线，"PolyU's"/"polyu.edu.hk"
-     * 照常命中），CJK 别名保持子串包含（中文无词边界）
+     * 照常命中），CJK 别名保持子串包含（中文无词边界）；CJK 两字缩写嵌于更长
+     * 常用词内不构成提及（见 {@link #CJK_ALIAS_BENIGN_EMBEDDINGS}）
      */
     private static boolean mentionsAny(String text, Set<String> family) {
         if (text == null || text.isEmpty()) {
             return false;
         }
+        String cjkScanText = null;
         for (String alias : family) {
             if (alias.chars().allMatch(c -> c < 128)) {
                 if (containsAsciiWord(text, alias)) {
                     return true;
                 }
-            } else if (text.contains(alias)) {
-                return true;
+            } else {
+                if (cjkScanText == null) {
+                    cjkScanText = stripCjkBenignEmbeddings(text);
+                }
+                if (cjkScanText.contains(alias)) {
+                    return true;
+                }
             }
         }
         return false;
+    }
+
+    /**
+     * CJK 两字缩写嵌于更长常用词内不构成身份提及（证据驱动扩充）：「香港大会堂/
+     * 香港大球场」内嵌「港大」、「中大型/中大奖」内嵌「中大」——场地与统计用语
+     * 而非院校指称。匹配面前先以等长占位符抹除，防子串包含误报；提及面与支撑面
+     * 同走本剥离（原文只写场地时既不误判提及、也不误判支撑）
+     */
+    private static final List<String> CJK_ALIAS_BENIGN_EMBEDDINGS =
+            List.of("香港大会堂", "香港大球场", "中大型", "中大奖");
+
+    private static String stripCjkBenignEmbeddings(String text) {
+        String stripped = text;
+        for (String benign : CJK_ALIAS_BENIGN_EMBEDDINGS) {
+            stripped = stripped.replace(benign, "〓".repeat(benign.length()));
+        }
+        return stripped;
     }
 
     private static boolean containsAsciiWord(String text, String asciiAlias) {

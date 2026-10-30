@@ -210,4 +210,28 @@ class NewsWritingGuardTests {
                 "政府回应质询，说明宿舍门禁安排。\n\n分批实施。",
                 "The government replied on hostel access control.\n\nBatch rollout.");
     }
+
+    @Test
+    void cjkAliasBenignEmbeddingsDoNotCountAsIdentityMentions() {
+        // 生产实录（news/213/268）：「香港大会堂（剧院）」内嵌「港大」、「中大型企业」
+        // 内嵌「中大」——场地/统计用语非院校指称，不得判为身份提及
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("音乐会将于 11 月 9 日晚在香港大会堂剧院举行。\n\n门票现已公开发售。",
+                        "The recital takes place at the Theatre of Hong Kong City Hall on 9 Nov."),
+                "Dizi Recital in November / Dizi Recital in November",
+                "The recital will be held at the Theatre of Hong Kong City Hall.",
+                "www.info.gov.hk"));
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("调查显示，七成中小企业及中大型企业已采用人工智能。\n\n需求持续上升。",
+                        "Seven in ten SMEs and medium-to-large firms have adopted AI."),
+                "AI adoption survey / AI adoption survey",
+                "Survey findings on AI adoption.",
+                "www.info.gov.hk"));
+        // 真缩写提及照旧拦截；原文只写场地不构成港大支撑（提及面/支撑面同剥离）
+        assertRejected("香港大学",
+                "Dizi Recital in November", "Dizi Recital in November",
+                "The recital will be held at the Theatre of Hong Kong City Hall.",
+                "港大笛子演奏会将举行。\n\n详情见原文。",
+                "HKU will present a dizi recital.");
+    }
 }
