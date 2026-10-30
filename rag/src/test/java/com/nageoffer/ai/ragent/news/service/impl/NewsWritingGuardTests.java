@@ -212,8 +212,7 @@ class NewsWritingGuardTests {
     }
 
     @Test
-    void cjkAliasBenignEmbeddingsDoNotCountAsIdentityMentions() {
-        // 生产实录（news/213/268）：「香港大会堂（剧院）」内嵌「港大」、「中大型企业」
+    void cjkAliasBenignEmbeddingsDoNotCountAsIdentityMentions() {        // 生产实录（news/213/268）：「香港大会堂（剧院）」内嵌「港大」、「中大型企业」
         // 内嵌「中大」——场地/统计用语非院校指称，不得判为身份提及
         assertDoesNotThrow(() -> NewsWritingGuard.enforce(
                 payload("音乐会将于 11 月 9 日晚在香港大会堂剧院举行。\n\n门票现已公开发售。",
@@ -233,5 +232,28 @@ class NewsWritingGuardTests {
                 "The recital will be held at the Theatre of Hong Kong City Hall.",
                 "港大笛子演奏会将举行。\n\n详情见原文。",
                 "HKU will present a dizi recital.");
+    }
+
+    @Test
+    void decimalRefinementOfTitleNumberCountsAsPreserved() {
+        // 生产实录（news/288）：新闻稿标题舍入 56%、正文与摘要精确 56.1%——
+        // 摘要侧小数精化等值不算漂移
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("理大团队开发的肿瘤异质性指数可预测乳腺癌药物反应，病理完全缓解率达 56.1%。\n\n研究已发表。",
+                        "The PolyU-developed index predicts drug response with a 56.1% pathological complete response rate."),
+                "PolyU develops Tumour Heterogeneity Index achieving a 56% complete response rate / THI 56%",
+                "The study reports a 56.1% pCR rate."));
+        // 丢精度反向不成立：标题精确 56.1、摘要舍入 56 照旧拒绝
+        assertRejected("56.1",
+                "Study achieves 56.1% response rate", "Study achieves 56.1% response rate",
+                "正文。",
+                "研究达到 56% 的缓解率。\n\n详见原文。",
+                "The study achieved a 56% response rate.");
+        // 缩放改写不因精化规则松动：10000 → 1000 仍拒
+        assertRejected("10000",
+                "奖学金 10,000 港元", "HK$10,000 scholarship",
+                "正文。",
+                "奖学金金额为 1000.5 港元。\n\n按时申请。",
+                "The scholarship is worth 1000.5 dollars.");
     }
 }
