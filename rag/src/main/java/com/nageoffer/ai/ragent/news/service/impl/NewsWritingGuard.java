@@ -34,7 +34,8 @@ import java.util.regex.Pattern;
  * （双语回退归明示零调用回退路径，不得靠缺语种混过发布）。<br>
  * <b>2. 事实保真（数字面）</b>：标题中的全部数字（金额/日期/名额等关键事实的
  * 最小载体）必须在摘要双语任一中原样再现（去千分位后比对；公文序号如 LCQ20
- * 的编号先剥离——发文序号不属保真事实）。标题是抓取链路唯一无截断的全文输入，
+ * 的编号先剥离——发文序号不属保真事实；摘要侧「小数精化」等值视为保真——
+ * 标题舍入 56%、正文/摘要精确 56.1% 不算漂移）。标题是抓取链路唯一无截断的全文输入，
  * 以它为保真契约面；中文数字改写（如「一万」）会被判失真拒绝——提示词已明令
  * 数字原样保留，拒绝后走回退不冒坏数字。<br>
  * <b>3. 身份词表（校园+AI 双词表）</b>：摘要中出现的身份词（机构/公司别名族）
@@ -155,8 +156,9 @@ final class NewsWritingGuard {
             throw new RejectionException("双语摘要不完整（zh=" + zhPresent + ", en=" + enPresent + "），半语种输出不得发布");
         }
         String summaryUnion = payload.summary_zh() + "\n" + payload.summary_en();
+        Set<String> summaryNumbers = numbersOf(summaryUnion);
         for (String required : numbersOf(stripTitleSerials(titleLine))) {
-            if (!numbersOf(summaryUnion).contains(required)) {
+            if (!numberPreserved(required, summaryNumbers)) {
                 throw new RejectionException("标题关键数字未在摘要中原样保留：" + required + "（金额/名额/日期等事实保真守卫）");
             }
         }
@@ -216,6 +218,24 @@ final class NewsWritingGuard {
             numbers.add(matcher.group().replace(",", ""));
         }
         return numbers;
+    }
+
+    /**
+     * 标题要求数字是否在摘要数字集中保真：相等，或摘要侧为其「小数精化」形式——
+     * 新闻稿标题常把正文精确值舍入为整数（正文 56.1% → 标题 56%），摘要按正文写
+     * 56.1 不算漂移（「56」←「56.1」成立；「560」/「56.1」←「56.0」等不成立，
+     * 反向丢精度「56.1」标题→「56」摘要同样不成立，缩放改写照旧拒绝）
+     */
+    static boolean numberPreserved(String required, Set<String> summaryNumbers) {
+        if (summaryNumbers.contains(required)) {
+            return true;
+        }
+        for (String summaryNumber : summaryNumbers) {
+            if (summaryNumber.startsWith(required + ".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
