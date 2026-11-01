@@ -28,9 +28,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # 不升 major：buildx-action 4.x 无升级驱动。
+    # 不升 major：buildx-action 4.x / login-action 4.x 无升级驱动。
     ignore:
       - dependency-name: docker/setup-buildx-action
+        versions: [">=4"]
+      - dependency-name: docker/login-action
         versions: [">=4"]
   # Dockerfile 基础镜像更新（deploy/backend、deploy/frontend-nginx、resources/docker/es-stack）。
   - package-ecosystem: docker
