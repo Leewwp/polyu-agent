@@ -168,6 +168,23 @@ class QuestionScopeGuardTest {
     }
 
     @Test
+    void 票数配置超上界时按双票执行且钳制打WARN() {
+        properties.setLlmVotes(3);
+        when(judgeClient.vote(anyString())).thenReturn(Vote.OUT_OF_SCOPE);
+
+        assertThat(guard.check("怎么做番茄炒蛋").rejected()).isTrue();
+
+        // 行为不变：超上界配置仍按上界 2 票出票
+        verify(judgeClient, times(2)).vote(anyString());
+        // 可见性：静默钳制改为 WARN（含配置值与生效值）
+        assertThat(logAppender.list.stream()
+                .anyMatch(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains("configured=3")
+                        && event.getFormattedMessage().contains("effective=2")))
+                .isTrue();
+    }
+
+    @Test
     void 判定组件抛出意外异常时放行() {
         when(judgeClient.vote(anyString())).thenThrow(new IllegalStateException("意外"));
 

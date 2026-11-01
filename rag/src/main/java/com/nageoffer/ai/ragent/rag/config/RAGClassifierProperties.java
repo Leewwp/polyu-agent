@@ -43,8 +43,9 @@ public class RAGClassifierProperties {
 
     /**
      * 不确定带 LLM 判定票数：1=单票（严格 prompt+fail-open，经济）；
-     * 2=双票共识（不一致=放行）。默认值待 dev 集 uncertain 带占比实测定案（#430 段二），
-     * 占比大→单票经济、占比小→双票压方差；改默认值属规则框架变更须回维护者裁决
+     * 2=双票共识（不一致=放行）。选型已按 dev 集实测定案：frozen44 uncertain
+     * 带占比 1/44=2.3%（占比小→双票压方差），默认维持 2；
+     * 改默认值属规则框架变更须回维护者裁决
      */
     private Integer llmVotes = 2;
 

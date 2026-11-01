@@ -96,11 +96,15 @@ public class AgentChatServiceImpl implements AgentChatService {
         String taskId = IdUtil.getSnowflakeNextIdStr();
 
         // 回答前分类器守卫（#430，flag rag.classifier.enabled 默认关）：决策先于 runGate.acquire，
-        // 拒答轮无锁无名额被占；匿名配额已在控制器先于本方法扣减，拒答照扣不退
-        GuardDecision guardDecision = questionScopeGuard.check(question);
-        if (guardDecision.rejected()) {
-            rejectRun(question, userId, actualConversationId, taskId, emitter, guardDecision);
-            return;
+        // 拒答轮无锁无名额被占；匿名配额已在控制器先于本方法扣减，拒答照扣不退。
+        // 会话存在待确认前置时守卫让路（跳过拒答判定）——拒答轮绝不与确认卡交错，
+        // 该轮走既有正常流、由既有阻塞口径处理
+        if (!hasPendingConfirmQuietly(conversationId, actualConversationId, userId)) {
+            GuardDecision guardDecision = questionScopeGuard.check(question);
+            if (guardDecision.rejected()) {
+                rejectRun(question, userId, actualConversationId, taskId, emitter, guardDecision);
+                return;
+            }
         }
 
         Runnable releaseGate = runGate.acquire(userId, taskId, actualConversationId);
@@ -130,6 +134,22 @@ public class AgentChatServiceImpl implements AgentChatService {
         } catch (RuntimeException | Error e) {
             cleanupFailedStart(taskId, releaseGate);
             throw e;
+        }
+    }
+
+    /**
+     * 守卫让路判据：会话是否存在待确认前置。首问无会话号、或会话不存在
+     * （判读抛 ClientException）时视为无前置，守卫照常判定——「会话不存在」的
+     * 报错时机保持由既有正常流给出，不在守卫判定前新增拦截
+     */
+    private boolean hasPendingConfirmQuietly(String conversationId, String actualConversationId, String userId) {
+        if (StrUtil.isBlank(conversationId)) {
+            return false;
+        }
+        try {
+            return conversationService.hasPendingConfirm(actualConversationId, userId);
+        } catch (ClientException e) {
+            return false;
         }
     }
 

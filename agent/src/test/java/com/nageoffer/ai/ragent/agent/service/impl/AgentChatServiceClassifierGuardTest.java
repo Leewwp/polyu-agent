@@ -28,6 +28,7 @@ import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
+import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import com.nageoffer.ai.ragent.rag.config.RAGClassifierProperties;
 import com.nageoffer.ai.ragent.rag.service.preguard.GuardDecision;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -207,6 +209,26 @@ class AgentChatServiceClassifierGuardTest {
 
         verify(agentProvider).getAgent();
         verify(conversationService).addUserMessage(CONVERSATION_ID, USER_ID, "你好");
+    }
+
+    @Test
+    void 待确认前置会话守卫让路_开放域题不经拒答由既有阻塞口径处理() {
+        when(conversationService.hasPendingConfirm(CONVERSATION_ID, USER_ID)).thenReturn(true);
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+
+        // 守卫让路（拒答轮绝不与确认卡交错）：本轮跳过拒答判定，走既有正常流、
+        // 由既有阻塞口径处理——开放域题不再被守卫拒答，而是既有前置检查拦下
+        assertThatThrownBy(() -> service.streamChat("What is the capital of Australia?", CONVERSATION_ID, emitter))
+                .isInstanceOf(ClientException.class)
+                .hasMessage("上一步操作还在等你确认，请先确认或取消");
+
+        // 走的是正常流：拿闸门后由既有前置检查抛出（拒答轮不 acquire，两者可区分）
+        verify(runGate).acquire(eq(USER_ID), anyString(), eq(CONVERSATION_ID));
+        // 拒答零痕迹：无 SSE 事件、不落任何问答消息（拒绝模板不与确认卡交错落会话历史）
+        assertThat(emitter.eventNames()).isEmpty();
+        verify(conversationService, never()).touchConversation(anyString(), anyString(), anyString());
+        verify(conversationService, never()).addAssistantMessage(anyString(), anyString(), anyString(),
+                any(), any(), any(), any(), any());
     }
 
     @Test

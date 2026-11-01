@@ -106,12 +106,19 @@ public class QuestionScopeGuard {
         return GuardDecision.allow("llm-disagreement", lang);
     }
 
+    /**
+     * 票数上界=2（双票共识）；超上界配置钳制到 2 并打 WARN 可见化，行为不变
+     */
     private int resolveVoteCount() {
         Integer configured = properties.getLlmVotes();
         if (configured == null || configured < 1) {
             return 1;
         }
-        return Math.min(configured, 2);
+        int effective = Math.min(configured, 2);
+        if (effective < configured) {
+            log.warn("回答前分类器票数配置超上界已钳制: configured={}, effective={}", configured, effective);
+        }
+        return effective;
     }
 
     private void logDecision(String decision, String reason, boolean uncertain, String lang,

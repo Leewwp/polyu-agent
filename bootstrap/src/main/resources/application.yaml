@@ -199,8 +199,9 @@ rag:
                               # /rag/v3/chat 同一守卫组件，非仅 RAG 链）；默认关，开启后开放域无关直答题确定性拒答，
                               # 拒绝走各链既有消息流（事件序与普通回答一致）。env 覆盖名 RAG_CLASSIFIER_ENABLED
     enabled: ${RAG_CLASSIFIER_ENABLED:false}
-    llm-votes: 2              # 不确定带 LLM 判定票数（1=单票经济；2=双票共识，不一致=放行）。默认值待 dev 集
-                              # uncertain 带占比实测定案；改默认属规则框架变更须回维护者裁决
+    llm-votes: 2              # 不确定带 LLM 判定票数（1=单票经济；2=双票共识，不一致=放行）。选型已按 dev 集
+                              # 实测定案：frozen44 uncertain 1/44=2.3%（占比小→双票压方差），默认维持 2；
+                              # 改默认属规则框架变更须回维护者裁决
     llm-timeout-ms: 3000      # 单票超时上界：超时=放行+WARN（fail-open）；双票串行最坏 2×本值，预算上界随 #444 冻结
 
   calendar:
@@ -341,8 +342,7 @@ rag:
     gate-source-keys:              # 八校确定性门生效源（#277 媒体源+#410 B 线官方三源）：列外源不经门；
                              # 本集=Java 缺省 NewsFetchProperties.gateSourceKeys 的镜像（#432 缺省漂移收口，
                              # 一致性由 bootstrap 侧 NewsGateWordlistBindingTest 绊网拦截）；
-                             # rthk-local-news（#277 时代媒体源）已随源 2026-10-29 停用移出本集——
-                             # 复启该源时须把键同步回填本集与 Java 缺省两面
+                             # 本集不含 rthk-local-news——复启该源时须把键同步回填本集与 Java 缺省两面
       - scmp-education
       - gia-news
       - jupas-news                 # #410 标题即八校证据（机构名/课程名在标题内）
