@@ -22,8 +22,12 @@ import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
+import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentConfirmSettlement;
+import com.nageoffer.ai.ragent.agent.dto.AgentCompletionPayload;
+import com.nageoffer.ai.ragent.agent.dto.AgentMessageDelta;
 import com.nageoffer.ai.ragent.agent.dto.AgentMetaPayload;
+import com.nageoffer.ai.ragent.agent.enums.AgentMessageStatus;
 import com.nageoffer.ai.ragent.agent.enums.AgentSSEEventType;
 import com.nageoffer.ai.ragent.agent.language.AnswerLanguages;
 import com.nageoffer.ai.ragent.agent.memory.AgentMemoryLearner;
@@ -39,6 +43,9 @@ import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.SseEmitterSender;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import com.nageoffer.ai.ragent.agent.tool.AgentMcpMeta;
+import com.nageoffer.ai.ragent.rag.service.preguard.GuardDecision;
+import com.nageoffer.ai.ragent.rag.service.preguard.QuestionScopeGuard;
+import com.nageoffer.ai.ragent.rag.service.preguard.RejectTemplates;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
@@ -78,6 +85,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final StreamTaskManager taskManager;
     private final AgentRunGate runGate;
     private final AgentMemoryLearner memoryLearner;
+    private final QuestionScopeGuard questionScopeGuard;
 
     @Override
     public void streamChat(String question, String conversationId, SseEmitter emitter) {
@@ -86,6 +94,14 @@ public class AgentChatServiceImpl implements AgentChatService {
                 ? IdUtil.getSnowflakeNextIdStr()
                 : conversationId;
         String taskId = IdUtil.getSnowflakeNextIdStr();
+
+        // 回答前分类器守卫（#430，flag rag.classifier.enabled 默认关）：决策先于 runGate.acquire，
+        // 拒答轮无锁无名额被占；匿名配额已在控制器先于本方法扣减，拒答照扣不退
+        GuardDecision guardDecision = questionScopeGuard.check(question);
+        if (guardDecision.rejected()) {
+            rejectRun(question, userId, actualConversationId, taskId, emitter, guardDecision);
+            return;
+        }
 
         Runnable releaseGate = runGate.acquire(userId, taskId, actualConversationId);
         try {
@@ -115,6 +131,28 @@ public class AgentChatServiceImpl implements AgentChatService {
             cleanupFailedStart(taskId, releaseGate);
             throw e;
         }
+    }
+
+    /**
+     * 守卫拒答轮：走既有消息流完结——用户发言与拒绝模板双双落会话历史，
+     * SSE 事件序与普通回答一致（meta→message→finish→done），不走 emitter error，
+     * 前端/分享/历史零改动；不建模型流，也不触发租约与记忆抽取（#430）
+     */
+    private void rejectRun(String question, String userId, String conversationId, String taskId,
+                           SseEmitter emitter, GuardDecision decision) {
+        String title = conversationService.touchConversation(conversationId, userId, question);
+        String questionMessageId = conversationService.addUserMessage(conversationId, userId, question);
+        String template = RejectTemplates.template(decision.lang());
+
+        SseEmitterSender sender = new SseEmitterSender(emitter);
+        sender.sendEvent(AgentSSEEventType.META.value(), new AgentMetaPayload(conversationId, taskId));
+        sender.sendEvent(AgentSSEEventType.MESSAGE.value(), new AgentMessageDelta(AgentBlock.KIND_ANSWER, template));
+        String messageId = conversationService.addAssistantMessage(conversationId, userId, template,
+                null, null, questionMessageId, AgentMessageStatus.NORMAL, null);
+        sender.sendEvent(AgentSSEEventType.FINISH.value(),
+                new AgentCompletionPayload(messageId, title, AgentMessageStatus.NORMAL.name(), null));
+        sender.sendEvent(AgentSSEEventType.DONE.value(), "[DONE]");
+        sender.complete();
     }
 
     /**
