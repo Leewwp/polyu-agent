@@ -100,6 +100,12 @@ ssh -i <密钥> <用户>@<服务器IP> \
   AR 五个校历页面，五源解析过门禁后原子写入 `t_key_date`（事件）与 `t_key_date_source`
   （源状态）；种子五行走 `init_data_pg.sql`（存量库走 `upgrades/v2.0.0/260930_key_date_ingest.sql`）。
   源级人工启停=`t_key_date_source.enabled`（'0' 不抓取不复活），与全局开关正交。
+- `RAG_CLASSIFIER_ENABLED`（默认 `false`，#430）：回答前分类器守卫——**两链共享**
+  （Agent 链 `/agent/v1/chat` 与 RAG 链 `/rag/v3/chat` 同一守卫组件）。开启后对开放域
+  无关直答题确定性拒答：确定性规则先行（机构/校园语境放行、开放域形态高精度拒答），
+  不确定带走轻量 LLM 判定（fail-open，误拒优先于漏拒）；拒绝走各链既有消息流，
+  SSE 事件序与普通回答一致。绑定 `rag.classifier.enabled`；判据门轮与灰度启动另立
+  专票，生产施加须待其预授权。
 
 ## 本机冒烟（不占生产端口）
 

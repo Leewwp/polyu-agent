@@ -195,6 +195,14 @@ rag:
   share:
     content-version: v1       # 答案分享载荷的内容/知识版本标记；粒度侧自持键（issue #124）
 
+  classifier:                 # 回答前分类器守卫（#430）：语义=两链共享（Agent 链 /agent/v1/chat 与 RAG 链
+                              # /rag/v3/chat 同一守卫组件，非仅 RAG 链）；默认关，开启后开放域无关直答题确定性拒答，
+                              # 拒绝走各链既有消息流（事件序与普通回答一致）。env 覆盖名 RAG_CLASSIFIER_ENABLED
+    enabled: ${RAG_CLASSIFIER_ENABLED:false}
+    llm-votes: 2              # 不确定带 LLM 判定票数（1=单票经济；2=双票共识，不一致=放行）。默认值待 dev 集
+                              # uncertain 带占比实测定案；改默认属规则框架变更须回维护者裁决
+    llm-timeout-ms: 3000      # 单票超时上界：超时=放行+WARN（fail-open）；双票串行最坏 2×本值，预算上界随 #444 冻结
+
   calendar:
     enabled: ${RAG_CALENDAR_ENABLED:false}  # 校历关键日期管线 feature flag（#192 摄取+#193 查询/展示同门）：默认关；关闭时无抓取调度、
                               # 零库写，且 /public/calendar/** 由兜底控制器统一 404（PublicNewsDisabled 孪生范式）。
