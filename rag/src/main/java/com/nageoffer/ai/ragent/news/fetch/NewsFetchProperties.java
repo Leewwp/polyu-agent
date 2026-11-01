@@ -116,9 +116,14 @@ public class NewsFetchProperties {
     /**
      * 八校确定性门生效的 source_key 集（#277）：仅指定源走原始标题/原摘要白名单，
      * 其余源（含全部官网源）不经门——「只对指定新 source_key 生效」红线。
+     * 默认=application.yaml gate-source-keys 的镜像（#432 收口缺省漂移，
+     * 一致性由 bootstrap 侧 NewsGateWordlistBindingTest 绊网拦截）。
+     * rthk-local-news（#277 时代成员）已随源于 2026-10-29 停用移出本集；
+     * 复启该源时须把键同步回填本缺省与 yaml gate-source-keys 两面。
      */
     private java.util.Set<String> gateSourceKeys = java.util.Set.of(
-            "scmp-education", "rthk-local-news", "gia-news");
+            "scmp-education", "gia-news", "jupas-news",
+            "jupas-programme-changes", "ugc-whatnews");
 
     /**
      * 八校白名单·无歧义组（#277）：任意语境可命中的全名/明确缩写/特指简称

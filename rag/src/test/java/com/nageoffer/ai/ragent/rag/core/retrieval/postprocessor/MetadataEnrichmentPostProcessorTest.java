@@ -36,16 +36,22 @@ import static org.mockito.Mockito.when;
 
 /**
  * #411 双日期列回填测试（#413 组装层消费半边）：富化按 chunkId 回表补齐日期，
- * 只补空缺不覆盖既有读回值，列 NULL 保持 null=「日期未知」语义
+ * 只补空缺不覆盖既有读回值，列 NULL 保持 null=「日期未知」语义；
+ * 双日期列回填不受 rag.asof.enabled 门控（加式元数据豁免口径，#432）
  */
 class MetadataEnrichmentPostProcessorTest {
 
     private MetadataEnrichmentPostProcessor processor(Map<String, ChunkMeta> metaById) {
+        return processor(metaById, null);
+    }
+
+    private MetadataEnrichmentPostProcessor processor(Map<String, ChunkMeta> metaById, Boolean asofEnabled) {
         ChunkMetadataResolver resolver = mock(ChunkMetadataResolver.class);
         when(resolver.resolve(anyList())).thenReturn(metaById);
         when(resolver.resolveDocNames(anyList())).thenReturn(Map.of());
         RAGConfigProperties props = new RAGConfigProperties();
         props.setContextEnrichEnabled(true);
+        props.setAsofEnabled(asofEnabled);
         return new MetadataEnrichmentPostProcessor(resolver, props);
     }
 
@@ -90,5 +96,26 @@ class MetadataEnrichmentPostProcessorTest {
 
         assertNull(result.get(0).getSourceDate());
         assertNull(result.get(0).getActivityEndDate());
+    }
+
+    @Test
+    void dateBackfillStaysOnRegardlessOfAsofFlag() {
+        // asof 豁免口径（#432）：回填=加式元数据（只补空缺、不覆盖读回值），且组装侧
+        // sourceDate 日期标记路径本就无条件生效（flag 只门控 activityEndDate 回落与
+        // 〔日期事实〕行）——故双日期列回填不受 rag.asof.enabled 门控为既有口径，
+        // flag 双态下回填均照常发生
+        for (Boolean asofEnabled : List.of(Boolean.TRUE, Boolean.FALSE)) {
+            RetrievedChunk chunk = RetrievedChunk.builder().id("c1").text("正文").build();
+            Map<String, ChunkMeta> meta = Map.of("c1",
+                    new ChunkMeta("docA", 0, "文档A", "2026-07-21", "2026-09-01"));
+
+            List<RetrievedChunk> result = processor(meta, asofEnabled)
+                    .process(new ArrayList<>(List.of(chunk)), List.of(), mock(SearchContext.class));
+
+            assertEquals("2026-07-21", result.get(0).getSourceDate(),
+                    "asof=" + asofEnabled + " 下 sourceDate 回填必须照常（豁免口径）");
+            assertEquals("2026-09-01", result.get(0).getActivityEndDate(),
+                    "asof=" + asofEnabled + " 下 activityEndDate 回填必须照常（豁免口径）");
+        }
     }
 }
