@@ -7,15 +7,31 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # 不升 major：milvus-sdk 3.x 需服务端 3.x 配套（本栈 2.6）；spotless 3.x 变更格式化规则面无升级驱动。
+    ignore:
+      - dependency-name: io.milvus:milvus-sdk-java
+        versions: [">=3"]
+      - dependency-name: com.diffplug.spotless:spotless-maven-plugin
+        versions: [">=3"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # 不升 major：date-fns v4 变更 API 形态；docx-preview 0.4 无新能力驱动。
+    ignore:
+      - dependency-name: date-fns
+        versions: [">=4"]
+      - dependency-name: docx-preview
+        versions: [">=0.4"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # 不升 major：buildx-action 4.x 无升级驱动。
+    ignore:
+      - dependency-name: docker/setup-buildx-action
+        versions: [">=4"]
   # Dockerfile 基础镜像更新（deploy/backend、deploy/frontend-nginx、resources/docker/es-stack）。
   - package-ecosystem: docker
     directory: /
