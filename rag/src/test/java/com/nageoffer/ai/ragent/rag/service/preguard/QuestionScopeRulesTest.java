@@ -58,7 +58,19 @@ class QuestionScopeRulesTest {
             "期末考试的时间表在哪里查",
             "How many credits do I need to graduate?",
             "毕业典礼需要报名吗",
-            "我的成绩单怎么申请"
+            "我的成绩单怎么申请",
+            // dev 集实测补族的校园语境形态（#430 段二词表微调）
+            "How much is the first instalment of the hall fee for a Double Room?",
+            "Under what circumstances would my Hall Caution Money be forfeited?",
+            "非本地新生接受录取时要先交多少留位费？",
+            "内地新生抵港后多久之内要办中联办报到注册？",
+            "When can non-local new students apply for hall residence?",
+            "本科生一次能借几本书？能借多久？",
+            "How many books can an undergraduate student borrow?",
+            "学校现在有什么健康活动或福利可以参加？",
+            "有特殊需要要怎么向学校申报？",
+            "特殊需要学生在校内能用到哪些资源？",
+            "非本地学习活动有没有资助？最多能拿多少？"
     })
     void 校园语境半边命中即放行_无机构显式词(String question) {
         assertThat(QuestionScopeRules.evaluate(question).decision()).isEqualTo(Decision.ALLOW);
