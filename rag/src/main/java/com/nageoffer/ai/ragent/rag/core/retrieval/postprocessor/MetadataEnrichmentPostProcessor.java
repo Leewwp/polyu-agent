@@ -96,7 +96,14 @@ public class MetadataEnrichmentPostProcessor implements SearchResultPostProcesso
     /**
      * 回填 #411 双日期列（yyyy-MM-dd）：仅补空缺、不覆盖检索通道已读回的值（如向量通道
      * metadata JSONB 的 source_date，两处同源同值）；列 NULL 保持 null=「日期未知」语义。
-     * 供组装层 as-of 状态计算（#413）消费
+     * 供组装层 as-of 状态计算（#413）消费。
+     * <p>
+     * 豁免口径（#432）：本回填<b>不受 {@code rag.asof.enabled} 门控</b>（明示豁免，非遗漏）——
+     * 回填=加式元数据（只补空缺、不动既有读回值，关停它不会改变 flag 关态的任何输出，
+     * 只会让组装层拿不到日期）；且组装侧 sourceDate 日期标记路径本就无条件生效，
+     * flag 只门控 activityEndDate 回落与〔日期事实〕行（见 DefaultContextFormatter），
+     * 故「回填随 flag 关停」不在既有口径内。语义由
+     * MetadataEnrichmentPostProcessorTest#dateBackfillStaysOnRegardlessOfAsofFlag 固化
      */
     private void fillDateIfBlank(RetrievedChunk chunk, ChunkMeta meta) {
         if (StrUtil.isBlank(chunk.getSourceDate()) && StrUtil.isNotBlank(meta.sourceDate())) {
