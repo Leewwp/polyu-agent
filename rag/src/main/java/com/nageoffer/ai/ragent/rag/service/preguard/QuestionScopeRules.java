@@ -94,9 +94,13 @@ public final class QuestionScopeRules {
             // 预约
             "booking", "reservation", "reserve", "appointment", "预约", "预订", "预定",
             // 宿舍
-            "hostel", "dormitory", "accommodation", "宿舍", "住宿",
+            "hostel", "dormitory", "accommodation", "hall fee", "hall residence", "caution money",
+            "instalment", "宿舍", "住宿", "舍堂", "留位费", "宿位",
+            // 非本地/内地生事务
+            "non-local", "mainland student", "mainland students", "非本地", "内地生", "内地新生", "中联办", "报到",
             // 图书馆/自习
-            "library", "learning commons", "study room", "图书馆", "自习室", "研讨室",
+            "library", "learning commons", "study room", "borrow", "图书馆", "自习室", "研讨室",
+            "借书", "借阅", "能借", "可借",
             // 校园卡/证件
             "campus card", "student card", "student id", "门禁", "校园卡", "学生证",
             // 考试/学业
@@ -106,10 +110,11 @@ public final class QuestionScopeRules {
             "学期", "校历", "成绩单", "学位", "专业", "作业", "导修", "实验", "论文", "实习", "交换",
             // 毕业
             "graduation", "convocation", "毕业", "毕业典礼", "毕业设计",
-            // 校园设施/生活
+            // 校园设施/生活/福利
             "gym", "fitness centre", "fitness center", "badminton", "canteen", "cafeteria",
-            "locker", "counseling", "career", "orientation", "体育馆", "健身房", "羽毛球",
-            "食堂", "饭堂", "打印", "心理", "就业", "推荐信", "迎新", "学号"
+            "locker", "counseling", "career", "orientation", "wellness", "funding", "special needs",
+            "体育馆", "健身房", "羽毛球", "食堂", "饭堂", "打印", "心理", "就业", "推荐信", "迎新", "学号",
+            "健康活动", "福利", "资助", "特殊需要", "无障碍", "申报"
     );
 
     /**
