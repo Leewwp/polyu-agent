@@ -330,9 +330,12 @@ rag:
       jupas-news: 10
       jupas-programme-changes: 10
       ugc-whatnews: 10
-    gate-source-keys:              # 八校确定性门生效源（#277 媒体三源+#410 B 线官方三源）：列外源不经门
+    gate-source-keys:              # 八校确定性门生效源（#277 媒体源+#410 B 线官方三源）：列外源不经门；
+                             # 本集=Java 缺省 NewsFetchProperties.gateSourceKeys 的镜像（#432 缺省漂移收口，
+                             # 一致性由 bootstrap 侧 NewsGateWordlistBindingTest 绊网拦截）；
+                             # rthk-local-news（#277 时代媒体源）已随源 2026-10-29 停用移出本集——
+                             # 复启该源时须把键同步回填本集与 Java 缺省两面
       - scmp-education
-      - rthk-local-news
       - gia-news
       - jupas-news                 # #410 标题即八校证据（机构名/课程名在标题内）
       - jupas-programme-changes
