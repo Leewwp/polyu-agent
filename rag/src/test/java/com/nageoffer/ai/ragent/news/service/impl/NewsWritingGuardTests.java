@@ -235,6 +235,24 @@ class NewsWritingGuardTests {
     }
 
     @Test
+    void issueSerialNumbersExemptedFromFidelityContract() {
+        // 生产实录（news/174/291）：「e-Bulletin Issue 192」的 192 是出版期号
+        // （与 LCQ 公文编号同类），模型连轮未复现不再误拒；理大官网源自证身份族
+        assertDoesNotThrow(() -> NewsWritingGuard.enforce(
+                payload("理大建设及环境学院电子简报发布，介绍新任临时院长任命与迎新活动。\n\n详情见原文。",
+                        "The FCE e-Bulletin covers the interim dean appointment and orientation activities."),
+                "e-Bulletin Issue 192 / e-Bulletin Issue 192",
+                "Bulletin content.",
+                "www.polyu.edu.hk"));
+        // 剥离只针对 Issue 前缀形态：标题他处的同数字仍是必须保真的事实
+        assertRejected("192",
+                "e-Bulletin Issue 192: 192 名新生获奖", "e-Bulletin Issue 192: 192 freshmen awarded",
+                "正文。",
+                "简报发布，介绍学院动态。\n\n详见原文。",
+                "The bulletin covers faculty news.");
+    }
+
+    @Test
     void decimalRefinementOfTitleNumberCountsAsPreserved() {
         // 生产实录（news/288）：新闻稿标题舍入 56%、正文与摘要精确 56.1%——
         // 摘要侧小数精化等值不算漂移

@@ -110,11 +110,12 @@ final class NewsWritingGuard {
     private static final Pattern NUMBER = Pattern.compile("\\d+(?:,\\d{3})*(?:\\.\\d+)?");
 
     /**
-     * 标题中的公文序号形态：立法会答问「LCQ20: …」「LCQ 2: …」的数字是发文编号，
-     * 不属金额/名额/日期类保真事实（摘要按语义可不复现）。只剥 LCQ 前缀形态，
-     * 不泛化到其他字母数字组合
+     * 标题中的序号形态（编号不属金额/名额/日期类保真事实，摘要按语义可不复现）：
+     * 立法会答问「LCQ20: …」「LCQ 2: …」的公文发文编号；出版物期号
+     * 「e-Bulletin Issue 192」的 Issue+数字（大小写敏感，仅剥大写 Issue 形态）。
+     * 只剥序号词前缀形态，不泛化到其他字母数字组合
      */
-    private static final Pattern TITLE_SERIAL = Pattern.compile("(?i)\\bLCQ\\s*\\d+\\b");
+    private static final Pattern TITLE_SERIAL = Pattern.compile("\\b(?i:(LCQ))\\s*\\d+\\b|\\b(Issue)\\s+\\d+\\b");
 
     private NewsWritingGuard() {
     }
@@ -195,14 +196,15 @@ final class NewsWritingGuard {
     }
 
     /**
-     * 标题公文序号剥离：数字保真合同面剔除 LCQ 编号（见 {@link #TITLE_SERIAL}），
-     * 序号词本身保留（「LCQ20:」→「LCQ:」，标题他处出现的同数字事实不受影响）
+     * 标题序号剥离：数字保真合同面剔除 LCQ 编号与出版期号（见 {@link #TITLE_SERIAL}），
+     * 序号词本身保留（「LCQ20:」→「LCQ:」、「Issue 192」→「Issue」，标题他处出现的
+     * 同数字事实不受影响）
      */
     static String stripTitleSerials(String titleLine) {
         if (titleLine == null || titleLine.isEmpty()) {
             return titleLine;
         }
-        return TITLE_SERIAL.matcher(titleLine).replaceAll("LCQ");
+        return TITLE_SERIAL.matcher(titleLine).replaceAll("$1$2");
     }
 
     /**
