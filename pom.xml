@@ -19,7 +19,10 @@
         <tika.version>3.2.3</tika.version>
         <hutool-all.version>5.8.47</hutool-all.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
-        <s3.version>2.40.2</s3.version>
+        <!-- awssdk 整套 BOM 管理（#438 判例：单钉 s3 会被 tika-bom→tika-parent 继承的
+             awssdk:bom 2.33.4 压低其余构件，形成 s3 2.40.x + 传递依赖 2.33.x 混版本）；
+             import 必须排在 tika-bom 之前（两个 import 竞争时先到先得） -->
+        <awssdk.version>2.40.2</awssdk.version>
         <aliyun-oss.version>3.18.5</aliyun-oss.version>
         <sa-token.version>1.46.0</sa-token.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
@@ -69,6 +72,16 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- 必须位于 tika-bom 之前：tika-parent 自带 awssdk:bom 导入（当前 2.33.4），
+                 后置会被它压回旧版形成混版本；awssdk 全构件由此 BOM 统一管理 -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <dependency>
                 <groupId>org.apache.tika</groupId>
                 <artifactId>tika-bom</artifactId>
@@ -114,12 +127,6 @@
                 <groupId>com.baomidou</groupId>
                 <artifactId>mybatis-plus-extension</artifactId>
                 <version>${mybatis-plus.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>s3</artifactId>
-                <version>${s3.version}</version>
             </dependency>
 
             <dependency>
