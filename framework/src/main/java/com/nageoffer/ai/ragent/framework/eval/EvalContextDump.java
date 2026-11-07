@@ -18,6 +18,8 @@
 package com.nageoffer.ai.ragent.framework.eval;
 
 import cn.hutool.json.JSONUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,6 +39,11 @@ public final class EvalContextDump {
 
     private static final String ENV_KEY = "RAG_EVAL_DUMP_FILE";
 
+    private static final Logger log = LoggerFactory.getLogger(EvalContextDump.class);
+
+    /** 首写告警标记：转储是明文观察面（SYSTEM/USER 全文），误开（如生产 env 误配）必须可察觉 */
+    private static boolean warned = false;
+
     private EvalContextDump() {
     }
 
@@ -51,6 +58,10 @@ public final class EvalContextDump {
         String path = envPath();
         if (path == null) {
             return;
+        }
+        if (!warned) {
+            warned = true;
+            log.warn("RAG_EVAL_DUMP_FILE 已开启：评测事件（含 SYSTEM/USER 全文）将明文追加写入 {}，仅限评测环境", path);
         }
         try {
             Map<String, Object> row = new LinkedHashMap<>();

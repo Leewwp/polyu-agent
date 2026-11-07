@@ -71,7 +71,9 @@ public class LlmScopeJudgeClient implements ScopeJudgeClient {
     private static final java.util.regex.Pattern YES_TOKEN = java.util.regex.Pattern.compile("\\bYES\\b");
     private static final java.util.regex.Pattern NO_TOKEN = java.util.regex.Pattern.compile("\\bNO\\b");
 
-    private final ExecutorService judgeExecutor = Executors.newCachedThreadPool(new ThreadFactory());
+    // 有界固定池：LLM 慢时线程数不随并发判定数无限增长（cached 池的风险）；池满后排队的
+    // 任务由调用方 future.get(timeout) 超时取消，按既有 FAILED fail-open 语义放行
+    private final ExecutorService judgeExecutor = Executors.newFixedThreadPool(8, new ThreadFactory());
 
     @Override
     public Vote vote(String question) {
