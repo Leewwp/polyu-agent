@@ -127,8 +127,8 @@ agent:
     summary-enabled: true
     long-term-enabled: true
     evictable-tools: [ search_knowledge ]
-    # #278 撤回/清空 HITL 审批开关（新功能默认关，启用时点归维护者，同 RAG_CALENDAR_ENABLED 先例）：
-    # 关态=受审批次走既有直接落库路径、不挂载 apply_memory_change。env=AGENT_MEMORY_HITL_APPROVAL_ENABLED。
+    # （#278 撤回/清空 HITL 审批开关已随 #398「HITL 日落」整体下线——键、Java 绑定与
+    #   AGENT_MEMORY_HITL_APPROVAL_ENABLED 传递均已删除，此处不留开关。）
   trace:
     enabled: false  # 开启前先起 resources/docker/langfuse 那套服务
     capture-content: true  # 记录提示词与工具出入参；纯骨架改 false
