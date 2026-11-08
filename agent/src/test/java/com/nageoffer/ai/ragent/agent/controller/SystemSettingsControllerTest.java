@@ -118,6 +118,7 @@ class SystemSettingsControllerTest {
     void shouldKeepAgentAndWorkflowSettingsSeparateAndResolveCurrentThresholds() {
         agent.getChat().setModel("agent-model");
         agent.getChat().setProvider("agent-provider");
+        agent.getChat().setReasoningEffort("high");
         agent.setMaxConcurrentRunsPerUser(3);
         memory.setContextWindowChars(20000);
         memory.setSummaryEnabled(false);
@@ -131,6 +132,7 @@ class SystemSettingsControllerTest {
             var controller = ctx.getBean(SystemSettingsController.class);
             var result = controller.settings().getData();
             assertThat(result.getAgent().chat().model()).isEqualTo("agent-model");
+            assertThat(result.getAgent().chat().reasoningEffort()).isEqualTo("high");
             assertThat(result.getAi().getChat().getDefaultTier()).isEqualTo("knowledge-tier");
             assertThat(result.getRag().getMemory().getSummaryEnabled()).isTrue();
             assertThat(result.getAgent().memory().summaryEnabled()).isFalse();

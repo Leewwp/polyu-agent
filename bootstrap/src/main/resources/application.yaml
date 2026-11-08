@@ -113,8 +113,9 @@ agent:
       - name: polyu-mcp
         url: ${AGENT_MCP_SERVER_URL:http://polyu-mcp:9099}
   chat:
-    provider: deepseek   # 引用 ai.providers 下的供应商，取其 url / api-key / endpoints.chat
-    model: deepseek-flash    # 直接传给 OpenAI 兼容端点的模型名
+    provider: deepseek
+    model: deepseek-flash
+    reasoning-effort:
   share:
     content-version: v2     # 会话分享载荷的内容/知识版本标记（v2=assistant 条目携带 sources 投影，issue #91）；粒度侧自持键（issue #124）
   max-iters: 10         # ReAct 循环上限，超出后熔断收尾
