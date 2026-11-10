@@ -15,7 +15,7 @@
     <properties>
         <java.version>17</java.version>
         <spring-boot.version>4.1.0</spring-boot.version>
-        <milvus-sdk.version>2.6.6</milvus-sdk.version>
+        <milvus-sdk.version>2.6.27</milvus-sdk.version>
         <tika.version>3.2.3</tika.version>
         <hutool-all.version>5.8.48</hutool-all.version>
         <mybatis-plus.version>3.5.18.1</mybatis-plus.version>
@@ -68,6 +68,17 @@
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp-bom</artifactId>
                 <version>${okhttp.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- okio 整套对齐（#435 验证轮判例）：okhttp-bom 不含 okio；milvus-sdk 2.6.27
+                 直带 okio 3.6.0，而其 okhttp 被 BOM 管到 5.5.1（需 okio 3.18.1）——最近邻
+                 仲裁保 3.6.0 即运行时 NoSuchMethodError（okio.Okio.socket）。okio-bom 统一管理。 -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-bom</artifactId>
+                <version>3.18.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
