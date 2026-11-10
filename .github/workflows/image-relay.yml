@@ -1,0 +1,62 @@
+# 镜像中继：CI runner 拉取 GHCR 镜像后经 SSH 直传部署机 docker load。
+#
+# 背景（2026-11-10 运维小批窗实录）：部署机 → ghcr 单 blob CDN 边缘劣化（backend
+# 206MB 应用层实测 26KB/s 全量 GET；对照同窗口 es-ik 600MB 层正常），deploy 的
+# compose pull 在 appleboy 命令超时内拉不完即整步失败。runner 侧 ghcr 带宽正常，
+# 且 run 内 GITHUB_TOKEN 自带 packages:read——本工作流借道 runner 把镜像送到
+# 部署机，daemon 已有全部层后 compose pull 只剩 manifest/config 元数据校验（秒级），
+# deploy 即恢复正常节奏。判例与操作记录见 project-docs/103 §G。
+#
+# 触发：手动 workflow_dispatch。参数：
+#   tag    = 镜像 tag（deploy meta 产物 = 完整 commit sha 或短 sha，与 polyu-prod.env 的 IMAGE_* 一致）
+#   images = 逗号分隔的镜像名子集（backend/frontend/es-ik/mcp），默认 backend
+#            （backend 的 fat-jar 层每笔构建都变，是唯一反复触发的痛点；其余镜像层基本复用）
+name: image-relay
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '镜像 tag（= deploy meta 输出，如 4e1510e52c6b）'
+        required: true
+      images:
+        description: '逗号分隔：backend,frontend,es-ik,mcp'
+        required: false
+        default: 'backend'
+
+concurrency:
+  group: image-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Pull on runner and relay to deploy host
+        env:
+          GHCR_USER: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          IMAGES: ${{ inputs.images }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          GHCR_USER="${GHCR_USER,,}"   # ghcr 仓库名强制小写（deploy.yml meta 同款判例）
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          install -m 600 /dev/null /tmp/deploy-key
+          printf '%s\n' "$DEPLOY_KEY" > /tmp/deploy-key
+          for img in ${IMAGES//,/ }; do
+            REF="ghcr.io/$GHCR_USER/polyu-agent-$img:$TAG"
+            echo "=== relay $REF ==="
+            docker pull "$REF"
+            docker save "$REF" | gzip | ssh -i /tmp/deploy-key -o StrictHostKeyChecking=accept-new \
+              "$DEPLOY_USER@$DEPLOY_HOST" 'gunzip | docker load'
+          done
+          shred -u /tmp/deploy-key || rm -f /tmp/deploy-key
+          docker logout ghcr.io
