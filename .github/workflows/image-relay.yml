@@ -47,6 +47,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
           set -euo pipefail
+          GHCR_USER="${GHCR_USER,,}"   # ghcr 仓库名强制小写（deploy.yml meta 同款判例）
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
           install -m 600 /dev/null /tmp/deploy-key
           printf '%s\n' "$DEPLOY_KEY" > /tmp/deploy-key
