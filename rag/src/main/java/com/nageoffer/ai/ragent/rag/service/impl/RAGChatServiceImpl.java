@@ -24,6 +24,9 @@ import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.rag.service.ratelimit.ChatQueueLimiter;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
+import com.nageoffer.ai.ragent.rag.service.preguard.GuardDecision;
+import com.nageoffer.ai.ragent.rag.service.preguard.QuestionScopeGuard;
+import com.nageoffer.ai.ragent.rag.service.preguard.RejectTemplates;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
 import com.nageoffer.ai.ragent.rag.service.pipeline.StreamChatContext;
 import com.nageoffer.ai.ragent.rag.service.pipeline.StreamChatPipeline;
@@ -46,11 +49,22 @@ public class RAGChatServiceImpl implements RAGChatService {
     private final StreamCallbackFactory callbackFactory;
     private final StreamChatTraceRunner traceRunner;
     private final StreamTaskManager taskManager;
+    private final QuestionScopeGuard questionScopeGuard;
 
     @Override
     public void streamChat(String question, String conversationId, Boolean deepThinking, SseEmitter emitter) {
         String actualConversationId = StrUtil.isBlank(conversationId) ? IdUtil.getSnowflakeNextIdStr() : conversationId;
         String taskId = IdUtil.getSnowflakeNextIdStr();
+
+        // 回答前分类器守卫（#430，flag rag.classifier.enabled 默认关）：建流前拒绝，
+        // 保证 meta 不先发出；拒答走 ChatQueueLimiter 的既有拒绝口径（meta→reject→finish→done）
+        GuardDecision guardDecision = questionScopeGuard.check(question);
+        if (guardDecision.rejected()) {
+            chatQueueLimiter.rejectWithTemplate(question, actualConversationId, emitter,
+                    RejectTemplates.template(guardDecision.lang()));
+            return;
+        }
+
         StreamCallback callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
 
         chatQueueLimiter.enqueue(question, actualConversationId, emitter,

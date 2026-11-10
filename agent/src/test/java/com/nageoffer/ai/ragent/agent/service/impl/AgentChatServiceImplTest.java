@@ -33,6 +33,9 @@ import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.framework.web.StreamTaskManager;
+import com.nageoffer.ai.ragent.rag.config.RAGClassifierProperties;
+import com.nageoffer.ai.ragent.rag.service.preguard.QuestionScopeGuard;
+import com.nageoffer.ai.ragent.rag.service.preguard.ScopeJudgeClient;
 import io.agentscope.core.ReActAgent;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
@@ -112,7 +115,10 @@ class AgentChatServiceImplTest {
         runGate = mock(AgentRunGate.class);
         agent = mock(ReActAgent.class);
         memoryLearner = mock(AgentMemoryLearner.class);
-        service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate, memoryLearner);
+        // 分类器守卫默认 flag 关（RAGClassifierProperties 缺省），全部放行不干预既有行为
+        service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
+                memoryLearner, new QuestionScopeGuard(new RAGClassifierProperties(),
+                mock(ScopeJudgeClient.class)));
 
         gateReleased = new AtomicInteger();
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(gateReleased::incrementAndGet);

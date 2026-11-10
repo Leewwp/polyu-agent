@@ -89,7 +89,7 @@ class NewsGateWordlistBindingTest {
     }
 
     /**
-     * 端到端：真实 application.yaml 整档过绑定器，门生效源（#277 媒体三源+#410 B 线
+     * 端到端：真实 application.yaml 整档过绑定器，门生效源（#277 媒体二源+#410 B 线
      * 官方三源）与词表量级可从属性对象读出
      */
     @Test
@@ -103,12 +103,49 @@ class NewsGateWordlistBindingTest {
                 .bind("rag.news", Bindable.of(NewsFetchProperties.class)).get();
 
         assertThat(bound.getGateSourceKeys())
-                .containsExactlyInAnyOrder("scmp-education", "rthk-local-news", "gia-news",
+                .containsExactlyInAnyOrder("scmp-education", "gia-news",
                         "jupas-news", "jupas-programme-changes", "ugc-whatnews");
         assertThat(bound.getUnambiguousTerms())
                 .as("词表规模应与 yaml 显式清单一致（30+ 项），缩水说明绑定退回了 Java 默认拷贝")
                 .hasSizeGreaterThanOrEqualTo(30)
                 .contains("香港理工大学", "PolyU");
         assertThat(bound.getContextualTerms()).contains("CityU", "中大", "科大");
+    }
+
+    /**
+     * 缺省漂移绊网（#432）：Java 缺省键集必须与 application.yaml 键集一致——缺省是
+     * 「无 yaml 覆盖装配形态」（如纯 Java 缺省绑定的单测/工具面）的唯一门面，两侧分叉
+     * 即环境差异产生门行为漂移；经公开判据 {@code gateAppliesTo} 对照默认实例与
+     * yaml 绑定实例（#277「只对指定 source_key 生效」红线不破：键集内容变、判据语义不变）
+     */
+    @Test
+    void 门生效键Java缺省必须与yaml集一致防缺省漂移() {
+        Properties properties = loadApplicationYaml();
+        Map<String, Object> flat = new HashMap<>();
+        properties.forEach((key, value) -> flat.put(String.valueOf(key), value));
+
+        NewsFetchProperties bound = new Binder(
+                ConfigurationPropertySources.from(new MapPropertySource("application-yaml", flat)))
+                .bind("rag.news", Bindable.of(NewsFetchProperties.class)).get();
+        NewsFetchProperties defaults = new NewsFetchProperties();
+
+        assertThat(defaults.getGateSourceKeys())
+                .as("Java 缺省必须与 yaml 键集一致（#432 五键镜像），分叉=无 yaml 覆盖环境的门行为漂移")
+                .containsExactlyInAnyOrderElementsOf(bound.getGateSourceKeys());
+
+        for (String sourceKey : bound.getGateSourceKeys()) {
+            assertThat(defaults.gateAppliesTo(sourceKey))
+                    .as("默认实例五键现网回归：%s 应过门", sourceKey)
+                    .isTrue();
+            assertThat(bound.gateAppliesTo(sourceKey))
+                    .as("yaml 绑定实例五键现网回归：%s 应过门", sourceKey)
+                    .isTrue();
+        }
+        assertThat(defaults.gateAppliesTo("rthk-local-news"))
+                .as("rthk-local-news 已于 2026-10-29 停用，不得残留在任何一面；复启=本键与 Java 缺省镜像同步回填")
+                .isFalse();
+        assertThat(bound.gateAppliesTo("polyu-latest-news"))
+                .as("列外源不经门（#277 红线）")
+                .isFalse();
     }
 }

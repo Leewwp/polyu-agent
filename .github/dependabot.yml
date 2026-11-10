@@ -7,12 +7,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    # 不升 major：milvus-sdk 3.x 需服务端 3.x 配套（本栈 2.6）；spotless 3.x 变更格式化规则面无升级驱动。
+    # 不升 major：milvus-sdk 3.x 需服务端 3.x 配套（本栈 2.6）；spotless 3.x 变更格式化规则面无升级驱动；
+    # MCP SDK 1.x+ 为破坏性 API（inputSchema 裸 Map→强类型、required() 签名变更），适配票完成前不自动开 major PR。
     ignore:
       - dependency-name: io.milvus:milvus-sdk-java
         versions: [">=3"]
       - dependency-name: com.diffplug.spotless:spotless-maven-plugin
         versions: [">=3"]
+      - dependency-name: io.modelcontextprotocol.sdk:mcp
+        versions: [">=1"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -28,9 +31,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    # 不升 major：buildx-action 4.x 无升级驱动。
+    # 不升 major：buildx-action 4.x / login-action 4.x 无升级驱动。
     ignore:
       - dependency-name: docker/setup-buildx-action
+        versions: [">=4"]
+      - dependency-name: docker/login-action
         versions: [">=4"]
   # Dockerfile 基础镜像更新（deploy/backend、deploy/frontend-nginx、resources/docker/es-stack）。
   - package-ecosystem: docker

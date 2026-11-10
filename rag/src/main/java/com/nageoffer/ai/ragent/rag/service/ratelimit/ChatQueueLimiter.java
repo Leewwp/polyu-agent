@@ -87,18 +87,35 @@ public class ChatQueueLimiter {
 
     // ==================== Reject 业务 ====================
 
+    /**
+     * 回答前分类器守卫的拒答出口（#430）：与排队拒绝同一渲染口径
+     * （meta→reject→finish(REJECTED)→done），用户消息与 REJECTED 助手消息双双落库；
+     * 拒绝文案由守卫按题面语言选定后传入
+     */
+    public void rejectWithTemplate(String question, String conversationId, SseEmitter emitter, String rejectMessage) {
+        RejectedContext context = null;
+        try {
+            context = recordRejectedConversation(question, conversationId, resolveUserId(), rejectMessage);
+        } catch (Exception ex) {
+            // 记录失败不能阻塞 emitter，否则前端永远收不到 DONE
+            log.warn("记录分类器拒答会话失败，仍向前端发送 DONE", ex);
+        }
+        sendRejectEvents(emitter, context, rejectMessage);
+    }
+
     private void handleReject(String question, String conversationId, SseEmitter emitter) {
         RejectedContext context = null;
         try {
-            context = recordRejectedConversation(question, conversationId, resolveUserId());
+            context = recordRejectedConversation(question, conversationId, resolveUserId(), REJECT_MESSAGE);
         } catch (Exception ex) {
             // 记录失败不能阻塞 emitter，否则前端永远收不到 DONE
             log.warn("记录 reject 会话失败，仍向前端发送 DONE", ex);
         }
-        sendRejectEvents(emitter, context);
+        sendRejectEvents(emitter, context, REJECT_MESSAGE);
     }
 
-    private RejectedContext recordRejectedConversation(String question, String conversationId, String userId) {
+    private RejectedContext recordRejectedConversation(String question, String conversationId, String userId,
+                                                       String rejectMessage) {
         if (StrUtil.isBlank(question) || StrUtil.isBlank(userId)) {
             return null;
         }
@@ -115,7 +132,7 @@ public class ChatQueueLimiter {
         }
 
         String questionMessageId = memoryService.append(actualConversationId, userId, ChatMessage.user(question));
-        ChatMessage rejectedMessage = ChatMessage.assistant(REJECT_MESSAGE);
+        ChatMessage rejectedMessage = ChatMessage.assistant(rejectMessage);
         rejectedMessage.setReplyToMessageId(questionMessageId);
         rejectedMessage.setMessageStatus(ChatMessage.MessageStatus.REJECTED);
         String messageId = memoryService.append(actualConversationId, userId, rejectedMessage);
@@ -142,11 +159,11 @@ public class ChatQueueLimiter {
         return cleaned.length() <= maxLen ? cleaned : cleaned.substring(0, maxLen);
     }
 
-    private void sendRejectEvents(SseEmitter emitter, RejectedContext rejectedContext) {
+    private void sendRejectEvents(SseEmitter emitter, RejectedContext rejectedContext, String rejectMessage) {
         SseEmitterSender sender = new SseEmitterSender(emitter);
         if (rejectedContext != null) {
             sender.sendEvent(SSEEventType.META.value(), new MetaPayload(rejectedContext.conversationId, rejectedContext.taskId));
-            sender.sendEvent(SSEEventType.REJECT.value(), new MessageDelta(RESPONSE_TYPE, REJECT_MESSAGE));
+            sender.sendEvent(SSEEventType.REJECT.value(), new MessageDelta(RESPONSE_TYPE, rejectMessage));
             sender.sendEvent(SSEEventType.FINISH.value(),
                     new CompletionPayload(String.valueOf(rejectedContext.messageId), rejectedContext.title,
                             null, ChatMessage.MessageStatus.REJECTED));
