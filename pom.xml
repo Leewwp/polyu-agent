@@ -72,6 +72,17 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- okio 整套对齐（#435 验证轮判例）：okhttp-bom 不含 okio；milvus-sdk 2.6.27
+                 直带 okio 3.6.0，而其 okhttp 被 BOM 管到 5.5.1（需 okio 3.18.1）——最近邻
+                 仲裁保 3.6.0 即运行时 NoSuchMethodError（okio.Okio.socket）。okio-bom 统一管理。 -->
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio-bom</artifactId>
+                <version>3.18.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- 必须位于 tika-bom 之前：tika-parent 自带 awssdk:bom 导入（当前 2.33.4），
                  后置会被它压回旧版形成混版本；awssdk 全构件由此 BOM 统一管理 -->
             <dependency>
