@@ -275,3 +275,25 @@ class TestRiskControls:
                         calls={"search_exam_papers": [1, 1]})
         verdict = pa.assert_profile(blocks, "NORMAL", expected)
         assert verdict.ok is True
+
+    def test_tool_block_missing_name_is_parse_error_verdict(self):
+        # 数据合同破损（tool 块缺 name）：与解析面统一口径归 PARSE_ERROR，不向调用方裸抛
+        blocks = [{"kind": "tool", "status": "done"}]
+        verdict = pa.assert_profile(blocks, "NORMAL", PROFILE_ANSWER)
+        assert verdict.ok is False
+        assert verdict.kind == "PARSE_ERROR"
+        assert any("name" in f for f in verdict.failures)
+
+    def test_invalid_terminal_value_is_invalid_expected(self):
+        # terminal 取值域钉死为 AgentMessageStatus 词汇，防题集手写出拼写漂移静默失效
+        verdict = pa.assert_profile([], "NORMAL", dict(PROFILE_ANSWER, terminal="FINISHED"))
+        assert verdict.ok is False
+        assert verdict.kind == "INVALID_EXPECTED"
+        assert any("terminal" in f for f in verdict.failures)
+
+    def test_awaiting_confirm_is_valid_terminal(self):
+        blocks = [{"kind": "answer", "text": "（合成）等确认"}]
+        expected = dict(PROFILE_ANSWER, calls={"search_knowledge": [0, 0]},
+                        terminal="AWAITING_CONFIRM")
+        verdict = pa.assert_profile(blocks, "AWAITING_CONFIRM", expected)
+        assert verdict.ok is True
