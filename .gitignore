@@ -91,3 +91,6 @@ evaluation/__pycache__/
 /PRODUCT.md
 /DESIGN.md
 /.impeccable/
+
+# 用户本地工作目录（简历副本等，2026-11-12 误扫进提交后补防线）
+.tmp-resume/
