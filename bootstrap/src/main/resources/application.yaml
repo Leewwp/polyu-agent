@@ -127,6 +127,11 @@ agent:
                          # 关态零采集零落行零摘要计算；env 覆盖名 AGENT_AUDIT_ENABLED（生产保持关）
     retention-scan-delay-ms: 3600000    # 审计保留清理巡检间隔（毫秒）；90 天保留不随 flag 关停
     retention-initial-delay-ms: 120000  # 审计保留清理启动首扫延迟（毫秒）
+  tool-permission:
+    enabled: false       # 工具权限矩阵 feature flag（t_agent_tool_permission 每 run 会话级编译进
+                         # AgentScope 权限引擎，#487）：默认关；关态连空编译都不做（不调
+                         # replacePermissionContext），引擎链路与现状逐位相同；env 覆盖名
+                         # AGENT_TOOL_PERMISSION_ENABLED（生产部署后保持关，冒烟核对答案链路与基线一致）
   memory:
     context-window-chars: 100000
     summary-enabled: true
