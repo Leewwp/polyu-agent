@@ -119,7 +119,8 @@ class AgentChatServiceImplTest {
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
                 memoryLearner, new QuestionScopeGuard(new RAGClassifierProperties(),
                 mock(ScopeJudgeClient.class)),
-                mock(com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter.class));
+                mock(com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter.class),
+                mock(com.nageoffer.ai.ragent.agent.permission.AgentToolPermissionService.class));
 
         gateReleased = new AtomicInteger();
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(gateReleased::incrementAndGet);
