@@ -24,13 +24,16 @@ import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolInputSumma
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
 /**
  * 工具入参摘要（#486 纪律）：SHA-256 digest（对完整入参 canonical JSON 计算，可复算）
  * + 截断脱敏 excerpt（≤256 字符），禁全文落库。
- * canonical JSON = TreeMap 键序紧凑串（hutool 序列化），同一入参恒得同一摘要。
+ * canonical JSON = 递归规范化（Map→TreeMap 键序，含嵌套层）后的紧凑串（hutool 序列化），
+ * 同一入参无论键序（含嵌套乱序）恒得同一摘要。
  */
 public final class ToolInputDigest {
 
@@ -49,8 +52,30 @@ public final class ToolInputDigest {
         if (input == null) {
             return null;
         }
-        String canonical = JSONUtil.toJsonStr(new TreeMap<>(input));
+        String canonical = JSONUtil.toJsonStr(canonicalize(input));
         return new ToolInputSummary(sha256Hex(canonical), StrUtil.sub(canonical, 0, EXCERPT_MAX_CHARS));
+    }
+
+    /**
+     * 递归规范化：Map→TreeMap（键序稳定）、List→逐元素规范化后的副本；
+     * 序列化器只排顶层键序，嵌套 Map 的乱序键须在序列化前先归一，否则同值异序入参得出不同摘要
+     */
+    private static Object canonicalize(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            TreeMap<String, Object> sorted = new TreeMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                sorted.put(String.valueOf(entry.getKey()), canonicalize(entry.getValue()));
+            }
+            return sorted;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> canonical = new ArrayList<>(list.size());
+            for (Object item : list) {
+                canonical.add(canonicalize(item));
+            }
+            return canonical;
+        }
+        return value;
     }
 
     private static String sha256Hex(String text) {
