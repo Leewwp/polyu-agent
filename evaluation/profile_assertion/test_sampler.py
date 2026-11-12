@@ -151,6 +151,37 @@ class TestLogin:
         assert t.calls[0]["body"] == {"username": "u", "password": "p"}
 
 
+class TestSseChat:
+    def test_multiline_data_joined_by_newline_per_sse_spec(self):
+        # SSE 规范：同一事件的多行 data: 以 \n 拼接成完整载荷后才能 json 解析；
+        # 逐行解析只取末行会丢失前半段（半段 JSON 非法）。在 token 边界（冒号后）拆两行模拟分帧，
+        # 拼接载荷 = '{"conversationId":\n "c-multiline"}'（token 间换行对 JSON 合法）。
+        t = FakeTransport({
+            ("POST", "/agent/v1/chat"): FakeResponse([
+                "event: meta",
+                'data: {"conversationId":',
+                'data:  "c-multiline"}',
+                "",
+            ]),
+        })
+        out = sampler.sse_chat(t, BASE, token="tok", question="q")
+        assert out["conversation_id"] == "c-multiline"
+        assert out["finish_seen"] is False  # 断流无 finish
+
+    def test_eof_dispatches_buffered_event_without_trailing_blank_line(self):
+        # 流尾无空行收尾：EOF 时仍须派发缓冲中的事件（规范对流尾的要求）
+        t = FakeTransport({
+            ("POST", "/agent/v1/chat"): FakeResponse([
+                "event: finish",
+                "data: " + json.dumps({"messageId": "m-eof", "messageStatus": "NORMAL"}),
+            ]),
+        })
+        out = sampler.sse_chat(t, BASE, token="tok", question="q")
+        assert out["finish_seen"] is True
+        assert out["message_id"] == "m-eof"
+        assert out["message_status"] == "NORMAL"
+
+
 class TestLoadEvalset:
     def test_load_evalset_validates_four_elements(self, tmp_path):
         good = {

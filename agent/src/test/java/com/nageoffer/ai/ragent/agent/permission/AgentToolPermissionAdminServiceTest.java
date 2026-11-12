@@ -133,6 +133,21 @@ class AgentToolPermissionAdminServiceTest {
     }
 
     @Test
+    void 更新_enabled未传沿用库内现值_不静默翻回启用() {
+        when(mapper.selectById("id-2")).thenReturn(AgentToolPermissionDO.builder()
+                .id("id-2").role("user").toolId("search_news").decision("ALLOW")
+                .enabled(0).build());
+
+        service.save(request("id-2", "user", "search_news", "DENY", null));
+
+        ArgumentCaptor<AgentToolPermissionDO> row = ArgumentCaptor.forClass(AgentToolPermissionDO.class);
+        verify(mapper).updateById(row.capture());
+        // 原行 enabled=0（停用），部分更新未传 enabled 须沿用 0——不得静默翻回 1
+        assertThat(row.getValue().getEnabled()).isZero();
+        assertThat(row.getValue().getDecision()).isEqualTo("DENY");
+    }
+
+    @Test
     void 删除_删不到报错_删到放行() {
         when(mapper.deleteById("id-1")).thenReturn(1);
         service.remove("id-1");

@@ -46,7 +46,12 @@ def default_transport(url: str, method: str = "GET", body: Optional[dict] = None
 
 
 def login(transport: Transport, base: str, creds: Tuple[str, str]) -> str:
-    """EXP_CREDS（user:pass）→ 普通用户 token（/agent/v1 不在 admin 清单）。"""
+    """EXP_CREDS（user:pass）→ 普通用户 token（/agent/v1 不在 admin 清单）。
+
+    契约对齐 evaluation/collect_arms.py 实测形态（2026-11-12 复核逐位一致）：
+    POST /auth/login，body={username,password}，token=data.token，
+    Authorization 头=裸 token 值（sa-token，无 Bearer 前缀）。
+    """
     user, pwd = creds
     resp = transport(f"{base}/auth/login", "POST",
                      {"username": user, "password": pwd}, timeout=30.0)
@@ -57,38 +62,65 @@ def login(transport: Transport, base: str, creds: Tuple[str, str]) -> str:
     return token
 
 
+def _dispatch_sse_event(out: dict, event: Optional[str], payload: str) -> bool:
+    """单事件派发：payload=多行 data: 以 \\n 拼接后的完整载荷；返回 True=终止事件（finish/error）。"""
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        data = {}
+    if event == "meta":
+        out["conversation_id"] = (data or {}).get("conversationId")
+        return False
+    if event == "finish":
+        out["finish_seen"] = True
+        out["message_id"] = (data or {}).get("messageId") or None
+        out["message_status"] = (data or {}).get("messageStatus")
+        return True
+    if event == "error":
+        out["error"] = str(data)[:300]
+        return True
+    return False
+
+
 def sse_chat(transport: Transport, base: str, token: str, question: str,
              conversation_id: Optional[str] = None,
              sse_timeout: float = DEFAULT_SSE_TIMEOUT) -> dict:
-    """发一轮 chat 并消费 SSE 到 finish/error/EOF；只做完成信号，不采答案。"""
+    """发一轮 chat 并消费 SSE 到 finish/error/EOF；只做完成信号，不采答案。
+
+    SSE 解析按 whatwg 规范：同一事件的多个 ``data:`` 行以 ``\\n`` 拼接成一个载荷
+    （拼接前的半段不是合法 JSON，禁止逐行解析只取末行），空行=事件分界；
+    EOF 时若仍有未派发的缓冲事件则补派发一次（规范对流尾的要求）。
+    """
     out = {"conversation_id": conversation_id, "message_id": None,
            "message_status": None, "finish_seen": False, "error": None}
     body = {"question": question}
     if conversation_id:
         body["conversationId"] = conversation_id
-    event = None
+    event: Optional[str] = None
+    data_lines: List[str] = []
     resp = transport(f"{base}/agent/v1/chat", "POST", body,
                      token=token, timeout=sse_timeout)
     for raw in resp:
-        line = raw.decode("utf-8", "replace").rstrip("\n")
-        if line.startswith("event:"):
-            event = line.split(":", 1)[1].strip()
-        elif line.startswith("data:"):
-            payload = line.split(":", 1)[1].strip()
-            try:
-                data = json.loads(payload)
-            except json.JSONDecodeError:
-                data = {}
-            if event == "meta":
-                out["conversation_id"] = (data or {}).get("conversationId")
-            elif event == "finish":
-                out["finish_seen"] = True
-                out["message_id"] = (data or {}).get("messageId") or None
-                out["message_status"] = (data or {}).get("messageStatus")
-                break
-            elif event == "error":
-                out["error"] = str(data)[:300]
-                break
+        line = raw.decode("utf-8", "replace").rstrip("\r\n")
+        if not line:
+            # 空行=事件分界：派发缓冲载荷并复位字段缓冲
+            if data_lines and _dispatch_sse_event(out, event, "\n".join(data_lines)):
+                return out
+            event, data_lines = None, []
+            continue
+        if line.startswith(":"):
+            continue  # SSE 注释行（心跳等）
+        field, sep, value = line.partition(":")
+        if sep and value.startswith(" "):
+            value = value[1:]  # 规范：字段值至多去一个前导空格
+        if field == "event":
+            event = value
+        elif field == "data":
+            data_lines.append(value)
+        # 其余字段（id/retry）与单行多事件之外的形态不在本消费面
+    # EOF：派发残留缓冲事件（断流时最后一段无空行收尾也按事件处理）
+    if data_lines and _dispatch_sse_event(out, event, "\n".join(data_lines)):
+        return out
     return out
 
 

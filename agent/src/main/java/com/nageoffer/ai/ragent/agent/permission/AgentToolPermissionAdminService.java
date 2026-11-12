@@ -87,7 +87,8 @@ public class AgentToolPermissionAdminService {
         existing.setRole(request.getRole());
         existing.setToolId(request.getToolId());
         existing.setDecision(request.getDecision());
-        existing.setEnabled(request.getEnabled() == null ? 1 : request.getEnabled());
+        // 更新路径 enabled 未传沿用库内现值（新增路径才默认 1）：部分更新不得静默把停用行翻回启用
+        existing.setEnabled(request.getEnabled() == null ? existing.getEnabled() : request.getEnabled());
         existing.setDescription(request.getDescription());
         try {
             mapper.updateById(existing);

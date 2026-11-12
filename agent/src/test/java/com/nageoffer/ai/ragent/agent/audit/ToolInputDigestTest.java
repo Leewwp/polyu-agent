@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,5 +92,32 @@ class ToolInputDigestTest {
 
         assertThat(summary.digest()).isEqualTo(sha256Hex("{}"));
         assertThat(summary.excerpt()).isEqualTo("{}");
+    }
+
+    @Test
+    void nestedUnorderedKeysYieldIdenticalDigest() throws Exception {
+        // 乱序构造：嵌套 Map 键序与顶层插入序都不同，canonical 化后须逐位同串
+        Map<String, Object> innerA = new HashMap<>();
+        innerA.put("b", 2);
+        innerA.put("a", 1);
+        Map<String, Object> inputA = new HashMap<>();
+        inputA.put("z", innerA);
+        inputA.put("filter", List.of(Map.of("k", "v")));
+
+        Map<String, Object> innerB = new HashMap<>();
+        innerB.put("a", 1);
+        innerB.put("b", 2);
+        Map<String, Object> inputB = new HashMap<>();
+        inputB.put("filter", List.of(Map.of("k", "v")));
+        inputB.put("z", innerB);
+
+        ToolInputSummary first = ToolInputDigest.summarize(inputA);
+        ToolInputSummary second = ToolInputDigest.summarize(inputB);
+
+        assertThat(first.digest()).isEqualTo(second.digest());
+        assertThat(first.excerpt()).isEqualTo(second.excerpt());
+        // 递归 TreeMap 键序（含 List 内嵌套层）独立复算锁定
+        assertThat(first.digest())
+                .isEqualTo(sha256Hex("{\"filter\":[{\"k\":\"v\"}],\"z\":{\"a\":1,\"b\":2}}"));
     }
 }

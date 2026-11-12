@@ -45,6 +45,12 @@ VERDICT_INVALID_EXPECTED = "INVALID_EXPECTED"
 EXPECT_ANSWER = "answer"
 EXPECT_REFUSE = "refuse"
 
+# terminal 取值域 = AgentMessageStatus 词汇（NORMAL/INTERRUPTED/AWAITING_CONFIRM）
+TERMINAL_NORMAL = "NORMAL"
+TERMINAL_INTERRUPTED = "INTERRUPTED"
+TERMINAL_AWAITING_CONFIRM = "AWAITING_CONFIRM"
+_VALID_TERMINALS = (TERMINAL_NORMAL, TERMINAL_INTERRUPTED, TERMINAL_AWAITING_CONFIRM)
+
 
 @dataclass
 class Verdict:
@@ -152,8 +158,8 @@ def validate_expected(expected: Any) -> List[str]:
                 problems.append(f"calls[{name}] 须为 [min,max] 非负整数闭区间")
     if expected.get("expect") not in (EXPECT_ANSWER, EXPECT_REFUSE):
         problems.append("expect 须为 answer|refuse")
-    if not isinstance(expected.get("terminal"), str) or not expected.get("terminal"):
-        problems.append("terminal 须为非空字符串")
+    if expected.get("terminal") not in _VALID_TERMINALS:
+        problems.append("terminal 须为 NORMAL|INTERRUPTED|AWAITING_CONFIRM")
     denied_expected = expected.get("denied_expected", False)
     if not isinstance(denied_expected, bool):
         problems.append("denied_expected 须为布尔")
@@ -181,16 +187,21 @@ def assert_profile(blocks: Any, message_status: Any, expected: Any) -> Verdict:
         parsed = parse_blocks(blocks)
     except BlocksParseError as exc:
         return Verdict(False, VERDICT_PARSE_ERROR, failures=[str(exc)])
-    observed = pa_observed(parsed, message_status)
-    failures: List[str] = []
-    if message_status != expected["terminal"]:
-        failures.append(
-            f"terminal 不符: 期望 {expected['terminal']}，观察 {message_status}")
-    if expected["expect"] == EXPECT_ANSWER:
-        _check_tools_allowed_and_calls(parsed, expected, failures)
-    else:
-        _check_refuse(parsed, expected, failures)
-    _check_status_rules(parsed, expected, failures)
+    # extract_tool_profile 对缺 name/status 的 tool 块同样抛 BlocksParseError（数据合同破损），
+    # 与解析面统一口径归 PARSE_ERROR verdict，不向调用方裸抛
+    try:
+        observed = pa_observed(parsed, message_status)
+        failures: List[str] = []
+        if message_status != expected["terminal"]:
+            failures.append(
+                f"terminal 不符: 期望 {expected['terminal']}，观察 {message_status}")
+        if expected["expect"] == EXPECT_ANSWER:
+            _check_tools_allowed_and_calls(parsed, expected, failures)
+        else:
+            _check_refuse(parsed, expected, failures)
+        _check_status_rules(parsed, expected, failures)
+    except BlocksParseError as exc:
+        return Verdict(False, VERDICT_PARSE_ERROR, failures=[str(exc)])
     return Verdict(not failures, VERDICT_PASS if not failures else VERDICT_MISMATCH,
                    failures=failures, observed=observed)
 

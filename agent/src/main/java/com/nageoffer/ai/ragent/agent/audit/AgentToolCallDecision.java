@@ -62,11 +62,18 @@ public enum AgentToolCallDecision {
                     : ASK_DENIED;
         }
         if (AgentToolStatus.FAILED.value().equals(blockStatus)) {
-            return McpToolProxy.MASKED_TOOL_MESSAGE.equals(resultText) ? MASKED : ERROR;
+            // 与 RULE_DENY 同判别口径：固定文案比对前先 trim，result 首尾空白不改变归类
+            return McpToolProxy.MASKED_TOOL_MESSAGE.equals(resultText == null ? "" : resultText.trim())
+                    ? MASKED
+                    : ERROR;
         }
         if (AgentToolStatus.INTERRUPTED.value().equals(blockStatus)) {
             return INTERRUPTED;
         }
-        return ALLOW;
+        if (AgentToolStatus.DONE.value().equals(blockStatus)) {
+            return ALLOW;
+        }
+        // 兜底（pending/running 等未观测到终态的收尾漏网形态）：INTERRUPTED，不造第三种语义
+        return INTERRUPTED;
     }
 }
