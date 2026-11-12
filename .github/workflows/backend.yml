@@ -39,7 +39,15 @@ jobs:
         run: >
           ./mvnw test
           -Dsurefire.failIfNoSpecifiedTests=false
-          -Dtest='!RagentCoreApplicationTests,!MinerUPdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!NewsQueryServiceTests'
+          -Dtest='!RagentCoreApplicationTests,!MinerUpdfUploadFlowTest,!IntentTreeServiceTests,!SimpleIntentClassifierTests,!VectorTreeIntentClassifierTests,!SiliconFlowEmbeddingServiceTests,!MultiQuestionRewriteServiceTests,!QueryRewriteTests,!ConversationMessageServiceTests,!InvoiceIndexDocumentTests,!MilvusCollectionTests,!WebSearchChannelLiveTest,!NewsQueryServiceTests'
+
+      # #488 T3：轨迹调用画像断言器确定性测试（脱敏合成夹具；断言器本体纯
+      # 标准库，零 secret/零 DB/零 LLM/零网络）。pytest 仅作测试运行器现场
+      # 安装，不入 evaluation/requirements.txt（评测依赖管理面零增量）。
+      - name: Profile assertion deterministic tests (synthetic fixtures, zero LLM/DB)
+        run: |
+          python3 -m pip install --disable-pip-version-check --quiet pytest
+          python3 -m pytest evaluation/profile_assertion/ -q
 
       - name: Package (skip tests)
         run: ./mvnw -DskipTests package
