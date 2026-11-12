@@ -1,0 +1,82 @@
+[
+  {
+    "kind": "reasoning",
+    "at": "2026-11-01T10:00:00",
+    "text": "（合成样本）用户询问宿舍申请截止日期，先检索知识库。"
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T10:00:01",
+    "name": "search_knowledge",
+    "displayName": "知识库检索",
+    "status": "done",
+    "result": "（合成样本）检索命中 3 条宿舍申请相关条目。",
+    "toolCallId": "call_00_synthetic_aaa",
+    "batchId": "9200000000000000001-0",
+    "callIndex": 0,
+    "startedAt": 1790000000000,
+    "endedAt": 1790000012184,
+    "durationMs": 12184,
+    "durationSource": "tool",
+    "sources": [
+      {
+        "docId": "9300000000000000001",
+        "docName": "（合成文档）学生宿舍指南",
+        "excerpt": "（合成摘要）宿舍申请截止日期与流程说明。",
+        "sourceType": "url",
+        "url": "https://www.example.com/synthetic/dorm-guide"
+      }
+    ]
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T10:00:02",
+    "name": "flush_memory",
+    "displayName": "记忆整备",
+    "status": "done",
+    "result": "（合成样本）记忆整备完成。",
+    "toolCallId": "call_00_synthetic_aab",
+    "batchId": "9200000000000000002-0",
+    "callIndex": 0,
+    "startedAt": 1790000020000,
+    "endedAt": 1790000020500,
+    "durationMs": 500,
+    "durationSource": "tool"
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T10:00:03",
+    "name": "search_knowledge",
+    "displayName": "知识库检索",
+    "status": "failed",
+    "result": "知识库检索异常，请稍后重试",
+    "toolCallId": "call_00_synthetic_aac",
+    "batchId": "9200000000000000003-0",
+    "callIndex": 0,
+    "startedAt": 1790000030000,
+    "endedAt": 1790000042218,
+    "durationMs": 12218,
+    "durationSource": "tool"
+  },
+  {
+    "kind": "confirm",
+    "at": "2026-11-01T10:00:04",
+    "status": "approved",
+    "calls": [
+      {
+        "name": "search_exam_papers",
+        "fields": [
+          {"name": "keyword", "label": "关键词", "value": "（合成值）线性代数"}
+        ],
+        "arguments": "{\"keyword\": \"（合成值）\"}",
+        "toolCallId": "call_00_synthetic_aad",
+        "displayName": "历年试题检索"
+      }
+    ]
+  },
+  {
+    "kind": "answer",
+    "at": "2026-11-01T10:00:05",
+    "text": "（合成样本）宿舍申请截止日期为每学期开学前两周，详见学生手册。"
+  }
+]

@@ -209,6 +209,17 @@ public final class AgentToolExecutionFacts {
     }
 
     /**
+     * 工具体入口处采集的入参摘要（#486 审计）：digest+截断 excerpt，全文不落任何地方；
+     * 摘要计算发生在捕获点（agent.audit.enabled 开态），CAS 一次后重试不重算
+     */
+    public void markInputSummary(String toolCallId, ToolInputSummary summary) {
+        if (summary == null) {
+            return;
+        }
+        factOf(toolCallId).inputSummary.compareAndSet(null, summary);
+    }
+
+    /**
      * 优雅中断的时刻，抢到的那次返回 true
      */
     public boolean markInterrupted() {
@@ -279,6 +290,7 @@ public final class AgentToolExecutionFacts {
         private final AtomicReference<ToolResultBlock> result = new AtomicReference<>();
         private final AtomicReference<String> shortCircuitReason = new AtomicReference<>();
         private final AtomicReference<String> shortCircuitDetail = new AtomicReference<>();
+        private final AtomicReference<ToolInputSummary> inputSummary = new AtomicReference<>();
 
         private ToolFact(String toolCallId, int callIndex) {
             this.toolCallId = toolCallId;
@@ -324,6 +336,17 @@ public final class AgentToolExecutionFacts {
         public String shortCircuitDetail() {
             return shortCircuitDetail.get();
         }
+
+        public ToolInputSummary inputSummary() {
+            return inputSummary.get();
+        }
+    }
+
+    /**
+     * 一次工具调用的入参摘要：SHA-256 digest（对完整入参 canonical JSON 计算，可复算）+ 截断脱敏 excerpt；
+     * 记录在本类（run 级事实单点）随 run 生命周期驻内存，settle 点由审计 writer 读取
+     */
+    public record ToolInputSummary(String digest, String excerpt) {
     }
 
     /**

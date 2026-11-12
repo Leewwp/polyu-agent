@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.agent.trace;
 
+import com.nageoffer.ai.ragent.agent.audit.AgentToolInputAuditCapture;
 import com.nageoffer.ai.ragent.agent.enums.AgentToolStatus;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolFact;
@@ -84,6 +85,9 @@ public final class AgentToolBodyTracer {
                 return body.get();
             }
             String toolCallId = toolCallId(param);
+            // 入参摘要取数点（#486）：四把工具共用本层，单点覆盖全部调用；flag 关态零计算
+            AgentToolInputAuditCapture.capture(facts, toolCallId,
+                    param == null ? null : param.getInput());
             long startedAt = facts.markStarted(toolCallId);
             Span span = openSpan(ctxView, tool, facts, toolCallId, startedAt, runtimeContext, param);
             AtomicBoolean ended = new AtomicBoolean();

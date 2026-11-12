@@ -48,7 +48,11 @@ import java.util.Set;
 public class McpToolProxy extends McpTool {
 
     private static final String CALL_FAILED_MESSAGE = "工具调用失败，请稍后重试";
-    private static final String MASKED_TOOL_MESSAGE = "该工具尚未解锁。请根据当前任务，从 load_skill 的技能清单中选择并加载对应手册，再调用此工具。";
+
+    /**
+     * 遮蔽二线防御的短路固定文案；审计 decision 映射（MASKED 判别）引用同一常量，不另抄一份
+     */
+    public static final String MASKED_TOOL_MESSAGE = "该工具尚未解锁。请根据当前任务，从 load_skill 的技能清单中选择并加载对应手册，再调用此工具。";
     private final boolean needsConfirm;
     private final McpClientWrapper client;
 

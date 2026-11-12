@@ -109,6 +109,7 @@ python3 make_calibration_sheet.py --dir $RAW --n 20 \
 | `make_calibration_sheet.py` | A5 人工抽检双产物：盲评表（不含 RAGAS 分与分层）+ 对账表（分数与分层，填写完成后用）；语言×臂均衡分层 |
 | `gen_chains.py` / `run_chains.py` / `judge_b.py` / `summarize_b.py` | agent.memory 评测：链生成/跑链/盲评裁判/体积汇总 |
 | `redteam/` | 红队探针回归夹具：`probes-redteam-public-v1.jsonl`（12 题，注入/越狱/完全无关/纯闲聊/诱导编造五类，中英各半）+ `run_probes.py`（/rag/v3/chat SSE 采集）+ `judge_redteam.py`（机械禁例层 + LLM 行为判层，判分合同见脚本 docstring；终判人工合议）——题集 schema 与跑法见 `redteam/README.md` |
+| `profile_assertion/` | 轨迹「调用画像」断言面（judge-free）：`profile_assertor.py` 纯函数比对器（blocks JSON × expected_tool_profile 四要素）+ `sampler.py`（login→/agent/v1/chat 空会话采样→finish.messageId 锚点，批2 live 轮用）+ `replay.py`（本地库历史 run 回放）；合成夹具确定性测试进 CI（backend.yml，零 LLM/零 DB/零 secret），私有题集 gitignored 不入仓——模块文档见 `profile_assertion/` 各脚本 docstring |
 
 ## 采集面口径（重要）
 

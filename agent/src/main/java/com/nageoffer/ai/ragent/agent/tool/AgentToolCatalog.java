@@ -250,6 +250,14 @@ public class AgentToolCatalog {
         }
 
         /**
+         * 当前挂载的 MCP 工具 id（#487）：权限矩阵通配 mcp:* 的编译期展开目标集；
+         * 与构建 Toolkit 时注册的 McpToolProxy 同源，run 内视角一致
+         */
+        public List<String> mcpToolIds() {
+            return bindings.stream().map(McpToolBinding::toolId).toList();
+        }
+
+        /**
          * 工具展示名，未收录的返回原始名
          */
         public String displayNameOf(String toolName) {

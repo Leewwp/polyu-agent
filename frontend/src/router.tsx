@@ -27,6 +27,7 @@ import { KnowledgeDocumentsPage } from "@/pages/admin/knowledge/KnowledgeDocumen
 import { KnowledgeChunksPage } from "@/pages/admin/knowledge/KnowledgeChunksPage";
 import { KnowledgeGraphPage } from "@/pages/admin/knowledge-graph/KnowledgeGraphPage";
 import { BizChangeLogPage } from "@/pages/admin/change-logs/BizChangeLogPage";
+import { AgentToolCallAuditPage } from "@/pages/admin/tool-calls/AgentToolCallAuditPage";
 import { IntentTreePage } from "@/pages/admin/intent-tree/IntentTreePage";
 import { IntentListPage } from "@/pages/admin/intent-tree/IntentListPage";
 import { IntentEditPage } from "@/pages/admin/intent-tree/IntentEditPage";
@@ -297,6 +298,10 @@ export const router = createBrowserRouter([
       {
         path: "change-logs",
         element: <BizChangeLogPage />
+      },
+      {
+        path: "tool-calls",
+        element: <AgentToolCallAuditPage />
       },
       {
         path: "settings",

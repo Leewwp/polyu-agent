@@ -94,7 +94,9 @@ class AgentChatServiceClassifierGuardTest {
         properties.setEnabled(true);
         guard = new QuestionScopeGuard(properties, mock(ScopeJudgeClient.class));
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
-                memoryLearner, guard);
+                memoryLearner, guard,
+                mock(com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter.class),
+                mock(com.nageoffer.ai.ragent.agent.permission.AgentToolPermissionService.class));
 
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(() -> {
         });
