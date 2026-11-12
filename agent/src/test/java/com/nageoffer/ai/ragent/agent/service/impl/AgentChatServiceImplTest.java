@@ -118,7 +118,8 @@ class AgentChatServiceImplTest {
         // 分类器守卫默认 flag 关（RAGClassifierProperties 缺省），全部放行不干预既有行为
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
                 memoryLearner, new QuestionScopeGuard(new RAGClassifierProperties(),
-                mock(ScopeJudgeClient.class)));
+                mock(ScopeJudgeClient.class)),
+                mock(com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter.class));
 
         gateReleased = new AtomicInteger();
         when(runGate.acquire(anyString(), anyString(), anyString())).thenReturn(gateReleased::incrementAndGet);

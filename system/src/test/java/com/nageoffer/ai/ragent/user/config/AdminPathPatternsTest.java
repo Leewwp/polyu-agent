@@ -94,6 +94,16 @@ class AdminPathPatternsTest {
     }
 
     @Test
+    void 工具调用审计端点落在管理面清单内() {
+        // #486 T1：/admin/agent-tool-calls（agent 模块 AgentToolCallAuditAdminController）
+        List<String> toolCallAuditEndpoints = List.of("/admin/agent-tool-calls");
+        for (String endpoint : toolCallAuditEndpoints) {
+            assertTrue(coveredByAdminPatterns(endpoint),
+                    "管理面清单未覆盖端点: " + endpoint);
+        }
+    }
+
+    @Test
     void 用户侧与公开面不应被管理面清单命中() {
         // 判别力断言：清单若被写成过宽（如 /**），这里会失败
         List<String> userFacingEndpoints = List.of(
