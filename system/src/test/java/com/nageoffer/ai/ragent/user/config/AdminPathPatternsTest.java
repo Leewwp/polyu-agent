@@ -104,6 +104,19 @@ class AdminPathPatternsTest {
     }
 
     @Test
+    void 工具权限矩阵端点落在管理面清单内() {
+        // #487 T2：/admin/agent-tool-permissions CRUD（agent 模块 AgentToolPermissionAdminController，
+        // 放 /admin/** 下天然命中清单，免手动补清单的漂移坑）
+        List<String> toolPermissionEndpoints = List.of(
+                "/admin/agent-tool-permissions",
+                "/admin/agent-tool-permissions/id-123");
+        for (String endpoint : toolPermissionEndpoints) {
+            assertTrue(coveredByAdminPatterns(endpoint),
+                    "管理面清单未覆盖端点: " + endpoint);
+        }
+    }
+
+    @Test
     void 用户侧与公开面不应被管理面清单命中() {
         // 判别力断言：清单若被写成过宽（如 /**），这里会失败
         List<String> userFacingEndpoints = List.of(
