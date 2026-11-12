@@ -22,6 +22,7 @@ import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.dao.entity.AgentToolPermissionDO;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentToolPermissionMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -56,6 +57,7 @@ public class AgentToolPermissionSnapshotCache {
     private record Snapshot(List<AgentToolPermissionEntry> entries, long loadedAtMillis) {
     }
 
+    @Autowired
     public AgentToolPermissionSnapshotCache(AgentToolPermissionMapper mapper) {
         this(mapper, Clock.systemUTC());
     }

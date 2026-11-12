@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.agent.audit;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,7 @@ public class AgentToolCallRetentionJob {
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
 
+    @Autowired
     public AgentToolCallRetentionJob(JdbcTemplate jdbcTemplate) {
         this(jdbcTemplate, Clock.systemDefaultZone());
     }

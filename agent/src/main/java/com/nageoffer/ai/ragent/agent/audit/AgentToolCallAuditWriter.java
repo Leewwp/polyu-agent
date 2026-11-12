@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -75,6 +76,7 @@ public class AgentToolCallAuditWriter {
     private final Executor executor;
     private final AtomicLong dropped = new AtomicLong();
 
+    @Autowired
     public AgentToolCallAuditWriter(JdbcTemplate jdbcTemplate, AgentMessageMapper messageMapper,
                                     AgentProperties properties) {
         this(jdbcTemplate, messageMapper, properties, defaultExecutor());
