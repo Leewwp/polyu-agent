@@ -171,6 +171,8 @@ rag:
     type: es  # 可选 none / es。2026-09-06 评估后开启：词法对比 fused MRR +0.070 零 HR 损失；kill switch=回 none 即整体关闭（ES 数据保留）
     es:
       uris: http://127.0.0.1:9201  # 9200 易与本机其他 ES 实例冲突，polyu ES 栈默认错峰用 9201：resources/docker/polyu-es-stack-9.4.2.compose.yaml
+      username: elastic   # B2（2026-11-12 升级窗）：本地栈开 basic auth 的开发口令（与 es-stack compose 锁步）；空=不鉴权直连（未开 security 的栈向后兼容）
+      password: polyu-local-es
       index: rag_keyword_store  # 全库共享索引，按 collection_name 字段区分知识库
       analyzer: ik_max_word
       search-analyzer: ik_smart

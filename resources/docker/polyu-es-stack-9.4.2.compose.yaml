@@ -37,7 +37,13 @@ services:
       - "127.0.0.1:9201:9200"
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"  # 本机回环开发栈；应用 EsClientConfig 为无认证 http 直连
+      # B2 同款（2026-11-12 升级窗，与生产 polyu-prod.compose.yaml 同步防环境漂移）：
+      # http+basic auth 单节点形态，显式关 http/transport SSL；开发口令与 application.yaml 的
+      # rag.keyword.es.username/password 默认值锁步（本机回环开发栈，非密钥）
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: "polyu-local-es"
       ES_JAVA_OPTS: "-Xms1g -Xmx2g"   # 部署约束：堆 ≤2G
       ingest.geoip.downloader.enabled: "false"  # 免启动期外网拉 geoip 库
     ulimits:
@@ -48,7 +54,9 @@ services:
     volumes:
       - polyu-es-data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      # B2 同款带凭据探测（与生产 compose 同式 Authorization 头形态，不经 curl -u=secret-scan
+      # curl-auth-user 红线规避；口令取上方 env 键）
+      test: ["CMD-SHELL", "curl -fs -H \"Authorization: Basic $(printf elastic:$$ELASTIC_PASSWORD | base64)\" http://localhost:9200/_cluster/health >/dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20

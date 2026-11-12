@@ -48,11 +48,14 @@ class QueryKeyDatesMcpExecutorTest {
         Tool tool = new QueryKeyDatesMcpExecutor(recordingBoard()).queryKeyDatesToolSpecification().tool();
 
         assertEquals("query_key_dates", tool.name());
-        assertEquals(List.of(), tool.inputSchema().required());
-        assertTrue(tool.inputSchema().properties().keySet()
-                .containsAll(List.of("keyword", "segment", "limit")));
+        // MCP SDK 2.x：inputSchema() 收敛为裸 Map（0.17 的 JsonSchema 访问器形态已移除，#474）
+        Map<String, Object> schema = tool.inputSchema();
+        assertEquals(List.of(), schema.get("required"));
         @SuppressWarnings("unchecked")
-        Map<String, Object> segment = (Map<String, Object>) tool.inputSchema().properties().get("segment");
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        assertTrue(properties.keySet().containsAll(List.of("keyword", "segment", "limit")));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> segment = (Map<String, Object>) properties.get("segment");
         assertEquals(QueryKeyDatesMcpExecutor.SEGMENTS, segment.get("enum"));
         assertTrue(tool.annotations().readOnlyHint());
     }

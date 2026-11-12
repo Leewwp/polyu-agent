@@ -17,8 +17,18 @@
         </dependency>
 
         <dependency>
+            <!-- MCP SDK 2.x（#474）：不进 `mcp` 聚合器（其默认 mcp-json-jackson3 拉起 Jackson 3 全家桶，
+                 且其 networknt json-schema-validator 3.0.6 为 Jackson3 形签名——与 agentscope-core
+                 传递的 2.0.0（Jackson2 形）同坐标互斥，运行期 NoSuchMethodError，实测 McpHttpProtocolTest
+                 启动即炸）。改挂 mcp-core + mcp-json-jackson2（networknt 2.0.4，与 agentscope 同
+                 Jackson2 世代），全 classpath 单 Jackson 世代。版本仍由 mcp-sdk.version 统一。 -->
             <groupId>io.modelcontextprotocol.sdk</groupId>
-            <artifactId>mcp</artifactId>
+            <artifactId>mcp-core</artifactId>
+            <version>${mcp-sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
             <version>${mcp-sdk.version}</version>
         </dependency>
 
