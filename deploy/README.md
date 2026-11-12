@@ -129,17 +129,19 @@ IMAGE_BACKEND=polyu-backend:f2
 IMAGE_FRONTEND=polyu-frontend:f2
 IMAGE_ES=<本机已有 ES+IK 镜像>
 IMAGE_MCP=<本机已有 mcp 镜像，或 ghcr.io 拉取的 polyu-agent-mcp:latest>
+IMAGE_MINIO=<本机已有 minio 镜像，或 ghcr.io 拉取的 polyu-agent-minio:RELEASE.2025-10-15T17-29-55Z>
 POSTGRES_USER=polyu
 POSTGRES_PASSWORD=smoke-pg-pass
 REDIS_PASSWORD=smoke-redis-pass
 MINIO_ROOT_USER=polyu-minio
 MINIO_ROOT_PASSWORD=smoke-minio-pass
+ELASTIC_USERNAME=elastic
+ELASTIC_PASSWORD=smoke-elastic-pass
 ASSETS_PUBLIC_URL=http://localhost:18080/minio/ragent-assets
 HOST_PORT_APP=19090
 HOST_PORT_PG=15432
 HOST_PORT_REDIS=16379
 HOST_PORT_MINIO=19000
-HOST_PORT_MINIO_CONSOLE=19001
 HOST_PORT_ES=19200
 HOST_PORT_HTTP=18080
 HOST_PORT_HTTPS=18443
@@ -147,10 +149,10 @@ APP_JAVA_OPTS=-Xms512m -Xmx1g
 ES_JAVA_OPTS=-Xms512m -Xmx512m
 EOF
 docker compose --env-file smoke.env -f polyu-prod.compose.yaml up -d
-# 自检：网关 SPA / 后端经网关 / ES 健康
+# 自检：网关 SPA / 后端经网关 / ES 健康（B2 后带凭据）
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:18080/            # 200
 curl -s http://localhost:18080/api/ragent/ | head -c 80                     # Spring 业务 JSON=反代通
-curl -s http://localhost:19200/_cluster/health | head -c 60                 # ES
+curl -s -H "Authorization: Basic $(printf elastic:smoke-elastic-pass | base64)" http://localhost:19200/_cluster/health | head -c 60   # ES（Authorization 头形态，compose healthcheck 同式）
 docker compose --env-file smoke.env -f polyu-prod.compose.yaml down -v
 ```
 

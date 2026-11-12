@@ -34,6 +34,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?polyu-prod.env 缺 REDIS_PASSWORD}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?polyu-prod.env 缺 MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?polyu-prod.env 缺 MINIO_ROOT_PASSWORD}
+      # B2（2026-11-07 体检→2026-11-10 拍板）：ES 开鉴权后应用侧凭据传入（relaxed binding 映射
+      # application-prod.yaml 的 rag.keyword.es.username/password）；#191 先例同因——不列则只在
+      # env 文件翻转是静默 no-op
+      ELASTIC_USERNAME: ${ELASTIC_USERNAME:?polyu-prod.env 缺 ELASTIC_USERNAME}
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?polyu-prod.env 缺 ELASTIC_PASSWORD}
       ASSETS_PUBLIC_URL: ${ASSETS_PUBLIC_URL:?polyu-prod.env 缺 ASSETS_PUBLIC_URL}
       SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:-}
       BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
@@ -161,11 +166,17 @@ services:
     logging: *default-logging
 
   polyu-minio:
-    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
-    command: server /data --console-address ":9001"
+    # B3（2026-11-10 拍板）：官方末社区版 RELEASE.2025-10-15T17-29-55Z（CVE-2025-62506 修复版；
+    # 上游 2026-04 归档=无后续补丁，存储迁移评估票另立）。minio/minio 已自 Docker Hub 删除
+    # （2026-09-11，D18 判例根因），镜像经 minio-image 工作流自官方二进制构建推 GHCR
+    # （resources/docker/polyu-minio-2025-10-15.Dockerfile），引用走 IMAGE_MINIO 键——
+    # deploy 不拉基础设施镜像（D18），服务器经 image-relay 预置后此键才生效
+    image: ${IMAGE_MINIO:?polyu-prod.env 缺 IMAGE_MINIO}
+    # 社区版 console UI 已随上游 2025-05-24 release 移除：无 9001/管理 UI，S3 API 仍 9000，
+    # 运维面=S3 API / mc 二进制（dl.min.io）；原 --console-address 旗标一并退役
+    command: server /data
     ports:
       - "127.0.0.1:${HOST_PORT_MINIO:-9000}:9000"
-      - "127.0.0.1:${HOST_PORT_MINIO_CONSOLE:-9001}:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
@@ -173,7 +184,8 @@ services:
       - polyu-minio-data:/data
     mem_limit: 512m
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # 官方文档口径 liveness 端点（原 mc ready local 依赖官方镜像捆绑的 mc，自建镜像不捆绑）
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
       interval: 15s
       timeout: 10s
       retries: 8
@@ -249,7 +261,14 @@ services:
     image: ${IMAGE_ES:?polyu-prod.env 缺 IMAGE_ES}
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"   # 仅 compose 内网可达（宿主只绑 127.0.0.1）；TLS 化待 HTTPS 后评估
+      # B2（2026-11-07 体检→2026-11-10 拍板）：单节点内网形态=http+basic auth——显式关 http/transport
+      # SSL（网络面收敛靠 compose 内网隔离+宿主仅绑 127.0.0.1，明文口令不出内网）；elastic 用户
+      # 口令经 ELASTIC_PASSWORD 在安全索引首启时固化（存量卷首次带 security 启动即引导建户）。
+      # app 侧凭据见 polyu-app environment 与 application-prod.yaml rag.keyword.es.username/password
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.security.transport.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?polyu-prod.env 缺 ELASTIC_PASSWORD}
       ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms1g -Xmx1g}
       ingest.geoip.downloader.enabled: "false"
     ports:
@@ -262,7 +281,10 @@ services:
     volumes:
       - polyu-es-data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health >/dev/null || exit 1"]
+      # B2：鉴权后健康探测带凭据；口令经容器内 env 运行时展开（$$），Authorization 头按
+      # printf|base64 现算（不经 curl -u 形态——secret-scan curl-auth-user 规则红线；argv 短暂
+      # 可见=B8 redis argv 同口径留档不修）
+      test: ["CMD-SHELL", "curl -fs -H \"Authorization: Basic $(printf elastic:$$ELASTIC_PASSWORD | base64)\" http://localhost:9200/_cluster/health >/dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 20
