@@ -39,6 +39,11 @@ public class AgentProperties {
     private Chat chat = new Chat();
 
     /**
+     * 工具调用审计（#486 t_agent_tool_call）：默认关——关态零采集零落行零摘要计算
+     */
+    private Audit audit = new Audit();
+
+    /**
      * ReAct 循环上限，超出后由框架熔断收尾
      */
     private Integer maxIters = 10;
@@ -82,5 +87,14 @@ public class AgentProperties {
          * 直接传给 OpenAI 兼容端点的模型名
          */
         private String model;
+    }
+
+    @Data
+    public static class Audit {
+
+        /**
+         * 工具调用审计 flag（agent.audit.enabled）：默认关；env 覆盖名 AGENT_AUDIT_ENABLED
+         */
+        private boolean enabled = false;
     }
 }

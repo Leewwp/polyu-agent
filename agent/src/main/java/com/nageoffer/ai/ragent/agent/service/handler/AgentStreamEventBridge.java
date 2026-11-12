@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.agent.service.handler;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlock;
 import com.nageoffer.ai.ragent.agent.dto.AgentBlockSource;
 import com.nageoffer.ai.ragent.agent.dto.AgentCompletionPayload;
@@ -117,6 +118,18 @@ public class AgentStreamEventBridge {
      */
     private final AgentToolExecutionFacts facts;
 
+    /**
+     * 请求线程（startRun/startConfirmRun）采集的登录角色，审计表 role 冗余列取数：
+     * 拒绝/落库时刻 UserContext 不在 reactor 线程（#486 取数决议）
+     */
+    private final String role;
+
+    /**
+     * 工具调用审计旁路 writer（#486）：消息终态落库后异步批量写 t_agent_tool_call；
+     * null=未注入（单元测试直构桥），钩子整体哑火
+     */
+    private final AgentToolCallAuditWriter auditWriter;
+
     private final Object stateLock = new Object();
 
     /**
@@ -149,7 +162,8 @@ public class AgentStreamEventBridge {
                                   ResolvedCatalog catalog,
                                   String conversationId, String userId, String title,
                                   String replyToMessageId, String answerLanguage,
-                                  Clock clock, AgentToolExecutionFacts facts) {
+                                  Clock clock, AgentToolExecutionFacts facts,
+                                  String role, AgentToolCallAuditWriter auditWriter) {
         this.runHandle = runHandle;
         this.sender = runHandle.getSender();
         this.conversationService = conversationService;
@@ -161,6 +175,8 @@ public class AgentStreamEventBridge {
         this.answerLanguage = answerLanguage;
         this.clock = clock;
         this.facts = facts;
+        this.role = role;
+        this.auditWriter = auditWriter;
     }
 
     public void onEvent(AgentEvent event) {
@@ -667,11 +683,29 @@ public class AgentStreamEventBridge {
         flushSealedTextBlocks();
         returned.forEach(progress -> sender.sendEvent(AgentSSEEventType.BLOCK.value(), progress));
         try {
-            return conversationService.addAssistantMessage(conversationId, userId, content,
+            String messageId = conversationService.addAssistantMessage(conversationId, userId, content,
                     thinking, settled, replyToMessageId, status, facts.settleRun());
+            dispatchToolCallAudit(messageId, settled);
+            return messageId;
         } catch (Exception e) {
             log.error("Agent 终答落库失败, conversationId: {}", conversationId, e);
             return null;
+        }
+    }
+
+    /**
+     * 审计旁路钩子（#486）：消息终态落库成功之后才触发，写失败仅 WARN——
+     * 不改变 insert/finish 顺序，任何异常不得抛出影响主链
+     */
+    private void dispatchToolCallAudit(String messageId, List<AgentBlock> settled) {
+        if (auditWriter == null || messageId == null) {
+            return;
+        }
+        try {
+            auditWriter.recordSettled(conversationId, userId, role, messageId, settled, facts);
+        } catch (Throwable t) {
+            log.warn("工具调用审计旁路钩子异常, 已忽略, conversationId: {}, messageId: {}",
+                    conversationId, messageId, t);
         }
     }
 

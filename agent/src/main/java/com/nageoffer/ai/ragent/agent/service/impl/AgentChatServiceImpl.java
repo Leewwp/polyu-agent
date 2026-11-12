@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.agent.service.impl;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
@@ -86,6 +87,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentRunGate runGate;
     private final AgentMemoryLearner memoryLearner;
     private final QuestionScopeGuard questionScopeGuard;
+    private final AgentToolCallAuditWriter auditWriter;
 
     @Override
     public void streamChat(String question, String conversationId, SseEmitter emitter) {
@@ -207,6 +209,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         launchStream(new UserMessage(question), activeAgent, RunScope.builder()
                 .emitter(emitter)
                 .userId(userId)
+                .role(UserContext.getRole())
                 .conversationId(conversationId)
                 .taskId(taskId)
                 .title(title)
@@ -235,6 +238,7 @@ public class AgentChatServiceImpl implements AgentChatService {
         launchStream(resumeMsg, activeAgent, RunScope.builder()
                 .emitter(emitter)
                 .userId(userId)
+                .role(UserContext.getRole())
                 .conversationId(conversationId)
                 .taskId(taskId)
                 .title(settlement.title())
@@ -364,6 +368,8 @@ public class AgentChatServiceImpl implements AgentChatService {
                 .answerLanguage(scope.answerLanguage())
                 .clock(clock)
                 .facts(facts)
+                .role(scope.role())
+                .auditWriter(auditWriter)
                 .build();
     }
 
@@ -377,6 +383,12 @@ public class AgentChatServiceImpl implements AgentChatService {
         }
         conversationService.settlePendingConfirm(scope.conversationId(), scope.userId(),
                 scope.confirmMessageId(), scope.confirmApproved());
+        // 拒卡结算改写（awaiting→denied）后的审计补充触发点（#486）：重算行集覆盖首写，
+        // 保证 ASK_DENIED 行不缺失；approved/expired 不改写工具块，无需补算
+        if (!scope.confirmApproved()) {
+            auditWriter.rebuildMessage(scope.conversationId(), scope.userId(),
+                    scope.confirmMessageId(), scope.role());
+        }
     }
 
     /**
@@ -403,7 +415,7 @@ public class AgentChatServiceImpl implements AgentChatService {
      * 单次运行的上下文参数，在 startRun/startConfirmRun 与 launchStream 之间传递
      */
     @Builder
-    private record RunScope(SseEmitter emitter, String userId, String conversationId,
+    private record RunScope(SseEmitter emitter, String userId, String role, String conversationId,
                             String taskId, String title, String replyToMessageId, String answerLanguage,
                             String confirmMessageId, boolean confirmApproved, Runnable releaseGate) {
     }
