@@ -20,7 +20,7 @@ on:
         description: '镜像 tag（= deploy meta 输出，如 4e1510e52c6b）'
         required: true
       images:
-        description: '逗号分隔：backend,frontend,es-ik,mcp'
+        description: '逗号分隔：backend,frontend,es-ik,mcp,minio'
         required: false
         default: 'backend'
 
