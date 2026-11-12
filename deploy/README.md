@@ -107,6 +107,12 @@ ssh -i <密钥> <用户>@<服务器IP> \
   不确定带走轻量 LLM 判定（fail-open，误拒优先于漏拒）；拒绝走各链既有消息流，
   SSE 事件序与普通回答一致。绑定 `rag.classifier.enabled`；判据门轮与灰度启动另立
   专票，生产施加须待其预授权。
+- `RAG_ASOF_ENABLED`（默认 `false`，#413/#414）：as-of 日期事实注入——开启后组装层
+  对**带日期证据**的检索块在块首注入〔日期事实〕行（绑定 `rag.asof.enabled`）；无日期
+  证据块按「日期未知」降级不注入（宁缺事实行、不产虚构判定）。#444 灰度与
+  `RAG_CLASSIFIER_ENABLED` 两 flag 同开/同关；生产块日期元数据依赖
+  `upgrades/v2.0.0/261029_11_kb_chunk_date_metadata.sql`（`t_knowledge_chunk.source_date`
+  列，存量库须先施加再谈生效面）。
 
 ## 本机冒烟（不占生产端口）
 
