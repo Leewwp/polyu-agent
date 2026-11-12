@@ -22,7 +22,7 @@
         <!-- awssdk 整套 BOM 管理（#438 判例：单钉 s3 会被 tika-bom→tika-parent 继承的
              awssdk:bom 2.33.4 压低其余构件，形成 s3 2.40.x + 传递依赖 2.33.x 混版本）；
              import 必须排在 tika-bom 之前（两个 import 竞争时先到先得） -->
-        <awssdk.version>2.40.2</awssdk.version>
+        <awssdk.version>2.58.0</awssdk.version>
         <aliyun-oss.version>3.18.5</aliyun-oss.version>
         <sa-token.version>1.46.0</sa-token.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
