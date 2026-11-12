@@ -16,6 +16,7 @@
 | `polyu-prod.compose.yaml` | 生产九服务：app / PG / Redis / MinIO / RocketMQ / ES+IK / MCP 工具服务 / nginx / certbot(tls profile) |
 | `.env.example` | 密钥 env 模板（占位值）；复制为 `polyu-prod.env` 填真实值，不入仓 |
 | `pg-backup.sh` | PG 每日备份（crontab 调用；容器内 socket 信任连接，脚本零明文凭据） |
+| `certbot-renew-alert.sh` | certbot 周日续期+notAfter≥now+20d 校验+失败 SMTP 告警（crontab 调用；凭据运行时读 polyu-prod.env，`--dry-run`/`--test-alert` 演练位） |
 | `server-init.sh` | 宿主首启初始化（幂等）：vm.max_map_count、/opt/polyu 目录、broker 存储属主 |
 
 配套：`bootstrap/src/main/resources/application-prod.yaml`（prod profile，拓扑覆盖无密钥）、`.github/workflows/deploy.yml`（部署 CI）。
@@ -177,7 +178,9 @@ docker compose --env-file smoke.env -f polyu-prod.compose.yaml down -v
    compose 的 nginx 健康检查改 https 直探（80 已 301，http 探测会跟随跳转撞证书域名不匹配）；
    `polyu-prod.env` 的 `ASSETS_PUBLIC_URL` 改 `https://<域名>/minio/ragent-assets`（完整前缀含桶名，O3/L6）；push 走 CI 重建。
    建议：先用一次性 nginx 容器挂真证书验证（`curl --resolve` 不带 `-k`，ssl_verify=0 通过）再上生产。
-3. 续期：服务器 crontab（低峰期，如周日 04:00）`certbot renew --quiet` + nginx reload。
+3. 续期：服务器 crontab 周日 04:00 调 `certbot-renew-alert.sh`（renew→nginx reload→notAfter≥now+20d
+   校验，不满足或任一步失败经生产 SMTP 告警；观测点=续期后 `notAfter` 应跳入新 90 天窗，日志
+   `/opt/polyu/certs-renew.log`）。
 4. edge 加固（已随网关配置内置）：`X-Forwarded-For` 覆写 `$remote_addr`（应用侧限流/锁定/配额取真实来源）、
    `/api/`+`/minio/` 收敛 CORS 响应头、`/minio/` 非 GET 拒+大小上限、全 location nosniff、HSTS、
    `www.<域名>` 独立 server 301→apex、两个 GET chat 端点拒 `Sec-Fetch-Site: cross-site`。
