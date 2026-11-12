@@ -118,6 +118,12 @@ class AgentToolPermissionAskTest {
         return new PermissionEngine(state);
     }
 
+    @AfterEach
+    void clearUserContext() {
+        // UserContext 是 ThreadLocal：服务链级用例往里塞 LoginUser，统一收尾防泄漏到同线程后续用例
+        UserContext.clear();
+    }
+
     @Test
     void 引擎级_needsConfirmFalse工具配ASK_引擎判ASK_新增确认() {
         PermissionDecision decision = engineOver("ASK")
@@ -213,6 +219,5 @@ class AgentToolPermissionAskTest {
                 .filter(b -> AgentBlock.KIND_TOOL.equals(b.getKind()) && "query_order".equals(b.getName()))
                 .findFirst().orElseThrow();
         assertThat(toolBlock.getStatus()).isEqualTo("awaiting");
-        UserContext.clear();
     }
 }

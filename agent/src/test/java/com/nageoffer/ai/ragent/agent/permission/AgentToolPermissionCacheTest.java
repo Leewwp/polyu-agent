@@ -22,7 +22,10 @@ import com.nageoffer.ai.ragent.agent.dao.mapper.AgentToolPermissionMapper;
 import io.agentscope.core.permission.PermissionContextState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -37,8 +40,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * 快照缓存测试（#487 验收 8）：所选策略=TTL 60s 到期懒刷新（volatile 不可变快照）。
- * 断言：TTL 内零 DB 调用；到期后首次访问刷新且新规则可见；编译过程零 DB 调用；刷新失败保旧快照。
+ * 断言：TTL 内零 DB 调用；到期后首次访问刷新且新规则可见；编译过程零 DB 调用；刷新失败保旧快照；
+ * 首载失败空表 fail-open 且 ERROR 留痕（区别于刷新失败的 WARN 保旧）。
  */
+@ExtendWith(OutputCaptureExtension.class)
 class AgentToolPermissionCacheTest {
 
     private static final long BASE_MILLIS = 1_700_000_000_000L;
@@ -155,5 +160,20 @@ class AgentToolPermissionCacheTest {
         // 旧快照照常可编译，主链不受影响
         assertThat(AgentToolPermissionCompiler.compile("user", cache.snapshot(), List.of("search_news"))
                 .getDenyRules()).containsKey("search_news");
+    }
+
+    @Test
+    void 首载失败_空表failopen放行并升级ERROR留痕(CapturedOutput output) {
+        when(mapper.selectList(any())).thenThrow(new RuntimeException("db down"));
+        AgentToolPermissionSnapshotCache cache = new AgentToolPermissionSnapshotCache(mapper, clock);
+
+        // 首载失败（从未成功加载过）：无旧可保，空表=等价无规则 fail-open
+        assertThat(cache.snapshot()).isEmpty();
+        assertThat(AgentToolPermissionCompiler.compile("user", cache.snapshot(), List.of("search_news"))
+                .isTrivial()).isTrue();
+        // 升级 ERROR（区别于刷新失败的 WARN）：权限面从未起来过的形态须可告警
+        assertThat(output).contains("首载失败");
+        assertThat(output).contains("ERROR");
+        assertThat(output).doesNotContain("沿用旧快照");
     }
 }

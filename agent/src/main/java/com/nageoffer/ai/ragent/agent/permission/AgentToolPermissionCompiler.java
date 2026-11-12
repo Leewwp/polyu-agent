@@ -85,8 +85,9 @@ public final class AgentToolPermissionCompiler {
     }
 
     private static void addRule(PermissionContextState.Builder builder, String toolName, String decision) {
-        PermissionRule rule = new PermissionRule(toolName, "", behaviorOf(decision), RULE_SOURCE);
-        switch (behaviorOf(decision)) {
+        PermissionBehavior behavior = behaviorOf(decision);
+        PermissionRule rule = new PermissionRule(toolName, "", behavior, RULE_SOURCE);
+        switch (behavior) {
             case DENY -> builder.addDenyRule(toolName, rule);
             case ASK -> builder.addAskRule(toolName, rule);
             case ALLOW -> builder.addAllowRule(toolName, rule);
