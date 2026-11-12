@@ -82,10 +82,13 @@ class SearchNewsMcpExecutorTest {
 
         assertEquals("search_news", tool.name());
         // 过滤维度全可选（至少一个的约束在 handleCall 里给结构化错误，schema 不强制）
-        assertEquals(List.of(), tool.inputSchema().required());
-        assertEquals(5, tool.inputSchema().properties().size());
-        assertTrue(tool.inputSchema().properties().keySet()
-                .containsAll(List.of("keyword", "topic", "date_from", "date_to", "limit")));
+        // MCP SDK 2.x：inputSchema() 收敛为裸 Map（0.17 的 JsonSchema 访问器形态已移除，#474）
+        Map<String, Object> schema = tool.inputSchema();
+        assertEquals(List.of(), schema.get("required"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        assertEquals(5, properties.size());
+        assertTrue(properties.keySet().containsAll(List.of("keyword", "topic", "date_from", "date_to", "limit")));
         assertTrue(tool.annotations().readOnlyHint());
     }
 

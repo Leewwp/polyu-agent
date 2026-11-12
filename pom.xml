@@ -31,7 +31,7 @@
         <commonmark.version>0.30.0</commonmark.version>
         <batik.version>1.18</batik.version>
         <okhttp.version>5.5.1</okhttp.version>
-        <mcp-sdk.version>0.17.0</mcp-sdk.version>
+        <mcp-sdk.version>2.1.0</mcp-sdk.version>
         <agentscope.version>2.0.2</agentscope.version>
         <opentelemetry.version>1.62.0</opentelemetry.version>
         <bizlog-sdk.version>3.0.6</bizlog-sdk.version>
@@ -91,6 +91,16 @@
                 <version>${awssdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- networknt 单一版本定解（#474，MCP SDK 2.x 适配窗）：本仓零直接使用面，
+                 两传递源=mcp-json-jackson2（要 2.0.4）与 agentscope-core（带 2.0.0），皆 Jackson2
+                 世代同线，钉 mcp 侧要求版；Jackson3 形的 3.x 与 agentscope 互斥不可混（判例见
+                 mcp-server/pom.xml 注释） -->
+            <dependency>
+                <groupId>com.networknt</groupId>
+                <artifactId>json-schema-validator</artifactId>
+                <version>2.0.4</version>
             </dependency>
 
             <dependency>
