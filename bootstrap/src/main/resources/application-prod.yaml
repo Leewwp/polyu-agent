@@ -32,6 +32,10 @@ rag:
   keyword:
     es:
       uris: http://polyu-es:9200
+      # B2（2026-11-12 升级窗）：ES 开鉴权后应用侧凭据（经 compose ELASTIC_USERNAME/ELASTIC_PASSWORD
+      # 传入，密钥三不纪律——值落 polyu-prod.env）
+      username: ${ELASTIC_USERNAME:}
+      password: ${ELASTIC_PASSWORD:}
 
 rocketmq:
   name-server: polyu-rmqnamesrv:9876
