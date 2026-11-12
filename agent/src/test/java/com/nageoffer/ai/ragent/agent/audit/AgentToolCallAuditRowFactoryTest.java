@@ -96,6 +96,34 @@ class AgentToolCallAuditRowFactoryTest {
     }
 
     @Test
+    void unobservedTerminalStatusesFallBackToInterruptedAndDoneIsExplicitlyAllow() {
+        List<AgentBlock> blocks = List.of(
+                tool("pending", null, null),
+                tool("running", "断在半路", null),
+                tool("done", "命中", null));
+
+        List<String> decisions = AgentToolCallAuditRowFactory.rowsOf(META, blocks, id -> null)
+                .stream().map(AgentToolCallAuditRow::decision).toList();
+
+        // 兜底语义锁定（对齐 of() 注释）：pending/running 等未观测终态=INTERRUPTED，
+        // 不再笼统落 ALLOW；done 显式判 ALLOW（正常完成态唯一入口）
+        assertThat(decisions).containsExactly("INTERRUPTED", "INTERRUPTED", "ALLOW");
+    }
+
+    @Test
+    void maskedDetectionToleratesSurroundingWhitespaceLikeRuleDenial() {
+        // MASKED 判别与 RULE_DENY 同口径：固定文案比对先 trim，首尾空白不改变归类
+        List<AgentBlock> blocks = List.of(
+                tool("failed", "  \n" + McpToolProxy.MASKED_TOOL_MESSAGE + "\t", null),
+                tool("failed", "  其他失败文案  ", null));
+
+        List<String> decisions = AgentToolCallAuditRowFactory.rowsOf(META, blocks, id -> null)
+                .stream().map(AgentToolCallAuditRow::decision).toList();
+
+        assertThat(decisions).containsExactly("MASKED", "ERROR");
+    }
+
+    @Test
     void statusColumnKeepsBlockStatusVerbatim() {
         List<AgentBlock> blocks = List.of(tool("awaiting", null, null), tool("done", "ok", null));
 
