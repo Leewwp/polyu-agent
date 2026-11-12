@@ -44,8 +44,12 @@ class SearchExamPapersMcpExecutorTest {
         Tool tool = new SearchExamPapersMcpExecutor().searchExamPapersToolSpecification().tool();
 
         assertEquals("search_exam_papers", tool.name());
-        assertEquals(java.util.List.of("course_code"), tool.inputSchema().required());
-        assertTrue(tool.inputSchema().properties().containsKey("course_code"));
+        // MCP SDK 2.x：inputSchema() 收敛为裸 Map（0.17 的 JsonSchema 访问器形态已移除，#474）
+        Map<String, Object> schema = tool.inputSchema();
+        assertEquals(java.util.List.of("course_code"), schema.get("required"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+        assertTrue(properties.containsKey("course_code"));
         assertTrue(tool.annotations().readOnlyHint());
     }
 

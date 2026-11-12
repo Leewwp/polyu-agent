@@ -7,15 +7,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    # 不升 major：milvus-sdk 3.x 需服务端 3.x 配套（本栈 2.6）；spotless 3.x 变更格式化规则面无升级驱动；
-    # MCP SDK 1.x+ 为破坏性 API（inputSchema 裸 Map→强类型、required() 签名变更），适配票完成前不自动开 major PR。
+    # 不升 major：milvus-sdk 3.x 需服务端 3.x 配套（本栈 2.6）；spotless 3.x 变更格式化规则面无升级驱动。
+    # （MCP SDK major 上界 ignore 已随 #474 适配完成移除——现行 mcp-core+mcp-json-jackson2@2.1.0
+    #   组合；后续 major 再评估。）
     ignore:
       - dependency-name: io.milvus:milvus-sdk-java
         versions: [">=3"]
       - dependency-name: com.diffplug.spotless:spotless-maven-plugin
         versions: [">=3"]
-      - dependency-name: io.modelcontextprotocol.sdk:mcp
-        versions: [">=1"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
