@@ -103,7 +103,7 @@ public class AgentToolCallAuditWriter {
         submit("settle", () -> upsertAll(AgentToolCallAuditRowFactory.rowsOf(
                 new AgentToolCallAuditRowFactory.RunMetadata(conversationId, userId, role, messageId),
                 blocks,
-                summaries::get)));
+                id -> summaries.get(StrUtil.blankToDefault(id, null)))));
     }
 
     /**
@@ -170,14 +170,16 @@ public class AgentToolCallAuditWriter {
             return summaries;
         }
         for (AgentBlock block : blocks) {
-            if (block == null || !AgentBlock.KIND_TOOL.equals(block.getKind())
-                    || StrUtil.isBlank(block.getToolCallId())) {
+            if (block == null || !AgentBlock.KIND_TOOL.equals(block.getKind())) {
                 continue;
             }
+            // blank toolCallId（端点不回 id）不跳过：facts 内部把 blank 归一到同一份 "unknown" 事实，
+            // 并行 blank 块共享一份摘要优于全部留空；map 键同步归一到 null，与取数点 blankToDefault 对齐
+            String key = StrUtil.blankToDefault(block.getToolCallId(), null);
             AgentToolExecutionFacts.ToolInputSummary summary =
                     facts.toolFact(block.getToolCallId()).inputSummary();
             if (summary != null) {
-                summaries.put(block.getToolCallId(), summary);
+                summaries.put(key, summary);
             }
         }
         return summaries;
@@ -215,10 +217,23 @@ public class AgentToolCallAuditWriter {
                 });
     }
 
+    /**
+     * 停机排水：优雅关闭 → 最多等 3s 排干队列内审计行 → 超时强制关（尽力而为面，
+     * 排不干的行随停机丢弃，与队列满丢弃同一纪律——绝不反压停机）
+     */
     @PreDestroy
     void shutdown() {
-        if (executor instanceof ThreadPoolExecutor pool) {
-            pool.shutdown();
+        if (!(executor instanceof ThreadPoolExecutor pool)) {
+            return;
+        }
+        pool.shutdown();
+        try {
+            if (!pool.awaitTermination(3, TimeUnit.SECONDS)) {
+                pool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            pool.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }

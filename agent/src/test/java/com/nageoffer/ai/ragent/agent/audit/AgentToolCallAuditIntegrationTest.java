@@ -29,6 +29,7 @@ import com.nageoffer.ai.ragent.agent.service.AgentConversationService;
 import com.nageoffer.ai.ragent.agent.service.handler.AgentRunGate;
 import com.nageoffer.ai.ragent.agent.service.impl.AgentChatServiceImpl;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolCatalog.ResolvedCatalog;
+import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts;
 import com.nageoffer.ai.ragent.agent.tool.AgentToolExecutionFacts.ToolInputSummary;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
@@ -290,5 +291,26 @@ class AgentToolCallAuditIntegrationTest {
 
         // 纯文本轮没有 tool 块，审计零写入
         verify(jdbcTemplate, times(0)).batchUpdate(anyString(), anyList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void blankToolCallIdBlocksFallBackToSharedUnknownFactSummary() {
+        // 端点不回 id（toolCallId 留空）：块退化读 facts 的 "unknown" 事实共享摘要，而非整行留空
+        AgentToolExecutionFacts facts = new AgentToolExecutionFacts("r-1", java.time.Clock.systemDefaultZone());
+        facts.markInputSummary(null, new ToolInputSummary("digest-blank", "{\"q\":\"x\"}"));
+        AgentBlock blankId = AgentBlock.builder().kind(AgentBlock.KIND_TOOL)
+                .name("search_knowledge").status("done").toolCallId("").build();
+
+        enabledWriter().recordSettled(CONVERSATION_ID, USER_ID, "user", "m-5001", List.of(blankId), facts);
+
+        ArgumentCaptor<List<Object[]>> batch = ArgumentCaptor.forClass((Class) List.class);
+        verify(jdbcTemplate).batchUpdate(anyString(), batch.capture());
+        assertThat(batch.getValue()).hasSize(1);
+        Object[] row = batch.getValue().get(0);
+        // blank id 块 digest/excerpt 非空（共享同一份摘要）；tool_call_id 列仍按归一 null 落库
+        assertThat(row[12]).isEqualTo("digest-blank");
+        assertThat(row[13]).isEqualTo("{\"q\":\"x\"}");
+        assertThat(row[8]).isNull();
     }
 }
