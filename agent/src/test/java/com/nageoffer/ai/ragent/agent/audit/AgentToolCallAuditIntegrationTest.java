@@ -106,7 +106,7 @@ class AgentToolCallAuditIntegrationTest {
                 AgentMemoryOutcome.of(AgentMemoryOutcome.Status.BELOW_THRESHOLD));
         return new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
                 memoryLearner, new QuestionScopeGuard(new RAGClassifierProperties(), mock(ScopeJudgeClient.class)),
-                writer);
+                writer, mock(com.nageoffer.ai.ragent.agent.permission.AgentToolPermissionService.class));
     }
 
     private AgentToolCallAuditWriter enabledWriter() {

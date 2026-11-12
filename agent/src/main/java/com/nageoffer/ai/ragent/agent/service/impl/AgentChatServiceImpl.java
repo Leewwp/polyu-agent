@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.agent.service.impl;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.audit.AgentToolCallAuditWriter;
+import com.nageoffer.ai.ragent.agent.permission.AgentToolPermissionService;
 import com.nageoffer.ai.ragent.agent.config.ConditionalOnAgentEngine;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider;
 import com.nageoffer.ai.ragent.agent.config.ReActAgentProvider.ActiveAgent;
@@ -88,6 +89,7 @@ public class AgentChatServiceImpl implements AgentChatService {
     private final AgentMemoryLearner memoryLearner;
     private final QuestionScopeGuard questionScopeGuard;
     private final AgentToolCallAuditWriter auditWriter;
+    private final AgentToolPermissionService toolPermissionService;
 
     @Override
     public void streamChat(String question, String conversationId, SseEmitter emitter) {
@@ -198,6 +200,10 @@ public class AgentChatServiceImpl implements AgentChatService {
     private void startRun(String question, String userId, String conversationId, String taskId,
                           SseEmitter emitter, Runnable releaseGate) {
         ActiveAgent activeAgent = agentProvider.getAgent();
+        // 权限矩阵检查点（#487）：拿到 agent 后、launchStream 前，按请求线程角色编译装载会话级规则；
+        // flag 关态在服务内部直接返回（连空编译都不做），此处零额外行为
+        toolPermissionService.installForRun(activeAgent.agent(), activeAgent.catalog(),
+                userId, conversationId, UserContext.getRole());
 
         String title = conversationService.touchConversation(conversationId, userId, question);
         // 必须先于本轮发言入库：首次纳入长期记忆时后台游标停在已有发言上，本轮发言才不会被划进历史
@@ -225,6 +231,9 @@ public class AgentChatServiceImpl implements AgentChatService {
     private void startConfirmRun(String userId, String conversationId, String messageId, boolean approved,
                                  String taskId, SseEmitter emitter, Runnable releaseGate) {
         ActiveAgent activeAgent = agentProvider.getAgent();
+        // 续跑路径同样过权限检查点（#487）：确认后的续执行也要装本角色规则
+        toolPermissionService.installForRun(activeAgent.agent(), activeAgent.catalog(),
+                userId, conversationId, UserContext.getRole());
         AgentConfirmSettlement settlement = conversationService.getPendingConfirm(conversationId, userId, messageId);
         List<ConfirmResult> confirmResults = resolveConfirmResultsOrExpire(activeAgent, userId, conversationId, messageId, approved);
         // 续跑没有新问题文本：本轮语言从答复挂靠的原用户消息恢复，判不出（消息缺失/无语言）回落人设默认

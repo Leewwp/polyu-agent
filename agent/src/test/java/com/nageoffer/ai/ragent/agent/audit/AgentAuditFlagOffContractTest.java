@@ -99,7 +99,7 @@ class AgentAuditFlagOffContractTest {
 
         service = new AgentChatServiceImpl(agentProvider, conversationService, taskManager, runGate,
                 memoryLearner, new QuestionScopeGuard(new RAGClassifierProperties(), mock(ScopeJudgeClient.class)),
-                writer);
+                writer, mock(com.nageoffer.ai.ragent.agent.permission.AgentToolPermissionService.class));
         UserContext.set(LoginUser.builder().userId(USER_ID).username("tester").role("user").build());
     }
 
