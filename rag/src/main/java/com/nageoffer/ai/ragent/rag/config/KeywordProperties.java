@@ -60,6 +60,16 @@ public class KeywordProperties {
         private String uris = "http://127.0.0.1:9200";
 
         /**
+         * basic auth 用户名（B2，2026-11-12 升级窗）：空=不鉴权 http 直连（未开 security 的栈向后兼容）
+         */
+        private String username = "";
+
+        /**
+         * basic auth 口令；username 为空时本项不参与构建（EsClientConfig 只在 username 非空时挂凭据）
+         */
+        private String password = "";
+
+        /**
          * 共享索引名称：所有知识库的关键词数据都写在此索引，按 collection_name 字段过滤
          */
         private String index = "rag_keyword_store";
