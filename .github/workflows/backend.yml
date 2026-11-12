@@ -44,9 +44,11 @@ jobs:
       # #488 T3：轨迹调用画像断言器确定性测试（脱敏合成夹具；断言器本体纯
       # 标准库，零 secret/零 DB/零 LLM/零网络）。pytest 仅作测试运行器现场
       # 安装，不入 evaluation/requirements.txt（评测依赖管理面零增量）。
+      # 版本钉死 8.3.5（本地基线验证版本）：不钉版时上游每次发版都可能改变
+      # 收集/断言行为，质量门会出现零代码变更的无码漂移红。
       - name: Profile assertion deterministic tests (synthetic fixtures, zero LLM/DB)
         run: |
-          python3 -m pip install --disable-pip-version-check --quiet pytest
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.3.5
           python3 -m pytest evaluation/profile_assertion/ -q
 
       - name: Package (skip tests)
