@@ -1,9 +1,10 @@
 # MinIO 官方末社区版镜像 · 一次性构建（B3 升级窗，2026-11-12）
 #
 # 背景：minio/minio 自 Docker Hub 整仓删除（2026-09-11，D18 判例）、quay.io 匿名拉取 401
-# （需 Red Hat 账号），官方镜像供应链断供——按 es-ik 先例自建推 GHCR：
-# 二进制取自 dl.min.io 官方发布（构建期 sidecar SHA256 校验，见
-# resources/docker/polyu-minio-2025-10-15.Dockerfile 头注）。
+# （需 Red Hat 账号）、dl.min.io 二进制全 410（2026-09 起，官方不再发社区版预编译件）——
+# 官方镜像/二进制供应链全线断供，按 es-ik 先例自建推 GHCR：
+# tag 源码 go build（Homebrew formula 同路线），tag→commit 逐字比对锚定，
+# 见 resources/docker/polyu-minio-2025-10-15.Dockerfile 头注。
 #
 # 不并入 deploy 构建矩阵（D18 判例：deploy 不拉/不建基础设施镜像）：本镜像一次性发布，
 # tag 固定为 MinIO release 名（非 commit sha）；服务器经 image-relay 工作流预置后由
@@ -27,6 +28,8 @@ jobs:
     env:
       # 固定与 Dockerfile ARG 一致（构建参数透传防漂移；tag 与镜像名双写防错配）
       MINIO_RELEASE: RELEASE.2025-10-15T17-29-55Z
+      # Homebrew formula 钉的同一修订（tag→commit 逐字比对锚，见 Dockerfile）
+      MINIO_COMMIT: 9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a
     steps:
       # action 全部按 commit-SHA 钉版（与 deploy.yml 同款，防 tag 漂移投毒）
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -45,10 +48,17 @@ jobs:
           file: resources/docker/polyu-minio-2025-10-15.Dockerfile
           build-args: |
             MINIO_RELEASE=${{ env.MINIO_RELEASE }}
+            MINIO_COMMIT=${{ env.MINIO_COMMIT }}
           platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/${{ env.OWNER }}/polyu-agent-minio:${{ env.MINIO_RELEASE }}
             ghcr.io/${{ env.OWNER }}/polyu-agent-minio:latest
-      - name: Record binary digest
-        run: docker buildx imagetools inspect "ghcr.io/${OWNER}/polyu-agent-minio:${MINIO_RELEASE}" --format '{{json .Manifest.Digest}}'
+      - name: Verify built image
+        run: |
+          REF="ghcr.io/${OWNER}/polyu-agent-minio:${MINIO_RELEASE}"
+          docker pull "$REF" >/dev/null
+          echo "--- version stamp ---"
+          docker run --rm --entrypoint /usr/bin/minio "$REF" --version
+          echo "--- image digest ---"
+          docker buildx imagetools inspect "$REF" --format '{{json .Manifest.Digest}}'
