@@ -23,6 +23,7 @@ import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunkKey;
 import com.nageoffer.ai.ragent.rag.config.RAGConfigProperties;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,7 @@ import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.CONTEXT_FORMAT_PA
 public class DefaultContextFormatter implements ContextFormatter {
 
     private final PromptTemplateLoader templateLoader;
+    private final SearchChannelProperties searchChannelProperties;
 
     /**
      * as-of 判定基准日来源（#413）：注入而非直读系统时钟，判定可固定可测；
@@ -196,10 +198,10 @@ public class DefaultContextFormatter implements ContextFormatter {
     }
 
     /**
-     * 渲染单个文档块：组内按序号排序后拼接，带日期标记与内部 docId 作为锚点
+     * 渲染单个文档块：组内按序号排序后拼接，带日期标记与内部 docId 作为锚点，开关开启时首行放一次文档名
      * <p>
-     * 刻意不注入文档标题：标题一旦进入上下文，模型就会写出"出自《XX》"之类的归因表述，
-     * 而提示词层面的禁令压不住。资料之间的区分交给 {@code ref} 编号，文档名只在前端来源列表展示
+     * 文档名原样使用、不剥扩展名，想让模型看到干净的名字就在后台改名；它会诱导模型写"出自《XX》"，
+     * 压住它的只有 KB_ANSWER 里不报文档名的规则，换模型或改提示词后要抽查回答
      * <p>
      * #327 日期标记：每条证据块必须带日期（有日期显日期、无日期显「日期未知」），模型据此判断条目新旧；
      * {@code data-ragent-date} 刻意放在 {@code data-ragent-doc-id} 前导位——CitationContextEnricher
@@ -216,10 +218,10 @@ public class DefaultContextFormatter implements ContextFormatter {
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
 
-        String chunks = joinDocBody(ordered);
+        String chunks = withDocName(group, joinDocBody(ordered));
         boolean asofEnabled = Boolean.TRUE.equals(ragConfigProperties.getAsofEnabled());
-        String date = sanitizeAttribute(resolveDateMarker(group, asofEnabled));
-        String docId = sanitizeAttribute(resolveDocId(group));
+        String date = sanitize(resolveDateMarker(group, asofEnabled));
+        String docId = sanitize(resolveDocId(group));
         String asofFact = asofEnabled ? renderAsOfFact(group) : "";
         if (StrUtil.isNotBlank(docId)) {
             return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "kb-doc-block", Map.of(
@@ -361,10 +363,22 @@ public class DefaultContextFormatter implements ContextFormatter {
                 .collect(Collectors.joining("\n"));
     }
 
+    private String withDocName(List<RetrievedChunk> group, String body) {
+        if (!searchChannelProperties.isIncludeDocName()) {
+            return body;
+        }
+        String docName = sanitize(resolveDocName(group));
+        if (StrUtil.isBlank(docName)) {
+            return body;
+        }
+        return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "kb-doc-name", Map.of("doc_name", docName))
+                + "\n" + body;
+    }
+
     /**
-     * 清洗属性值里会破坏伪标签结构的字符（引号、尖括号）
+     * 清洗会破坏伪标签结构的字符（引号、尖括号）
      */
-    private String sanitizeAttribute(String value) {
+    private String sanitize(String value) {
         if (StrUtil.isBlank(value)) {
             return "";
         }
@@ -374,6 +388,14 @@ public class DefaultContextFormatter implements ContextFormatter {
     private String resolveDocId(List<RetrievedChunk> group) {
         return group.stream()
                 .map(RetrievedChunk::getDocId)
+                .filter(StrUtil::isNotBlank)
+                .findFirst()
+                .orElse("");
+    }
+
+    private String resolveDocName(List<RetrievedChunk> group) {
+        return group.stream()
+                .map(RetrievedChunk::getDocName)
                 .filter(StrUtil::isNotBlank)
                 .findFirst()
                 .orElse("");

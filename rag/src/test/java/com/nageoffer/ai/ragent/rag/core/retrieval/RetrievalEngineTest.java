@@ -100,7 +100,7 @@ class RetrievalEngineTest {
                 any(SubQuestionIntent.class), any(RetrievalBudget.class)))
                 .thenReturn(new KnowledgeRetrievalResult(List.of(globalChunk), Map.of(), Set.of()));
         ContextFormatter contextFormatter = new DefaultContextFormatter(
-                new PromptTemplateLoader(new DefaultResourceLoader()),
+                new PromptTemplateLoader(new DefaultResourceLoader()), new SearchChannelProperties(),
                 () -> java.time.LocalDate.of(2026, 10, 29),
                 asofDisabledProps());
 

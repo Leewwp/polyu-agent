@@ -11,6 +11,9 @@
 {asof_fact}{chunks}
 </content>
 
+--- section: kb-doc-name ---
+<doc_name>{doc_name}</doc_name>
+
 --- section: snippet-rules ---
 <rules>
 {rules}
