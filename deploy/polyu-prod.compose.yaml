@@ -58,6 +58,10 @@ services:
       # 开启=开放域无关直答题确定性拒答（拒绝走各链既有消息流）。绑定 rag.classifier.enabled；
       # 判据门轮与灰度启动在 #444，生产施加须待其预授权
       RAG_CLASSIFIER_ENABLED: ${RAG_CLASSIFIER_ENABLED:-false}
+      # as-of 日期事实注入 flag（#413 功能本体；#414 重灌传参时漏列，2026-11-12 #444 施加
+      # 前置补列——#191 先例同因：不列则只在 env 文件翻转是静默 no-op）：默认关；灰度施加
+      # 与分类器 flag 同开在 #444（两 flag 同开=444b/444c 被测态）
+      RAG_ASOF_ENABLED: ${RAG_ASOF_ENABLED:-false}
       # 站点反馈/关于页 flag（doc 25）：go-live 开闸新增键——2026-09-16 曾漏列致静默 no-op（D18 续）
       RAG_SITE_ENABLED: ${RAG_SITE_ENABLED:-false}
       # 统一分享 flag（issue #124）：答案+会话两粒度共用（原 AGENT_SHARE_* 两键归一为 SHARE_*）

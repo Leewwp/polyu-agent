@@ -80,8 +80,15 @@ docs/temp
 # TypeScript 增量构建缓存（临时输出不入库）
 *.tsbuildinfo
 
-# Python 字节码缓存（评测工具链本地运行产物；只忽略生成目录不忽略源码）
-evaluation/__pycache__/
+# Python 字节码缓存（评测工具链本地运行产物；只忽略生成目录不忽略源码；
+# 2026-11-12 #488 起 pytest 在 evaluation/ 子目录产生缓存，规则放宽到全层级）
+evaluation/**/__pycache__/
+
+# 私有评测件边界（#488 T3 公开仓纪律）：轨迹画像断言题集（题面自写、本地
+# 留档批2 评测窗用）与真实回放数据不入仓；仓内只进脱敏合成夹具
+# （evaluation/profile_assertion/fixtures/ 为合成件入仓位）
+evaluation/profile_assertion/evalset-private/
+evaluation/profile_assertion/fixtures-private/
 
 ### Regression artifacts ###
 # Local reports, credentials, logs, snapshots and compiled CLI classes.
