@@ -26,6 +26,12 @@ updates:
         versions: [">=4"]
       - dependency-name: docx-preview
         versions: [">=0.4"]
+      # 不升 major：react/react-dom 19 无功能升级驱动（#498 bump 残缺 ERESOLVE 证实迁移面
+      # 含 @types 对组+peer 全套）；观察窗期不引入前端运行时面变更，后续有驱动再评估。
+      - dependency-name: react
+        versions: [">=19"]
+      - dependency-name: react-dom
+        versions: [">=19"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
