@@ -32,6 +32,10 @@ updates:
         versions: [">=19"]
       - dependency-name: react-dom
         versions: [">=19"]
+      # 不升 major：eslint-plugin-react-refresh 0.5 线 peer 要求 eslint 9（本仓 eslint 8.57+
+      # typescript-eslint 7 线；#113 rebase 后 ERESOLVE 实证）。随 eslint 9 迁移一并评估。
+      - dependency-name: eslint-plugin-react-refresh
+        versions: [">=0.5"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
