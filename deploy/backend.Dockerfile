@@ -9,7 +9,7 @@
 #
 # 本地构建（根目录为 context）：docker build -f deploy/backend.Dockerfile -t polyu-backend .
 
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM maven:3.9-eclipse-temurin-26 AS build
 WORKDIR /build
 
 # 先只拷各模块 pom 预取依赖：pom 不变时源码层重建不触发依赖下载。
