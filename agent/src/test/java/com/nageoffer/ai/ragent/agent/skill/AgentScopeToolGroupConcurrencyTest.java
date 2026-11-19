@@ -58,10 +58,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 复现 AgentScope #2439：单例 Agent 并发处理不同会话时，共享 Toolkit 的工具组状态会串话
+ * 回归测试：AgentScope #2439 跨会话工具组串话（2.0.5 修复）
  *
- * <p>这是缺陷复现测试，断言的是当前框架的错误行为。上游修复后，工具结果应改为 SUCCESS，
- * 本测试也应随之删除或改成回归断言
+ * <p>历史：2.0.2 及之前，单例 Agent 并发处理不同会话时，共享 Toolkit 的工具组状态互相覆盖
+ * （A 激活的退货工具组被 B 的会话清掉，A 执行阶段遭 "Unauthorized tool call" 拒绝）。
+ * 2.0.5 起 callTools 链路携带 RuntimeContext，工具组状态按会话解析——本测试断言修复后的
+ * 正确行为：B 并发期间 A 的会话内工具组不受影响，退货工具正常执行。
  */
 class AgentScopeToolGroupConcurrencyTest {
 
@@ -76,8 +78,8 @@ class AgentScopeToolGroupConcurrencyTest {
     private static final String RETURN_SUBMIT = "return_submit";
 
     @Test
-    @DisplayName("B 恢复自身工具组状态后，A 已经看到的退货工具仍会在执行时被拒绝")
-    void shouldReproduceCrossSessionToolGroupPollution() throws Exception {
+    @DisplayName("B 并发会话覆盖期间，A 会话内的退货工具组不受影响、正常执行（#2439 修复回归）")
+    void shouldKeepSessionToolGroupIsolatedUnderConcurrentSession() throws Exception {
         AtomicBoolean returnSubmitted = new AtomicBoolean();
         InterleavingModel model = new InterleavingModel(true);
         ReActAgent agent = buildAgent(model, returnSubmitted);
@@ -87,31 +89,25 @@ class AgentScopeToolGroupConcurrencyTest {
                 .subscribeOn(Schedulers.boundedElastic())
                 .toFuture();
 
-        assertThat(model.awaitAReasoning()).as("A 应先拿到退货工具并进入模型推理").isTrue();
-        assertThat(agent.getToolkit().getActiveGroups()).contains(RETURN_GROUP);
+        assertThat(model.awaitAReasoning())
+                .as("A 应先拿到退货工具并进入模型推理（工具组已在其会话内激活）")
+                .isTrue();
 
-        Msg replyB;
-        try {
-            replyB = agent.call(
-                            List.of(userMessage("B-咨询物流")), runtimeContext(USER_B, SESSION_B))
-                    .block(Duration.ofSeconds(5));
-            assertThat(agent.getToolkit().getActiveGroups())
-                    .as("B 未激活退货工具组，会覆盖 Agent 实例里的共享 Toolkit 状态")
-                    .doesNotContain(RETURN_GROUP);
-        } finally {
-            model.releaseA();
-        }
+        Msg replyB = agent.call(
+                        List.of(userMessage("B-咨询物流")), runtimeContext(USER_B, SESSION_B))
+                .block(Duration.ofSeconds(5));
+        model.releaseA();
         Msg replyA = callA.get(5, TimeUnit.SECONDS);
 
         assertThat(replyB).isNotNull();
         assertThat(replyA).isNotNull();
         assertThat(model.getObservedToolResult()).isNotNull();
-        assertThat(model.getObservedToolResult().getState()).isEqualTo(ToolResultState.ERROR);
-        assertThat(toolResultText(model.getObservedToolResult()))
-                .contains("Unauthorized tool call", RETURN_SUBMIT);
+        assertThat(model.getObservedToolResult().getState())
+                .as("A 的会话内工具组状态不因 B 的并发会话而丢失")
+                .isEqualTo(ToolResultState.SUCCESS);
         assertThat(returnSubmitted)
-                .as("A 的退货工具只因 B 覆盖了共享 Toolkit 而没有真正执行")
-                .isFalse();
+                .as("A 的退货工具应真正执行")
+                .isTrue();
     }
 
     @Test
@@ -207,8 +203,9 @@ class AgentScopeToolGroupConcurrencyTest {
     }
 
     /**
-     * A 加载手册后，在第二轮模型推理时暂停。B 的模型调用只有在框架已经用 B 的工具组状态覆盖共享 Toolkit
-     * 之后才会发生；此时放行 A，就能稳定复现 A 在执行阶段被拒绝，而不是依赖偶发线程时序
+     * A 加载手册后，在第二轮模型推理时暂停，等 B 的会话完整跑完一轮（覆盖旧版共享 Toolkit
+     * 状态的窗口）再放行 A 的工具调用——若框架仍把工具组状态存共享位，此交错下 A 必然被拒；
+     * 以此稳定回归 #2439 修复，不依赖偶发线程时序
      */
     private static final class InterleavingModel implements Model {
 
