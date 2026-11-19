@@ -12,7 +12,7 @@
 #   来源 https://release.infinilabs.com/analysis-ik/stable/elasticsearch-analysis-ik-9.4.2.zip
 #   SHA256 f5aa2434f9a6b4af0fc940088bdcf82dea1c0860e07c76808c0cc120bc02b4a5（4,619,506 B）
 #   （该源站实测 ~11KB/s，故选 COPY 本地包；如需改回在线安装：RUN elasticsearch-plugin install --batch <上述 URL>）
-FROM docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+FROM docker.elastic.co/elasticsearch/elasticsearch:9.5.6
 # COPY 默认属主 root，而镜像默认用户 elasticsearch(uid 1000) 在带 sticky bit 的 /tmp
 # 无权删他人文件（EPERM）——须 chown 给运行用户，下方 rm 才能成功
 COPY --chown=1000:0 elasticsearch-analysis-ik-9.4.2.zip /tmp/analysis-ik.zip
