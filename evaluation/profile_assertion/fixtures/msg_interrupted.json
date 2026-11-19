@@ -1,0 +1,24 @@
+[
+  {
+    "kind": "reasoning",
+    "at": "2026-11-01T10:10:00",
+    "text": "（合成样本）用户询问图书馆开放时间，开始检索。"
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T10:10:01",
+    "name": "search_knowledge",
+    "displayName": "知识库检索",
+    "status": "interrupted",
+    "result": "",
+    "toolCallId": "call_00_synthetic_iaa",
+    "batchId": "9200000000000000011-0",
+    "callIndex": 0,
+    "startedAt": 1790001000000
+  },
+  {
+    "kind": "error",
+    "at": "2026-11-01T10:10:05",
+    "text": "（合成样本）连接中断，回答未完成。"
+  }
+]
