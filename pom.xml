@@ -29,11 +29,11 @@
         <redisson.version>4.8.0</redisson.version>
         <rocketmq-spring-boot-starter.version>2.3.6</rocketmq-spring-boot-starter.version>
         <commonmark.version>0.32.0</commonmark.version>
-        <batik.version>1.18</batik.version>
+        <batik.version>1.20</batik.version>
         <okhttp.version>5.5.1</okhttp.version>
         <mcp-sdk.version>2.1.0</mcp-sdk.version>
         <agentscope.version>2.0.2</agentscope.version>
-        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <opentelemetry.version>1.68.0</opentelemetry.version>
         <bizlog-sdk.version>3.0.6</bizlog-sdk.version>
         <javax-validation-api.version>2.0.1.Final</javax-validation-api.version>
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
