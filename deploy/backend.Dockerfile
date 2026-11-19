@@ -36,7 +36,7 @@ COPY bootstrap bootstrap
 # 只构建 bootstrap 及其上游依赖（mcp-server 独立成镜像 deploy/mcp.Dockerfile，#164 起为生产第九常驻服务）
 RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests -pl bootstrap -am package
 
-FROM eclipse-temurin:17-jre-noble AS runtime
+FROM eclipse-temurin:24-jre-noble AS runtime
 LABEL org.opencontainers.image.source=https://github.com/Leewwp/polyu-agent
 
 WORKDIR /app
