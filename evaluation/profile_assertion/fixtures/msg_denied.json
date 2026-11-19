@@ -1,0 +1,21 @@
+[
+  {
+    "kind": "reasoning",
+    "at": "2026-11-01T10:20:00",
+    "text": "（合成样本）用户要求修改长期记忆，触发确认工具后被拒绝。"
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T10:20:01",
+    "name": "apply_memory_change",
+    "displayName": "记忆变更确认",
+    "status": "denied",
+    "callIndex": 1,
+    "toolCallId": "call_00_synthetic_daa"
+  },
+  {
+    "kind": "answer",
+    "at": "2026-11-01T10:20:02",
+    "text": "（合成样本）已按你的要求取消本次记忆变更。"
+  }
+]

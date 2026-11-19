@@ -1,0 +1,37 @@
+[
+  {
+    "kind": "reasoning",
+    "at": "2026-11-01T11:00:00",
+    "text": "（合成样本）模型决定调用需要确认的 MCP 工具，挂起等人点确认。"
+  },
+  {
+    "kind": "confirm",
+    "at": "2026-11-01T11:00:01",
+    "status": "approved",
+    "calls": [
+      {
+        "name": "apply_memory_change",
+        "fields": [
+          {"name": "changes", "label": "变更内容", "value": "（合成值）新增一条偏好"}
+        ],
+        "arguments": "{\"changes\": \"（合成值）\"}",
+        "toolCallId": "call_00_synthetic_caa",
+        "displayName": "记忆变更确认"
+      }
+    ]
+  },
+  {
+    "kind": "tool",
+    "at": "2026-11-01T11:00:02",
+    "name": "apply_memory_change",
+    "displayName": "记忆变更确认",
+    "status": "awaiting",
+    "toolCallId": "call_00_synthetic_caa",
+    "callIndex": 0
+  },
+  {
+    "kind": "answer",
+    "at": "2026-11-01T11:00:03",
+    "text": "（合成样本）等待用户确认后的续答。"
+  }
+]
