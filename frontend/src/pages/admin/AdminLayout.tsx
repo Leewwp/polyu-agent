@@ -26,6 +26,7 @@ import {
   Users,
   FolderKanban,
   Workflow,
+  Wrench,
   type LucideIcon
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
@@ -159,6 +160,11 @@ const menuGroups: MenuGroup[] = [
         label: "审计日志",
         icon: ShieldCheck
       },
+      {
+        path: "/admin/tool-calls",
+        label: "工具调用审计",
+        icon: Wrench
+      },
     ]
   },
   {
@@ -209,6 +215,7 @@ const breadcrumbMap: Record<string, string> = {
   ingestion: "数据通道",
   traces: "链路追踪",
   "change-logs": "审计日志",
+  "tool-calls": "工具调用审计",
   "sample-questions": "示例问题",
   mappings: "关键词映射",
   feedback: "用户反馈",
