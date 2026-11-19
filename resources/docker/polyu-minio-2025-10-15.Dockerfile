@@ -13,7 +13,7 @@
 #   2. CVE 口径：该 tag=官方末社区版，修复 CVE-2025-62506（GHSA-jjjj-jwhf-8rgr）。
 # console UI 已随上游 2025-05-24 移除：镜像无 9001/管理 UI，S3 API 仍 9000；healthcheck 用
 # MinIO 官方文档口径 /minio/health/live（curl），不依赖镜像内 mc。
-FROM golang:1.25-alpine AS build
+FROM golang:1.27-alpine AS build
 ARG MINIO_RELEASE=RELEASE.2025-10-15T17-29-55Z
 ARG MINIO_COMMIT=9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a
 RUN apk add --no-cache git \
