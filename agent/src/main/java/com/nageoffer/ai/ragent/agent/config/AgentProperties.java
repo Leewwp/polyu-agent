@@ -39,6 +39,17 @@ public class AgentProperties {
     private Chat chat = new Chat();
 
     /**
+     * 工具调用审计（#486 t_agent_tool_call）：默认关——关态零采集零落行零摘要计算
+     */
+    private Audit audit = new Audit();
+
+    /**
+     * 工具权限矩阵（#487 t_agent_tool_permission）：默认关——关态连空编译都不做，
+     * 不调 replacePermissionContext，引擎链路与现状逐位相同
+     */
+    private ToolPermission toolPermission = new ToolPermission();
+
+    /**
      * ReAct 循环上限，超出后由框架熔断收尾
      */
     private Integer maxIters = 10;
@@ -82,5 +93,25 @@ public class AgentProperties {
          * 直接传给 OpenAI 兼容端点的模型名
          */
         private String model;
+    }
+
+    @Data
+    public static class Audit {
+
+        /**
+         * 工具调用审计 flag（agent.audit.enabled）：默认关；env 覆盖名 AGENT_AUDIT_ENABLED
+         */
+        private boolean enabled = false;
+    }
+
+    @Data
+    public static class ToolPermission {
+
+        /**
+         * 工具权限矩阵 flag（agent.tool-permission.enabled）：默认关；env 覆盖名 AGENT_TOOL_PERMISSION_ENABLED。
+         * 关态=检查点不调 replacePermissionContext（连空编译都不做），AgentState.permissionContext
+         * 保持 null/trivial，引擎判定退化为 McpToolProxy per-tool 层=现状逐位相同
+         */
+        private boolean enabled = false;
     }
 }
