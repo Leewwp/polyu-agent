@@ -7,7 +7,7 @@
 #
 # 本地构建（根目录为 context）：docker build -f deploy/frontend-nginx.Dockerfile -t polyu-frontend .
 
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
