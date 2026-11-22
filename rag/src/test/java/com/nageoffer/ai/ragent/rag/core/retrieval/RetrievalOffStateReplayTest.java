@@ -636,10 +636,13 @@ class RetrievalOffStateReplayTest {
         // 先落盘引擎输出，再组装上下文（组装器不该改分片，顺序上也不给它机会）
         ObjectNode node = toJson(replayCase, capture, result);
 
-        // 上下文组装照 RetrievalEngine.retrieveAndRerank 的口径
+        // 上下文组装照 RetrievalEngine.retrieveAndRerank 的口径：通道出口先截到 topK，格式化器只渲染
         List<NodeScore> kbIntents = NodeScoreFilters.kb(subIntent.nodeScores());
+        int contextTopK = budget.contextTopK();
+        List<RetrievedChunk> contextChunks = result.chunks().stream()
+                .limit(contextTopK > 0 ? contextTopK : Long.MAX_VALUE).toList();
         String kbContext = contextFormatter.formatKbContext(
-                kbIntents, result.eligibleIntentIds(kbIntents), result.chunks(), budget.contextTopK());
+                kbIntents, result.eligibleIntentIds(kbIntents), contextChunks);
         return new CaseResult(node, result.chunks(), kbContext);
     }
 
