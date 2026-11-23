@@ -60,10 +60,12 @@ import static org.mockito.Mockito.when;
 /**
  * 回归测试：AgentScope #2439 跨会话工具组串话（2.0.5 修复）
  *
- * <p>历史：2.0.2 及之前，单例 Agent 并发处理不同会话时，共享 Toolkit 的工具组状态互相覆盖
- * （A 激活的退货工具组被 B 的会话清掉，A 执行阶段遭 "Unauthorized tool call" 拒绝）。
- * 2.0.5 起 callTools 链路携带 RuntimeContext，工具组状态按会话解析——本测试断言修复后的
- * 正确行为：B 并发期间 A 的会话内工具组不受影响，退货工具正常执行。
+ * <p>历史：2.0.2 及之前，单例 Agent 并发处理不同会话时，会话激活的工具组被写进共享 Toolkit
+ * （activateSlotForContext→setActiveGroups），互相覆盖——A 激活的退货工具组被 B 的会话清掉，
+ * A 执行阶段遭 "Unauthorized tool call" 拒绝。2.0.5 改为按会话解析：激活组落会话
+ * ToolContextState（SkillToolFactory/MetaToolFactory 写入，ToolExecutor 按 RuntimeContext
+ * 取值），共享 Toolkit 不再承载会话状态——本测试断言修复后的正确行为：B 并发期间 A 的
+ * 会话内工具组不受影响，退货工具正常执行。
  */
 class AgentScopeToolGroupConcurrencyTest {
 
@@ -167,15 +169,6 @@ class AgentScopeToolGroupConcurrencyTest {
 
     private static Msg userMessage(String text) {
         return Msg.builder().name("user").role(MsgRole.USER).textContent(text).build();
-    }
-
-    private static String toolResultText(ToolResultBlock result) {
-        return result.getOutput().stream()
-                .filter(TextBlock.class::isInstance)
-                .map(TextBlock.class::cast)
-                .map(TextBlock::getText)
-                .findFirst()
-                .orElse("");
     }
 
     private static final class ReturnSubmitTool extends ToolBase {
