@@ -545,6 +545,11 @@ ai:
       endpoints:
         chat: /api/v1/chat/completions
         jev: /api/v1/systemone
+    zenmux-anthropic:
+      url: https://zenmux.ai
+      api-key: ${ZENMUX_API_KEY:}
+      endpoints:
+        chat: /api/anthropic/v1/messages
     siliconflow:
       # Embedding 供给线（qwen-emb-8b 固定跑 SiliconFlow，DeepSeek 官方无 embedding 端点）。
       # 上游 27366d12 已删本块换 deepseek，我方保留——chat 侧切 deepseek，embedding 侧不动；
