@@ -113,7 +113,7 @@ class TableReferenceGuardTest {
      * 各模块 src/main/java 目录下的全部 .java 源文件，路径标签为仓库相对路径
      */
     private static List<TableReferenceScanner.SourceFile> mainJavaSources() throws IOException {
-        Path repoRoot = PgSchemaFile.locate().toAbsolutePath().normalize().getParent().getParent().getParent();
+        Path repoRoot = PgSchemaFile.repoRoot();
         List<Path> files = new ArrayList<>();
         try (Stream<Path> modules = Files.list(repoRoot)) {
             List<Path> mainJavaDirs = modules.map(module -> module.resolve("src").resolve("main").resolve("java"))
