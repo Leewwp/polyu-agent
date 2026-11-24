@@ -104,6 +104,8 @@ public final class TableReferenceScanner {
 
         private static final char QUOTE = '"';
 
+        private static final String TEXT_BLOCK_DELIMITER = "\"\"\"";
+
         private final SourceFile source;
         private final String text;
         private final Set<String> tables;
@@ -129,21 +131,25 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 跳过一个字符串字面量，顺便提取里面的表名记号
+         * 跳过一个字符串字面量或文本块，顺便提取里面的表名记号。
+         * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾
          *
-         * @return 收尾引号之后的下标
+         * @return 收尾定界符之后的下标
          */
         private int stringLiteral(int openingQuote) {
-            int i = openingQuote + 1;
+            boolean textBlock = text.startsWith(TEXT_BLOCK_DELIMITER, openingQuote);
+            int delimiterLength = textBlock ? TEXT_BLOCK_DELIMITER.length() : 1;
+            int contentStart = openingQuote + delimiterLength;
+            int i = contentStart;
             while (i < text.length()) {
                 char c = text.charAt(i);
                 if (c == '\\') {
                     i += 2;
                     continue;
                 }
-                if (c == QUOTE) {
-                    collectTableTokens(openingQuote + 1, i);
-                    return i + 1;
+                if (c == QUOTE && (!textBlock || text.startsWith(TEXT_BLOCK_DELIMITER, i))) {
+                    collectTableTokens(contentStart, i);
+                    return i + delimiterLength;
                 }
                 i++;
             }
@@ -197,7 +203,7 @@ public final class TableReferenceScanner {
         }
 
         private IllegalStateException malformed(int offset) {
-            return new IllegalStateException(source.path() + ":" + lineAt(offset) + " 字符串字面量没有收尾引号，疑似词法失配");
+            return new IllegalStateException(source.path() + ":" + lineAt(offset) + " 字符串字面量或文本块没有收尾定界符，疑似词法失配");
         }
     }
 }

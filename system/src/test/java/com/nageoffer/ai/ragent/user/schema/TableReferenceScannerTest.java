@@ -90,6 +90,28 @@ class TableReferenceScannerTest {
         assertThat(report.literalTableMentions()).isEqualTo(3);
     }
 
+    @Test
+    void tableMentionInsideTextBlockIsDetected() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        // 文本块里先是奇数个内嵌引号（SQL 单引号串里的一个双引号），后面还有转义引号：
+        // 只会按单行字符串读的词法会在内嵌引号处提前收尾，后面的内容全落到代码态
+        TableReferenceScanner.Report report = scan(""
+                + "class UserDao {\n"
+                + "    String sql = \"\"\"\n"
+                + "            SELECT count(*)\n"
+                + "            FROM t_user u\n"
+                + "            WHERE u.note = 'say \"hi'\n"
+                + "              AND u.id IN (SELECT id FROM " + plantedTable + ")\n"
+                + "              AND u.name != \\\"t_message\\\"\n"
+                + "            \"\"\";\n"
+                + "}\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 6, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+        assertThat(report.literalTableMentions()).isEqualTo(3);
+    }
+
     private static TableReferenceScanner.Report scan(String source) {
         return TableReferenceScanner.scan(
                 SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
