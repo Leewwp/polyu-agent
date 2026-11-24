@@ -32,8 +32,13 @@ jobs:
         run: npm ci
 
       # #269：vite build（esbuild 剥类型）不查类型，存量类型债曾借道隐匿——
-      # tsc --noEmit 入门防复发。tsconfig.node.json（vite.config.ts）有存量
-      # 配置旧账（缺 @/ 路径别名与 target），暂未入门，留独立票收口。
+      # tsc --noEmit 入门防复发。typecheck 脚本先查应用工程
+      # （tsconfig.app.json）、再查构建配置所在的 node 工程
+      # （tsconfig.node.json）。vite.config.ts 的日报截图仿真中间件导入
+      # src/services/newsMockData.ts，后者经 @/ 引用类型模块
+      # src/types/news.ts；composite 工程须列出全部程序文件，故 node 工程的
+      # include 在 vite.config.ts 之外列出这两个模块（同属应用工程），并配
+      # 两模块所需的 target 与 @/ 路径别名。
       - name: Typecheck
         run: npm run typecheck
 

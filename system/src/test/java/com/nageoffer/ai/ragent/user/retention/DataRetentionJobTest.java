@@ -17,11 +17,17 @@
 
 package com.nageoffer.ai.ragent.user.retention;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import com.nageoffer.ai.ragent.user.service.impl.AccountDeletionCascade;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -31,6 +37,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -44,7 +51,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 保留期清理任务单元测试（U6）：注入固定/拨动 Clock 验证各类清理的时间旅行口径（cutoff=now-保留天数）、
- * SQL 语句面与级联复用。cutoff SQL 的行选择性由本地库 psql 抽样核验承担（29/31 天影子行）。
+ * SQL 语句面与级联复用；账号类两步的逐账号失败隔离与成功/失败汇总，经挂在任务 logger 上的
+ * ListAppender 捕获断言。cutoff SQL 的行选择性由本地库 psql 抽样核验承担（29/31 天影子行）。
  */
 class DataRetentionJobTest {
 
@@ -53,10 +61,15 @@ class DataRetentionJobTest {
 
     private static final long DAY_SECONDS = 24L * 3600;
 
+    /** 基准钟减 30 天的 cutoff 字面锚点（软删冷静期与 guest 保留期默认都是 30 天），日志里按 Timestamp.toString() 渲染 */
+    private static final Timestamp CUTOFF_OF_30_DAYS = Timestamp.from(Instant.parse("2026-08-11T00:00:00Z"));
+
     private JdbcTemplate jdbcTemplate;
     private AccountDeletionCascade deletionCascade;
     private ShareSnapshotService shareSnapshotService;
     private DataRetentionProperties properties;
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger logger;
 
     @BeforeEach
     void setUp() {
@@ -64,11 +77,58 @@ class DataRetentionJobTest {
         deletionCascade = mock(AccountDeletionCascade.class);
         shareSnapshotService = mock(ShareSnapshotService.class);
         properties = new DataRetentionProperties();
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        logger = (Logger) LoggerFactory.getLogger(DataRetentionJob.class);
+        logger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        logger.detachAppender(logAppender);
+    }
+
+    private static DataRetentionJob.SoftDeletedAccount softDeleted(String id, String email) {
+        return new DataRetentionJob.SoftDeletedAccount(id, email);
     }
 
     private DataRetentionJob jobWithClock(Instant instant) {
         return new DataRetentionJob(jdbcTemplate, deletionCascade, shareSnapshotService, properties,
                 Clock.fixed(instant, ZoneId.systemDefault()));
+    }
+
+    private List<ILoggingEvent> eventsAt(Level level) {
+        return logAppender.list.stream().filter(event -> event.getLevel() == level).toList();
+    }
+
+    private List<String> messagesAt(Level level) {
+        return eventsAt(level).stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    /**
+     * 两个账号类步骤的到期查询桩，按 sweep() 内的调用顺序给批：先软删到期、后 guest 到期。
+     * 两个查询走同一个 JdbcTemplate 重载，不按顺序区分时同一批会同时喂给两个步骤
+     */
+    @SuppressWarnings("unchecked")
+    private void stubAccountBatches(List<?> softDeletedBatch, List<?> guestBatch) {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(softDeletedBatch, guestBatch);
+    }
+
+    /**
+     * 唯一一行 ERROR 是该步骤的逐账号失败行（步骤名 + userId + 异常）：异常若逃出该步，
+     * 日志会是步骤级失败那一行，而不是这一行
+     */
+    private void assertSingleAccountFailure(String stepName, String userId) {
+        assertThat(eventsAt(Level.ERROR)).singleElement()
+                .satisfies(failure -> {
+                    assertThat(failure.getFormattedMessage()).isEqualTo(
+                            "[retention] " + stepName + " 单账号失败：userId=" + userId + "，其余账号继续");
+                    assertThat(failure.getThrowableProxy()).isNotNull();
+                    assertThat(failure.getThrowableProxy().getClassName())
+                            .isEqualTo(IllegalStateException.class.getName());
+                    assertThat(failure.getThrowableProxy().getMessage()).isEqualTo("boom");
+                });
     }
 
     @Test
@@ -83,9 +143,9 @@ class DataRetentionJobTest {
     @Test
     @SuppressWarnings("unchecked")
     void purgesSoftDeletedAccountsWhoseGraceExpired() {
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
-                .thenReturn(List.of(new DataRetentionJob.SoftDeletedAccount("100", "a@example.com"),
-                        new DataRetentionJob.SoftDeletedAccount("101", "b@example.com")));
+        // 软删到期查询返回两行；guest 到期查询返回空批
+        stubAccountBatches(List.of(new DataRetentionJob.SoftDeletedAccount("100", "a@example.com"),
+                new DataRetentionJob.SoftDeletedAccount("101", "b@example.com")), List.of());
 
         jobWithClock(NOW).sweep();
 
@@ -100,8 +160,8 @@ class DataRetentionJobTest {
     @Test
     @SuppressWarnings("unchecked")
     void purgesGuestsByCreateTimeWithoutEmail() {
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
-                .thenReturn(List.of("900", "901"));
+        // 软删到期查询返回空批；guest 到期查询返回两行
+        stubAccountBatches(List.of(), List.of("900", "901"));
 
         jobWithClock(NOW).sweep();
 
@@ -179,6 +239,100 @@ class DataRetentionJobTest {
         verify(shareSnapshotService).purgeExpired(any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
+    }
+
+    @Test
+    void secondSoftDeletedAccountFailingIsLoggedAndDoesNotStopTheRest() {
+        // 软删到期三个账号，第二个硬删抛错；guest 查询返回空批
+        stubAccountBatches(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com"),
+                softDeleted("102", "c@example.com")), List.of());
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("101"), any());
+
+        jobWithClock(NOW).sweep();
+
+        verify(deletionCascade).purge("100", "a@example.com");
+        verify(deletionCascade).purge("101", "b@example.com");
+        verify(deletionCascade).purge("102", "c@example.com");
+        assertSingleAccountFailure("软删到期硬删", "101");
+    }
+
+    @Test
+    void secondGuestAccountFailingIsLoggedAndDoesNotStopTheRest() {
+        // 软删到期查询返回空批；guest 到期三个账号，第二个硬删抛错
+        stubAccountBatches(List.of(), List.of("900", "901", "902"));
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("901"), any());
+
+        jobWithClock(NOW).sweep();
+
+        verify(deletionCascade).purge("900", null);
+        verify(deletionCascade).purge("901", null);
+        verify(deletionCascade).purge("902", null);
+        assertSingleAccountFailure("guest 到期清理", "901");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void accountStepsSummarizeSuccessAndFailureCountsInOneLineEach() {
+        // 两个账号类步骤各查到三个到期账号，各自的第二个硬删抛错
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com"),
+                        softDeleted("102", "c@example.com")), List.of("900", "901", "902"));
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("101"), any());
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("901"), any());
+
+        jobWithClock(NOW).sweep();
+
+        assertThat(messagesAt(Level.INFO)).containsOnlyOnce(
+                "[retention] 软删到期硬删完成：成功 2 个、失败 1 个（cutoff=" + CUTOFF_OF_30_DAYS + "）",
+                "[retention] guest 到期清理完成：成功 2 个、失败 1 个（cutoff=" + CUTOFF_OF_30_DAYS + "）");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void allAccountsSucceedingSummarizesWithZeroFailuresAndNoError() {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com")),
+                        List.of("900", "901"));
+
+        jobWithClock(NOW).sweep();
+
+        assertThat(messagesAt(Level.INFO)).containsOnlyOnce(
+                "[retention] 软删到期硬删完成：成功 2 个、失败 0 个（cutoff=" + CUTOFF_OF_30_DAYS + "）",
+                "[retention] guest 到期清理完成：成功 2 个、失败 0 个（cutoff=" + CUTOFF_OF_30_DAYS + "）");
+        assertThat(messagesAt(Level.ERROR)).isEmpty();
+    }
+
+    @Test
+    void emptyBatchesLogNoCompletionLine() {
+        // 未打桩的到期查询对两个账号类步骤都返回空批
+        jobWithClock(NOW).sweep();
+
+        assertThat(messagesAt(Level.INFO)).noneMatch(message ->
+                message.startsWith("[retention] 软删到期硬删完成")
+                        || message.startsWith("[retention] guest 到期清理完成"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void accountQueryFailureIsLoggedAsStepFailureAndOtherCategoriesContinue() {
+        // 两个账号类步骤的到期查询都抛错：步骤自身失败，一个账号都没处理到
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenThrow(new IllegalStateException("db down"));
+
+        jobWithClock(NOW).sweep();
+
+        verifyNoInteractions(deletionCascade);
+        // 只留步骤级失败（带异常）那一行：没有逐账号失败行，也没有汇总行
+        assertThat(eventsAt(Level.ERROR)).extracting(ILoggingEvent::getFormattedMessage).containsExactlyInAnyOrder(
+                "[retention] 软删到期硬删 失败，其余类别继续",
+                "[retention] guest 到期清理 失败，其余类别继续");
+        assertThat(eventsAt(Level.ERROR)).allMatch(event -> event.getThrowableProxy() != null
+                && "db down".equals(event.getThrowableProxy().getMessage()));
+        assertThat(messagesAt(Level.INFO)).isEmpty();
+        verify(shareSnapshotService).purgeExpired(any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_rag_trace_run"), any(Timestamp.class));
     }
 
     @Test
