@@ -58,12 +58,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 回归测试：AgentScope #2439 跨会话工具组串话（2.0.5 修复）
+ * 回归测试：AgentScope #2439 跨会话工具组串话（2.0.2→2.0.5 间修复）
  *
- * <p>历史：2.0.2 及之前，单例 Agent 并发处理不同会话时，共享 Toolkit 的工具组状态互相覆盖
- * （A 激活的退货工具组被 B 的会话清掉，A 执行阶段遭 "Unauthorized tool call" 拒绝）。
- * 2.0.5 起 callTools 链路携带 RuntimeContext，工具组状态按会话解析——本测试断言修复后的
- * 正确行为：B 并发期间 A 的会话内工具组不受影响，退货工具正常执行。
+ * <p>历史：2.0.2 及之前，单例 Agent 并发处理不同会话时，会话激活的工具组被写进共享 Toolkit
+ * （activateSlotForContext→setActiveGroups），互相覆盖——A 激活的退货工具组被 B 的会话清掉，
+ * A 执行阶段遭 "Unauthorized tool call" 拒绝。直升的 2.0.5 已按会话解析（中间版本未逐版核实）：激活组落会话
+ * ToolContextState（SkillToolFactory/MetaToolFactory 写入，ToolExecutor 按 RuntimeContext
+ * 取值），共享 Toolkit 不再承载会话状态——本测试断言修复后的正确行为：B 并发期间 A 的
+ * 会话内工具组不受影响，退货工具正常执行。
  */
 class AgentScopeToolGroupConcurrencyTest {
 
@@ -93,13 +95,17 @@ class AgentScopeToolGroupConcurrencyTest {
                 .as("A 应先拿到退货工具并进入模型推理（工具组已在其会话内激活）")
                 .isTrue();
 
-        Msg replyB = agent.call(
-                        List.of(userMessage("B-咨询物流")), runtimeContext(USER_B, SESSION_B))
-                .block(Duration.ofSeconds(5));
-        model.releaseA();
+        try {
+            Msg replyB = agent.call(
+                            List.of(userMessage("B-咨询物流")), runtimeContext(USER_B, SESSION_B))
+                    .block(Duration.ofSeconds(5));
+            assertThat(replyB).isNotNull();
+        } finally {
+            // B 路失败/超时也必须放行 A——否则 A 挂满 5s 后以误导性的放行断言收场
+            model.releaseA();
+        }
         Msg replyA = callA.get(5, TimeUnit.SECONDS);
 
-        assertThat(replyB).isNotNull();
         assertThat(replyA).isNotNull();
         assertThat(model.getObservedToolResult()).isNotNull();
         assertThat(model.getObservedToolResult().getState())
@@ -108,6 +114,11 @@ class AgentScopeToolGroupConcurrencyTest {
         assertThat(returnSubmitted)
                 .as("A 的退货工具应真正执行")
                 .isTrue();
+        // 状态级断言（会话口径）：激活组落会话 ToolContextState——A 有、B 无
+        assertThat(agent.getAgentState(USER_A, SESSION_A).getToolContext().getActivatedGroups())
+                .contains(RETURN_GROUP);
+        assertThat(agent.getAgentState(USER_B, SESSION_B).getToolContext().getActivatedGroups())
+                .doesNotContain(RETURN_GROUP);
     }
 
     @Test
@@ -167,15 +178,6 @@ class AgentScopeToolGroupConcurrencyTest {
 
     private static Msg userMessage(String text) {
         return Msg.builder().name("user").role(MsgRole.USER).textContent(text).build();
-    }
-
-    private static String toolResultText(ToolResultBlock result) {
-        return result.getOutput().stream()
-                .filter(TextBlock.class::isInstance)
-                .map(TextBlock.class::cast)
-                .map(TextBlock::getText)
-                .findFirst()
-                .orElse("");
     }
 
     private static final class ReturnSubmitTool extends ToolBase {
@@ -246,7 +248,7 @@ class AgentScopeToolGroupConcurrencyTest {
                     if (interleaveAnotherSession) {
                         aReasoningStarted.countDown();
                         await(bReasoningStarted, "B 应在 A 返回工具调用前进入推理");
-                        await(aMayReturnToolCall, "测试线程应在确认 Toolkit 被覆盖后放行 A");
+                        await(aMayReturnToolCall, "测试线程应在 B 跑完并发窗口后放行 A");
                     }
                     return Flux.just(toolCallResponse());
                 }

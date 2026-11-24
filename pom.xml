@@ -33,7 +33,6 @@
         <okhttp.version>5.5.1</okhttp.version>
         <mcp-sdk.version>2.1.0</mcp-sdk.version>
         <agentscope.version>2.0.5</agentscope.version>
-        <opentelemetry.version>1.68.0</opentelemetry.version>
         <bizlog-sdk.version>3.0.6</bizlog-sdk.version>
         <javax-validation-api.version>2.0.1.Final</javax-validation-api.version>
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
@@ -111,14 +110,11 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- 与 agentscope-core 的 opentelemetry-api 对齐，不依赖 rocketmq 传递 -->
-            <dependency>
-                <groupId>io.opentelemetry</groupId>
-                <artifactId>opentelemetry-bom</artifactId>
-                <version>${opentelemetry.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
+            <!-- opentelemetry 由上方 spring-boot-dependencies 统一管理（1.62.0）：
+                 曾在此显式导入 opentelemetry-bom 意图升 1.68.0，因 BOM 先到先得
+                 被本文件更早的 spring-boot-dependencies 压掉，实为无效导入
+                 （运行时类路径一直 1.62.0，2026-11-24 复审实证）——如需真升级
+                 须把导入挪到 spring-boot-dependencies 之前并重跑 trace 面 -->
 
             <dependency>
                 <groupId>io.milvus</groupId>
