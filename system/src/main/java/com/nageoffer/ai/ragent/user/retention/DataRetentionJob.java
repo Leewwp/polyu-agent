@@ -164,20 +164,23 @@ public class DataRetentionJob {
 
     /**
      * 账号类步骤共用的逐账号循环：单个账号硬删失败只记该账号（ERROR，带异常），其余账号照常处理，
-     * 不向步骤外抛；非空批次末尾记一行完成日志，空批不记。步骤自身的失败（如到期账号查询抛错）
+     * 不向步骤外抛；批次末尾记一行成功/失败数汇总，空批不记。步骤自身的失败（如到期账号查询抛错）
      * 不经此处
      */
     private <T> void purgeAccounts(String category, List<T> accounts, Function<T, String> userIdOf,
             Consumer<T> purge, Timestamp cutoff) {
+        int failed = 0;
         for (T account : accounts) {
             try {
                 purge.accept(account);
             } catch (Exception ex) {
+                failed++;
                 log.error("[retention] {} 单账号失败：userId={}，其余账号继续", category, userIdOf.apply(account), ex);
             }
         }
         if (!accounts.isEmpty()) {
-            log.info("[retention] {}完成：{} 个账号（cutoff={}）", category, accounts.size(), cutoff);
+            log.info("[retention] {}完成：成功 {} 个、失败 {} 个（cutoff={}）",
+                    category, accounts.size() - failed, failed, cutoff);
         }
     }
 

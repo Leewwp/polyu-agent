@@ -256,6 +256,29 @@ class DataRetentionJobTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void accountStepsSummarizeSuccessAndFailureCountsInOneLineEach() {
+        // 两个账号类步骤各查到三个到期账号，各自的第二个硬删抛错
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com"),
+                        softDeleted("102", "c@example.com")), List.of("900", "901", "902"));
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("101"), any());
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("901"), any());
+
+        jobWithClock(NOW).sweep();
+
+        String cutoff = Timestamp.from(NOW.minusSeconds(30 * DAY_SECONDS)).toString();
+        assertThat(messagesAt(Level.INFO)).containsOnlyOnce(
+                "[retention] 软删到期硬删完成：成功 2 个、失败 1 个（cutoff=" + cutoff + "）",
+                "[retention] guest 到期清理完成：成功 2 个、失败 1 个（cutoff=" + cutoff + "）");
+    }
+
+    private List<String> messagesAt(Level level) {
+        return logAppender.list.stream().filter(event -> event.getLevel() == level)
+                .map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void timeTravelClockShiftsEveryCutoff() {
         // guest 保留期调成 45 天与冷静期 30 天区分锚值；时钟前拨 31 天后，各类 cutoff 必须随拨动平移
         properties.setGuestRetentionDays(45);
