@@ -93,6 +93,19 @@ class DataRetentionJobTest {
                 Clock.fixed(instant, ZoneId.systemDefault()));
     }
 
+    private List<ILoggingEvent> eventsAt(Level level) {
+        return logAppender.list.stream().filter(event -> event.getLevel() == level).toList();
+    }
+
+    private List<String> messagesAt(Level level) {
+        return eventsAt(level).stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    /** 30 天口径的 cutoff 在日志里的渲染（软删冷静期与 guest 保留期默认都是 30 天） */
+    private static String cutoffOf30Days() {
+        return Timestamp.from(NOW.minusSeconds(30 * DAY_SECONDS)).toString();
+    }
+
     @Test
     void disabledSwitchSkipsAllCleanup() {
         properties.setEnabled(false);
@@ -266,15 +279,57 @@ class DataRetentionJobTest {
 
         jobWithClock(NOW).sweep();
 
-        String cutoff = Timestamp.from(NOW.minusSeconds(30 * DAY_SECONDS)).toString();
         assertThat(messagesAt(Level.INFO)).containsOnlyOnce(
-                "[retention] 软删到期硬删完成：成功 2 个、失败 1 个（cutoff=" + cutoff + "）",
-                "[retention] guest 到期清理完成：成功 2 个、失败 1 个（cutoff=" + cutoff + "）");
+                "[retention] 软删到期硬删完成：成功 2 个、失败 1 个（cutoff=" + cutoffOf30Days() + "）",
+                "[retention] guest 到期清理完成：成功 2 个、失败 1 个（cutoff=" + cutoffOf30Days() + "）");
     }
 
-    private List<String> messagesAt(Level level) {
-        return logAppender.list.stream().filter(event -> event.getLevel() == level)
-                .map(ILoggingEvent::getFormattedMessage).toList();
+    @Test
+    @SuppressWarnings("unchecked")
+    void allAccountsSucceedingSummarizesWithZeroFailuresAndNoError() {
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com")),
+                        List.of("900", "901"));
+
+        jobWithClock(NOW).sweep();
+
+        assertThat(messagesAt(Level.INFO)).containsOnlyOnce(
+                "[retention] 软删到期硬删完成：成功 2 个、失败 0 个（cutoff=" + cutoffOf30Days() + "）",
+                "[retention] guest 到期清理完成：成功 2 个、失败 0 个（cutoff=" + cutoffOf30Days() + "）");
+        assertThat(messagesAt(Level.ERROR)).isEmpty();
+    }
+
+    @Test
+    void emptyBatchesLogNoCompletionLine() {
+        // 未打桩的到期查询对两个账号类步骤都返回空批
+        jobWithClock(NOW).sweep();
+
+        assertThat(messagesAt(Level.INFO)).noneMatch(message ->
+                message.startsWith("[retention] 软删到期硬删完成")
+                        || message.startsWith("[retention] guest 到期清理完成"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void accountQueryFailureIsLoggedAsStepFailureAndOtherCategoriesContinue() {
+        // 两个账号类步骤的到期查询都抛错——步骤自身失败，尚未进入逐账号循环
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenThrow(new IllegalStateException("db down"));
+
+        jobWithClock(NOW).sweep();
+
+        verifyNoInteractions(deletionCascade);
+        // 只留步骤级失败（带异常）那一行：没有逐账号失败行，也没有汇总行
+        assertThat(eventsAt(Level.ERROR)).extracting(ILoggingEvent::getFormattedMessage).containsExactlyInAnyOrder(
+                "[retention] 软删到期硬删 失败，其余类别继续",
+                "[retention] guest 到期清理 失败，其余类别继续");
+        assertThat(eventsAt(Level.ERROR)).allMatch(event -> event.getThrowableProxy() != null
+                && "db down".equals(event.getThrowableProxy().getMessage()));
+        assertThat(messagesAt(Level.INFO)).isEmpty();
+        verify(shareSnapshotService).purgeExpired(any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
+        verify(jdbcTemplate).update(contains("DELETE FROM t_rag_trace_run"), any(Timestamp.class));
     }
 
     @Test
