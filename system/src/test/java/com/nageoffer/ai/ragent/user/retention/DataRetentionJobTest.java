@@ -17,11 +17,17 @@
 
 package com.nageoffer.ai.ragent.user.retention;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import com.nageoffer.ai.ragent.user.service.impl.AccountDeletionCascade;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -31,6 +37,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -57,6 +64,8 @@ class DataRetentionJobTest {
     private AccountDeletionCascade deletionCascade;
     private ShareSnapshotService shareSnapshotService;
     private DataRetentionProperties properties;
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger logger;
 
     @BeforeEach
     void setUp() {
@@ -64,6 +73,19 @@ class DataRetentionJobTest {
         deletionCascade = mock(AccountDeletionCascade.class);
         shareSnapshotService = mock(ShareSnapshotService.class);
         properties = new DataRetentionProperties();
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        logger = (Logger) LoggerFactory.getLogger(DataRetentionJob.class);
+        logger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void tearDown() {
+        logger.detachAppender(logAppender);
+    }
+
+    private static DataRetentionJob.SoftDeletedAccount softDeleted(String id, String email) {
+        return new DataRetentionJob.SoftDeletedAccount(id, email);
     }
 
     private DataRetentionJob jobWithClock(Instant instant) {
@@ -179,6 +201,33 @@ class DataRetentionJobTest {
         verify(shareSnapshotService).purgeExpired(any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_message_feedback"), any(Timestamp.class));
         verify(jdbcTemplate).update(contains("DELETE FROM t_user_email_tombstone"), any(Timestamp.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void secondSoftDeletedAccountFailingIsLoggedAndDoesNotStopTheRest() {
+        // 软删到期三个账号，第二个硬删抛错；guest 查询返回空批
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(softDeleted("100", "a@example.com"), softDeleted("101", "b@example.com"),
+                        softDeleted("102", "c@example.com")), List.of());
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("101"), any());
+
+        jobWithClock(NOW).sweep();
+
+        verify(deletionCascade).purge("100", "a@example.com");
+        verify(deletionCascade).purge("101", "b@example.com");
+        verify(deletionCascade).purge("102", "c@example.com");
+        // 失败逐账号留痕（步骤名 + userId + 异常），且是唯一一行 ERROR：
+        // 异常若逃出该步，日志会是步骤级失败那一行，而不是这一行
+        assertThat(logAppender.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
+                .satisfies(failure -> {
+                    assertThat(failure.getFormattedMessage())
+                            .isEqualTo("[retention] 软删到期硬删 单账号失败：userId=101，其余账号继续");
+                    assertThat(failure.getThrowableProxy()).isNotNull();
+                    assertThat(failure.getThrowableProxy().getClassName())
+                            .isEqualTo(IllegalStateException.class.getName());
+                    assertThat(failure.getThrowableProxy().getMessage()).isEqualTo("boom");
+                });
     }
 
     @Test

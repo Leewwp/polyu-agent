@@ -104,7 +104,11 @@ public class DataRetentionJob {
                         + "AND delete_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> new SoftDeletedAccount(rs.getString("id"), rs.getString("email")), cutoff);
         for (SoftDeletedAccount account : expired) {
-            deletionCascade.purge(account.id(), account.email());
+            try {
+                deletionCascade.purge(account.id(), account.email());
+            } catch (Exception ex) {
+                log.error("[retention] 软删到期硬删 单账号失败：userId={}，其余账号继续", account.id(), ex);
+            }
         }
         if (!expired.isEmpty()) {
             log.info("[retention] 软删到期硬删完成：{} 个账号（cutoff={}）", expired.size(), cutoff);
