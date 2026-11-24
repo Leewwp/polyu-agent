@@ -19,6 +19,12 @@ updates:
       # 适配层编译目标仍是 2.x（#510 CI 实证 NoSuchMethodError）；等 mcp-sdk 升编译目标后再动。
       - dependency-name: com.networknt:json-schema-validator
         versions: [">=3"]
+      # 不跟 wrapper 更新：dependabot 的 wrapper 更新把 mvnw.cmd 以 CRLF 内容入库，合并后工作区常驻幻影改动
+      # （#304 之后出现、#461 规范化修复、#553 复现）；需要升 Maven 时手改 distributionUrl。
+      - dependency-name: org.apache.maven:apache-maven
+      # 不升 major：tika-parsers-standard-package 在 4.x 的 BOM 里不再受管，pom 不可读（#559 CI 实证）；无升级驱动。
+      - dependency-name: org.apache.tika:tika-bom
+        versions: [">=4"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -44,6 +50,9 @@ updates:
       # CI 实证），需专门适配；无升级驱动，有驱动时立适配票再升。
       - dependency-name: react-markdown
         versions: [">=10"]
+      # 不升 major：TS 7 移除 baseUrl 并禁止非相对路径，本仓用 @/ 别名（#558 CI 实证）；需要专门迁移，有驱动再评估。
+      - dependency-name: typescript
+        versions: [">=7"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
