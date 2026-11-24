@@ -51,7 +51,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * 保留期清理任务单元测试（U6）：注入固定/拨动 Clock 验证各类清理的时间旅行口径（cutoff=now-保留天数）、
- * SQL 语句面与级联复用。cutoff SQL 的行选择性由本地库 psql 抽样核验承担（29/31 天影子行）。
+ * SQL 语句面与级联复用；账号类两步的逐账号失败隔离与成功/失败汇总，经挂在任务 logger 上的
+ * ListAppender 捕获断言。cutoff SQL 的行选择性由本地库 psql 抽样核验承担（29/31 天影子行）。
  */
 class DataRetentionJobTest {
 
@@ -232,7 +233,7 @@ class DataRetentionJobTest {
         verify(deletionCascade).purge("102", "c@example.com");
         // 失败逐账号留痕（步骤名 + userId + 异常），且是唯一一行 ERROR：
         // 异常若逃出该步，日志会是步骤级失败那一行，而不是这一行
-        assertThat(logAppender.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
+        assertThat(eventsAt(Level.ERROR)).singleElement()
                 .satisfies(failure -> {
                     assertThat(failure.getFormattedMessage())
                             .isEqualTo("[retention] 软删到期硬删 单账号失败：userId=101，其余账号继续");
@@ -256,7 +257,7 @@ class DataRetentionJobTest {
         verify(deletionCascade).purge("900", null);
         verify(deletionCascade).purge("901", null);
         verify(deletionCascade).purge("902", null);
-        assertThat(logAppender.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
+        assertThat(eventsAt(Level.ERROR)).singleElement()
                 .satisfies(failure -> {
                     assertThat(failure.getFormattedMessage())
                             .isEqualTo("[retention] guest 到期清理 单账号失败：userId=901，其余账号继续");
@@ -312,7 +313,7 @@ class DataRetentionJobTest {
     @Test
     @SuppressWarnings("unchecked")
     void accountQueryFailureIsLoggedAsStepFailureAndOtherCategoriesContinue() {
-        // 两个账号类步骤的到期查询都抛错——步骤自身失败，尚未进入逐账号循环
+        // 两个账号类步骤的到期查询都抛错：步骤自身失败，一个账号都没处理到
         when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
                 .thenThrow(new IllegalStateException("db down"));
 

@@ -46,7 +46,8 @@ import java.util.function.Function;
  *
  * <p>跨模块表经 JdbcTemplate 直 SQL 触达（system 被 rag 依赖不能反向引其 mapper，同
  * AccountDeletionCascade 的落点理由）。单实例部署下 @Scheduled 天然不并发；各类清理相互独立、
- * 单类失败仅记日志不阻断其余类，账号类每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
+ * 单类失败仅记日志不阻断其余类；账号类两步在步内逐账号隔离失败（单账号硬删失败只记该账号，
+ * 其余账号照常处理，步末汇总成功/失败数），每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
  */
 @Slf4j
 @Component
