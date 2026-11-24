@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * 表引用守卫的检测逻辑自测（#550）：输入是测试里构造的源码与表集合，不读写真实文件。
@@ -199,6 +200,77 @@ class TableReferenceScannerTest {
 
         assertThat(report.violations()).isEmpty();
         assertThat(report.tableNameAnnotations()).isEqualTo(1);
+    }
+
+    @Test
+    void tableNameWithoutLiteralTableFails() {
+        // 不写表名、靠命名策略推导的 @TableName 守卫看不到，必须报出来
+        TableReferenceScanner.Report report = scan(""
+                + "@TableName\n"
+                + "class ShareDO {\n"
+                + "}\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 1, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL, ""));
+        assertThat(report.tableNameAnnotations()).isEqualTo(1);
+    }
+
+    @Test
+    void tableNameTakenFromAnythingButALiteralFails() {
+        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, List.of(
+                new TableReferenceScanner.SourceFile("NoArgs.java", "@TableName()\nclass A {\n}\n"),
+                new TableReferenceScanner.SourceFile("OtherArgument.java", "@TableName(autoResultMap = true)\nclass B {\n}\n"),
+                new TableReferenceScanner.SourceFile("Constant.java", ""
+                        + "class C {\n"
+                        + "    static final String TABLE = \"t_user\";\n"
+                        + "\n"
+                        + "    @TableName(value = TABLE)\n"
+                        + "    static final String UNUSED = \"\";\n"
+                        + "}\n"),
+                new TableReferenceScanner.SourceFile("MultiLine.java", ""
+                        + "@TableName(\n"
+                        + "        autoResultMap = true)\n"
+                        + "class D {\n}\n"),
+                new TableReferenceScanner.SourceFile("Qualified.java", ""
+                        + "@com.baomidou.mybatisplus.annotation.TableName\n"
+                        + "class E {\n}\n")));
+
+        // 违规行报在注解所在行，而不是实参所在的后续行
+        assertThat(report.violations())
+                .extracting(TableReferenceScanner.Violation::file, TableReferenceScanner.Violation::line,
+                        TableReferenceScanner.Violation::kind)
+                .containsExactly(
+                        tuple("NoArgs.java", 1, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL),
+                        tuple("OtherArgument.java", 1, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL),
+                        tuple("Constant.java", 4, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL),
+                        tuple("MultiLine.java", 1, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL),
+                        tuple("Qualified.java", 1, TableReferenceScanner.Kind.TABLE_NAME_NOT_LITERAL));
+        assertThat(report.tableNameAnnotations()).isEqualTo(5);
+    }
+
+    @Test
+    void explicitTableNameSyntaxVariantsPass() {
+        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, List.of(
+                new TableReferenceScanner.SourceFile("Positional.java", "@TableName(\"t_user\")\nclass A {\n}\n"),
+                new TableReferenceScanner.SourceFile("NamedAfterOtherArgument.java", ""
+                        + "@TableName(autoResultMap = true, value = \"t_user\")\nclass B {\n}\n"),
+                // 非表名实参上的字符串不按表名核对
+                new TableReferenceScanner.SourceFile("WithSchema.java", ""
+                        + "@TableName(schema = \"t_not_the_table\", value = \"t_user\")\nclass C {\n}\n"),
+                new TableReferenceScanner.SourceFile("MultiLine.java", ""
+                        + "@TableName(\n"
+                        + "        value = \"t_user\",\n"
+                        + "        autoResultMap = true)\n"
+                        + "class D {\n}\n"),
+                new TableReferenceScanner.SourceFile("Qualified.java", ""
+                        + "@com.baomidou.mybatisplus.annotation.TableName(\"t_user\")\nclass E {\n}\n"),
+                new TableReferenceScanner.SourceFile("CommentedArgument.java", ""
+                        + "@TableName(/* 表名 */ \"t_user\")\nclass F {\n}\n")));
+
+        assertThat(report.violations()).isEmpty();
+        assertThat(report.tableNameAnnotations()).isEqualTo(6);
+        assertThat(report.literalTableMentions()).isZero();
     }
 
     private static TableReferenceScanner.Report scan(String source) {

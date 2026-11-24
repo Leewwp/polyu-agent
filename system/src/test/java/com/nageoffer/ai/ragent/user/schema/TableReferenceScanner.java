@@ -40,7 +40,12 @@ public final class TableReferenceScanner {
         /**
          * 字符串里引用了现行 schema 没有的表
          */
-        UNKNOWN_TABLE("现行 schema 里不存在的表引用");
+        UNKNOWN_TABLE("现行 schema 里不存在的表引用"),
+
+        /**
+         * {@code @TableName} 没有写字面量表名，表名由命名策略或常量推导，守卫看不到
+         */
+        TABLE_NAME_NOT_LITERAL("@TableName 未显式写字面量表名");
 
         private final String label;
 
@@ -60,13 +65,13 @@ public final class TableReferenceScanner {
      * @param file       源文件路径
      * @param line       行号（1 起）
      * @param kind       违规类型
-     * @param identifier 被引用的表名记号
+     * @param identifier 被引用的表名记号；{@link Kind#TABLE_NAME_NOT_LITERAL} 时为空串
      */
     public record Violation(String file, int line, Kind kind, String identifier) {
 
         @Override
         public String toString() {
-            return file + ":" + line + " " + kind.label + "：" + identifier;
+            return file + ":" + line + " " + kind.label + (identifier.isEmpty() ? "" : "：" + identifier);
         }
     }
 
@@ -267,19 +272,28 @@ public final class TableReferenceScanner {
             tableNameAnnotations++;
             int argsStart = skipWhitespace(i);
             if (argsStart < text.length() && text.charAt(argsStart) == '(') {
-                return tableNameArguments(argsStart);
+                return tableNameArguments(at, argsStart);
             }
+            violations.add(tableNameNotLiteral(at));
             return i;
+        }
+
+        private Violation tableNameNotLiteral(int at) {
+            return new Violation(source.path(), lineAt(at), Kind.TABLE_NAME_NOT_LITERAL, "");
         }
 
         /**
          * 解析 {@code @TableName} 的实参列表：实参名以「标识符 + 单个等号」识别，
-         * 只有表名实参上的字符串字面量参与表名核对，其余实参（如 schema）的字符串不算
+         * 只有表名实参上的字符串字面量参与表名核对，其余实参（如 schema）的字符串不算。
+         * 表名实参上没有字符串字面量时报违规
          *
+         * @param at            注解起点（@ 所在下标），报违规用
+         * @param openingParen  实参列表的左括号下标
          * @return 收尾右括号之后的下标
          */
-        private int tableNameArguments(int openingParen) {
+        private int tableNameArguments(int at, int openingParen) {
             boolean inTableArgument = true;
+            boolean hasTableLiteral = false;
             int depth = 1;
             int i = openingParen + 1;
             while (i < text.length() && depth > 0) {
@@ -287,6 +301,7 @@ public final class TableReferenceScanner {
                 if (c == QUOTE) {
                     Literal literal = literal(i);
                     if (depth == 1 && inTableArgument) {
+                        hasTableLiteral = true;
                         collectTableTokens(literal.contentStart(), literal.closing(), false);
                     }
                     i = literal.end();
@@ -317,6 +332,9 @@ public final class TableReferenceScanner {
             }
             if (depth != 0) {
                 throw malformed(openingParen, "注解实参列表没有收尾的右括号");
+            }
+            if (!hasTableLiteral) {
+                violations.add(tableNameNotLiteral(at));
             }
             return i;
         }
