@@ -71,18 +71,22 @@ public final class TableReferenceScanner {
     }
 
     /**
-     * @param violations 违规清单，按源文件顺序
+     * @param violations           违规清单，按源文件顺序
+     * @param literalTableMentions 字符串字面量与文本块里出现的表名记号次数
      */
-    public record Report(List<Violation> violations) {
+    public record Report(List<Violation> violations, int literalTableMentions) {
     }
 
     public static Report scan(Set<String> schemaTables, List<SourceFile> sources) {
         Set<String> tables = lowerCase(schemaTables);
         List<Violation> violations = new ArrayList<>();
+        int mentions = 0;
         for (SourceFile source : sources) {
-            violations.addAll(new Scan(source, tables).run());
+            Scan scan = new Scan(source, tables);
+            violations.addAll(scan.run());
+            mentions += scan.literalTableMentions;
         }
-        return new Report(List.copyOf(violations));
+        return new Report(List.copyOf(violations), mentions);
     }
 
     private static Set<String> lowerCase(Set<String> names) {
@@ -104,6 +108,7 @@ public final class TableReferenceScanner {
         private final String text;
         private final Set<String> tables;
         private final List<Violation> violations = new ArrayList<>();
+        private int literalTableMentions;
 
         private Scan(SourceFile source, Set<String> tables) {
             this.source = source;
@@ -137,7 +142,7 @@ public final class TableReferenceScanner {
                     continue;
                 }
                 if (c == QUOTE) {
-                    reportUnknownTables(openingQuote + 1, i);
+                    collectTableTokens(openingQuote + 1, i);
                     return i + 1;
                 }
                 i++;
@@ -146,9 +151,9 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 在 [from, to) 里按表前缀切出记号，不在表集合里的记号报违规
+         * 在 [from, to) 里按表前缀切出记号并计数，不在表集合里的记号报违规
          */
-        private void reportUnknownTables(int from, int to) {
+        private void collectTableTokens(int from, int to) {
             for (int i = from; i < to; i++) {
                 if (!isTablePrefixStart(from, to, i)) {
                     continue;
@@ -158,6 +163,7 @@ public final class TableReferenceScanner {
                     end++;
                 }
                 String token = text.substring(i, end);
+                literalTableMentions++;
                 if (!tables.contains(token.toLowerCase(Locale.ROOT))) {
                     violations.add(new Violation(source.path(), lineAt(i), Kind.UNKNOWN_TABLE, token));
                 }

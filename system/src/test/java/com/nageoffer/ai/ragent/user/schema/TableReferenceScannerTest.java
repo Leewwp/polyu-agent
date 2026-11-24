@@ -50,4 +50,48 @@ class TableReferenceScannerTest {
                 .containsExactly(new TableReferenceScanner.Violation(
                         "UserDao.java", 3, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
     }
+
+    @Test
+    void referenceToKnownTablePasses() {
+        TableReferenceScanner.Report report = scan(""
+                + "class UserDao {\n"
+                + "    void purge(Long userId) {\n"
+                + "        jdbcTemplate.update(\"DELETE FROM t_user WHERE id = ?\", userId);\n"
+                + "    }\n"
+                + "}\n");
+
+        assertThat(report.violations()).isEmpty();
+    }
+
+    @Test
+    void referenceMatchingTableNameIgnoringCasePasses() {
+        // PostgreSQL 对不带引号的标识符不区分大小写
+        TableReferenceScanner.Report report = scan("String sql = \"DELETE FROM T_USER WHERE id = ?\";\n");
+
+        assertThat(report.violations()).isEmpty();
+    }
+
+    @Test
+    void bareTablePrefixInsideStringLiteralFails() {
+        // 按前缀拼出来的表名守卫确认不了，不许静默放过，须显式豁免
+        TableReferenceScanner.Report report = scan("String table = \"t_agent_\" + kind;\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 1, TableReferenceScanner.Kind.UNKNOWN_TABLE, "t_agent_"));
+    }
+
+    @Test
+    void countsEveryTableMentionInsideStringLiterals() {
+        TableReferenceScanner.Report report = scan(""
+                + "String BY_ID = \"SELECT * FROM t_user WHERE id = ?\";\n"
+                + "String BY_USER = \"SELECT m.* FROM t_message m JOIN t_user u ON u.id = m.user_id\";\n");
+
+        assertThat(report.literalTableMentions()).isEqualTo(3);
+    }
+
+    private static TableReferenceScanner.Report scan(String source) {
+        return TableReferenceScanner.scan(
+                SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
+    }
 }
