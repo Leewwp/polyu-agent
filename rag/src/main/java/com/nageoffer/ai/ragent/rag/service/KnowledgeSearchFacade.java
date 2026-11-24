@@ -33,6 +33,7 @@ import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
 import com.nageoffer.ai.ragent.rag.core.retrieval.channel.RetrievalScopeResolver;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
@@ -41,6 +42,7 @@ import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
+import com.nageoffer.ai.ragent.rag.trace.KnowledgeSearchSpans;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -114,11 +116,19 @@ public class KnowledgeSearchFacade {
      */
     public KnowledgeSearchOutcome searchWithSources(String query, String answerLanguage) {
         // 不喂历史：主 Agent 手握完整对话，传进来的已是消解过、且被它有意收窄的查询
-        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, List.of());
-        List<SubQuestionIntent> subIntents = filterKbOnly(intentResolver.resolve(rewriteResult));
+        RewriteResult rewriteResult = KnowledgeSearchSpans.trace("query_rewrite", () -> {
+            RewriteResult result = queryRewriteService.rewriteWithSplit(query, List.of());
+            KnowledgeSearchSpans.count(KnowledgeSearchSpans.SUB_QUESTION_COUNT, CollUtil.size(result.subQuestions()));
+            return result;
+        });
+        List<SubQuestionIntent> subIntents = filterKbOnly(KnowledgeSearchSpans.trace("intent_resolve", () -> {
+            List<SubQuestionIntent> resolved = intentResolver.resolve(rewriteResult);
+            KnowledgeSearchSpans.count(KnowledgeSearchSpans.INTENT_COUNT, intentResolver.mergeKbIntents(resolved).size());
+            return resolved;
+        }));
 
-        GuidanceDecision guidance = guidanceService.detectAmbiguity(
-                rewriteResult.rewrittenQuestion(), subIntents);
+        GuidanceDecision guidance = KnowledgeSearchSpans.trace("guidance",
+                () -> guidanceService.detectAmbiguity(rewriteResult.rewrittenQuestion(), subIntents));
         if (guidance.isPrompt()) {
             log.info("Agent 知识库检索命中歧义引导，跳过检索与答案合成, question={}",
                     rewriteResult.rewrittenQuestion());
