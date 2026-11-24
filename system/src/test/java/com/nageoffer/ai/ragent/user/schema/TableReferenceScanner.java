@@ -72,21 +72,24 @@ public final class TableReferenceScanner {
 
     /**
      * @param violations           违规清单，按源文件顺序
-     * @param literalTableMentions 字符串字面量与文本块里出现的表名记号次数
+     * @param literalTableMentions 字符串字面量与文本块里出现的表名记号次数（不含 @TableName 实参）
+     * @param tableNameAnnotations 主代码里 {@code @TableName} 的出现次数
      */
-    public record Report(List<Violation> violations, int literalTableMentions) {
+    public record Report(List<Violation> violations, int literalTableMentions, int tableNameAnnotations) {
     }
 
     public static Report scan(Set<String> schemaTables, List<SourceFile> sources) {
         Set<String> tables = lowerCase(schemaTables);
         List<Violation> violations = new ArrayList<>();
         int mentions = 0;
+        int annotations = 0;
         for (SourceFile source : sources) {
             Scan scan = new Scan(source, tables);
             violations.addAll(scan.run());
             mentions += scan.literalTableMentions;
+            annotations += scan.tableNameAnnotations;
         }
-        return new Report(List.copyOf(violations), mentions);
+        return new Report(List.copyOf(violations), mentions, annotations);
     }
 
     private static Set<String> lowerCase(Set<String> names) {
@@ -114,11 +117,17 @@ public final class TableReferenceScanner {
 
         private static final char CHAR_QUOTE = '\'';
 
+        /**
+         * 实体类上声明表名的注解，名字取限定名的最后一段
+         */
+        private static final String TABLE_NAME_ANNOTATION = "TableName";
+
         private final SourceFile source;
         private final String text;
         private final Set<String> tables;
         private final List<Violation> violations = new ArrayList<>();
         private int literalTableMentions;
+        private int tableNameAnnotations;
 
         private Scan(SourceFile source, Set<String> tables) {
             this.source = source;
@@ -135,9 +144,13 @@ public final class TableReferenceScanner {
                 } else if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, i)) {
                     i = endOfBlockComment(i);
                 } else if (c == QUOTE) {
-                    i = stringLiteral(i);
+                    Literal literal = literal(i);
+                    collectTableTokens(literal.contentStart(), literal.closing(), true);
+                    i = literal.end();
                 } else if (c == CHAR_QUOTE) {
                     i = charLiteral(i);
+                } else if (c == '@') {
+                    i = annotation(i);
                 } else {
                     i++;
                 }
@@ -195,15 +208,29 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 跳过一个字符串字面量或文本块，顺便提取里面的表名记号。
-         * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾
+         * 字符串字面量或文本块
          *
-         * @return 收尾定界符之后的下标
+         * @param contentStart 内容起点（不含起始定界符）
+         * @param closing      收尾定界符起点
+         * @param textBlock    是否文本块
          */
-        private int stringLiteral(int openingQuote) {
+        private record Literal(int contentStart, int closing, boolean textBlock) {
+
+            /**
+             * @return 收尾定界符之后的下标
+             */
+            int end() {
+                return closing + (textBlock ? TEXT_BLOCK_DELIMITER.length() : 1);
+            }
+        }
+
+        /**
+         * 读一个字符串字面量或文本块。
+         * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾
+         */
+        private Literal literal(int openingQuote) {
             boolean textBlock = text.startsWith(TEXT_BLOCK_DELIMITER, openingQuote);
-            int delimiterLength = textBlock ? TEXT_BLOCK_DELIMITER.length() : 1;
-            int contentStart = openingQuote + delimiterLength;
+            int contentStart = openingQuote + (textBlock ? TEXT_BLOCK_DELIMITER.length() : 1);
             int i = contentStart;
             while (i < text.length()) {
                 char c = text.charAt(i);
@@ -212,8 +239,7 @@ public final class TableReferenceScanner {
                     continue;
                 }
                 if (c == QUOTE && (!textBlock || text.startsWith(TEXT_BLOCK_DELIMITER, i))) {
-                    collectTableTokens(contentStart, i);
-                    return i + delimiterLength;
+                    return new Literal(contentStart, i, textBlock);
                 }
                 i++;
             }
@@ -221,9 +247,94 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 在 [from, to) 里按表前缀切出记号并计数，不在表集合里的记号报违规
+         * 读一个注解，名字取限定名的最后一段。是 {@code TableName} 时解析实参：
+         * {@code value}（或首个位置实参）上的字符串字面量就是显式写出的表名
+         *
+         * @return 注解之后的下标
          */
-        private void collectTableTokens(int from, int to) {
+        private int annotation(int at) {
+            int i = at + 1;
+            int segmentStart = i;
+            while (i < text.length() && (isIdentifierChar(text.charAt(i)) || text.charAt(i) == '.')) {
+                if (text.charAt(i) == '.') {
+                    segmentStart = i + 1;
+                }
+                i++;
+            }
+            if (!TABLE_NAME_ANNOTATION.equals(text.substring(segmentStart, i))) {
+                return i;
+            }
+            tableNameAnnotations++;
+            int argsStart = skipWhitespace(i);
+            if (argsStart < text.length() && text.charAt(argsStart) == '(') {
+                return tableNameArguments(argsStart);
+            }
+            return i;
+        }
+
+        /**
+         * 解析 {@code @TableName} 的实参列表：实参名以「标识符 + 单个等号」识别，
+         * 只有表名实参上的字符串字面量参与表名核对，其余实参（如 schema）的字符串不算
+         *
+         * @return 收尾右括号之后的下标
+         */
+        private int tableNameArguments(int openingParen) {
+            boolean inTableArgument = true;
+            int depth = 1;
+            int i = openingParen + 1;
+            while (i < text.length() && depth > 0) {
+                char c = text.charAt(i);
+                if (c == QUOTE) {
+                    Literal literal = literal(i);
+                    if (depth == 1 && inTableArgument) {
+                        collectTableTokens(literal.contentStart(), literal.closing(), false);
+                    }
+                    i = literal.end();
+                } else if (c == CHAR_QUOTE) {
+                    i = charLiteral(i);
+                } else if (c == '(') {
+                    depth++;
+                    i++;
+                } else if (c == ')') {
+                    depth--;
+                    i++;
+                } else if (c == '/' && text.startsWith(LINE_COMMENT, i)) {
+                    i = endOfLineComment(i);
+                } else if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, i)) {
+                    i = endOfBlockComment(i);
+                } else if (depth == 1 && isIdentifierStart(c)) {
+                    int wordStart = i;
+                    while (i < text.length() && isIdentifierChar(text.charAt(i))) {
+                        i++;
+                    }
+                    int equals = skipWhitespace(i);
+                    if (equals + 1 < text.length() && text.charAt(equals) == '=' && text.charAt(equals + 1) != '=') {
+                        inTableArgument = "value".equals(text.substring(wordStart, i));
+                    }
+                } else {
+                    i++;
+                }
+            }
+            if (depth != 0) {
+                throw malformed(openingParen, "注解实参列表没有收尾的右括号");
+            }
+            return i;
+        }
+
+        private int skipWhitespace(int from) {
+            int i = from;
+            while (i < text.length() && Character.isWhitespace(text.charAt(i))) {
+                i++;
+            }
+            return i;
+        }
+
+        /**
+         * 在 [from, to) 里按表前缀切出记号，不在表集合里的记号报违规
+         *
+         * @param countMention 是否计入字符串字面量里的表名出现次数（@TableName 实参不计）
+         */
+        private void collectTableTokens(int from, int to, boolean countMention) {
             for (int i = from; i < to; i++) {
                 if (!isTablePrefixStart(from, to, i)) {
                     continue;
@@ -233,7 +344,9 @@ public final class TableReferenceScanner {
                     end++;
                 }
                 String token = text.substring(i, end);
-                literalTableMentions++;
+                if (countMention) {
+                    literalTableMentions++;
+                }
                 if (!tables.contains(token.toLowerCase(Locale.ROOT))) {
                     violations.add(new Violation(source.path(), lineAt(i), Kind.UNKNOWN_TABLE, token));
                 }
@@ -253,7 +366,11 @@ public final class TableReferenceScanner {
         }
 
         private static boolean isIdentifierChar(char c) {
-            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$';
+            return isIdentifierStart(c) || (c >= '0' && c <= '9');
+        }
+
+        private static boolean isIdentifierStart(char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$';
         }
 
         private int lineAt(int offset) {

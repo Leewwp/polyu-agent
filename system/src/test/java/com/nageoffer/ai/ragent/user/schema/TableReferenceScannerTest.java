@@ -170,6 +170,37 @@ class TableReferenceScannerTest {
         assertThat(report.literalTableMentions()).isEqualTo(1);
     }
 
+    @Test
+    void explicitTableNameIsCheckedAgainstSchema() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        TableReferenceScanner.Report report = scan(""
+                + "@TableName(\"" + plantedTable + "\")\n"
+                + "class PlantedDO {\n"
+                + "}\n"
+                + "@TableName(value = \"t_user\", autoResultMap = true)\n"
+                + "class UserDO {\n"
+                + "}\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 1, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+        assertThat(report.tableNameAnnotations()).isEqualTo(2);
+        // @TableName 的实参单独计数，不与 SQL 字符串里的表名出现次数混在一起
+        assertThat(report.literalTableMentions()).isZero();
+    }
+
+    @Test
+    void tableNameMentionInsideCommentIsNotAnOccurrence() {
+        TableReferenceScanner.Report report = scan(""
+                + "/** 实体上写 {@code @TableName} 指定表名 */\n"
+                + "@TableName(\"t_user\")\n"
+                + "class UserDO {\n"
+                + "}\n");
+
+        assertThat(report.violations()).isEmpty();
+        assertThat(report.tableNameAnnotations()).isEqualTo(1);
+    }
+
     private static TableReferenceScanner.Report scan(String source) {
         return TableReferenceScanner.scan(
                 SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
