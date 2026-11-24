@@ -15,6 +15,10 @@ updates:
         versions: [">=3"]
       - dependency-name: com.diffplug.spotless:spotless-maven-plugin
         versions: [">=3"]
+      # 不升 major：networknt 3.x 移除 Schema.validate(JsonNode)，mcp-sdk 2.x 的 jackson2
+      # 适配层编译目标仍是 2.x（#510 CI 实证 NoSuchMethodError）；等 mcp-sdk 升编译目标后再动。
+      - dependency-name: com.networknt:json-schema-validator
+        versions: [">=3"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -36,6 +40,10 @@ updates:
       # typescript-eslint 7 线；#113 rebase 后 ERESOLVE 实证）。随 eslint 9 迁移一并评估。
       - dependency-name: eslint-plugin-react-refresh
         versions: [">=0.5"]
+      # 不升 major：react-markdown 10 的 Options 类型变更致 MarkdownRenderer TS2322（#513
+      # CI 实证），需专门适配；无升级驱动，有驱动时立适配票再升。
+      - dependency-name: react-markdown
+        versions: [">=10"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
