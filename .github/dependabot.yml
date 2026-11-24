@@ -22,9 +22,13 @@ updates:
       # 不跟 wrapper 更新：dependabot 的 wrapper 更新把 mvnw.cmd 以 CRLF 内容入库，合并后工作区常驻幻影改动
       # （#304 之后出现、#461 规范化修复、#553 复现）；需要升 Maven 时手改 distributionUrl。
       - dependency-name: org.apache.maven:apache-maven
-      # 不升 major：tika-parsers-standard-package 在 4.x 的 BOM 里不再受管，pom 不可读（#559 CI 实证）；无升级驱动。
+      # 不升：tika-bom 自 3.3.0 起每一版都不再挂 tika-parent，约 700 条依赖托管随之消失——guava 的版本就在其中
+      # （framework/pom.xml 没写版本，#565 CI 实证 version missing）；显式钉 guava 后仍有 37 个第三方构件改版、
+      # 其中 7 个降版。4.x 另有 tika-parsers-standard-package 不再受管、pom 不可读（#559 CI 实证）。无升级驱动。
+      # 本条由 >=4 并入 >=3.3，覆盖面含原规则。解冻条件：出现 tika 安全告警；或单开「依赖管理收口」小窗、
+      # 显式接管 guava 与那 7 个降版构件后再升。
       - dependency-name: org.apache.tika:tika-bom
-        versions: [">=4"]
+        versions: [">=3.3"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -46,6 +50,11 @@ updates:
       # typescript-eslint 7 线；#113 rebase 后 ERESOLVE 实证）。随 eslint 9 迁移一并评估。
       - dependency-name: eslint-plugin-react-refresh
         versions: [">=0.5"]
+      # 不升 major：eslint-plugin-react-hooks 7.x 的推荐规则集是新规则面，7.1.1 在本仓报 74 处（70 错 4 警，
+      # #566 CI 实证；set-state-in-effect 占 60 错），rules-of-hooks / exhaustive-deps 零违规。无升级驱动；
+      # 本仓 eslint 8.57 + 旧式 .eslintrc.cjs、React 18.3.1 未启用 React Compiler，随 eslint 9 迁移一并评估。
+      - dependency-name: eslint-plugin-react-hooks
+        versions: [">=7"]
       # 不升 major：react-markdown 10 的 Options 类型变更致 MarkdownRenderer TS2322（#513
       # CI 实证），需专门适配；无升级驱动，有驱动时立适配票再升。
       - dependency-name: react-markdown
@@ -72,11 +81,25 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # 不升 major：运行时 eclipse-temurin（17→25）、构建阶段 maven（3.9-eclipse-temurin-17→26）与
+    # node（24-alpine→26-alpine）都是工具链大版本，无升级驱动，出现驱动再评估（#544 / #523 / #524 关闭）。
+    ignore:
+      - dependency-name: eclipse-temurin
+        update-types: ["version-update:semver-major"]
+      - dependency-name: maven
+        update-types: ["version-update:semver-major"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /resources/docker
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # 不升 major：golang（1.25-alpine→1.27-alpine）是 MinIO 源码构建的阶段镜像，属工具链大版本，
+    # 无升级驱动，出现驱动再评估（#526 关闭）。
+    ignore:
+      - dependency-name: golang
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /resources/docker/graphrag
     schedule:
