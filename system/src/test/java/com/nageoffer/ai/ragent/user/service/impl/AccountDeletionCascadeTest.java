@@ -138,12 +138,16 @@ class AccountDeletionCascadeTest {
     void purgeTouchesEveryTableWithUserIdColumnInCurrentSchema() throws IOException {
         Map<String, List<String>> schema = PgSchemaFile.parseTables(PgSchemaFile.locate());
         // 解析下限：解析失配（比如建表换了写法）时先在这里红，覆盖断言不许落到空集合上空过
-        assertThat(schema).as("schema_pg.sql 解析出的表数").hasSizeGreaterThanOrEqualTo(56);
+        assertThat(schema).as("schema_pg.sql 解析出的表数：低于下限，要么是解析失配（比如建表换了写法），"
+                + "要么是现行 schema 的表数确实减少——后者须在同一次改动里有意下调下限")
+                .hasSizeGreaterThanOrEqualTo(56);
         List<String> userIdTables = schema.entrySet().stream()
                 .filter(table -> table.getValue().contains("user_id"))
                 .map(Map.Entry::getKey)
                 .toList();
-        assertThat(userIdTables).as("带 user_id 列的表数").hasSizeGreaterThanOrEqualTo(13);
+        assertThat(userIdTables).as("带 user_id 列的表数：低于下限，要么是解析失配，"
+                + "要么是现行 schema 里带 user_id 列的表确实减少——后者须在同一次改动里有意下调下限")
+                .hasSizeGreaterThanOrEqualTo(13);
 
         cascade.purge("100", "u2@example.com");
 
