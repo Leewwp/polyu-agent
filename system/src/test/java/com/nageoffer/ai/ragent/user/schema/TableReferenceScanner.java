@@ -161,24 +161,36 @@ public final class TableReferenceScanner {
         private List<Violation> run() {
             int i = 0;
             while (i < text.length()) {
-                char c = text.charAt(i);
-                if (c == '/' && text.startsWith(LINE_COMMENT, i)) {
-                    i = endOfLineComment(i);
-                } else if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, i)) {
-                    i = endOfBlockComment(i);
-                } else if (c == QUOTE) {
+                int after = skipCommentOrCharLiteral(i);
+                if (after != i) {
+                    i = after;
+                } else if (text.charAt(i) == QUOTE) {
                     Literal literal = literal(i);
-                    collectTableTokens(literal.contentStart(), literal.closing(), true);
+                    collectTableTokens(literal.contentStart(), literal.closing());
                     i = literal.end();
-                } else if (c == CHAR_QUOTE) {
-                    i = charLiteral(i);
-                } else if (c == '@') {
+                } else if (text.charAt(i) == '@') {
                     i = annotation(i);
                 } else {
                     i++;
                 }
             }
             return violations;
+        }
+
+        /**
+         * 跳过注释与字符字面量：主扫描与 {@code @TableName} 实参列表共用这一处词法，两边的跳法不会分叉
+         *
+         * @return 结构之后的下标；{@code at} 处既不是注释也不是字符字面量时原样返回 {@code at}
+         */
+        private int skipCommentOrCharLiteral(int at) {
+            char c = text.charAt(at);
+            if (c == '/' && text.startsWith(LINE_COMMENT, at)) {
+                return endOfLineComment(at);
+            }
+            if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, at)) {
+                return endOfBlockComment(at);
+            }
+            return c == CHAR_QUOTE ? charLiteral(at) : at;
         }
 
         /**
@@ -312,8 +324,8 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 解析 {@code @TableName} 的实参列表：实参名以「标识符 + 单个等号」识别，
-         * 只有表名实参上的字符串字面量参与表名核对，其余实参（如 schema）的字符串不算。
+         * 解析 {@code @TableName} 的实参列表：表名实参是首个位置实参，或 {@code value =} 之后的那一个，
+         * 只有它上面的字符串字面量按表名核对，其余实参（如 schema）的字符串不算。
          * 表名实参上没有字符串字面量时报违规
          *
          * @param at            注解起点（@ 所在下标），报违规用
@@ -321,51 +333,42 @@ public final class TableReferenceScanner {
          * @return 收尾右括号之后的下标
          */
         private int tableNameArguments(int at, int openingParen) {
+            // 首个位置实参就是表名；读到「实参名 =」后，改看这个实参是不是 value
             boolean inTableArgument = true;
             boolean hasTableLiteral = false;
-            int depth = 1;
             int i = openingParen + 1;
-            while (i < text.length() && depth > 0) {
-                char c = text.charAt(i);
-                if (c == QUOTE) {
+            while (i < text.length() && text.charAt(i) != ')') {
+                int after = skipCommentOrCharLiteral(i);
+                if (after != i) {
+                    i = after;
+                } else if (text.charAt(i) == QUOTE) {
                     Literal literal = literal(i);
-                    if (depth == 1 && inTableArgument) {
+                    if (inTableArgument) {
                         hasTableLiteral = true;
                         checkTableNameLiteral(literal);
                     }
                     i = literal.end();
-                } else if (c == CHAR_QUOTE) {
-                    i = charLiteral(i);
-                } else if (c == '(') {
-                    depth++;
-                    i++;
-                } else if (c == ')') {
-                    depth--;
-                    i++;
-                } else if (c == '/' && text.startsWith(LINE_COMMENT, i)) {
-                    i = endOfLineComment(i);
-                } else if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, i)) {
-                    i = endOfBlockComment(i);
-                } else if (depth == 1 && isIdentifierStart(c)) {
-                    int wordStart = i;
-                    while (i < text.length() && isIdentifierChar(text.charAt(i))) {
-                        i++;
+                } else if (isIdentifierStart(text.charAt(i))) {
+                    int wordEnd = i + 1;
+                    while (wordEnd < text.length() && isIdentifierChar(text.charAt(wordEnd))) {
+                        wordEnd++;
                     }
-                    int equals = skipWhitespace(i);
-                    if (equals + 1 < text.length() && text.charAt(equals) == '=' && text.charAt(equals + 1) != '=') {
-                        inTableArgument = "value".equals(text.substring(wordStart, i));
+                    int equals = skipWhitespace(wordEnd);
+                    if (equals < text.length() && text.charAt(equals) == '=') {
+                        inTableArgument = "value".equals(text.substring(i, wordEnd));
                     }
+                    i = wordEnd;
                 } else {
                     i++;
                 }
             }
-            if (depth != 0) {
+            if (i >= text.length()) {
                 throw malformed(openingParen, "注解实参列表没有收尾的右括号");
             }
             if (!hasTableLiteral) {
                 violations.add(tableNameNotLiteral(at));
             }
-            return i;
+            return i + 1;
         }
 
         private int skipWhitespace(int from) {
@@ -389,11 +392,10 @@ public final class TableReferenceScanner {
         }
 
         /**
-         * 在 [from, to) 里按表前缀切出记号，不在表集合里的记号报违规
-         *
-         * @param countMention 是否计入字符串字面量里的表名出现次数（@TableName 实参不计）
+         * 在 [from, to) 里按表前缀切出记号：每个记号计入字符串字面量里的表名出现次数，
+         * 不在表集合与豁免清单里的记号报违规
          */
-        private void collectTableTokens(int from, int to, boolean countMention) {
+        private void collectTableTokens(int from, int to) {
             for (int i = from; i < to; i++) {
                 if (!isTablePrefixStart(from, to, i)) {
                     continue;
@@ -403,9 +405,7 @@ public final class TableReferenceScanner {
                     end++;
                 }
                 String token = text.substring(i, end);
-                if (countMention) {
-                    literalTableMentions++;
-                }
+                literalTableMentions++;
                 String lowered = token.toLowerCase(Locale.ROOT);
                 if (!tables.contains(lowered) && !exempt.contains(lowered)) {
                     violations.add(new Violation(source.path(), lineAt(i), Kind.UNKNOWN_TABLE, token));
