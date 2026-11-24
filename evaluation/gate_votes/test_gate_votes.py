@@ -350,6 +350,40 @@ def test_input_file_that_does_not_exist_stops_without_verdict(tmp_path):
     assert "criteria" not in body
 
 
+# ---------------------------------------------------------------- 判分行里的 Unicode 行分隔字符
+
+# 判分器用 json.dumps(ensure_ascii=False) 写行：这三个字符原样落在字符串里（其余控制字符会被转义），
+# 一行仍是合法 JSON
+LINE_SEPARATORS = ["\u2028", "\u2029", "\u0085"]
+
+
+@pytest.mark.parametrize("sep", LINE_SEPARATORS, ids=lambda s: f"U+{ord(s):04X}")
+def test_row_containing_a_unicode_line_separator_is_one_row(tmp_path, sep):
+    grid = full_grid()
+    grid[2]["fx-unans-05"] = judged("fx-unans-05", 2, reason=f"line one{sep}line two")
+    report = tmp_path / "report.json"
+
+    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+
+    assert proc.returncode == 0, proc.stderr
+    body = json.loads(report.read_text(encoding="utf-8"))
+    assert body["status"] == "EVALUATED"
+    assert body["passes"]["on"]["valid_votes"] == 48
+    assert "UNREADABLE_INPUT" not in proc.stdout + proc.stderr
+
+
+def test_input_with_crlf_line_endings_is_read_as_usual(tmp_path):
+    files = files_for(tmp_path / "votes", full_grid())
+    for path in files:
+        path.write_bytes(path.read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8"))
+    report = tmp_path / "report.json"
+
+    proc = run_cli({"on": files}, report)
+
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(report.read_text(encoding="utf-8"))["passes"]["on"]["valid_votes"] == 48
+
+
 # ---------------------------------------------------------------- 库入口：断言在判据求值之前，绕不过去
 
 

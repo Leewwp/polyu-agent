@@ -85,14 +85,18 @@ class VoteInputError(Exception):
 
 
 def load_votes(path) -> list:
-    """读一个判分输出文件（JSONL，空行跳过）为判分行列表；读不了抛 VoteInputError。"""
+    """读一个判分输出文件（JSONL，空行跳过）为判分行列表；读不了抛 VoteInputError。
+
+    只在 "\\n" 处分行：判分器以 json.dumps(ensure_ascii=False) 写行，reason / error 里的 U+2028、U+2029、U+0085
+    原样留在字符串里，它们不是行界（str.splitlines() 会在它们处断开，把一行合法 JSON 切成两段）。
+    """
     file = pathlib.Path(path)
     try:
         text = file.read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
         raise VoteInputError(file, None, "cannot read") from e
     rows = []
-    for number, line in enumerate(text.splitlines(), 1):
+    for number, line in enumerate(text.split("\n"), 1):
         if not line.strip():
             continue
         try:
