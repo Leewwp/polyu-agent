@@ -34,7 +34,7 @@ import java.util.Date;
 import java.util.HexFormat;
 
 /**
- * 账号硬删级联：自助注销到期清理与 admin 删号共用同一套动作。
+ * 账号硬删级联：自助注销到期清理、guest 到期清理与 admin 删号三个调用方共用同一套动作。
  *
  * <p>跨模块表（rag 的会话/消息/反馈/分享、agent 的会话/消息/记忆/工具调用审计）经 JdbcTemplate 直 SQL
  * 触达——system 模块被 rag 依赖，不能反向引用其 mapper；用户数据表非知识调度域，直 SQL 是
