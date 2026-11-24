@@ -25,10 +25,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 表引用检测的纯逻辑：输入是现行 schema 的表集合与主代码源文本，输出是违规清单。
+ * 表引用检测的纯逻辑：输入是现行 schema 的表集合、豁免清单与源文本，输出是违规清单与扫描计数。
  * 不读文件、不碰构建工具——取数由守卫测试负责，自测直接喂内存里的源码。
  * <p>
- * 识别不解析 SQL：按表前缀 {@code t_} 从字符串字面量里切出记号，记号不在表集合里即违规。
+ * 源文本逐字符按 Java 词法处理（字符串字面量、文本块、字符字面量、注释各自成态），不解析 SQL：
+ * 字符串字面量与文本块里带表前缀 {@code t_} 的标识符、{@code @TableName} 表名实参上的字面量，
+ * 不在表集合与豁免清单里即违规；注释里的内容不参与。
+ * 扫描口径与已知边界见 {@link TableReferenceGuardTest}。
  */
 public final class TableReferenceScanner {
 

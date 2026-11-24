@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.tuple;
 /**
  * 表引用守卫的检测逻辑自测（#550）：输入是测试里构造的源码与表集合，不读写真实文件。
  * 伪造表名在测试内部拼接出来，验证「引用了不存在的表 → 报出文件、行号与表名」，
- * 防止守卫静默失效。
+ * 以及词法、{@code @TableName}、豁免清单的各类情形，防止守卫静默失效。
  */
 class TableReferenceScannerTest {
 
