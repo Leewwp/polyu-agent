@@ -46,9 +46,10 @@ updates:
         versions: [">=4"]
       - dependency-name: docker/login-action
         versions: [">=4"]
-  # Dockerfile 基础镜像更新。Dockerfile 全部位于 deploy/（backend/frontend-nginx/mcp）与
-  # resources/docker/（es-stack/minio 源码构建）——docker 生态不递归扫描，须按目录分别配置；
-  # 根目录无 Dockerfile，directory: / 会导致每次 Updates 必红（11-17 起反复失败根因）。
+  # Dockerfile 基础镜像更新。Dockerfile 共 6 个：deploy/ ×3（backend/frontend-nginx/mcp）、
+  # resources/docker/ ×2（es-stack/minio 源码构建）、resources/docker/graphrag/ ×1（neo4j-gds）
+  # ——docker 生态不递归扫描，须按目录分别配置；根目录无 Dockerfile，directory: /
+  # 会导致每次 Updates 必红（11-17 起反复失败根因）。
   - package-ecosystem: docker
     directory: /deploy
     schedule:
@@ -56,6 +57,11 @@ updates:
     open-pull-requests-limit: 5
   - package-ecosystem: docker
     directory: /resources/docker
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: /resources/docker/graphrag
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
