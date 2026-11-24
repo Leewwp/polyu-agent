@@ -48,8 +48,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * 硬删级联单元测试（U2）：语句面覆盖（两类对话表族全删、反馈匿名化、分享撤销、
- * 邮箱墓碑 upsert、用户行删除）。数据形态的实证由本地 e2e 冒烟对库核验承担。
+ * 硬删级联单元测试（U2）：语句面覆盖（两类对话表族全删、记忆游标与工具调用审计随删、反馈匿名化、
+ * 分享撤销、邮箱墓碑 upsert、用户行删除），以及覆盖断言——现行 schema 里每张带 user_id 列的表
+ * 都出现在级联发出的 SQL 里。对库的数据形态实证由可选真库集成测试
+ * {@link AccountDeletionCascadeIntegrationTest} 承担。
  */
 class AccountDeletionCascadeTest {
 
@@ -82,9 +84,9 @@ class AccountDeletionCascadeTest {
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_message WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_context_compaction WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory WHERE user_id = ?", "100");
-        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", "100");
-        // #104 级联补洞：三张漏清表
-        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_control WHERE user_id = ?", "100");
+        // 记忆游标与工具调用审计同样按 user_id 关联，随账号删除
+        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_cursor WHERE user_id = ?", "100");
+        order.verify(jdbcTemplate).update("DELETE FROM t_agent_tool_call WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_state WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_conversation_summary WHERE user_id = ?", "100");
         // #154 级联补洞：trace 两表随账号硬删（node 经 run 关联先删，防孤儿 node）

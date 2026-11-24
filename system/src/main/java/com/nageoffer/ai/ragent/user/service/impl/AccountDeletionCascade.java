@@ -36,7 +36,7 @@ import java.util.HexFormat;
 /**
  * 账号硬删级联：自助注销到期清理与 admin 删号共用同一套动作。
  *
- * <p>跨模块表（rag 的会话/消息/反馈/分享、agent 的会话/消息/记忆）经 JdbcTemplate 直 SQL
+ * <p>跨模块表（rag 的会话/消息/反馈/分享、agent 的会话/消息/记忆/工具调用审计）经 JdbcTemplate 直 SQL
  * 触达——system 模块被 rag 依赖，不能反向引用其 mapper；用户数据表非知识调度域，直 SQL 是
  * 最小侵入的落点。级联内容：
  * <ul>
@@ -80,9 +80,6 @@ public class AccountDeletionCascade {
         // 记忆游标与工具调用审计同样按 user_id 关联：随账号删除，不留孤儿行
         jdbcTemplate.update("DELETE FROM t_agent_memory_cursor WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_tool_call WHERE user_id = ?", userId);
-        jdbcTemplate.update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", userId);
-        // #104 级联补洞：注销前漏清的三张 user_id 关联表（残行即永久孤儿）
-        jdbcTemplate.update("DELETE FROM t_agent_memory_control WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_state WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_conversation_summary WHERE user_id = ?", userId);
         // #154 级联补洞：trace 两表随账号硬删（run.extra_data 承载提问原文，删除权覆盖全部
