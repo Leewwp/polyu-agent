@@ -232,6 +232,30 @@ class DataRetentionJobTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void secondGuestAccountFailingIsLoggedAndDoesNotStopTheRest() {
+        // 软删到期查询返回空批；guest 到期三个账号，第二个硬删抛错
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class)))
+                .thenReturn(List.of(), List.of("900", "901", "902"));
+        doThrow(new IllegalStateException("boom")).when(deletionCascade).purge(eq("901"), any());
+
+        jobWithClock(NOW).sweep();
+
+        verify(deletionCascade).purge("900", null);
+        verify(deletionCascade).purge("901", null);
+        verify(deletionCascade).purge("902", null);
+        assertThat(logAppender.list).filteredOn(event -> event.getLevel() == Level.ERROR).singleElement()
+                .satisfies(failure -> {
+                    assertThat(failure.getFormattedMessage())
+                            .isEqualTo("[retention] guest 到期清理 单账号失败：userId=901，其余账号继续");
+                    assertThat(failure.getThrowableProxy()).isNotNull();
+                    assertThat(failure.getThrowableProxy().getClassName())
+                            .isEqualTo(IllegalStateException.class.getName());
+                    assertThat(failure.getThrowableProxy().getMessage()).isEqualTo("boom");
+                });
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void timeTravelClockShiftsEveryCutoff() {
         // guest 保留期调成 45 天与冷静期 30 天区分锚值；时钟前拨 31 天后，各类 cutoff 必须随拨动平移
         properties.setGuestRetentionDays(45);
