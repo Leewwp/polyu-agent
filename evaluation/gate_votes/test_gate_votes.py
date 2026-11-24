@@ -273,11 +273,59 @@ def test_rejudged_cell_takes_the_later_valid_vote_and_keeps_a_trace(tmp_path):
     assert section["judge_errors"] == {"count": 0, "q_ids": [], "votes": []}
     assert section["superseded"] == {
         "count": 1,
+        "votes": [{"q_id": "fx-unans-05", "repeat": 2, "was_valid": False, "verdict_differs": None,
+                   "reason": "judge_error"}],
         "resolved_judge_errors": [{"q_id": "fx-unans-05", "repeat": 2, "error": "Connection error."}],
     }
     # 留痕也要在控制台上看得见
     assert "resolved_judge_errors" in proc.stdout
     assert "fx-unans-05" in proc.stdout
+
+
+# ---------------------------------------------------------------- 同格多余的行：逐条留痕，不静默丢弃
+
+
+def test_valid_vote_dropped_by_a_later_valid_vote_is_listed(tmp_path):
+    grid = full_grid()
+    files = files_for(tmp_path / "votes", grid)
+    # 同一格先后两条有效票、判词相反：后一条作数，前一条不能悄无声息地丢掉
+    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-05", 2, correct_handling=False)])
+    report = tmp_path / "report.json"
+
+    proc = run_cli({"on": files}, report)
+
+    assert proc.returncode == 0
+    body = json.loads(report.read_text(encoding="utf-8"))
+    assert body["status"] == "EVALUATED"
+    assert body["passes"]["on"]["valid_votes"] == 48
+    assert body["passes"]["on"]["superseded"] == {
+        "count": 1,
+        "votes": [{"q_id": "fx-unans-05", "repeat": 2, "was_valid": True, "verdict_differs": True,
+                   "reason": None}],
+        "resolved_judge_errors": [],
+    }
+    # 留痕也要在控制台上看得见
+    assert "SUPERSEDED pass=on" in proc.stdout and "fx-unans-05" in proc.stdout
+
+
+def test_valid_vote_dropped_by_a_later_judge_error_stops_and_is_listed(tmp_path):
+    # 顺序反过来：先有效票、后出错。这一格曾经有过有效票，仍按「出错即停」处理，被弃的有效票留痕
+    grid = full_grid()
+    files = files_for(tmp_path / "votes", grid)
+    rows_file(files[1], list(grid[2].values()) + [judge_error("fx-unans-05", 2)])
+    report = tmp_path / "report.json"
+
+    proc = run_cli({"on": files}, report)
+
+    assert proc.returncode == 3
+    body = json.loads(report.read_text(encoding="utf-8"))
+    assert body["status"] == "STOPPED"
+    assert rules(body, "JUDGE_ERROR")[0]["q_ids"] == ["fx-unans-05"]
+    assert body["passes"]["on"]["valid_votes"] == 47
+    assert body["passes"]["on"]["superseded"]["votes"] == [
+        {"q_id": "fx-unans-05", "repeat": 2, "was_valid": True, "verdict_differs": None, "reason": None}]
+    assert "criteria" not in body
+    assert "SUPERSEDED pass=on" in proc.stderr and "fx-unans-05" in proc.stderr
 
 
 # ---------------------------------------------------------------- 不构成有效票的行都进 INVALID，原因写明
@@ -533,6 +581,8 @@ def test_duplicated_valid_row_does_not_inflate_the_count(tmp_path):
     body = json.loads(report.read_text(encoding="utf-8"))
     assert body["passes"]["on"]["valid_votes"] == 47
     assert body["passes"]["on"]["superseded"]["count"] == 1
+    # 被弃的那条与留存的那条是同一张票：判词相同
+    assert body["passes"]["on"]["superseded"]["votes"][0]["verdict_differs"] is False
     assert "criteria" not in body
 
 

@@ -127,7 +127,8 @@ python3 evaluation/gate_votes/gate_votes.py \
 
 - **有效票**：`(q_id, 重复号)` 这一格的最后一条行是 `judged`、四个判词字段都是 bool、`mock` 不为真。
   判分器断点续判是追加写，所以同一格以最后一条行为准；先出错、后被有效票盖住的票记在
-  `superseded.resolved_judge_errors`。
+  `superseded.resolved_judge_errors`。同格多出来的行逐条记在 `superseded.votes`（它本是不是有效票、判词是否与
+  留存的那条不同），弃掉的是有效票时控制台另出一行 `SUPERSEDED`；顺序反过来（先有效票、后出错）照常按后一条处理，即停。
 - **INVALID**：既不是有效票也不是判分器出错的票（`na_tech_fail`、`na_rubric_missing`、判词字段残缺、mock 行等），
   报告里单列计数、q_id 清单与逐票原因，不计入有效票。
 - **停止规则**（命中任一条即停）：`VALID_VOTES_SHORT`（有效票 < 48）、`JUDGE_ERROR`（有未补判的判分器出错）、

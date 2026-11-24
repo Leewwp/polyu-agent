@@ -5,7 +5,10 @@
 
 口径
 - 一遍 = 一个臂态（如开 / 关）下的 16 道不可答题 × 3 个重复号。票按 (q_id, 重复号) 归格，每格以最后一条行为准
-  （判分器断点续判是追加写，补判的行盖在出错的行之后）。
+  （判分器断点续判是追加写，补判的行盖在出错的行之后）。同格多出来的行不计数，逐条记在 superseded.votes
+  （q_id、重复号、它本是不是有效票、判词是否与留存的那条不同）；弃掉的是有效票时，控制台另出一行 SUPERSEDED。
+- 顺序的两个方向：先出错或 INVALID、后有效票 → 取有效票，不停；先有效票、后出错或 INVALID → 取后一条，
+  按后一条分桶（出错即停，INVALID 不计有效票），被弃的那张有效票留在 superseded.votes。
 - 有效票：该格最后一条行 row_status == "judged"，四个判词字段（correct_handling / made_unsupported_claim /
   wrong_answer / lang_follow）都是 bool，mock 不为真。
 - 判分器出错：该格最后一条行 row_status == "judge_error"。
@@ -40,7 +43,8 @@
   votes = {遍名: {q_id: {重复号: 四个判词字段}}}，只含有效票。
 
 报告 JSON：schema / status / stop_rules / assertion / passes{遍名: valid_votes, questions, invalid, judge_errors,
-missing, superseded}；求值通过时另有 criteria。只含 q_id、重复号、计数与 error 文本，不含题面与 reason。
+missing, superseded{count, votes, resolved_judge_errors}}；求值通过时另有 criteria。
+只含 q_id、重复号、计数与 error 文本，不含题面与 reason。
 """
 from __future__ import annotations
 
@@ -125,6 +129,13 @@ def classify(row: dict) -> tuple:
     return INVALID, f"row_status={status}"
 
 
+def _bucket(row: dict, repeat) -> tuple:
+    """一条行归哪一桶：(桶, 原因)。格只认重复号 1..REPEATS：标在范围之外的行不是这个格里的票。"""
+    if not 1 <= repeat <= REPEATS:
+        return INVALID, "repeat_out_of_range"
+    return classify(row)
+
+
 def _resolve(repeats: Mapping[int, Sequence[dict]]) -> tuple:
     """按 (q_id, 重复号) 归格，每格取最后一条行。
 
@@ -148,14 +159,23 @@ def _section(votes: list) -> dict:
     return {"count": len(votes), "q_ids": sorted({v["q_id"] for v in votes}, key=str), "votes": votes}
 
 
+def _dropped_vote(q_id, repeat, row: dict, kept: dict) -> dict:
+    """一条被同格后来的行盖掉的行：它本是不是有效票、判词是否与留存的那条不同、不是有效票的原因。"""
+    bucket, reason = _bucket(row, repeat)
+    was_valid = bucket == VALID
+    both_valid = was_valid and _bucket(kept, repeat)[0] == VALID
+    return _vote(q_id, repeat, was_valid=was_valid,
+                 verdict_differs=any(row[f] != kept[f] for f in VERDICT_FIELDS) if both_valid else None,
+                 reason=None if was_valid else (STATUS_JUDGE_ERROR if bucket == JUDGE_ERROR else reason))
+
+
 def _tally_pass(repeats: Mapping[int, Sequence[dict]]) -> tuple:
     """一遍的分桶：(报告里的这一遍, 有效票矩阵 {q_id: {重复号: 判词字段}})。"""
     invalid, judge_errors = [], []
     valid_votes = {}
     cells, superseded = _resolve(repeats)
     for (q_id, repeat), row in sorted(cells.items(), key=lambda c: (str(c[0]), c[1])):
-        # 格只认重复号 1..REPEATS：标在范围之外的行不是这个格里的票
-        bucket, reason = (INVALID, "repeat_out_of_range") if not 1 <= repeat <= REPEATS else classify(row)
+        bucket, reason = _bucket(row, repeat)
         if bucket == JUDGE_ERROR:
             judge_errors.append(_vote(q_id, repeat, error=row.get("error")))
         elif bucket == INVALID:
@@ -169,6 +189,7 @@ def _tally_pass(repeats: Mapping[int, Sequence[dict]]) -> tuple:
                "judge_errors": _section(judge_errors),
                "missing": _section(missing),
                "superseded": {"count": len(superseded),
+                              "votes": [_dropped_vote(q, r, row, cells[(q, r)]) for q, r, row in superseded],
                               "resolved_judge_errors": [_vote(q, r, error=row.get("error")) for q, r, row in superseded
                                                         if row.get("row_status") == STATUS_JUDGE_ERROR]}}
     return section, valid_votes
@@ -251,6 +272,14 @@ def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Call
     return report
 
 
+def _dropped_line(name: str, section: dict) -> list:
+    """被同格后来的行盖掉的有效票：它本可以改变「三取二」的结果，控制台必须看得见。"""
+    dropped = [v for v in section["superseded"]["votes"] if v["was_valid"]]
+    if not dropped:
+        return []
+    return [f"[gate_votes] SUPERSEDED pass={name} dropped_valid_votes={dropped}"]
+
+
 def _lines(report: dict) -> list:
     if report["status"] == "EVALUATED":
         crit = report["criteria"]
@@ -266,6 +295,7 @@ def _lines(report: dict) -> list:
             if s["superseded"]["resolved_judge_errors"]:
                 out.append(f"[gate_votes] REJUDGED pass={name} resolved_judge_errors="
                            f"{s['superseded']['resolved_judge_errors']}")
+            out += _dropped_line(name, s)
         return out
     out = [f"[gate_votes] STOPPED {_rule_line(r)}" for r in report["stop_rules"]]
     for name, section in report["passes"].items():
@@ -279,6 +309,7 @@ def _lines(report: dict) -> list:
         if absent["count"]:
             out.append(f"[gate_votes] MISSING (no row) pass={name} count={absent['count']} "
                        f"votes={absent['votes']}")
+        out += _dropped_line(name, section)
     return out
 
 
