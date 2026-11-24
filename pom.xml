@@ -16,7 +16,7 @@
         <java.version>17</java.version>
         <spring-boot.version>4.1.2</spring-boot.version>
         <milvus-sdk.version>2.6.27</milvus-sdk.version>
-        <tika.version>3.2.3</tika.version>
+        <tika.version>3.4.0</tika.version>
         <hutool-all.version>5.8.48</hutool-all.version>
         <mybatis-plus.version>3.5.18.1</mybatis-plus.version>
         <!-- awssdk 整套 BOM 管理（#438 判例：单钉 s3 会被 tika-bom→tika-parent 继承的
