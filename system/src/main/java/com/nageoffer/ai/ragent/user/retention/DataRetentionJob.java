@@ -29,6 +29,8 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * 数据保留期清理任务（覆盖八类数据+#154 trace 观测数据一类）。
@@ -44,7 +46,8 @@ import java.util.List;
  *
  * <p>跨模块表经 JdbcTemplate 直 SQL 触达（system 被 rag 依赖不能反向引其 mapper，同
  * AccountDeletionCascade 的落点理由）。单实例部署下 @Scheduled 天然不并发；各类清理相互独立、
- * 单类失败仅记日志不阻断其余类，账号类每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
+ * 单类失败仅记日志不阻断其余类；账号类两步在步内逐账号隔离失败（单账号硬删失败只记该账号，
+ * 其余账号照常处理，步末汇总成功/失败数），每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
  */
 @Slf4j
 @Component
@@ -103,12 +106,8 @@ public class DataRetentionJob {
                 "SELECT id, email FROM t_user WHERE deleted = 1 AND delete_time IS NOT NULL "
                         + "AND delete_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> new SoftDeletedAccount(rs.getString("id"), rs.getString("email")), cutoff);
-        for (SoftDeletedAccount account : expired) {
-            deletionCascade.purge(account.id(), account.email());
-        }
-        if (!expired.isEmpty()) {
-            log.info("[retention] 软删到期硬删完成：{} 个账号（cutoff={}）", expired.size(), cutoff);
-        }
+        purgeAccounts("软删到期硬删", expired, SoftDeletedAccount::id,
+                account -> deletionCascade.purge(account.id(), account.email()), cutoff);
     }
 
     /**
@@ -120,12 +119,8 @@ public class DataRetentionJob {
                 "SELECT id FROM t_user WHERE role = 'guest' AND deleted = 0 "
                         + "AND create_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> rs.getString("id"), cutoff);
-        for (String guestId : guestIds) {
-            deletionCascade.purge(guestId, null);
-        }
-        if (!guestIds.isEmpty()) {
-            log.info("[retention] guest 到期清理完成：{} 个账号（cutoff={}）", guestIds.size(), cutoff);
-        }
+        purgeAccounts("guest 到期清理", guestIds, Function.identity(),
+                guestId -> deletionCascade.purge(guestId, null), cutoff);
     }
 
     /**
@@ -165,6 +160,28 @@ public class DataRetentionJob {
         int runs = jdbcTemplate.update("DELETE FROM t_rag_trace_run WHERE create_time < ?", cutoff);
         if (nodes + runs > 0) {
             log.info("[retention] trace 观测数据到期清理完成：run {} 行、node {} 行（cutoff={}）", runs, nodes, cutoff);
+        }
+    }
+
+    /**
+     * 账号类步骤共用的逐账号循环：单个账号硬删失败只记该账号（ERROR，带异常），其余账号照常处理，
+     * 不向步骤外抛；批次末尾记一行成功/失败数汇总，空批不记。步骤自身的失败（如到期账号查询抛错）
+     * 不经此处
+     */
+    private <T> void purgeAccounts(String category, List<T> accounts, Function<T, String> userIdOf,
+            Consumer<T> purge, Timestamp cutoff) {
+        int failed = 0;
+        for (T account : accounts) {
+            try {
+                purge.accept(account);
+            } catch (Exception ex) {
+                failed++;
+                log.error("[retention] {} 单账号失败：userId={}，其余账号继续", category, userIdOf.apply(account), ex);
+            }
+        }
+        if (!accounts.isEmpty()) {
+            log.info("[retention] {}完成：成功 {} 个、失败 {} 个（cutoff={}）",
+                    category, accounts.size() - failed, failed, cutoff);
         }
     }
 
