@@ -110,6 +110,35 @@ python3 make_calibration_sheet.py --dir $RAW --n 20 \
 | `gen_chains.py` / `run_chains.py` / `judge_b.py` / `summarize_b.py` | agent.memory 评测：链生成/跑链/盲评裁判/体积汇总 |
 | `redteam/` | 红队探针回归夹具：`probes-redteam-public-v1.jsonl`（12 题，注入/越狱/完全无关/纯闲聊/诱导编造五类，中英各半）+ `run_probes.py`（/rag/v3/chat SSE 采集）+ `judge_redteam.py`（机械禁例层 + LLM 行为判层，判分合同见脚本 docstring；终判人工合议）——题集 schema 与跑法见 `redteam/README.md` |
 | `profile_assertion/` | 轨迹「调用画像」断言面（judge-free）：`profile_assertor.py` 纯函数比对器（blocks JSON × expected_tool_profile 四要素）+ `sampler.py`（login→/agent/v1/chat 空会话采样→finish.messageId 锚点，批2 live 轮用）+ `replay.py`（本地库历史 run 回放）；合成夹具确定性测试进 CI（backend.yml，零 LLM/零 DB/零 secret），私有题集 gitignored 不入仓——模块文档见 `profile_assertion/` 各脚本 docstring |
+| `gate_votes/` | 门轮不可答面聚合器：`gate_votes.py` 在判据求值之前断言每一遍有效票正好 48（16 题 × 3 个重复号），不足即停（退出码 3、报告写明实际有效票数、不出判定行）；INVALID 票单列、不计入有效票；判分器出错进停止规则并留痕。纯标准库、零 LLM/零网络；`fixtures/` 是两份合成对照（零有效票负对照、48 有效票正对照），`test_gate_votes.py` 是确定性测试——契约见脚本 docstring 与下文「门轮有效票断言」节 |
+
+## 门轮有效票断言（gate_votes）
+
+门轮不可答面的聚合只经 `gate_votes/gate_votes.py` 走：**判据求值之前先断言每一遍的有效票正好 48**
+（16 题 × 3 个重复号），任何一遍不足即停——不出过门或不过门的结论。
+
+```bash
+# 每遍三个重复号各给一个判分输出文件；同一 (PASS, REPEAT) 可给多个文件（如补判输出），按给定顺序读入
+python3 evaluation/gate_votes/gate_votes.py \
+  --votes on 1 unans-on-r1.jsonl --votes on 2 unans-on-r2.jsonl --votes on 3 unans-on-r3.jsonl \
+  --votes off 1 unans-off-r1.jsonl --votes off 2 unans-off-r2.jsonl --votes off 3 unans-off-r3.jsonl \
+  --out gate-report.json
+```
+
+- **有效票**：`(q_id, 重复号)` 这一格的最后一条行是 `judged`、四个判词字段都是 bool、`mock` 不为真。
+  判分器断点续判是追加写，所以同一格以最后一条行为准；先出错、后被有效票盖住的票记在
+  `superseded.resolved_judge_errors`。
+- **INVALID**：既不是有效票也不是判分器出错的票（`na_tech_fail`、`na_rubric_missing`、判词字段残缺、mock 行等），
+  报告里单列计数、q_id 清单与逐票原因，不计入有效票。
+- **停止规则**（命中任一条即停）：`VALID_VOTES_SHORT`（有效票 < 48）、`JUDGE_ERROR`（有未补判的判分器出错）、
+  `VOTE_SHAPE_MISMATCH`（不是恰好 16 题、每题在重复号 1..3 各一张有效票）、`NO_VOTES`、`UNREADABLE_INPUT`。
+- **停**：退出码 3，停窗行走 stderr，报告 `status = "STOPPED"`、写明每遍实际有效票数、没有 `criteria` 键。
+- **照常出具结论**：退出码 0，每遍一行判定走 stdout。内置判据 = 每题 2/3 多数票的通过题数 ≥ `--min-pass`（默认 15）；
+  判据不过是一条判定，不是停。
+- 每轮自己的判据走库入口 `gate_votes.aggregate(passes, evaluate=判据函数)`：判据函数只会在所有遍的断言全过后
+  被调用一次，入参只含有效票。命令行不提供调低 48 的开关。
+
+本地跑测试（只需 pytest）：`python3 -m pytest evaluation/gate_votes/ -q`。
 
 ## 采集面口径（重要）
 
