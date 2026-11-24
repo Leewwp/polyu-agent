@@ -29,8 +29,8 @@ import java.util.Set;
  * 不读文件、不碰构建工具——取数由守卫测试负责，自测直接喂内存里的源码。
  * <p>
  * 源文本逐字符按 Java 词法处理（字符串字面量、文本块、字符字面量、注释各自成态），不解析 SQL：
- * 字符串字面量与文本块里带表前缀 {@code t_} 的标识符、{@code @TableName} 表名实参上的字面量，
- * 不在表集合与豁免清单里即违规；注释里的内容不参与。
+ * 字符串字面量与文本块里带表前缀 {@code t_} 的标识符，以及 {@code @TableName} 表名实参上的字面量
+ * （整个字面量按表名核对，不看前缀），不在表集合与豁免清单里即违规；注释里的内容不参与。
  * 扫描口径与已知边界见 {@link TableReferenceGuardTest}。
  */
 public final class TableReferenceScanner {
@@ -43,7 +43,7 @@ public final class TableReferenceScanner {
      */
     public enum Kind {
         /**
-         * 字符串里引用了现行 schema 没有的表
+         * 引用了现行 schema 没有的表：字符串字面量里带表前缀的记号，或 {@code @TableName} 表名实参上的字面量
          */
         UNKNOWN_TABLE("现行 schema 里不存在的表引用"),
 
@@ -331,7 +331,7 @@ public final class TableReferenceScanner {
                     Literal literal = literal(i);
                     if (depth == 1 && inTableArgument) {
                         hasTableLiteral = true;
-                        collectTableTokens(literal.contentStart(), literal.closing(), false);
+                        checkTableNameLiteral(literal);
                     }
                     i = literal.end();
                 } else if (c == CHAR_QUOTE) {
@@ -374,6 +374,18 @@ public final class TableReferenceScanner {
                 i++;
             }
             return i;
+        }
+
+        /**
+         * 核对表名实参上的字面量：整个字面量就是表名，带不带表前缀都对照表集合与豁免清单（不区分大小写）
+         */
+        private void checkTableNameLiteral(Literal literal) {
+            String tableName = text.substring(literal.contentStart(), literal.closing());
+            String lowered = tableName.toLowerCase(Locale.ROOT);
+            if (!tables.contains(lowered) && !exempt.contains(lowered)) {
+                violations.add(new Violation(source.path(), lineAt(literal.contentStart()),
+                        Kind.UNKNOWN_TABLE, tableName));
+            }
         }
 
         /**

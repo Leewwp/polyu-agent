@@ -193,6 +193,24 @@ class TableReferenceScannerTest {
     }
 
     @Test
+    void explicitTableNameWithoutTablePrefixIsCheckedAgainstSchema() {
+        // 表名实参上的字面量整个就是表名：现行 schema 的表全部带表前缀，不带前缀或前缀写错的表名同样报出来
+        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, Map.of(), List.of(
+                new TableReferenceScanner.SourceFile("NoPrefix.java", "@TableName(\"user\")\nclass A {\n}\n"),
+                new TableReferenceScanner.SourceFile("MisspeltPrefix.java", ""
+                        + "@TableName(value = \"tse_user\", autoResultMap = true)\nclass B {\n}\n")));
+
+        assertThat(report.violations())
+                .containsExactly(
+                        new TableReferenceScanner.Violation(
+                                "NoPrefix.java", 1, TableReferenceScanner.Kind.UNKNOWN_TABLE, "user"),
+                        new TableReferenceScanner.Violation(
+                                "MisspeltPrefix.java", 1, TableReferenceScanner.Kind.UNKNOWN_TABLE, "tse_user"));
+        assertThat(report.tableNameAnnotations()).isEqualTo(2);
+        assertThat(report.literalTableMentions()).isZero();
+    }
+
+    @Test
     void tableNameMentionInsideCommentIsNotAnOccurrence() {
         TableReferenceScanner.Report report = scan(""
                 + "/** 实体上写 {@code @TableName} 指定表名 */\n"
@@ -268,10 +286,13 @@ class TableReferenceScannerTest {
                 new TableReferenceScanner.SourceFile("Qualified.java", ""
                         + "@com.baomidou.mybatisplus.annotation.TableName(\"t_user\")\nclass E {\n}\n"),
                 new TableReferenceScanner.SourceFile("CommentedArgument.java", ""
-                        + "@TableName(/* 表名 */ \"t_user\")\nclass F {\n}\n")));
+                        + "@TableName(/* 表名 */ \"t_user\")\nclass F {\n}\n"),
+                // 表名实参上的字面量按表名核对时同样不区分大小写
+                new TableReferenceScanner.SourceFile("UpperCase.java", ""
+                        + "@TableName(\"T_USER\")\nclass G {\n}\n")));
 
         assertThat(report.violations()).isEmpty();
-        assertThat(report.tableNameAnnotations()).isEqualTo(6);
+        assertThat(report.tableNameAnnotations()).isEqualTo(7);
         assertThat(report.literalTableMentions()).isZero();
     }
 

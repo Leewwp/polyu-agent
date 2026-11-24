@@ -47,7 +47,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>字符串字面量与文本块里带表前缀 {@code t_} 的标识符。不解析 SQL，也不判断字符串是不是 SQL：
  *       JdbcTemplate 的 SQL、MyBatis 注解 SQL、拆成多段拼接的 SQL 片段、以字符串形式传参的表名都在其中；</li>
- *   <li>{@code @TableName} 的表名实参（位置实参或 {@code value}）上的字符串字面量；</li>
+ *   <li>{@code @TableName} 的表名实参（位置实参或 {@code value}）上的字符串字面量：整个字面量就是表名，
+ *       带不带表前缀都对照表集合；</li>
  *   <li>只切出前缀、切不出完整名字的记号（如 {@code t_}、{@code t_agent_}）同样算违规：
  *       按前缀拼出来的表名守卫确认不了；</li>
  *   <li>表名比较不区分大小写（PostgreSQL 对不带引号的标识符不区分大小写）。</li>
@@ -59,7 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <b>已知边界</b>：
  * <ul>
  *   <li>动态拼接的表名不可见：字面量里没有完整 {@code t_} 记号的拼接（前缀与名字分别来自常量、配置或运行时）扫不到；</li>
- *   <li>不带表前缀的标识符不在范围内，系统目录（{@code information_schema.*}、{@code pg_catalog.*}）等不受检查；</li>
+ *   <li>字符串字面量里不带表前缀的标识符不在范围内，系统目录（{@code information_schema.*}、{@code pg_catalog.*}）
+ *       等不受检查；{@code @TableName} 表名实参上的字面量不受此限；</li>
  *   <li>在 Java 之外配置的表名（YAML、SQL 脚本）不扫描；</li>
  *   <li>只核对表名，不核对列、索引与约束。</li>
  * </ul>
