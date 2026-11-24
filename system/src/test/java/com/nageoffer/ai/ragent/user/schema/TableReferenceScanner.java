@@ -165,11 +165,11 @@ public final class TableReferenceScanner {
                 if (after != i) {
                     i = after;
                 } else if (text.charAt(i) == QUOTE) {
-                    Literal literal = literal(i);
+                    Literal literal = readLiteral(i);
                     collectTableTokens(literal.contentStart(), literal.closing());
                     i = literal.end();
                 } else if (text.charAt(i) == '@') {
-                    i = annotation(i);
+                    i = endOfAnnotation(i);
                 } else {
                     i++;
                 }
@@ -190,7 +190,7 @@ public final class TableReferenceScanner {
             if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, at)) {
                 return endOfBlockComment(at);
             }
-            return c == CHAR_QUOTE ? charLiteral(at) : at;
+            return c == CHAR_QUOTE ? endOfCharLiteral(at) : at;
         }
 
         /**
@@ -221,7 +221,7 @@ public final class TableReferenceScanner {
          *
          * @return 收尾引号之后的下标
          */
-        private int charLiteral(int openingQuote) {
+        private int endOfCharLiteral(int openingQuote) {
             int i = openingQuote + 1;
             if (i < text.length() && text.charAt(i) == '\\') {
                 i++;
@@ -264,7 +264,7 @@ public final class TableReferenceScanner {
          * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾；
          * 单行字符串字面量不能跨行，读到换行即词法失配（否则会一路吞到下一段文本里的引号）
          */
-        private Literal literal(int openingQuote) {
+        private Literal readLiteral(int openingQuote) {
             boolean textBlock = text.startsWith(TEXT_BLOCK_DELIMITER, openingQuote);
             int contentStart = openingQuote + (textBlock ? TEXT_BLOCK_DELIMITER.length() : 1);
             int i = contentStart;
@@ -298,7 +298,7 @@ public final class TableReferenceScanner {
          *
          * @return 注解之后的下标
          */
-        private int annotation(int at) {
+        private int endOfAnnotation(int at) {
             int i = at + 1;
             int segmentStart = i;
             while (i < text.length() && (isIdentifierChar(text.charAt(i)) || text.charAt(i) == '.')) {
@@ -342,7 +342,7 @@ public final class TableReferenceScanner {
                 if (after != i) {
                     i = after;
                 } else if (text.charAt(i) == QUOTE) {
-                    Literal literal = literal(i);
+                    Literal literal = readLiteral(i);
                     if (inTableArgument) {
                         hasTableLiteral = true;
                         checkTableNameLiteral(literal);
