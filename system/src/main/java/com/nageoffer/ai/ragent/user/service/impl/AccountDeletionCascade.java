@@ -77,6 +77,9 @@ public class AccountDeletionCascade {
         jdbcTemplate.update("DELETE FROM t_agent_message WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_context_compaction WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_memory WHERE user_id = ?", userId);
+        // 记忆游标与工具调用审计同样按 user_id 关联：随账号删除，不留孤儿行
+        jdbcTemplate.update("DELETE FROM t_agent_memory_cursor WHERE user_id = ?", userId);
+        jdbcTemplate.update("DELETE FROM t_agent_tool_call WHERE user_id = ?", userId);
         jdbcTemplate.update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", userId);
         // #104 级联补洞：注销前漏清的三张 user_id 关联表（残行即永久孤儿）
         jdbcTemplate.update("DELETE FROM t_agent_memory_control WHERE user_id = ?", userId);
