@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline
 COPY mcp-server mcp-server
 RUN --mount=type=cache,target=/root/.m2 mvn -B -DskipTests -pl mcp-server package
 
-FROM eclipse-temurin:17-jre-noble AS runtime
+FROM eclipse-temurin:25-jre-noble AS runtime
 LABEL org.opencontainers.image.source=https://github.com/Leewwp/polyu-agent
 
 WORKDIR /app
