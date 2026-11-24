@@ -58,6 +58,13 @@ public class DataRetentionJob {
      */
     static final int MAX_ACCOUNT_BATCH = 500;
 
+    /**
+     * 账号类步骤名：同一步骤的步骤级失败行、逐账号失败行与步末汇总行共用一个常量，三处口径一致
+     */
+    private static final String SOFT_DELETED_PURGE_STEP = "软删到期硬删";
+
+    private static final String GUEST_PURGE_STEP = "guest 到期清理";
+
     private final JdbcTemplate jdbcTemplate;
     private final AccountDeletionCascade deletionCascade;
     private final ShareSnapshotService shareSnapshotService;
@@ -89,8 +96,8 @@ public class DataRetentionJob {
             log.debug("[retention] 清理总开关关闭，本轮跳过");
             return;
         }
-        runSafely("软删到期硬删", this::purgeExpiredSoftDeletedAccounts);
-        runSafely("guest 到期清理", this::purgeExpiredGuestAccounts);
+        runSafely(SOFT_DELETED_PURGE_STEP, this::purgeExpiredSoftDeletedAccounts);
+        runSafely(GUEST_PURGE_STEP, this::purgeExpiredGuestAccounts);
         runSafely("分享快照到期删除", this::deleteExpiredShares);
         runSafely("反馈到期删除", this::deleteExpiredFeedback);
         runSafely("邮箱墓碑到期删除", this::deleteExpiredTombstones);
@@ -106,7 +113,7 @@ public class DataRetentionJob {
                 "SELECT id, email FROM t_user WHERE deleted = 1 AND delete_time IS NOT NULL "
                         + "AND delete_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> new SoftDeletedAccount(rs.getString("id"), rs.getString("email")), cutoff);
-        purgeAccounts("软删到期硬删", expired, SoftDeletedAccount::id,
+        purgeAccounts(SOFT_DELETED_PURGE_STEP, expired, SoftDeletedAccount::id,
                 account -> deletionCascade.purge(account.id(), account.email()), cutoff);
     }
 
@@ -119,7 +126,7 @@ public class DataRetentionJob {
                 "SELECT id FROM t_user WHERE role = 'guest' AND deleted = 0 "
                         + "AND create_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> rs.getString("id"), cutoff);
-        purgeAccounts("guest 到期清理", guestIds, Function.identity(),
+        purgeAccounts(GUEST_PURGE_STEP, guestIds, Function.identity(),
                 guestId -> deletionCascade.purge(guestId, null), cutoff);
     }
 
@@ -168,20 +175,22 @@ public class DataRetentionJob {
      * 不向步骤外抛；批次末尾记一行成功/失败数汇总，空批不记。步骤自身的失败（如到期账号查询抛错）
      * 不经此处
      */
-    private <T> void purgeAccounts(String category, List<T> accounts, Function<T, String> userIdOf,
+    private <T> void purgeAccounts(String step, List<T> accounts, Function<T, String> userIdOf,
             Consumer<T> purge, Timestamp cutoff) {
         int failed = 0;
         for (T account : accounts) {
+            // userId 先于 try 解析：失败分支内不做任何可抛异常的求值，硬删抛出的原异常不会被二次异常盖掉
+            String userId = userIdOf.apply(account);
             try {
                 purge.accept(account);
             } catch (Exception ex) {
                 failed++;
-                log.error("[retention] {} 单账号失败：userId={}，其余账号继续", category, userIdOf.apply(account), ex);
+                log.error("[retention] {} 单账号失败：userId={}，其余账号继续", step, userId, ex);
             }
         }
         if (!accounts.isEmpty()) {
             log.info("[retention] {}完成：成功 {} 个、失败 {} 个（cutoff={}）",
-                    category, accounts.size() - failed, failed, cutoff);
+                    step, accounts.size() - failed, failed, cutoff);
         }
     }
 
