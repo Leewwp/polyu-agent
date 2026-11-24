@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
 /**
  * 现行 schema 文件（resources/database/schema_pg.sql）的测试侧只读解析：表名 → 列名（声明序）。
  * 只回答「现行 schema 有哪些表、每张表有哪些列」，供守卫类测试与可选真库测试共用；
- * 列类型、约束与索引不在解析范围。
+ * 列类型、约束与索引不在解析范围。schema 文件的定位与仓库根目录的推算也只在这里。
  *
  * <p>调用方须对解析结果带数量下限：解析失配（比如建表换了写法）时下限先红，
  * 不让断言落到空集合上空过。
@@ -63,6 +63,14 @@ public final class PgSchemaFile {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("找不到 resources/database/schema_pg.sql，候选="
                         + candidates));
+    }
+
+    /**
+     * @return 仓库根目录：schema 文件固定在仓库根下的 resources/database 里
+     */
+    public static Path repoRoot() {
+        Path schemaFile = locate().toAbsolutePath().normalize();
+        return schemaFile.getParent().getParent().getParent();
     }
 
     /**
