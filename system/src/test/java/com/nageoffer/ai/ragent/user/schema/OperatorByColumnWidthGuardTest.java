@@ -51,7 +51,7 @@ class OperatorByColumnWidthGuardTest {
 
     @Test
     void operatorByColumnsAreAtLeastAsWideAsUsername() throws IOException {
-        Map<String, Map<String, Integer>> schema = parseSchema(locateSchemaFile());
+        Map<String, Map<String, Integer>> schema = parseSchema(PgSchemaFile.locate());
 
         Map<String, Integer> userColumns = schema.get("t_user");
         assertThat(userColumns).as("schema_pg.sql 里应能解析到 t_user").isNotNull();
@@ -78,18 +78,6 @@ class OperatorByColumnWidthGuardTest {
         assertThat(violations)
                 .as("以下操作人列窄于 t_user.username(%d)，须随 username 一并放宽：", usernameWidth)
                 .isEmpty();
-    }
-
-    private static Path locateSchemaFile() {
-        // mvn 从模块目录跑测试，仓库根在上一级；从仓库根直跑（个别 IDE）时两级路径都试
-        List<Path> candidates = List.of(
-                Path.of("..", "resources", "database", "schema_pg.sql"),
-                Path.of("resources", "database", "schema_pg.sql"));
-        return candidates.stream()
-                .filter(Files::exists)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("找不到 resources/database/schema_pg.sql，候选="
-                        + candidates));
     }
 
     private static Map<String, Map<String, Integer>> parseSchema(Path schemaFile) throws IOException {

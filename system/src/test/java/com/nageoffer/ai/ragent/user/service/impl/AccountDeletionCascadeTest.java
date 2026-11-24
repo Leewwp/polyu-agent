@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.nageoffer.ai.ragent.share.ShareSnapshotService;
+import com.nageoffer.ai.ragent.user.schema.PgSchemaFile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,10 +28,14 @@ import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.io.IOException;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -38,12 +43,15 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * 硬删级联单元测试（U2）：语句面覆盖（两类对话表族全删、反馈匿名化、分享撤销、
- * 邮箱墓碑 upsert、用户行删除）。数据形态的实证由本地 e2e 冒烟对库核验承担。
+ * 硬删级联单元测试（U2）：语句面覆盖（两类对话表族全删、记忆游标与工具调用审计随删、反馈匿名化、
+ * 分享撤销、邮箱墓碑 upsert、用户行删除），以及覆盖断言——现行 schema 里每张带 user_id 列的表
+ * 都出现在级联发出的 SQL 里。对库的数据形态实证由可选真库集成测试
+ * {@link AccountDeletionCascadeIntegrationTest} 承担。
  */
 class AccountDeletionCascadeTest {
 
@@ -76,9 +84,9 @@ class AccountDeletionCascadeTest {
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_message WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_context_compaction WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory WHERE user_id = ?", "100");
-        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_extraction WHERE user_id = ?", "100");
-        // #104 级联补洞：三张漏清表
-        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_control WHERE user_id = ?", "100");
+        // 记忆游标与工具调用审计同样按 user_id 关联，随账号删除
+        order.verify(jdbcTemplate).update("DELETE FROM t_agent_memory_cursor WHERE user_id = ?", "100");
+        order.verify(jdbcTemplate).update("DELETE FROM t_agent_tool_call WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_agent_state WHERE user_id = ?", "100");
         order.verify(jdbcTemplate).update("DELETE FROM t_conversation_summary WHERE user_id = ?", "100");
         // #154 级联补洞：trace 两表随账号硬删（node 经 run 关联先删，防孤儿 node）
@@ -124,6 +132,51 @@ class AccountDeletionCascadeTest {
         List<String> captured = sqlCaptor.getAllValues();
         assertTrue(captured.stream().anyMatch(sql -> sql.contains("t_message_feedback") && sql.contains("user_id = '0'")),
                 "反馈匿名化必须指向哨兵 user_id=0，实际 SQL：" + captured);
+    }
+
+    @Test
+    void purgeTouchesEveryTableWithUserIdColumnInCurrentSchema() throws IOException {
+        Map<String, List<String>> schema = PgSchemaFile.parseTables(PgSchemaFile.locate());
+        // 解析下限：解析失配（比如建表换了写法）时先在这里红，覆盖断言不许落到空集合上空过
+        assertThat(schema).as("schema_pg.sql 解析出的表数：低于下限，要么是解析失配（比如建表换了写法），"
+                + "要么是现行 schema 的表数确实减少——后者须在同一次改动里有意下调下限")
+                .hasSizeGreaterThanOrEqualTo(56);
+        List<String> userIdTables = schema.entrySet().stream()
+                .filter(table -> table.getValue().contains("user_id"))
+                .map(Map.Entry::getKey)
+                .toList();
+        assertThat(userIdTables).as("带 user_id 列的表数：低于下限，要么是解析失配，"
+                + "要么是现行 schema 里带 user_id 列的表确实减少——后者须在同一次改动里有意下调下限")
+                .hasSizeGreaterThanOrEqualTo(13);
+
+        cascade.purge("100", "u2@example.com");
+
+        List<String> untouched = userIdTables.stream()
+                .filter(table -> issuedSql().stream().noneMatch(sql -> mentionsTable(sql, table)))
+                .toList();
+        assertThat(untouched)
+                .as("现行 schema 里每张带 user_id 列的表都必须出现在级联发出的 SQL 里，未触达的表：")
+                .isEmpty();
+    }
+
+    /**
+     * 级联发给 JdbcTemplate 的全部 SQL：取该 mock 上所有调用的 String 实参，不绑定具体重载——
+     * 经 update / execute / batchUpdate 任一重载发出的 SQL 都在捕获范围内
+     */
+    private List<String> issuedSql() {
+        return mockingDetails(jdbcTemplate).getInvocations().stream()
+                .flatMap(invocation -> Arrays.stream(invocation.getArguments()))
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .toList();
+    }
+
+    /**
+     * 表名以整词出现才算数：t_conversation 是 t_agent_conversation 的子串、t_agent_memory 是
+     * t_agent_memory_cursor 的子串，裸 contains 会让缺语句的表借同后缀的表过关
+     */
+    private static boolean mentionsTable(String sql, String table) {
+        return Arrays.stream(sql.split("[^A-Za-z0-9_]+")).anyMatch(table::equals);
     }
 
     private static String containsSql(String fragment) {
