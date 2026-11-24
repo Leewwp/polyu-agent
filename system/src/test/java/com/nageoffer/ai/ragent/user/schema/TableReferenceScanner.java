@@ -106,6 +106,14 @@ public final class TableReferenceScanner {
 
         private static final String TEXT_BLOCK_DELIMITER = "\"\"\"";
 
+        private static final String LINE_COMMENT = "//";
+
+        private static final String BLOCK_COMMENT_OPEN = "/*";
+
+        private static final String BLOCK_COMMENT_CLOSE = "*/";
+
+        private static final char CHAR_QUOTE = '\'';
+
         private final SourceFile source;
         private final String text;
         private final Set<String> tables;
@@ -121,13 +129,69 @@ public final class TableReferenceScanner {
         private List<Violation> run() {
             int i = 0;
             while (i < text.length()) {
-                if (text.charAt(i) == QUOTE) {
+                char c = text.charAt(i);
+                if (c == '/' && text.startsWith(LINE_COMMENT, i)) {
+                    i = endOfLineComment(i);
+                } else if (c == '/' && text.startsWith(BLOCK_COMMENT_OPEN, i)) {
+                    i = endOfBlockComment(i);
+                } else if (c == QUOTE) {
                     i = stringLiteral(i);
-                    continue;
+                } else if (c == CHAR_QUOTE) {
+                    i = charLiteral(i);
+                } else {
+                    i++;
                 }
-                i++;
             }
             return violations;
+        }
+
+        /**
+         * 行注释到行尾为止，注释里的引号与块注释起始符都不算数
+         *
+         * @return 换行符的下标（文件没有以换行结尾时为文本长度）
+         */
+        private int endOfLineComment(int start) {
+            int end = text.indexOf('\n', start + LINE_COMMENT.length());
+            return end < 0 ? text.length() : end;
+        }
+
+        /**
+         * 块注释（含 Javadoc）到第一个 {@code *\/} 为止，不嵌套
+         *
+         * @return 收尾符之后的下标
+         */
+        private int endOfBlockComment(int start) {
+            int end = text.indexOf(BLOCK_COMMENT_CLOSE, start + BLOCK_COMMENT_OPEN.length());
+            if (end < 0) {
+                throw malformed(start, "块注释没有收尾的 */");
+            }
+            return end + BLOCK_COMMENT_CLOSE.length();
+        }
+
+        /**
+         * 跳过一个字符字面量：{@code 'a'}、转义形式（含 {@code '\''}、{@code '\\'}）与 unicode 转义形式
+         *
+         * @return 收尾引号之后的下标
+         */
+        private int charLiteral(int openingQuote) {
+            int i = openingQuote + 1;
+            if (i < text.length() && text.charAt(i) == '\\') {
+                i++;
+                if (i < text.length() && text.charAt(i) == 'u') {
+                    while (i < text.length() && text.charAt(i) == 'u') {
+                        i++;
+                    }
+                    i += 4;
+                } else {
+                    i++;
+                }
+            } else {
+                i++;
+            }
+            if (i >= text.length() || text.charAt(i) != CHAR_QUOTE) {
+                throw malformed(openingQuote, "字符字面量没有收尾引号");
+            }
+            return i + 1;
         }
 
         /**
@@ -153,7 +217,7 @@ public final class TableReferenceScanner {
                 }
                 i++;
             }
-            throw malformed(openingQuote);
+            throw malformed(openingQuote, "字符串字面量或文本块没有收尾定界符");
         }
 
         /**
@@ -202,8 +266,8 @@ public final class TableReferenceScanner {
             return line;
         }
 
-        private IllegalStateException malformed(int offset) {
-            return new IllegalStateException(source.path() + ":" + lineAt(offset) + " 字符串字面量或文本块没有收尾定界符，疑似词法失配");
+        private IllegalStateException malformed(int offset, String what) {
+            return new IllegalStateException(source.path() + ":" + lineAt(offset) + " " + what + "，疑似词法失配");
         }
     }
 }

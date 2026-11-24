@@ -112,6 +112,64 @@ class TableReferenceScannerTest {
         assertThat(report.literalTableMentions()).isEqualTo(3);
     }
 
+    @Test
+    void tableMentionInsideLineCommentIsIgnored() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        // 行注释里有一个历史表名和一个孤引号：不先识别注释，孤引号会把下一行的 SQL 吃掉
+        TableReferenceScanner.Report report = scan(""
+                + "// 旧表 t_answer_share 的语句已删，这里的 \" 只作说明\n"
+                + "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 2, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+        assertThat(report.literalTableMentions()).isEqualTo(1);
+    }
+
+    @Test
+    void tableMentionInsideBlockCommentIsIgnored() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        // Javadoc 里带着引用了历史表名的示例 SQL（带引号），注释内容一律不参与
+        TableReferenceScanner.Report report = scan(""
+                + "/**\n"
+                + " * 旧表 t_answer_share 已并入 t_user，旧语句形如 \"DELETE FROM t_answer_share\"。\n"
+                + " */\n"
+                + "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 4, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+        assertThat(report.literalTableMentions()).isEqualTo(1);
+    }
+
+    @Test
+    void doubleSlashInsideStringLiteralDoesNotStartComment() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        // URL 里的 // 不是注释起点，同一行后面的 SQL 必须照常扫描
+        TableReferenceScanner.Report report = scan(""
+                + "String url = \"https://example.test//not-a-comment\";\n"
+                + "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 2, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+    }
+
+    @Test
+    void doubleQuoteInsideCharLiteralDoesNotOpenString() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        TableReferenceScanner.Report report = scan(""
+                + "char quote = '\"';\n"
+                + "char backslash = '\\\\';\n"
+                + "char single = '\\'';\n"
+                + "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 4, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+        assertThat(report.literalTableMentions()).isEqualTo(1);
+    }
+
     private static TableReferenceScanner.Report scan(String source) {
         return TableReferenceScanner.scan(
                 SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
