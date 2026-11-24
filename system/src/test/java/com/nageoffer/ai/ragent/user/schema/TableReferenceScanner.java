@@ -246,7 +246,8 @@ public final class TableReferenceScanner {
 
         /**
          * 读一个字符串字面量或文本块。
-         * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾
+         * 文本块里可以内嵌单个、成对的双引号，只有 {@code """} 收尾；
+         * 单行字符串字面量不能跨行，读到换行即词法失配（否则会一路吞到下一段文本里的引号）
          */
         private Literal literal(int openingQuote) {
             boolean textBlock = text.startsWith(TEXT_BLOCK_DELIMITER, openingQuote);
@@ -255,15 +256,25 @@ public final class TableReferenceScanner {
             while (i < text.length()) {
                 char c = text.charAt(i);
                 if (c == '\\') {
+                    if (!textBlock && i + 1 < text.length() && isLineTerminator(text.charAt(i + 1))) {
+                        break;
+                    }
                     i += 2;
                     continue;
                 }
                 if (c == QUOTE && (!textBlock || text.startsWith(TEXT_BLOCK_DELIMITER, i))) {
                     return new Literal(contentStart, i, textBlock);
                 }
+                if (!textBlock && isLineTerminator(c)) {
+                    break;
+                }
                 i++;
             }
             throw malformed(openingQuote, "字符串字面量或文本块没有收尾定界符");
+        }
+
+        private static boolean isLineTerminator(char c) {
+            return c == '\n' || c == '\r';
         }
 
         /**

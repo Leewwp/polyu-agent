@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 /**
@@ -304,6 +305,37 @@ class TableReferenceScannerTest {
 
         assertThat(report.violations()).isEmpty();
         assertThat(report.tableNameAnnotations()).isEqualTo(1);
+    }
+
+    @Test
+    void tablePrefixedJavaIdentifierOutsideStringLiteralIsIgnored() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        // 字段名、形参名带表前缀只是 Java 标识符，不是表引用
+        TableReferenceScanner.Report report = scan(""
+                + "class UserDao {\n"
+                + "    Object " + plantedTable + ";\n"
+                + "    Object t_user;\n"
+                + "    void save(Object " + plantedTable + ") {\n"
+                + "        this." + plantedTable + " = " + plantedTable + ";\n"
+                + "        log.debug(\"{}\", " + plantedTable + ");\n"
+                + "    }\n"
+                + "}\n");
+
+        assertThat(report.violations()).isEmpty();
+        assertThat(report.literalTableMentions()).isZero();
+    }
+
+    @Test
+    void unterminatedLiteralFailsInsteadOfSkippingTheRest() {
+        // 词法失配时必须报错，不能把文件后半段悄悄跳过
+        String source = ""
+                + "String broken = \"SELECT * FROM t_user;\n"
+                + "String sql = \"DELETE FROM t_message\";\n";
+
+        assertThatThrownBy(() -> scan(source))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("UserDao.java:1")
+                .hasMessageContaining("没有收尾定界符");
     }
 
     private static TableReferenceScanner.Report scan(String source) {
