@@ -20,6 +20,8 @@ package com.nageoffer.ai.ragent.user.schema;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,8 +46,7 @@ class TableReferenceScannerTest {
                 + "    }\n"
                 + "}\n";
 
-        TableReferenceScanner.Report report = TableReferenceScanner.scan(
-                SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
+        TableReferenceScanner.Report report = scan(source);
 
         assertThat(report.violations())
                 .containsExactly(new TableReferenceScanner.Violation(
@@ -218,7 +219,7 @@ class TableReferenceScannerTest {
 
     @Test
     void tableNameTakenFromAnythingButALiteralFails() {
-        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, List.of(
+        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, Map.of(), List.of(
                 new TableReferenceScanner.SourceFile("NoArgs.java", "@TableName()\nclass A {\n}\n"),
                 new TableReferenceScanner.SourceFile("OtherArgument.java", "@TableName(autoResultMap = true)\nclass B {\n}\n"),
                 new TableReferenceScanner.SourceFile("Constant.java", ""
@@ -251,7 +252,7 @@ class TableReferenceScannerTest {
 
     @Test
     void explicitTableNameSyntaxVariantsPass() {
-        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, List.of(
+        TableReferenceScanner.Report report = TableReferenceScanner.scan(SCHEMA, Map.of(), List.of(
                 new TableReferenceScanner.SourceFile("Positional.java", "@TableName(\"t_user\")\nclass A {\n}\n"),
                 new TableReferenceScanner.SourceFile("NamedAfterOtherArgument.java", ""
                         + "@TableName(autoResultMap = true, value = \"t_user\")\nclass B {\n}\n"),
@@ -273,8 +274,44 @@ class TableReferenceScannerTest {
         assertThat(report.literalTableMentions()).isZero();
     }
 
+    @Test
+    void exemptedTableReferencePasses() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        TableReferenceScanner.Report report = scan(Map.of(plantedTable, "由外部系统维护，现行 schema 文件里没有它"),
+                "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        assertThat(report.violations()).isEmpty();
+        assertThat(report.literalTableMentions()).isEqualTo(1);
+    }
+
+    @Test
+    void exemptionWithoutReasonIsNotHonoured() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        TableReferenceScanner.Report report = scan(Map.of(plantedTable, "  "),
+                "String sql = \"DELETE FROM " + plantedTable + " WHERE id = ?\";\n");
+
+        // 没写理由的豁免等于没有豁免
+        assertThat(report.violations())
+                .containsExactly(new TableReferenceScanner.Violation(
+                        "UserDao.java", 1, TableReferenceScanner.Kind.UNKNOWN_TABLE, plantedTable));
+    }
+
+    @Test
+    void exemptionCoversTableNameAnnotationAndIgnoresCase() {
+        String plantedTable = "t_" + "planted_no_such_table";
+        TableReferenceScanner.Report report = scan(Map.of(plantedTable.toUpperCase(Locale.ROOT), "由外部系统维护"),
+                "@TableName(\"" + plantedTable + "\")\nclass ArchiveDO {\n}\n");
+
+        assertThat(report.violations()).isEmpty();
+        assertThat(report.tableNameAnnotations()).isEqualTo(1);
+    }
+
     private static TableReferenceScanner.Report scan(String source) {
-        return TableReferenceScanner.scan(
-                SCHEMA, List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
+        return scan(Map.of(), source);
+    }
+
+    private static TableReferenceScanner.Report scan(Map<String, String> exemptions, String source) {
+        return TableReferenceScanner.scan(SCHEMA, exemptions,
+                List.of(new TableReferenceScanner.SourceFile("UserDao.java", source)));
     }
 }

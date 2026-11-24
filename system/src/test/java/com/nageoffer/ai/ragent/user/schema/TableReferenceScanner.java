@@ -18,8 +18,10 @@
 package com.nageoffer.ai.ragent.user.schema;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -83,13 +85,24 @@ public final class TableReferenceScanner {
     public record Report(List<Violation> violations, int literalTableMentions, int tableNameAnnotations) {
     }
 
-    public static Report scan(Set<String> schemaTables, List<SourceFile> sources) {
+    /**
+     * @param schemaTables 现行 schema 的表集合，比较时不区分大小写
+     * @param exemptions   豁免清单：表名 → 理由。理由为空的条目不生效
+     * @param sources      待扫描的源文件
+     */
+    public static Report scan(Set<String> schemaTables, Map<String, String> exemptions, List<SourceFile> sources) {
         Set<String> tables = lowerCase(schemaTables);
+        Set<String> exempt = new HashSet<>();
+        for (Map.Entry<String, String> exemption : exemptions.entrySet()) {
+            if (exemption.getValue() != null && !exemption.getValue().isBlank()) {
+                exempt.add(exemption.getKey().toLowerCase(Locale.ROOT));
+            }
+        }
         List<Violation> violations = new ArrayList<>();
         int mentions = 0;
         int annotations = 0;
         for (SourceFile source : sources) {
-            Scan scan = new Scan(source, tables);
+            Scan scan = new Scan(source, tables, exempt);
             violations.addAll(scan.run());
             mentions += scan.literalTableMentions;
             annotations += scan.tableNameAnnotations;
@@ -98,7 +111,7 @@ public final class TableReferenceScanner {
     }
 
     private static Set<String> lowerCase(Set<String> names) {
-        Set<String> lowered = new java.util.HashSet<>();
+        Set<String> lowered = new HashSet<>();
         for (String name : names) {
             lowered.add(name.toLowerCase(Locale.ROOT));
         }
@@ -130,14 +143,16 @@ public final class TableReferenceScanner {
         private final SourceFile source;
         private final String text;
         private final Set<String> tables;
+        private final Set<String> exempt;
         private final List<Violation> violations = new ArrayList<>();
         private int literalTableMentions;
         private int tableNameAnnotations;
 
-        private Scan(SourceFile source, Set<String> tables) {
+        private Scan(SourceFile source, Set<String> tables, Set<String> exempt) {
             this.source = source;
             this.text = source.text();
             this.tables = tables;
+            this.exempt = exempt;
         }
 
         private List<Violation> run() {
@@ -365,7 +380,8 @@ public final class TableReferenceScanner {
                 if (countMention) {
                     literalTableMentions++;
                 }
-                if (!tables.contains(token.toLowerCase(Locale.ROOT))) {
+                String lowered = token.toLowerCase(Locale.ROOT);
+                if (!tables.contains(lowered) && !exempt.contains(lowered)) {
                     violations.add(new Violation(source.path(), lineAt(i), Kind.UNKNOWN_TABLE, token));
                 }
                 i = end - 1;
