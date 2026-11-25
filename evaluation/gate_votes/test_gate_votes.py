@@ -27,20 +27,23 @@ def control(name):
     return [d / f"on-r{r}.jsonl" for r in (1, 2, 3)]
 
 
-def run_cli(vote_files, report, *extra):
-    """跑命令行。vote_files = {遍名: [重复号 1 的文件, 重复号 2 的文件, 重复号 3 的文件]}。"""
-    triples = [(pass_id, str(repeat), path) for pass_id, files in vote_files.items()
-               for repeat, path in enumerate(files, 1)]
-    return run_cli_named(triples, report, *extra)
-
-
-def run_cli_named(triples, report, *extra):
-    """跑命令行，(遍名, 重复号, 文件) 三元组原样传入。"""
+def run_cli(triples, report, *extra):
+    """跑命令行，(遍名, 重复号, 文件) 三元组原样传入。用法错误的用例走这里（命令行不写报告，读不回）。"""
     argv = [sys.executable, str(CLI)]
     for pass_id, repeat, path in triples:
         argv += ["--votes", pass_id, str(repeat), str(path)]
     argv += ["--out", str(report), *extra]
     return subprocess.run(argv, capture_output=True, text=True)
+
+
+def run_and_load(vote_files, report, *extra):
+    """跑命令行并读回报告 JSON，返回 (proc, body)。
+    vote_files = {遍名: [重复号 1 的文件, 重复号 2 的文件, 重复号 3 的文件]}。
+    """
+    triples = [(pass_id, str(repeat), path) for pass_id, files in vote_files.items()
+               for repeat, path in enumerate(files, 1)]
+    proc = run_cli(triples, report, *extra)
+    return proc, json.loads(report.read_text(encoding="utf-8"))
 
 
 def rules(body, rule):
@@ -52,16 +55,19 @@ def rules(body, rule):
 QIDS = [f"fx-unans-{i:02d}" for i in range(1, 17)]
 
 
-def judged(q_id, repeat, **override):
-    """一张有效票：judged 且四个判词字段都是 bool。"""
-    row = {"run": "fx-on", "pass": 1, "q_id": q_id, "row_status": "judged",
-           "correct_handling": True, "made_unsupported_claim": False, "wrong_answer": False,
-           "lang_follow": True, "reason": "synthetic", "error": None, "mock": False}
+# 一张有效票的判词：合成行一律是「处理正确」，要相反的判词就覆盖字段
+VERDICT = {"correct_handling": True, "made_unsupported_claim": False, "wrong_answer": False, "lang_follow": True}
+
+
+def judged(q_id, **override):
+    """一张有效票：judged 且四个判词字段都是 bool。行里不带重复号——重复号由文件（命令行）或键（库入口）给定。"""
+    row = {"run": "fx-on", "pass": 1, "q_id": q_id, "row_status": "judged", **VERDICT,
+           "reason": "synthetic", "error": None, "mock": False}
     row.update(override)
     return row
 
 
-def judge_error(q_id, repeat, error="Connection error."):
+def judge_error(q_id, error="Connection error."):
     """一张判分器出错的票：没有判词字段。"""
     return {"run": "fx-on", "pass": 1, "q_id": q_id, "row_status": "judge_error",
             "reason": None, "error": error, "mock": False}
@@ -74,10 +80,7 @@ def invalid(q_id, status):
 
 def full_grid():
     """16 题 × 3 个重复号的全有效票网格：{重复号: {q_id: 行}}。"""
-    return {r: {q: judged(q, r) for q in QIDS} for r in (1, 2, 3)}
-
-
-VERDICT = {"correct_handling": True, "made_unsupported_claim": False, "wrong_answer": False, "lang_follow": True}
+    return {r: {q: judged(q) for q in QIDS} for r in (1, 2, 3)}
 
 
 def votes_of(grid):
@@ -105,10 +108,9 @@ def rows_file(path, rows):
 
 def test_negative_control_zero_valid_votes_stops_without_verdict(tmp_path):
     report = tmp_path / "report.json"
-    proc = run_cli({"on": control("unans-zero-valid")}, report)
+    proc, body = run_and_load({"on": control("unans-zero-valid")}, report)
 
     assert proc.returncode == 3
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     section = body["passes"]["on"]
     assert section["valid_votes"] == 0
@@ -130,13 +132,12 @@ def test_negative_control_zero_valid_votes_stops_without_verdict(tmp_path):
 
 def test_judge_error_stops_and_leaves_a_trace(tmp_path):
     grid = full_grid()
-    grid[2]["fx-unans-05"] = judge_error("fx-unans-05", 2)
+    grid[2]["fx-unans-05"] = judge_error("fx-unans-05")
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert [r["pass"] for r in rules(body, "JUDGE_ERROR")] == ["on"]
     trace = body["passes"]["on"]["judge_errors"]
@@ -158,10 +159,9 @@ def test_invalid_votes_are_listed_separately_and_not_counted_as_valid(tmp_path):
     grid[3]["fx-unans-09"] = invalid("fx-unans-09", "na_rubric_missing")
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     listed = body["passes"]["on"]["invalid"]
     assert listed["count"] == 2
@@ -185,10 +185,9 @@ def test_invalid_votes_are_listed_separately_and_not_counted_as_valid(tmp_path):
 def test_positive_control_48_valid_votes_is_evaluated(tmp_path):
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": control("unans-48-valid")}, report)
+    proc, body = run_and_load({"on": control("unans-48-valid")}, report)
 
     assert proc.returncode == 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "EVALUATED"
     assert body["stop_rules"] == []
     section = body["passes"]["on"]
@@ -219,14 +218,13 @@ def test_48_valid_votes_that_are_not_a_16_by_3_grid_stops(tmp_path):
         del grid[r]["fx-unans-15"]
         del grid[r]["fx-unans-16"]
     for q in ("fx-extra-a", "fx-extra-b", "fx-extra-c"):
-        grid[1][q] = judged(q, 1)
-        grid[2][q] = judged(q, 2)
+        grid[1][q] = judged(q)
+        grid[2][q] = judged(q)
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert body["passes"]["on"]["valid_votes"] == 48
     assert rules(body, "VALID_VOTES_SHORT") == []
@@ -248,10 +246,9 @@ def test_question_with_no_row_in_a_repeat_is_reported_as_missing(tmp_path):
     del grid[2]["fx-unans-11"]
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     section = body["passes"]["on"]
     assert section["valid_votes"] == 47
@@ -269,16 +266,15 @@ def test_question_with_no_row_in_a_repeat_is_reported_as_missing(tmp_path):
 
 def test_rejudged_cell_takes_the_later_valid_vote_and_keeps_a_trace(tmp_path):
     grid = full_grid()
-    grid[2]["fx-unans-05"] = judge_error("fx-unans-05", 2)
+    grid[2]["fx-unans-05"] = judge_error("fx-unans-05")
     files = files_for(tmp_path / "votes", grid)
     # 判分器断点续判是追加写：同一格在出错行之后再来一条有效票
-    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-05", 2)])
+    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-05")])
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode == 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "EVALUATED"
     section = body["passes"]["on"]
     assert section["valid_votes"] == 48
@@ -301,13 +297,12 @@ def test_valid_vote_dropped_by_a_later_valid_vote_is_listed(tmp_path):
     grid = full_grid()
     files = files_for(tmp_path / "votes", grid)
     # 同一格先后两条有效票、判词相反：后一条作数，前一条不能悄无声息地丢掉
-    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-05", 2, correct_handling=False)])
+    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-05", correct_handling=False)])
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode == 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "EVALUATED"
     assert body["passes"]["on"]["valid_votes"] == 48
     assert body["passes"]["on"]["superseded"] == {
@@ -324,13 +319,12 @@ def test_valid_vote_dropped_by_a_later_judge_error_stops_and_is_listed(tmp_path)
     # 顺序反过来：先有效票、后出错。这一格曾经有过有效票，仍按「出错即停」处理，被弃的有效票留痕
     grid = full_grid()
     files = files_for(tmp_path / "votes", grid)
-    rows_file(files[1], list(grid[2].values()) + [judge_error("fx-unans-05", 2)])
+    rows_file(files[1], list(grid[2].values()) + [judge_error("fx-unans-05")])
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode == 3
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert rules(body, "JUDGE_ERROR")[0]["q_ids"] == ["fx-unans-05"]
     assert body["passes"]["on"]["valid_votes"] == 47
@@ -345,13 +339,12 @@ def test_valid_vote_dropped_by_a_later_judge_error_stops_and_is_listed(tmp_path)
 
 def test_mock_verdict_is_invalid(tmp_path):
     grid = full_grid()
-    grid[1]["fx-unans-04"] = judged("fx-unans-04", 1, mock=True, judge_model="MOCK-JUDGE")
+    grid[1]["fx-unans-04"] = judged("fx-unans-04", mock=True, judge_model="MOCK-JUDGE")
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     listed = body["passes"]["on"]["invalid"]
     assert listed["count"] == 1
     assert listed["q_ids"] == ["fx-unans-04"]
@@ -362,13 +355,12 @@ def test_mock_verdict_is_invalid(tmp_path):
 
 def test_judged_row_whose_verdict_field_is_not_bool_is_invalid(tmp_path):
     grid = full_grid()
-    grid[3]["fx-unans-13"] = judged("fx-unans-13", 3, correct_handling="true")  # 字符串，不是 bool
+    grid[3]["fx-unans-13"] = judged("fx-unans-13", correct_handling="true")  # 字符串，不是 bool
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     listed = body["passes"]["on"]["invalid"]
     assert listed["votes"] == [{"q_id": "fx-unans-13", "repeat": 3, "reason": "verdict_fields_not_bool"}]
     assert body["passes"]["on"]["valid_votes"] == 47
@@ -385,10 +377,9 @@ def test_truncated_line_in_input_stops_without_verdict(tmp_path):
         f.write('{"q_id": "fx-unans-02", "row_status": "judged", "correct_handling": tru\n')  # 写了一半的行
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert body["stop_rules"] == [{"rule": "UNREADABLE_INPUT", "file": str(files[1]), "line": 17,
                                    "detail": "not a JSON object"}]
@@ -400,10 +391,9 @@ def test_input_file_that_does_not_exist_stops_without_verdict(tmp_path):
     report = tmp_path / "report.json"
     absent = tmp_path / "nope.jsonl"
 
-    proc = run_cli({"on": [absent]}, report)
+    proc, body = run_and_load({"on": [absent]}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert body["stop_rules"] == [{"rule": "UNREADABLE_INPUT", "file": str(absent), "line": None,
                                    "detail": "cannot read"}]
@@ -420,13 +410,12 @@ LINE_SEPARATORS = ["\u2028", "\u2029", "\u0085"]
 @pytest.mark.parametrize("sep", LINE_SEPARATORS, ids=lambda s: f"U+{ord(s):04X}")
 def test_row_containing_a_unicode_line_separator_is_one_row(tmp_path, sep):
     grid = full_grid()
-    grid[2]["fx-unans-05"] = judged("fx-unans-05", 2, reason=f"line one{sep}line two")
+    grid[2]["fx-unans-05"] = judged("fx-unans-05", reason=f"line one{sep}line two")
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode == 0, proc.stderr
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "EVALUATED"
     assert body["passes"]["on"]["valid_votes"] == 48
     assert "UNREADABLE_INPUT" not in proc.stdout + proc.stderr
@@ -438,10 +427,10 @@ def test_input_with_crlf_line_endings_is_read_as_usual(tmp_path):
         path.write_bytes(path.read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8"))
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode == 0, proc.stderr
-    assert json.loads(report.read_text(encoding="utf-8"))["passes"]["on"]["valid_votes"] == 48
+    assert body["passes"]["on"]["valid_votes"] == 48
 
 
 # ---------------------------------------------------------------- 库入口：断言在判据求值之前，绕不过去
@@ -472,7 +461,7 @@ def broken_grids():
 
     def judge_error_cell():
         grid = full_grid()
-        grid[2]["fx-unans-05"] = judge_error("fx-unans-05", 2)
+        grid[2]["fx-unans-05"] = judge_error("fx-unans-05")
         return grid
 
     def invalid_cell():
@@ -484,14 +473,14 @@ def broken_grids():
         grid = full_grid()
         for r in grid:
             del grid[r]["fx-unans-16"]
-        grid[1]["fx-extra-a"] = judged("fx-extra-a", 1)
-        grid[2]["fx-extra-a"] = judged("fx-extra-a", 2)
+        grid[1]["fx-extra-a"] = judged("fx-extra-a")
+        grid[2]["fx-extra-a"] = judged("fx-extra-a")
         return grid
 
     def extra_votes():
         grid = full_grid()
         for r in grid:
-            grid[r]["fx-extra-a"] = judged("fx-extra-a", r)
+            grid[r]["fx-extra-a"] = judged("fx-extra-a")
         return grid
 
     return [pytest.param(make, id=make.__name__) for make in
@@ -534,13 +523,12 @@ def test_criteria_are_evaluated_once_with_only_the_valid_votes():
 
 def test_two_passes_where_one_is_short_stop_the_whole_run(tmp_path):
     on, off = full_grid(), full_grid()
-    off[2]["fx-unans-16"] = judge_error("fx-unans-16", 2)
+    off[2]["fx-unans-16"] = judge_error("fx-unans-16")
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "on", on), "off": files_for(tmp_path / "off", off)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "on", on), "off": files_for(tmp_path / "off", off)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["passes"]["on"]["valid_votes"] == 48
     assert body["passes"]["off"]["valid_votes"] == 47
     assert {r["pass"] for r in body["stop_rules"]} == {"off"}
@@ -553,7 +541,7 @@ def test_two_passes_where_one_is_short_stop_the_whole_run(tmp_path):
 
 def zero_valid_grids():
     def all_judge_error():
-        return {r: {q: judge_error(q, r) for q in QIDS} for r in (1, 2, 3)}
+        return {r: {q: judge_error(q) for q in QIDS} for r in (1, 2, 3)}
 
     def all_invalid():
         return {r: {q: invalid(q, "na_tech_fail") for q in QIDS} for r in (1, 2, 3)}
@@ -568,10 +556,9 @@ def zero_valid_grids():
 def test_zero_valid_votes_in_any_shape_fails(tmp_path, make_grid):
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", make_grid())}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", make_grid())}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["status"] == "STOPPED"
     assert body["passes"]["on"]["valid_votes"] == 0
     assert rules(body, "VALID_VOTES_SHORT")[0]["actual_valid_votes"] == 0
@@ -584,13 +571,12 @@ def test_duplicated_valid_row_does_not_inflate_the_count(tmp_path):
     grid = full_grid()
     del grid[2]["fx-unans-08"]
     files = files_for(tmp_path / "votes", grid)
-    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-01", 2)])
+    rows_file(files[1], list(grid[2].values()) + [judged("fx-unans-01")])
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files}, report)
+    proc, body = run_and_load({"on": files}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     assert body["passes"]["on"]["valid_votes"] == 47
     assert body["passes"]["on"]["superseded"]["count"] == 1
     # 被弃的那条与留存的那条是同一张票：判词相同
@@ -606,7 +592,7 @@ def test_rows_declared_outside_repeats_1_to_3_are_not_valid_votes(tmp_path):
     report = tmp_path / "report.json"
 
     # 三个文件都齐，但第三个被标成重复号 4：格子不是「重复号 1..3」
-    proc = run_cli_named([("on", "1", files[0]), ("on", "2", files[1]), ("on", "4", files[2])], report)
+    proc = run_cli([("on", "1", files[0]), ("on", "2", files[1]), ("on", "4", files[2])], report)
 
     assert proc.returncode != 0
     body = json.loads(report.read_text(encoding="utf-8"))
@@ -622,7 +608,7 @@ def test_repeat_number_that_is_not_an_integer_is_rejected(tmp_path):
     files = files_for(tmp_path / "votes", full_grid())
     report = tmp_path / "report.json"
 
-    proc = run_cli_named([("on", "1", files[0]), ("on", "x", files[1]), ("on", "3", files[2])], report)
+    proc = run_cli([("on", "1", files[0]), ("on", "x", files[1]), ("on", "3", files[2])], report)
 
     assert proc.returncode != 0
     assert not report.exists()
@@ -634,13 +620,12 @@ def test_repeat_number_that_is_not_an_integer_is_rejected(tmp_path):
 
 def test_row_without_q_id_is_invalid(tmp_path):
     grid = full_grid()
-    grid[1]["fx-unans-06"] = {**judged("fx-unans-06", 1), "q_id": None}
+    grid[1]["fx-unans-06"] = {**judged("fx-unans-06"), "q_id": None}
     report = tmp_path / "report.json"
 
-    proc = run_cli({"on": files_for(tmp_path / "votes", grid)}, report)
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, report)
 
     assert proc.returncode != 0
-    body = json.loads(report.read_text(encoding="utf-8"))
     listed = body["passes"]["on"]["invalid"]
     assert listed["votes"] == [{"q_id": None, "repeat": 1, "reason": "no_q_id"}]
     assert body["passes"]["on"]["valid_votes"] == 47
@@ -666,10 +651,10 @@ def test_failing_criterion_is_a_verdict_not_a_stop(tmp_path):
     report = tmp_path / "report.json"
 
     # 夹具 15/16 过；把门槛提到 16 → 判据不过，但有效票是 48，照常出具判定
-    proc = run_cli({"on": control("unans-48-valid")}, report, "--min-pass", "16")
+    proc, body = run_and_load({"on": control("unans-48-valid")}, report, "--min-pass", "16")
 
     assert proc.returncode == 0
-    crit = json.loads(report.read_text(encoding="utf-8"))["criteria"]["on"]
+    crit = body["criteria"]["on"]
     assert crit["unans_min_pass"] == 16
     assert crit["unans_ge_min_pass"] is False
     assert "unans_ge_min_pass=False" in proc.stdout
