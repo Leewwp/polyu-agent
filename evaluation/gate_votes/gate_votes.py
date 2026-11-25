@@ -13,7 +13,8 @@
   wrong_answer / lang_follow）都是 bool，mock 不为真。
 - 判分器出错：该格最后一条行 row_status == "judge_error"。
 - INVALID：该格最后一条行既不是有效票也不是判分器出错——na_tech_fail、na_rubric_missing、未知或缺失的状态、
-  判词字段残缺、mock 行、没有 q_id、标在重复号 1..3 之外的行。单列（计数 + q_id 清单 + 逐票原因），不计入有效票。
+  判词字段残缺、mock 行、没有 q_id（q_id 不是非空字符串）、标在重复号 1..3 之外的行（重复号不是 1..3 的整数）。
+  单列（计数 + q_id 清单 + 逐票原因），不计入有效票。
 - 缺格：这一遍出现过的 q_id 在某个重复号下一条行都没有。
 
 停止规则（每一遍全部查完一并列出；命中任一条 = 停）
@@ -114,10 +115,16 @@ def load_votes(path) -> list:
     return rows
 
 
+def _q_id(row: dict):
+    """行的 q_id。不是非空字符串的（缺失、None、数字、列表）一律当作没有 q_id：格键与报告里都记 None。"""
+    q_id = row.get("q_id")
+    return q_id if isinstance(q_id, str) and q_id else None
+
+
 def classify(row: dict) -> tuple:
     """一张行归哪一桶：(桶, INVALID 原因)。有效票与判分器出错的原因为 None。"""
     status = row.get("row_status")
-    if not (isinstance(row.get("q_id"), str) and row["q_id"]):
+    if _q_id(row) is None:
         return INVALID, "no_q_id"
     if row.get("mock"):
         return INVALID, "mock"
@@ -130,22 +137,45 @@ def classify(row: dict) -> tuple:
     return INVALID, f"row_status={status}"
 
 
+def _repeat_number(repeat):
+    """重复号归一成 int：库入口的 passes 若是从 JSON 读来的，键是字符串 "1"。不是整数（或归不成）返回 None。"""
+    if isinstance(repeat, str):
+        try:
+            repeat = int(repeat)
+        except ValueError:
+            return None
+    return repeat if isinstance(repeat, int) else None
+
+
+def _grid_key(repeat):
+    """归格用的重复号：能归成整数的用整数（"1" 与 1 是同一个重复号），归不成的原样保留——它下面的行都不是这个格里的票。"""
+    number = _repeat_number(repeat)
+    return repeat if number is None else number
+
+
+def _repeat_order(repeat) -> tuple:
+    """重复号的排序键：整数按数值排在前，其余按键的文本排在后。"""
+    is_int = isinstance(repeat, int)
+    return (not is_int, repeat if is_int else str(repeat))
+
+
 def _bucket(row: dict, repeat) -> tuple:
-    """一条行归哪一桶：(桶, 原因)。格只认重复号 1..REPEATS：标在范围之外的行不是这个格里的票。"""
-    if not 1 <= repeat <= REPEATS:
+    """一条行归哪一桶：(桶, 原因)。格只认重复号 1..REPEATS：标在范围之外的行（重复号不是 1..3 的整数）不是这个格里的票。"""
+    number = _repeat_number(repeat)
+    if number is None or not 1 <= number <= REPEATS:
         return INVALID, "repeat_out_of_range"
     return classify(row)
 
 
-def _resolve(repeats: Mapping[int, Sequence[dict]]) -> tuple:
-    """按 (q_id, 重复号) 归格，每格取最后一条行。
+def _resolve(repeats) -> tuple:
+    """按 (q_id, 重复号) 归格，每格取最后一条行。repeats = {重复号: [行…]}，键已归一（见 _grid_key）。
 
     返回 ({格: 最后一条行}, 被后来同格的行覆盖的行 [(q_id, 重复号, 行), …]，按读入顺序)。
     """
     cells, superseded = {}, []
-    for repeat in sorted(repeats):
+    for repeat in sorted(repeats, key=_repeat_order):
         for row in repeats[repeat]:
-            key = (row.get("q_id"), repeat)
+            key = (_q_id(row), repeat)
             if key in cells:
                 superseded.append((key[0], repeat, cells[key]))
             cells[key] = row
@@ -170,12 +200,18 @@ def _dropped_vote(q_id, repeat, row: dict, kept: dict) -> dict:
                  reason=None if was_valid else (STATUS_JUDGE_ERROR if bucket == JUDGE_ERROR else reason))
 
 
-def _tally_pass(repeats: Mapping[int, Sequence[dict]]) -> tuple:
-    """一遍的分桶：(报告里的这一遍, 有效票矩阵 {q_id: {重复号: 判词字段}})。"""
+def _tally_pass(repeats: Mapping) -> tuple:
+    """一遍的分桶：(报告里的这一遍, 有效票矩阵 {q_id: {重复号: 判词字段}})。
+
+    passes = {遍名: {重复号: [判分行…]}}，重复号是 int，或是整数字符串（如从 JSON 读来的 "1"）。
+    """
     invalid, judge_errors = [], []
     valid_votes = {}
-    cells, superseded = _resolve(repeats)
-    for (q_id, repeat), row in sorted(cells.items(), key=lambda c: (str(c[0]), c[1])):
+    rows_by_repeat = {}
+    for repeat, rows in repeats.items():
+        rows_by_repeat.setdefault(_grid_key(repeat), []).extend(rows)
+    cells, superseded = _resolve(rows_by_repeat)
+    for (q_id, repeat), row in sorted(cells.items(), key=lambda c: (str(c[0]), _repeat_order(c[1]))):
         bucket, reason = _bucket(row, repeat)
         if bucket == JUDGE_ERROR:
             judge_errors.append(_vote(q_id, repeat, error=row.get("error")))
@@ -263,10 +299,12 @@ def _new_report() -> dict:
             "passes": {}}
 
 
-def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Callable[[dict], dict]) -> dict:
+def aggregate(passes: Mapping[str, Mapping[int | str, Sequence[dict]]], evaluate: Callable[[dict], dict]) -> dict:
     """先对每一遍做有效票断言，全过才求值判据；否则抛 GateStop。
 
-    passes = {遍名: {重复号: [判分行…]}}。evaluate 必填：只在所有遍的断言全过后被调用一次，
+    passes = {遍名: {重复号: [判分行…]}}，重复号是 int，或是整数字符串（如从 JSON 读来的 "1"）；归不成整数的键
+    下面的行记 INVALID（repeat_out_of_range）。q_id 不是非空字符串的行记 INVALID（no_q_id）——都不裸抛。
+    evaluate 必填：只在所有遍的断言全过后被调用一次，
     入参 = {遍名: {q_id: {重复号: 判词字段}}}（只含有效票）。
     status == "EVALUATED" 的报告必然带 criteria——不存在「求值通过、却没有判据」的报告。
     """

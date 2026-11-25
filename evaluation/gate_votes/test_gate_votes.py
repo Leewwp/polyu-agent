@@ -545,6 +545,47 @@ def test_aggregate_requires_a_criteria_function():
         gv.aggregate({"on": rows_of(full_grid())})
 
 
+# ---------------------------------------------------------------- 库入口拿到的入参形态不规整：归一或记 INVALID，不裸抛
+
+
+def test_library_entry_accepts_repeat_keys_that_are_strings():
+    # passes 若是从 JSON 读来的，重复号的键是字符串 "1"：归一成整数后照常断言，判据函数拿到的键也是整数
+    passes = {"on": {str(repeat): rows for repeat, rows in rows_of(full_grid()).items()}}
+    calls, evaluate = spy()
+
+    report = gv.aggregate(passes, evaluate=evaluate)
+
+    assert report["status"] == "EVALUATED"
+    assert {tuple(sorted(reps)) for reps in calls[0]["on"].values()} == {(1, 2, 3)}
+
+
+def test_rows_under_a_repeat_key_that_is_not_an_integer_are_invalid():
+    # 归不成整数的键：它下面的行不是这个格里的票，记 INVALID 并写明是哪个键；完好的 48 票照常求值
+    passes = {"on": {**rows_of(full_grid()), "x": [judged("fx-unans-01")]}}
+
+    report = gv.aggregate(passes, evaluate=lambda votes: {"ok": True})
+
+    assert report["status"] == "EVALUATED"
+    assert report["passes"]["on"]["invalid"] == {
+        "count": 1, "q_ids": ["fx-unans-01"],
+        "votes": [{"q_id": "fx-unans-01", "repeat": "x", "reason": "repeat_out_of_range"}]}
+    assert report["passes"]["on"]["valid_votes"] == 48
+
+
+def test_row_whose_q_id_is_not_a_string_is_invalid(tmp_path):
+    grid = full_grid()
+    grid[1]["fx-unans-06"] = {**judged("fx-unans-06"), "q_id": ["fx-unans-06"]}
+
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, tmp_path / "report.json")
+
+    assert proc.returncode == 3
+    assert body["passes"]["on"]["invalid"]["votes"] == [{"q_id": None, "repeat": 1, "reason": "no_q_id"}]
+    assert body["passes"]["on"]["valid_votes"] == 47
+    assert "criteria" not in body
+    # 是停窗报告，不是崩溃
+    assert "Traceback" not in proc.stderr
+
+
 def test_two_passes_where_one_is_short_stop_the_whole_run(tmp_path):
     on, off = full_grid(), full_grid()
     off[2]["fx-unans-16"] = judge_error("fx-unans-16")
