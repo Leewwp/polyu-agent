@@ -357,7 +357,7 @@ def _lines(report: dict) -> list:
                        f"superseded={s['superseded']['count']} "
                        f"unans_majority_pass={crit[name]['unans_majority_pass']}/{len(detail)} "
                        f"fails={crit[name]['unans_majority_fails']} "
-                       f"unans_ge_min_pass={crit[name]['unans_ge_min_pass']}")
+                       f"min_pass={crit[name]['unans_min_pass']} unans_ge_min_pass={crit[name]['unans_ge_min_pass']}")
             if s["superseded"]["resolved_judge_errors"]:
                 out.append(f"[gate_votes] REJUDGED pass={name} resolved_judge_errors="
                            f"{s['superseded']['resolved_judge_errors']}")

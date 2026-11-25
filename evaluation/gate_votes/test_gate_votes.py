@@ -223,6 +223,7 @@ def test_positive_control_48_valid_votes_is_evaluated(tmp_path):
     assert crit["unans_min_pass"] == 15
     assert crit["unans_ge_min_pass"] is True
     assert "unans_majority_pass=15/16" in proc.stdout
+    assert "min_pass=15 unans_ge_min_pass=True" in proc.stdout
 
 
 # ---------------------------------------------------------------- 断言的是「16 题 × 3」这个格，不只是总数
@@ -738,6 +739,15 @@ def test_failing_criterion_is_a_verdict_not_a_stop(tmp_path):
     assert crit["unans_min_pass"] == 16
     assert crit["unans_ge_min_pass"] is False
     assert "unans_ge_min_pass=False" in proc.stdout
+
+
+def test_verdict_line_shows_the_threshold_next_to_the_result(tmp_path):
+    # 门槛调低到 1 时判据照样过；读控制台的人要看得见这里是 1，不是默认的 15
+    proc, _ = run_and_load({"on": control("unans-48-valid")}, tmp_path / "report.json", "--min-pass", "1")
+
+    assert proc.returncode == 0
+    assert "unans_majority_pass=15/16" in proc.stdout
+    assert "min_pass=1 unans_ge_min_pass=True" in proc.stdout
 
 
 # ---------------------------------------------------------------- 内置判据自检：直接调用也过不了断言
