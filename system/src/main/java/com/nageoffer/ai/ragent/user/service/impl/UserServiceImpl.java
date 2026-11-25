@@ -189,7 +189,7 @@ public class UserServiceImpl implements UserService {
         ensureNotDefaultAdmin(record);
         UserVO before = toVO(record);
         // admin 删号复用自助注销的硬删级联（补「admin 删号不级联」缺口）：
-        // 会话两族随删、反馈匿名化、名下分享撤销、邮箱墓碑、用户行物理删除
+        // 会话两族随删、反馈匿名化、名下分享快照随删、邮箱墓碑、用户行物理删除
         accountDeletionCascade.purge(record.getId(), record.getEmail());
         bizChangeLogContext.put(id, before, null);
     }

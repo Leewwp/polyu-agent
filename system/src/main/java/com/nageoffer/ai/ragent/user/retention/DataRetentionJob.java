@@ -29,6 +29,8 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * 数据保留期清理任务（覆盖八类数据+#154 trace 观测数据一类）。
@@ -44,7 +46,8 @@ import java.util.List;
  *
  * <p>跨模块表经 JdbcTemplate 直 SQL 触达（system 被 rag 依赖不能反向引其 mapper，同
  * AccountDeletionCascade 的落点理由）。单实例部署下 @Scheduled 天然不并发；各类清理相互独立、
- * 单类失败仅记日志不阻断其余类，账号类每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
+ * 单类失败仅记日志不阻断其余类；账号类两步在步内逐账号隔离失败（单账号硬删失败只记该账号，
+ * 其余账号照常处理，步末汇总成功/失败数），每批设上限防长事务风暴，剩余行下一轮扫描自然消化。
  */
 @Slf4j
 @Component
@@ -54,6 +57,13 @@ public class DataRetentionJob {
      * 单轮账号硬删上限：级联按用户逐个开事务，超量顺延下一轮（fixedDelay 扫描）
      */
     static final int MAX_ACCOUNT_BATCH = 500;
+
+    /**
+     * 账号类步骤名：同一步骤的步骤级失败行、逐账号失败行与步末汇总行共用一个常量，三处口径一致
+     */
+    private static final String SOFT_DELETED_PURGE_STEP = "软删到期硬删";
+
+    private static final String GUEST_PURGE_STEP = "guest 到期清理";
 
     private final JdbcTemplate jdbcTemplate;
     private final AccountDeletionCascade deletionCascade;
@@ -86,8 +96,8 @@ public class DataRetentionJob {
             log.debug("[retention] 清理总开关关闭，本轮跳过");
             return;
         }
-        runSafely("软删到期硬删", this::purgeExpiredSoftDeletedAccounts);
-        runSafely("guest 到期清理", this::purgeExpiredGuestAccounts);
+        runSafely(SOFT_DELETED_PURGE_STEP, this::purgeExpiredSoftDeletedAccounts);
+        runSafely(GUEST_PURGE_STEP, this::purgeExpiredGuestAccounts);
         runSafely("分享快照到期删除", this::deleteExpiredShares);
         runSafely("反馈到期删除", this::deleteExpiredFeedback);
         runSafely("邮箱墓碑到期删除", this::deleteExpiredTombstones);
@@ -103,12 +113,8 @@ public class DataRetentionJob {
                 "SELECT id, email FROM t_user WHERE deleted = 1 AND delete_time IS NOT NULL "
                         + "AND delete_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> new SoftDeletedAccount(rs.getString("id"), rs.getString("email")), cutoff);
-        for (SoftDeletedAccount account : expired) {
-            deletionCascade.purge(account.id(), account.email());
-        }
-        if (!expired.isEmpty()) {
-            log.info("[retention] 软删到期硬删完成：{} 个账号（cutoff={}）", expired.size(), cutoff);
-        }
+        purgeAccounts(SOFT_DELETED_PURGE_STEP, expired, SoftDeletedAccount::id,
+                account -> deletionCascade.purge(account.id(), account.email()), cutoff);
     }
 
     /**
@@ -120,12 +126,8 @@ public class DataRetentionJob {
                 "SELECT id FROM t_user WHERE role = 'guest' AND deleted = 0 "
                         + "AND create_time < ? LIMIT " + MAX_ACCOUNT_BATCH,
                 (rs, rowNum) -> rs.getString("id"), cutoff);
-        for (String guestId : guestIds) {
-            deletionCascade.purge(guestId, null);
-        }
-        if (!guestIds.isEmpty()) {
-            log.info("[retention] guest 到期清理完成：{} 个账号（cutoff={}）", guestIds.size(), cutoff);
-        }
+        purgeAccounts(GUEST_PURGE_STEP, guestIds, Function.identity(),
+                guestId -> deletionCascade.purge(guestId, null), cutoff);
     }
 
     /**
@@ -165,6 +167,30 @@ public class DataRetentionJob {
         int runs = jdbcTemplate.update("DELETE FROM t_rag_trace_run WHERE create_time < ?", cutoff);
         if (nodes + runs > 0) {
             log.info("[retention] trace 观测数据到期清理完成：run {} 行、node {} 行（cutoff={}）", runs, nodes, cutoff);
+        }
+    }
+
+    /**
+     * 账号类步骤共用的逐账号循环：单个账号硬删失败只记该账号（ERROR，带异常），其余账号照常处理，
+     * 不向步骤外抛；批次末尾记一行成功/失败数汇总，空批不记。步骤自身的失败（如到期账号查询抛错）
+     * 不经此处
+     */
+    private <T> void purgeAccounts(String step, List<T> accounts, Function<T, String> userIdOf,
+            Consumer<T> purge, Timestamp cutoff) {
+        int failed = 0;
+        for (T account : accounts) {
+            // userId 先于 try 解析：失败分支内不做任何可抛异常的求值，硬删抛出的原异常不会被二次异常盖掉
+            String userId = userIdOf.apply(account);
+            try {
+                purge.accept(account);
+            } catch (Exception ex) {
+                failed++;
+                log.error("[retention] {} 单账号失败：userId={}，其余账号继续", step, userId, ex);
+            }
+        }
+        if (!accounts.isEmpty()) {
+            log.info("[retention] {}完成：成功 {} 个、失败 {} 个（cutoff={}）",
+                    step, accounts.size() - failed, failed, cutoff);
         }
     }
 

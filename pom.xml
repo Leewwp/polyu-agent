@@ -15,29 +15,29 @@
     <properties>
         <java.version>17</java.version>
         <spring-boot.version>4.1.2</spring-boot.version>
-        <milvus-sdk.version>2.6.27</milvus-sdk.version>
+        <milvus-sdk.version>2.6.28</milvus-sdk.version>
         <tika.version>3.2.3</tika.version>
         <hutool-all.version>5.8.48</hutool-all.version>
         <mybatis-plus.version>3.5.18.1</mybatis-plus.version>
         <!-- awssdk 整套 BOM 管理（#438 判例：单钉 s3 会被 tika-bom→tika-parent 继承的
              awssdk:bom 2.33.4 压低其余构件，形成 s3 2.40.x + 传递依赖 2.33.x 混版本）；
              import 必须排在 tika-bom 之前（两个 import 竞争时先到先得） -->
-        <awssdk.version>2.58.0</awssdk.version>
+        <awssdk.version>2.59.7</awssdk.version>
         <aliyun-oss.version>3.18.5</aliyun-oss.version>
         <sa-token.version>1.46.0</sa-token.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
         <redisson.version>4.8.0</redisson.version>
         <rocketmq-spring-boot-starter.version>2.3.6</rocketmq-spring-boot-starter.version>
-        <commonmark.version>0.32.0</commonmark.version>
+        <commonmark.version>0.33.0</commonmark.version>
         <batik.version>1.20</batik.version>
         <okhttp.version>5.5.1</okhttp.version>
-        <mcp-sdk.version>2.1.0</mcp-sdk.version>
+        <mcp-sdk.version>2.2.0</mcp-sdk.version>
         <agentscope.version>2.0.5</agentscope.version>
         <bizlog-sdk.version>3.0.6</bizlog-sdk.version>
         <javax-validation-api.version>2.0.1.Final</javax-validation-api.version>
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
-        <maven-surefire-plugin.version>3.5.6</maven-surefire-plugin.version>
-        <spotless-maven-plugin.version>2.22.1</spotless-maven-plugin.version>
+        <maven-surefire-plugin.version>3.6.1</maven-surefire-plugin.version>
+        <spotless-maven-plugin.version>2.46.1</spotless-maven-plugin.version>
         <!-- surefire 配置中的 @{argLine} 需要该属性存在（通常由 jacoco 定义）；
              未接入 jacoco 时给出空默认值，避免 fork 出的测试 JVM 收到字面量 @{argLine} 直接崩溃 -->
         <argLine/>
@@ -77,7 +77,7 @@
             <dependency>
                 <groupId>com.squareup.okio</groupId>
                 <artifactId>okio-bom</artifactId>
-                <version>3.18.1</version>
+                <version>3.18.2</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -99,7 +99,7 @@
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>json-schema-validator</artifactId>
-                <version>2.0.4</version>
+                <version>2.0.8</version>
             </dependency>
 
             <dependency>

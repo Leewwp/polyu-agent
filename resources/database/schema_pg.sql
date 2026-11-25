@@ -1144,7 +1144,7 @@ COMMENT ON COLUMN t_share_snapshot.token IS 'SecureRandom 32 字节 Base64URL（
 COMMENT ON COLUMN t_share_snapshot.owner_user_id IS '创建者用户ID（仅归属校验与撤销/治理用，公开载荷不返回）';
 COMMENT ON COLUMN t_share_snapshot.kind IS '快照粒度判别：answer / conversation';
 COMMENT ON COLUMN t_share_snapshot.conversation_id IS '来源会话ID（仅撤销/我的列表溯源，不进公开载荷）';
-COMMENT ON COLUMN t_share_snapshot.status IS 'ACTIVE/REVOKED；注销级联=软撤销行保留，保留任务按 expire_time 硬删';
+COMMENT ON COLUMN t_share_snapshot.status IS 'ACTIVE/REVOKED；撤销只置状态、行留存随快照保留期；账号硬删级联按 owner_user_id 删除名下全部行（含 REVOKED）；保留任务按 expire_time 硬删到期行';
 COMMENT ON COLUMN t_share_snapshot.expire_time IS '过期时刻，NULL 即不过期';
 COMMENT ON COLUMN t_share_snapshot.payload IS '粒度侧不透明载荷 JSON（module 零解析；answer=messageId/question/answerMd/citations/contentVersion，conversation=title/messages/contentVersion）';
 
