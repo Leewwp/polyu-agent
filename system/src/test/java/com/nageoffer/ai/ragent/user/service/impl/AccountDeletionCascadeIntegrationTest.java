@@ -22,16 +22,22 @@ import com.nageoffer.ai.ragent.share.ShareKind;
 import com.nageoffer.ai.ragent.user.schema.PgSchemaFile;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.support.EncodedResource;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -46,19 +52,21 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mockStatic;
 
 /**
  * 账号硬删级联可选真库集成测试（#545）：在按现行 schema 文件建出的库上执行 {@link AccountDeletionCascade#purge}，
- * 证明硬删完成后该用户在所有带 user_id 列的表里不留行，名下的分享快照行（含已撤销的）一并清空。设置了系统属性
- * {@value #JDBC_URL_PROPERTY}（JDBC 连接串）才运行，缺省跳过、不进 CI；CI 上的覆盖面由
- * {@link AccountDeletionCascadeTest} 的 schema 覆盖断言守住。
+ * 证明硬删完成后该用户在所有带 user_id 列的表里不留行，名下的分享快照行（含已撤销的）一并清空，后续步骤失败时
+ * 已执行的语句随事务回滚。设置了系统属性 {@value #JDBC_URL_PROPERTY}（JDBC 连接串）才运行，缺省跳过、不进 CI；
+ * CI 上的覆盖面由 {@link AccountDeletionCascadeTest} 的 schema 覆盖断言守住。
  *
  * <p>两种入参形态各跑一遍，三条调用路径共用同一个级联：带邮箱的 (userId, email) 对应管理员删号与
  * 注销冷静期到期硬删，(userId, null) 对应 guest 到期清理。
@@ -72,6 +80,8 @@ import static org.mockito.Mockito.mockStatic;
  *   <li>数据阶段（造行 / 硬删 / 断言）search_path 只含私有 schema：级联引用到私有 schema 之外的表名直接报错，
  *       不会落到库里已有的同名表上</li>
  * </ul>
+ * 回滚用例的私有 schema 在建库后提交，事务形态与收尾见
+ * {@link #purgeFailureInALaterStepRollsBackTheShareSnapshotDeletion()}；它的数据阶段同样只在私有 schema 上。
  *
  * <p>断言口径：
  * <ul>
@@ -82,7 +92,8 @@ import static org.mockito.Mockito.mockStatic;
  *       由保留期任务按 expire_time 清理，硬删不删墓碑——零行断言对它显式豁免，另行断言墓碑行存在</li>
  *   <li>反馈行匿名化而非删除：行还在，user_id 置哨兵 '0'（零行断言对反馈表因此成立）</li>
  *   <li>分享快照以 owner_user_id 关联用户，列名不是 user_id，不在目录表清单里，单独造行、单独断言：
- *       名下行数按情形恰为 0 行或 2 行（答案分享与会话分享两种粒度各一条；有效、已撤销、各一条三种情形），
+ *       名下行数按情形恰为 0 行或 5 行（答案分享与会话分享两种粒度；未到期的各一条，另加已到期未清、不过期、
+ *       置了删除标志的各一条；有效、已撤销、各一条三种情形），硬删前逐行核对 id、状态、到期与否与删除标志，
  *       硬删后零行、原有 token 查不到行；另一用户名下的行（未过期的有效行、已撤销行、已过期行各一条）逐行不变</li>
  * </ul>
  */
@@ -116,6 +127,16 @@ class AccountDeletionCascadeIntegrationTest {
     private static final String STATUS_REVOKED = "REVOKED";
 
     /**
+     * 回滚用例里拦下用户行删除的触发器与它的函数（同在私有 schema）
+     */
+    private static final String USER_ROW_DELETE_BLOCKER = "account_purge_it_block_user_delete";
+
+    /**
+     * 上述触发器抛出的异常信息：库里的失败是否落在删除用户行这一步，以它辨认
+     */
+    private static final String USER_ROW_DELETE_BLOCKED = "account-purge-it user row delete blocked";
+
+    /**
      * 快照载荷：对话正文（问题与回答）。行留着，正文就还在
      */
     private static final String SNAPSHOT_PAYLOAD = "{\"question\":\"提问\",\"answerMd\":\"回答\"}";
@@ -124,9 +145,9 @@ class AccountDeletionCascadeIntegrationTest {
      * 另一用户名下的行：未过期的有效行、已撤销行、已过期行各一条，到期行归保留任务清理
      */
     private static final List<SeededSnapshot> OTHER_USER_ROWS = List.of(
-            new SeededSnapshot("o1", ShareKind.ANSWER, STATUS_ACTIVE, daysFromNow(90)),
-            new SeededSnapshot("o2", ShareKind.CONVERSATION, STATUS_REVOKED, daysFromNow(90)),
-            new SeededSnapshot("o3", ShareKind.ANSWER, STATUS_ACTIVE, daysFromNow(-1)));
+            new SeededSnapshot("o1", ShareKind.ANSWER, STATUS_ACTIVE, Expiry.VALID, 0),
+            new SeededSnapshot("o2", ShareKind.CONVERSATION, STATUS_REVOKED, Expiry.VALID, 0),
+            new SeededSnapshot("o3", ShareKind.ANSWER, STATUS_ACTIVE, Expiry.EXPIRED, 0));
 
     private MockedStatic<StpUtil> stpUtil;
 
@@ -182,7 +203,8 @@ class AccountDeletionCascadeIntegrationTest {
     }
 
     /**
-     * 名下分享快照按情形各跑一遍：有效、已撤销、有效与已撤销各一条、没有快照
+     * 名下分享快照按情形各跑一遍：有效、已撤销、有效与已撤销各一条、没有快照。名下有行的情形各 5 行——
+     * 未到期的两条，已到期未清、不过期、置了删除标志的各一条，硬删对它们一视同仁
      */
     @ParameterizedTest(name = "emailPresent={0} snapshots={1}")
     @MethodSource("ownedSnapshots")
@@ -198,20 +220,16 @@ class AccountDeletionCascadeIntegrationTest {
             insertSnapshots(jdbc, USER_ID, ownedRows);
             insertSnapshots(jdbc, OTHER_USER_ID, OTHER_USER_ROWS);
 
-            // 硬删前：名下恰为造的那几行（含已撤销的），不让零行断言空转
-            assertThat(snapshotRows(jdbc, USER_ID))
-                    .extracting(row -> row.get("id"), row -> row.get("status"))
-                    .as("硬删前：名下分享快照行（id, status）")
-                    .containsExactlyElementsOf(ownedRows.stream()
-                            .map(row -> tuple(row.id(), row.status())).toList());
+            // 硬删前：名下恰为造的那几行（含已撤销、已到期、不过期、置了删除标志的），不让零行断言空转
+            assertOwnedSnapshots(jdbc, USER_ID, ownedRows, "硬删前");
             List<Map<String, Object>> otherRowsBefore = snapshotRows(jdbc, OTHER_USER_ID);
             assertThat(otherRowsBefore).as("硬删前：另一用户名下的分享快照行").hasSize(OTHER_USER_ROWS.size());
 
             AccountDeletionCascade cascade = new AccountDeletionCascade(jdbc);
             cascade.purge(USER_ID, email);
 
-            // 硬删后：名下零行（有效的与已撤销的都不剩），原有 token 查不到行——公开读按 token 取数，
-            // 查不到行与已撤销同一表现（见 ShareSnapshotServiceImplTest）
+            // 硬删后：名下零行（有效的、已撤销的、已到期的、不过期的、置了删除标志的都不剩），原有 token 查不到行——
+            // 公开读按 token 取数，查不到行与已撤销同一表现（见 ShareSnapshotServiceImplTest）
             assertThat(snapshotRows(jdbc, USER_ID)).as("硬删后：名下分享快照行应为零").isEmpty();
             List<String> ownedTokens = ownedRows.stream().map(row -> tokenOf(row.id())).toList();
             if (!ownedTokens.isEmpty()) {
@@ -226,9 +244,59 @@ class AccountDeletionCascadeIntegrationTest {
                     .as("硬删后：另一用户名下的分享快照行应逐行不变")
                     .isEqualTo(otherRowsBefore);
             System.out.println("[account-purge-it] emailPresent=" + emailPresent + " snapshots=" + owned + "，硬删前名下 "
-                    + ownedRows.size() + " 行" + idsWithStatus(ownedRows) + "；硬删后名下 0 行"
+                    + ownedRows.size() + " 行" + labelsOf(ownedRows) + "；硬删后名下 0 行"
                     + (ownedTokens.isEmpty() ? "（名下本无快照，无 token 可查）" : "、原有 token 查不到行")
                     + "；另一用户 " + otherRowsBefore.size() + " 行逐行不变");
+        });
+    }
+
+    /**
+     * 后续步骤失败即回滚。级联经事务代理执行：事务边界与回滚规则取自 purge 自己的注解；拦截器、注解解析与
+     * 事务管理器用的是 Spring 事务基础设施的同一套类，只是手工装配、不经容器；事务管理器与级联的 JdbcTemplate
+     * 绑同一个数据源。删除用户行是级联发出的最后一条 SQL，私有 schema 里 t_user 上的触发器把它拦下，此前
+     * 已执行的语句——含名下分享快照删除——随事务回滚；解除拦截后同一份数据经同一事务代理硬删成功并提交。
+     *
+     * <p>这一条的私有 schema 在建库后提交：回滚要抹掉的东西必须先提交过才观察得到。收尾时 DROP SCHEMA … CASCADE
+     * 整体删除；数据阶段的 search_path 仍只含私有 schema，进数据阶段前先核对。
+     */
+    @Test
+    void purgeFailureInALaterStepRollsBackTheShareSnapshotDeletion() throws Exception {
+        String url = System.getProperty(JDBC_URL_PROPERTY);
+        assumeTrue(url != null && !url.isBlank(),
+                "Set " + JDBC_URL_PROPERTY + " to run PostgreSQL integration test");
+        inCommittedDatabase(url, (jdbc, schema) -> {
+            List<SeededSnapshot> ownedRows = OwnedSnapshots.MIXED.rows();
+            insertUser(jdbc, USER_ID, "purge-it", "user", EMAIL);
+            insertUser(jdbc, OTHER_USER_ID, "purge-other", "user", "other@example.com");
+            jdbc.update("INSERT INTO t_conversation (id, conversation_id, user_id, title) VALUES (?, ?, ?, ?)",
+                    "c1", "c1", USER_ID, "会话");
+            insertSnapshots(jdbc, USER_ID, ownedRows);
+            insertSnapshots(jdbc, OTHER_USER_ID, OTHER_USER_ROWS);
+            List<Map<String, Object>> otherRowsBefore = snapshotRows(jdbc, OTHER_USER_ID);
+            blockUserRowDeletion(jdbc);
+            AccountDeletionCascade cascade = transactionalProxyOver(jdbc);
+
+            // 失败落在预期的那一步：异常信息带拦截标记，删除用户行之前的级联语句都已执行过
+            assertThatThrownBy(() -> cascade.purge(USER_ID, EMAIL))
+                    .isInstanceOf(DataAccessException.class)
+                    .hasMessageContaining(USER_ROW_DELETE_BLOCKED);
+            // 回滚后的库内状态：名下分享快照行（含已撤销、已到期、不过期、置了删除标志的）与先于它删除的
+            // 对话行逐行保留
+            assertOwnedSnapshots(jdbc, USER_ID, ownedRows, "后续步骤失败后");
+            assertThat(jdbc.queryForList("SELECT id FROM t_conversation WHERE user_id = ?", String.class, USER_ID))
+                    .as("后续步骤失败后：对话行应随事务回滚保留")
+                    .containsExactly("c1");
+
+            jdbc.execute("DROP TRIGGER " + USER_ROW_DELETE_BLOCKER + " ON t_user");
+            cascade.purge(USER_ID, EMAIL);
+
+            assertThat(snapshotRows(jdbc, USER_ID)).as("解除拦截后：名下分享快照行应为零").isEmpty();
+            assertThat(snapshotRows(jdbc, OTHER_USER_ID))
+                    .as("解除拦截后：另一用户名下的分享快照行应逐行不变")
+                    .isEqualTo(otherRowsBefore);
+            System.out.println("[account-purge-it] 回滚：删除用户行被拦下时名下 " + ownedRows.size() + " 行"
+                    + labelsOf(ownedRows) + "与对话行逐行保留；解除拦截后名下 0 行、另一用户 "
+                    + otherRowsBefore.size() + " 行逐行不变");
         });
     }
 
@@ -258,6 +326,37 @@ class AccountDeletionCascadeIntegrationTest {
                 body.run(jdbc, schema);
             } finally {
                 connection.rollback();
+            }
+        }
+    }
+
+    /**
+     * 在已提交的私有 schema 上执行一段库内断言。建库沿用 {@link #inFreshDatabase} 的做法（一条连接、关自动提交、
+     * SET LOCAL search_path），建完提交——purge 要在自己的事务里跑并真实回滚，回滚要抹掉的东西必须先提交过
+     * 才观察得到。SET LOCAL 的 search_path 随建库事务结束失效，数据阶段重新收窄到私有 schema，进数据阶段前
+     * 核对一次：级联的 SQL 都不带 schema 名，路径上多出别的 schema 就会落到库里已有的同名表上。
+     * 收尾时回到自动提交（半途的未提交事务随之结束），再 DROP SCHEMA … CASCADE 整体删除——造的行、触发器、
+     * purge 提交的结果都在其中
+     */
+    private static void inCommittedDatabase(String url, DatabaseBody body) throws Exception {
+        String schema = "account_purge_it_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection connection = DriverManager.getConnection(url)) {
+            connection.setAutoCommit(false);
+            JdbcTemplate jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
+            try {
+                buildDatabaseFromSchemaFile(jdbc, connection, schema);
+                connection.setAutoCommit(true);
+                jdbc.execute("SET search_path TO " + schema);
+                assertThat(jdbc.queryForObject("SELECT current_schemas(false)::text", String.class))
+                        .as("数据阶段的 search_path 应只含私有 schema")
+                        .isEqualTo("{" + schema + "}");
+                body.run(jdbc, schema);
+            } finally {
+                try {
+                    connection.setAutoCommit(true);
+                } finally {
+                    jdbc.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
+                }
             }
         }
     }
@@ -339,10 +438,48 @@ class AccountDeletionCascadeIntegrationTest {
     private static void insertSnapshots(JdbcTemplate jdbc, String ownerId, List<SeededSnapshot> rows) {
         for (SeededSnapshot row : rows) {
             jdbc.update("INSERT INTO " + SHARE_SNAPSHOT_TABLE + " (id, token, owner_user_id, kind, conversation_id, "
-                            + "lang, status, expire_time, revoked_time, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)",
+                            + "lang, status, expire_time, revoked_time, deleted, payload) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)",
                     row.id(), tokenOf(row.id()), ownerId, row.kind().getCode(), "c-" + row.id(), "zh", row.status(),
-                    row.expireTime(), STATUS_REVOKED.equals(row.status()) ? new Date(0) : null, SNAPSHOT_PAYLOAD);
+                    expireTimeOf(row.expiry()), STATUS_REVOKED.equals(row.status()) ? new Date(0) : null, row.deleted(),
+                    SNAPSHOT_PAYLOAD);
         }
+    }
+
+    /**
+     * 各到期形态对应的 expire_time：未到期的在 90 天后，已到期的在 1 天前，不过期的为 NULL
+     */
+    private static Date expireTimeOf(Expiry expiry) {
+        return switch (expiry) {
+            case VALID -> daysFromNow(90);
+            case EXPIRED -> daysFromNow(-1);
+            case NEVER -> null;
+        };
+    }
+
+    /**
+     * 库里这一行的到期形态：expire_time 为 NULL 即不过期，否则按它与当前时刻的先后分未到期与已到期
+     */
+    private static Expiry expiryOf(Map<String, Object> row) {
+        Timestamp expireTime = (Timestamp) row.get("expire_time");
+        if (expireTime == null) {
+            return Expiry.NEVER;
+        }
+        return expireTime.toInstant().isBefore(Instant.now()) ? Expiry.EXPIRED : Expiry.VALID;
+    }
+
+    /**
+     * 断言某用户名下的分享快照行恰为给定的那几行（按 id 升序）：id、状态、到期与否、删除标志逐行一致
+     */
+    private static void assertOwnedSnapshots(JdbcTemplate jdbc, String ownerId, List<SeededSnapshot> expected,
+            String stage) {
+        assertThat(snapshotRows(jdbc, ownerId))
+                .extracting(row -> row.get("id"), row -> row.get("status"), row -> expiryOf(row),
+                        row -> row.get("deleted"))
+                .as("%s：名下分享快照行（id, status, 到期与否, 删除标志）", stage)
+                .containsExactlyElementsOf(expected.stream()
+                        .map(row -> tuple(row.id(), row.status(), row.expiry(), row.deleted()))
+                        .toList());
     }
 
     /**
@@ -350,7 +487,7 @@ class AccountDeletionCascadeIntegrationTest {
      */
     private static List<Map<String, Object>> snapshotRows(JdbcTemplate jdbc, String ownerId) {
         return jdbc.queryForList("SELECT id, token, owner_user_id, kind, conversation_id, status, expire_time, "
-                + "revoked_time, payload::text AS payload FROM " + SHARE_SNAPSHOT_TABLE
+                + "revoked_time, deleted, payload::text AS payload FROM " + SHARE_SNAPSHOT_TABLE
                 + " WHERE owner_user_id = ? ORDER BY id", ownerId);
     }
 
@@ -384,8 +521,34 @@ class AccountDeletionCascadeIntegrationTest {
         return "token-" + id;
     }
 
-    private static List<String> idsWithStatus(List<SeededSnapshot> rows) {
-        return rows.stream().map(row -> row.id() + ":" + row.status()).toList();
+    /**
+     * 各行的简记 id:status:到期与否:删除标志，供手动运行时留痕
+     */
+    private static List<String> labelsOf(List<SeededSnapshot> rows) {
+        return rows.stream().map(row -> row.id() + ":" + row.status() + ":" + row.expiry() + ":" + row.deleted()).toList();
+    }
+
+    /**
+     * 给级联套上事务代理。事务拦截器从 purge 的注解读取事务属性，事务管理器与级联使用的 JdbcTemplate
+     * 绑同一个数据源
+     */
+    private static AccountDeletionCascade transactionalProxyOver(JdbcTemplate jdbc) {
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(Objects.requireNonNull(jdbc.getDataSource()));
+        ProxyFactory factory = new ProxyFactory(new AccountDeletionCascade(jdbc));
+        factory.setProxyTargetClass(true);
+        factory.addAdvice(new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
+        return (AccountDeletionCascade) factory.getProxy();
+    }
+
+    /**
+     * 在私有 schema 里拦下用户行的删除：t_user 上的 BEFORE DELETE 触发器一律抛错，级联删除用户行这一步因此失败
+     */
+    private static void blockUserRowDeletion(JdbcTemplate jdbc) {
+        jdbc.execute("CREATE FUNCTION " + USER_ROW_DELETE_BLOCKER + "() RETURNS trigger LANGUAGE plpgsql AS $body$"
+                + " BEGIN RAISE EXCEPTION '" + USER_ROW_DELETE_BLOCKED + "'; END $body$");
+        jdbc.execute("CREATE TRIGGER " + USER_ROW_DELETE_BLOCKER + " BEFORE DELETE ON t_user FOR EACH ROW"
+                + " EXECUTE FUNCTION " + USER_ROW_DELETE_BLOCKER + "()");
     }
 
     private static Date daysFromNow(int days) {
@@ -400,16 +563,27 @@ class AccountDeletionCascadeIntegrationTest {
     /**
      * 一条分享快照行
      *
-     * @param id         主键；token 由它派生
-     * @param kind       粒度
-     * @param status     ACTIVE / REVOKED
-     * @param expireTime 过期时刻；已过期的行归保留任务清理
+     * @param id      主键；token 由它派生
+     * @param kind    粒度
+     * @param status  ACTIVE / REVOKED
+     * @param expiry  到期与否；已到期的行在保留任务清走之前留在表里
+     * @param deleted 删除标志
      */
-    private record SeededSnapshot(String id, ShareKind kind, String status, Date expireTime) {
+    private record SeededSnapshot(String id, ShareKind kind, String status, Expiry expiry, int deleted) {
     }
 
     /**
-     * 测试用户名下的分享快照情形：答案分享与会话分享两种粒度各一条
+     * 快照行的到期形态。expire_time 为 NULL 的行不过期；保留任务只清已到期的行
+     */
+    private enum Expiry {
+        VALID,
+        EXPIRED,
+        NEVER
+    }
+
+    /**
+     * 测试用户名下的分享快照情形：答案分享与会话分享两种粒度各一条未到期的，已到期、不过期、置了删除标志的
+     * 各一条。后三条的状态随所属粒度在该情形下的状态
      */
     private enum OwnedSnapshots {
 
@@ -428,18 +602,19 @@ class AccountDeletionCascadeIntegrationTest {
         List<SeededSnapshot> rows() {
             return switch (this) {
                 case NONE -> List.of();
-                case ACTIVE -> List.of(answer(STATUS_ACTIVE), conversation(STATUS_ACTIVE));
-                case REVOKED -> List.of(answer(STATUS_REVOKED), conversation(STATUS_REVOKED));
-                case MIXED -> List.of(answer(STATUS_ACTIVE), conversation(STATUS_REVOKED));
+                case ACTIVE -> ownedRows(STATUS_ACTIVE, STATUS_ACTIVE);
+                case REVOKED -> ownedRows(STATUS_REVOKED, STATUS_REVOKED);
+                case MIXED -> ownedRows(STATUS_ACTIVE, STATUS_REVOKED);
             };
         }
 
-        private static SeededSnapshot answer(String status) {
-            return new SeededSnapshot("s1", ShareKind.ANSWER, status, daysFromNow(90));
-        }
-
-        private static SeededSnapshot conversation(String status) {
-            return new SeededSnapshot("s2", ShareKind.CONVERSATION, status, daysFromNow(90));
+        private static List<SeededSnapshot> ownedRows(String answerStatus, String conversationStatus) {
+            return List.of(
+                    new SeededSnapshot("s1", ShareKind.ANSWER, answerStatus, Expiry.VALID, 0),
+                    new SeededSnapshot("s2", ShareKind.CONVERSATION, conversationStatus, Expiry.VALID, 0),
+                    new SeededSnapshot("s3", ShareKind.ANSWER, answerStatus, Expiry.EXPIRED, 0),
+                    new SeededSnapshot("s4", ShareKind.CONVERSATION, conversationStatus, Expiry.NEVER, 0),
+                    new SeededSnapshot("s5", ShareKind.ANSWER, answerStatus, Expiry.VALID, 1));
         }
     }
 }
