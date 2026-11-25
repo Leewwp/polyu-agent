@@ -27,6 +27,10 @@
 停 = 判据函数不被调用、报告 status = "STOPPED" 且没有 criteria 键、控制台不出任何判定行、退出码 3。
 先出错、后被同格有效票盖住的票不停，记在 superseded.resolved_judge_errors 里。
 
+来源留痕（只记不拦）：报告的 inputs 列出命令行读入的每个文件（遍名、重复号、路径、sha256；库入口没有文件，是空表）；
+每一遍的 sources 列出这一遍读入的行里 run、pass 两个字段各自出现过的取值。聚合器不校验来源——同一份文件标成三个
+重复号、或同一组文件标成两遍，都照常求值，只能对着报告核出来。
+
 用法
   命令行（内置判据 = 每题三个重复号 2/3 多数票的通过题数 ≥ --min-pass，默认 15）：
     python3 evaluation/gate_votes/gate_votes.py \\
@@ -44,14 +48,15 @@
   votes = {遍名: {q_id: {重复号: 四个判词字段}}}，只含有效票。
   内置判据 unans_criteria 也是公开的：它拿到 votes 后自己再断言一次每一遍都是 16×3 的格，不是就抛 GateStop。
 
-报告 JSON：schema / status / stop_rules / assertion / passes{遍名: valid_votes, questions, invalid, judge_errors,
-missing, superseded{count, votes, resolved_judge_errors}}；求值通过时另有 criteria。
-只含 q_id、重复号、计数与 error 文本，不含题面与 reason。
+报告 JSON：schema / status / stop_rules / assertion / inputs / passes{遍名: valid_votes, questions, invalid, judge_errors,
+missing, superseded{count, votes, resolved_judge_errors}, sources}；求值通过时另有 criteria。
+只含 q_id、重复号、计数、error 文本与来源字段（run / pass 取值、文件路径与 sha256），不含题面与 reason。
 """
 from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import pathlib
 import sys
@@ -62,6 +67,7 @@ REPEATS = 3
 EXPECTED_VALID_VOTES = EXPECTED_QUESTIONS * REPEATS
 VERDICT_FIELDS = ("correct_handling", "made_unsupported_claim", "wrong_answer", "lang_follow")
 MAJORITY_FIELDS = ("correct_handling", "made_unsupported_claim", "wrong_answer")
+SOURCE_FIELDS = ("run", "pass")
 UNANS_MIN_PASS = 15
 STATUS_JUDGED = "judged"
 STATUS_JUDGE_ERROR = "judge_error"
@@ -193,6 +199,19 @@ def _section(votes: list) -> dict:
     return {"count": len(votes), "q_ids": sorted({v["q_id"] for v in votes}, key=str), "votes": votes}
 
 
+def _sources(repeats) -> dict:
+    """来源留痕：这一遍读入的全部行里，run / pass 两个字段各自出现过的取值（去重、按文本排序，原值保留）。"""
+    out = {}
+    for field in SOURCE_FIELDS:
+        seen = {}
+        for rows in repeats.values():
+            for row in rows:
+                if field in row:
+                    seen.setdefault(json.dumps(row[field], sort_keys=True, ensure_ascii=False, default=str), row[field])
+        out[field] = [seen[text] for text in sorted(seen)]
+    return out
+
+
 def _dropped_vote(q_id, repeat, row: dict, kept: dict) -> dict:
     """一条被同格后来的行盖掉的行：它本是不是有效票、判词是否与留存的那条不同、不是有效票的原因。"""
     bucket, reason = _bucket(row, repeat)
@@ -231,7 +250,8 @@ def _tally_pass(repeats: Mapping) -> tuple:
                "superseded": {"count": len(superseded),
                               "votes": [_dropped_vote(q, r, row, cells[(q, r)]) for q, r, row in superseded],
                               "resolved_judge_errors": [_vote(q, r, error=row.get("error")) for q, r, row in superseded
-                                                        if row.get("row_status") == STATUS_JUDGE_ERROR]}}
+                                                        if row.get("row_status") == STATUS_JUDGE_ERROR]},
+               "sources": _sources(repeats)}
     return section, valid_votes
 
 
@@ -295,10 +315,19 @@ def unans_criteria(votes_by_pass: Mapping[str, Mapping[str, Mapping[int, dict]]]
     return out
 
 
+def _sha256(path) -> "str | None":
+    """输入文件字节的 sha256；文件读不了记 None（读不了本身另有一条停止规则）。"""
+    try:
+        return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+    except (OSError, ValueError):
+        return None
+
+
 def _new_report() -> dict:
     return {"schema": "gate_votes_report.v1", "status": "STOPPED", "stop_rules": [],
             "assertion": {"expected_questions": EXPECTED_QUESTIONS, "repeats": REPEATS,
                           "expected_valid_votes_per_pass": EXPECTED_VALID_VOTES},
+            "inputs": [],
             "passes": {}}
 
 
@@ -403,17 +432,21 @@ def main(argv: Iterable[str] | None = None) -> int:
         except ValueError:
             ap.error(f"--votes 的 REPEAT 必须是整数，得到 {repeat!r}")
     passes: dict = {}
+    inputs: list = []
     try:
         for pass_id, repeat, path in args.votes:
+            inputs.append({"pass": pass_id, "repeat": int(repeat), "file": path, "sha256": _sha256(path)})
             passes.setdefault(pass_id, {}).setdefault(int(repeat), []).extend(load_votes(path))
     except VoteInputError as e:
         report = _new_report()
         report["stop_rules"].append(e.rule)
+        report["inputs"] = inputs
         return _emit(report, args.out)
     try:
         report = aggregate(passes, evaluate=functools.partial(unans_criteria, min_pass=args.min_pass))
     except GateStop as stop:
         report = stop.report
+    report["inputs"] = inputs
     return _emit(report, args.out)
 
 

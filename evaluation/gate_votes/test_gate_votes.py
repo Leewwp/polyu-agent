@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -101,6 +102,10 @@ def files_for(directory, grid):
 def rows_file(path, rows):
     path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
     return path
+
+
+def sha256_of(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # ---------------------------------------------------------------- 负对照：零有效票必须失败
@@ -417,6 +422,8 @@ def test_truncated_line_in_input_stops_without_verdict(tmp_path):
     assert body["status"] == "STOPPED"
     assert body["stop_rules"] == [{"rule": "UNREADABLE_INPUT", "file": str(files[1]), "line": 17,
                                    "detail": "not a JSON object"}]
+    # 停窗报告同样列输入文件：读到出问题的那一个为止
+    assert body["inputs"][1] == {"pass": "on", "repeat": 2, "file": str(files[1]), "sha256": sha256_of(files[1])}
     assert "criteria" not in body
     assert "unans_majority" not in proc.stdout + proc.stderr
 
@@ -431,6 +438,7 @@ def test_input_file_that_does_not_exist_stops_without_verdict(tmp_path):
     assert body["status"] == "STOPPED"
     assert body["stop_rules"] == [{"rule": "UNREADABLE_INPUT", "file": str(absent), "line": None,
                                    "detail": "cannot read"}]
+    assert body["inputs"] == [{"pass": "on", "repeat": 1, "file": str(absent), "sha256": None}]
     assert "criteria" not in body
 
 
@@ -748,6 +756,49 @@ def test_verdict_line_shows_the_threshold_next_to_the_result(tmp_path):
     assert proc.returncode == 0
     assert "unans_majority_pass=15/16" in proc.stdout
     assert "min_pass=1 unans_ge_min_pass=True" in proc.stdout
+
+
+# ---------------------------------------------------------------- 来源留痕：只记不拦（标签贴错由预注册方对着报告核对）
+
+
+def files_tagged_by_repeat(directory):
+    """三个重复号文件，行里的 run 字段各带自己的重复号（fx-r1 / fx-r2 / fx-r3）。"""
+    return files_for(directory, {r: {q: judged(q, run=f"fx-r{r}") for q in QIDS} for r in (1, 2, 3)})
+
+
+def test_report_lists_each_input_file_with_its_sha256(tmp_path):
+    files = files_tagged_by_repeat(tmp_path / "votes")
+
+    proc, body = run_and_load({"on": files}, tmp_path / "report.json")
+
+    assert proc.returncode == 0
+    assert body["inputs"] == [
+        {"pass": "on", "repeat": repeat, "file": str(path), "sha256": sha256_of(path)}
+        for repeat, path in enumerate(files, 1)]
+
+
+def test_same_file_declared_as_three_repeats_is_evaluated_but_its_origin_is_on_record(tmp_path):
+    # 同一份文件标成重复号 1、2、3：「三取二」退化成一票定。聚合器只留痕、不强制——照常求值，
+    # 但报告里这一遍见过的 run 只有 r1 一个，看得出三遍同源
+    files = files_tagged_by_repeat(tmp_path / "votes")
+
+    proc, body = run_and_load({"on": [files[0], files[0], files[0]]}, tmp_path / "report.json")
+
+    assert proc.returncode == 0
+    assert body["passes"]["on"]["sources"] == {"run": ["fx-r1"], "pass": [1]}
+
+
+def test_two_passes_fed_the_same_files_are_evaluated_but_it_is_on_record(tmp_path):
+    # 同一组文件分别标成 on 与 off：同样只留痕。两遍的 sources 与 inputs 里的 sha256 一模一样，对着报告核得出来
+    files = files_tagged_by_repeat(tmp_path / "votes")
+
+    proc, body = run_and_load({"on": files, "off": files}, tmp_path / "report.json")
+
+    assert proc.returncode == 0
+    assert body["passes"]["on"]["sources"] == body["passes"]["off"]["sources"] == {
+        "run": ["fx-r1", "fx-r2", "fx-r3"], "pass": [1]}
+    assert [(i["pass"], i["sha256"]) for i in body["inputs"]] == [
+        (name, sha256_of(path)) for name in ("on", "off") for path in files]
 
 
 # ---------------------------------------------------------------- 内置判据自检：直接调用也过不了断言

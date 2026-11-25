@@ -140,6 +140,9 @@ python3 evaluation/gate_votes/gate_votes.py \
 - 每轮自己的判据走库入口 `gate_votes.aggregate(passes, evaluate=判据函数)`：判据函数只会在所有遍的断言全过后
   被调用一次，入参只含有效票。内置判据 `gate_votes.unans_criteria` 自己也断言格——绕过 `aggregate` 直接调用它，
   拿到的某一遍不是 16×3 就抛 `GateStop`、不求值。命令行不提供调低 48 的开关。
+- **来源留痕（只记不拦）**：报告的 `inputs` 列出命令行读入的每个文件（遍名、重复号、路径、sha256），每一遍的
+  `sources` 列出这一遍的行里 `run`、`pass` 两个字段各自出现过的取值。聚合器不校验来源：同一份文件标成三个重复号、
+  或同一组文件标成两遍，都照常求值，只能对着报告核出来。
 
 本地跑测试（只需 pytest）：`python3 -m pytest evaluation/gate_votes/ -q`。
 
