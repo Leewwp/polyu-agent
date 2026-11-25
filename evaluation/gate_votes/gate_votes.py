@@ -263,11 +263,12 @@ def _new_report() -> dict:
             "passes": {}}
 
 
-def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Callable[[dict], dict] | None = None) -> dict:
+def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Callable[[dict], dict]) -> dict:
     """先对每一遍做有效票断言，全过才求值判据；否则抛 GateStop。
 
-    passes = {遍名: {重复号: [判分行…]}}。evaluate 只在所有遍的断言全过后被调用一次，
+    passes = {遍名: {重复号: [判分行…]}}。evaluate 必填：只在所有遍的断言全过后被调用一次，
     入参 = {遍名: {q_id: {重复号: 判词字段}}}（只含有效票）。
+    status == "EVALUATED" 的报告必然带 criteria——不存在「求值通过、却没有判据」的报告。
     """
     report = _new_report()
     if not passes:
@@ -292,8 +293,7 @@ def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Call
     if report["stop_rules"]:
         raise GateStop(report)
     report["status"] = "EVALUATED"
-    if evaluate is not None:
-        report["criteria"] = evaluate(votes)
+    report["criteria"] = evaluate(votes)
     return report
 
 

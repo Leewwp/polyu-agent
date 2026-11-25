@@ -521,6 +521,12 @@ def test_criteria_are_evaluated_once_with_only_the_valid_votes():
                                    "wrong_answer": False, "lang_follow": True}
 
 
+def test_aggregate_requires_a_criteria_function():
+    # 没有 evaluate 就没有「求值通过」这种状态：EVALUATED 报告必然带 criteria，打印判定行时不会缺键
+    with pytest.raises(TypeError):
+        gv.aggregate({"on": rows_of(full_grid())})
+
+
 def test_two_passes_where_one_is_short_stop_the_whole_run(tmp_path):
     on, off = full_grid(), full_grid()
     off[2]["fx-unans-16"] = judge_error("fx-unans-16")
