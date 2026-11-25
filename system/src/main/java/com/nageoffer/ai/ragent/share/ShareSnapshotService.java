@@ -53,11 +53,6 @@ public interface ShareSnapshotService {
     void revoke(String token, RevocationActor actor);
 
     /**
-     * 注销级联：名下全部 ACTIVE 分享软撤销（行保留，随保留期由 {@link #purgeExpired} 清理）
-     */
-    void revokeOwnedBy(String userId);
-
-    /**
      * 保留任务：硬删 expire_time 到期行（含 REVOKED 行），返回删除行数
      */
     int purgeExpired(Date before);

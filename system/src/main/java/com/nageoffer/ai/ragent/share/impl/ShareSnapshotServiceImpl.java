@@ -19,7 +19,6 @@ package com.nageoffer.ai.ragent.share.impl;
 
 import cn.hutool.core.lang.Assert;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.nageoffer.ai.ragent.framework.context.LoginUser;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
@@ -130,18 +129,6 @@ public class ShareSnapshotServiceImpl implements ShareSnapshotService {
         update.setStatus(STATUS_REVOKED);
         update.setRevokedTime(new Date());
         shareSnapshotMapper.updateById(update);
-    }
-
-    @Override
-    public void revokeOwnedBy(String userId) {
-        Date now = new Date();
-        shareSnapshotMapper.update(null, new LambdaUpdateWrapper<ShareSnapshotDO>()
-                .eq(ShareSnapshotDO::getOwnerUserId, userId)
-                .eq(ShareSnapshotDO::getStatus, STATUS_ACTIVE)
-                .set(ShareSnapshotDO::getStatus, STATUS_REVOKED)
-                .set(ShareSnapshotDO::getRevokedTime, now)
-                // 对齐原级联裸 SQL：软撤销同时回填 update_time（wrapper 更新不走字段自动填充）
-                .set(ShareSnapshotDO::getUpdateTime, now));
     }
 
     @Override

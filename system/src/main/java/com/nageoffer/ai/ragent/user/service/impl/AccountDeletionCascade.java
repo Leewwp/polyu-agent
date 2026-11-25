@@ -19,7 +19,6 @@ package com.nageoffer.ai.ragent.user.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.IdUtil;
-import com.nageoffer.ai.ragent.share.ShareSnapshotService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,13 +35,14 @@ import java.util.HexFormat;
 /**
  * 账号硬删级联：自助注销到期清理、guest 到期清理与 admin 删号三个调用方共用同一套动作。
  *
- * <p>跨模块表（rag 的会话/消息/反馈/分享、agent 的会话/消息/记忆/工具调用审计）经 JdbcTemplate 直 SQL
+ * <p>跨模块表（rag 的会话/消息/反馈、agent 的会话/消息/记忆/工具调用审计）经 JdbcTemplate 直 SQL
  * 触达——system 模块被 rag 依赖，不能反向引用其 mapper；用户数据表非知识调度域，直 SQL 是
- * 最小侵入的落点。级联内容：
+ * 最小侵入的落点。分享快照表与本类同在 system 模块，同样走直 SQL：级联发出的 SQL 全部落在
+ * JdbcTemplate 上，schema 覆盖断言才看得全。级联内容：
  * <ul>
  *   <li>对话两族（t_conversation/t_message + t_agent_*）随账号物理删除（注销随删）</li>
  *   <li>反馈匿名化断链（user_id 置哨兵 '0'，行保留 400 天由保留期任务清理）</li>
- *   <li>名下有效分享快照撤销（公开面立即失效；行由 90 天保留期任务清理）</li>
+ *   <li>名下分享快照随账号物理删除，含已撤销的行（行内存着对话正文，置删除标志删不掉内容）</li>
  *   <li>email 转 SHA-256 墓碑存 180 天（防重复注册滥用回查，幂等 upsert）</li>
  *   <li>用户行物理删除 + Sa-Token 会话全端下线</li>
  * </ul>
@@ -63,7 +63,6 @@ public class AccountDeletionCascade {
     private static final int EMAIL_TOMBSTONE_DAYS = 180;
 
     private final JdbcTemplate jdbcTemplate;
-    private final ShareSnapshotService shareSnapshotService;
 
     /**
      * 对指定用户执行硬删级联（事务内）。调用方负责前置校验（密码确认/权限/冷静期到期）
@@ -93,10 +92,9 @@ public class AccountDeletionCascade {
                 "UPDATE t_message_feedback SET user_id = '" + ANONYMOUS_USER_ID
                         + "', update_time = CURRENT_TIMESTAMP WHERE user_id = ?",
                 userId);
-        // 名下有效分享撤销：不删行（快照保留期 90 天），公开访问立即失效。
-        // issue #124 起两粒度统一走 ShareSnapshotService.revokeOwnedBy——此前两段手写表名
-        // SQL 曾漏掉 agent 侧（#104 级联补洞：注销硬删后 ACTIVE 链接继续公开可访问的隐私缺陷）
-        shareSnapshotService.revokeOwnedBy(userId);
+        // 名下分享快照物理删除：行内存着对话正文，置删除标志删不掉内容，所以删行不置标志，已撤销的行一并删。
+        // 答案分享与会话分享两种粒度合表（t_share_snapshot），按 owner_user_id 一条语句覆盖
+        jdbcTemplate.update("DELETE FROM t_share_snapshot WHERE owner_user_id = ?", userId);
         // 邮箱墓碑（180 天回查；同邮箱再注销刷新过期时间）
         if (email != null && !email.isBlank()) {
             jdbcTemplate.update(
