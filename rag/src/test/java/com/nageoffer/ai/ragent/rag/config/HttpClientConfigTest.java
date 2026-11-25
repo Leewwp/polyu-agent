@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.rag.config;
 
+import com.nageoffer.ai.ragent.rag.security.GuardedDns;
+import com.nageoffer.ai.ragent.rag.security.IngestionUrlGuard;
 import okhttp3.OkHttpClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,7 +34,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class HttpClientConfigTest {
 
+    /**
+     * 本仓的 {@link HttpClientConfig} 另有 {@code guardedHttpClient(IngestionUrlGuard)}，上下文要带上这个依赖
+     */
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            .withBean(IngestionUrlGuard.class)
             .withUserConfiguration(HttpClientConfig.class);
 
     @Test
@@ -42,9 +48,15 @@ class HttpClientConfigTest {
             OkHttpClient jev = context.getBean("jevHttpClient", OkHttpClient.class);
             OkHttpClient sync = context.getBean("syncHttpClient", OkHttpClient.class);
             OkHttpClient streaming = context.getBean("streamingHttpClient", OkHttpClient.class);
+            OkHttpClient guarded = context.getBean("guardedHttpClient", OkHttpClient.class);
 
             assertThat(jev.connectionPool()).isNotSameAs(sync.connectionPool());
             assertThat(jev.connectionPool()).isNotSameAs(streaming.connectionPool());
+            // 守卫客户端照旧由 sync 派生（共池 + 连接层 DNS 复校）；Jev 端点来自配置，属受信调用，不挂守卫
+            assertThat(guarded.connectionPool()).isSameAs(sync.connectionPool());
+            assertThat(jev.connectionPool()).isNotSameAs(guarded.connectionPool());
+            assertThat(guarded.dns()).isInstanceOf(GuardedDns.class);
+            assertThat(jev.dns()).isNotInstanceOf(GuardedDns.class);
         });
     }
 
