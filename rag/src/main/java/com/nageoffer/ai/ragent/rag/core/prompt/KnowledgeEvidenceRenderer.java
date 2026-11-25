@@ -29,6 +29,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 把检索证据渲染成 search_knowledge 交给主 Agent 的资料原文
@@ -56,7 +57,10 @@ public class KnowledgeEvidenceRenderer {
 
         StringBuilder out = new StringBuilder("<retrieval>\n");
         if (!rules.isEmpty()) {
-            out.append("<rules>\n").append(String.join("\n", rules)).append("\n</rules>\n");
+            // 意图答题规则由管理员在意图树上配置，进了 rules 围栏就是数据：里面的字面标签先中和
+            out.append("<rules>\n")
+                    .append(rules.stream().map(PromptFenceSanitizer::neutralize).collect(Collectors.joining("\n")))
+                    .append("\n</rules>\n");
         }
         groupByDocument(distinct.values()).forEach(group -> out.append(renderDocument(group)));
         return out.append("</retrieval>").toString();
@@ -91,7 +95,8 @@ public class KnowledgeEvidenceRenderer {
             if (i > 0 && !adjacent(previous, chunk.getChunkIndex())) {
                 out.append(GAP).append('\n');
             }
-            out.append(StrUtil.emptyIfNull(chunk.getText()).strip()).append('\n');
+            // 与 WorkFlow 的 joinDocBody 同一个中和器（O8）：资料原文里的字面标签不能闭合或伪造外层围栏
+            out.append(PromptFenceSanitizer.neutralize(StrUtil.emptyIfNull(chunk.getText()).strip())).append('\n');
             previous = chunk.getChunkIndex();
         }
         return out.append("</document>\n").toString();

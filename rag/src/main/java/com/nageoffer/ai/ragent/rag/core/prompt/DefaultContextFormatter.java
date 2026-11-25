@@ -139,7 +139,9 @@ public class DefaultContextFormatter implements ContextFormatter {
         if (StrUtil.isBlank(snippet)) {
             return "";
         }
-        return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "snippet-rules", Map.of("rules", snippet));
+        // 意图答题规则由管理员在意图树上配置，进了 rules 围栏就是数据：里面的字面标签先中和
+        return templateLoader.renderSection(CONTEXT_FORMAT_PATH, "snippet-rules",
+                Map.of("rules", PromptFenceSanitizer.neutralize(snippet)));
     }
 
     /**

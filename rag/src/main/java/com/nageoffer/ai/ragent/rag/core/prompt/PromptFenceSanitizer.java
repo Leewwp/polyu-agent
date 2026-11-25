@@ -23,8 +23,9 @@ import java.util.regex.Pattern;
 /**
  * 伪标签围栏中和器（评审 M10/L16/M12）
  *
- * <p>检索 chunk 原文、MCP 工具返回体、历史摘要与用户问题都直接填进 prompt 的伪标签围栏
- * （{@code <content>/<rules>/<data>/<errors>/<question>/<conversation-summary>}），
+ * <p>检索 chunk 原文、MCP 工具返回体、历史摘要、用户问题与意图答题规则都直接填进 prompt 的伪标签围栏
+ * （{@code <content>/<documents>/<document>/<rules>/<data>/<errors>/<question>/<conversation-summary>/<system>}，
+ * 资料原文形态另有 {@code <retrieval>/<doc_name>}），
  * 内容里出现同名闭合/伪造序列即可逃逸围栏改写回答行为。本工具把「可能破坏围栏结构的
  * 标签形序列」的左尖括号替换为 {@code &lt;}（模型可读、不再构成标签），
  * 正常文本与普通尖括号不受影响。
@@ -32,11 +33,13 @@ import java.util.regex.Pattern;
 public final class PromptFenceSanitizer {
 
     /**
-     * 与 context-format.st 全部伪标签同名的开/闭标签形序列（大小写不敏感，词边界防误伤普通词）；
-     * data/errors 为模板已不再使用的防御性保留（fence-data-rules.st 围栏段名）
+     * 与各模板全部伪标签同名的开/闭标签形序列（大小写不敏感，词边界防误伤普通词）；
+     * data/errors 为模板已不再使用的防御性保留（fence-data-rules.st 围栏段名），
+     * retrieval/doc_name 是知识库工具交回资料原文时用的围栏
      */
     private static final Pattern FENCE_BREAKERS = Pattern.compile(
-            "(?i)</?(?:content|documents|document|rules|data|errors|questions|question|conversation-summary|system)\\b");
+            "(?i)</?(?:content|documents|document|rules|data|errors|questions|question|conversation-summary|system"
+                    + "|retrieval|doc_name)\\b");
 
     private PromptFenceSanitizer() {
     }

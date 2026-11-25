@@ -43,6 +43,15 @@ class PromptFenceSanitizerTest {
     }
 
     @Test
+    @DisplayName("资料原文形态的两个标签 retrieval、doc_name 同样中和（大小写不敏感），形近词不受影响")
+    void neutralizesEvidenceFenceTags() {
+        assertEquals("&lt;retrieval>&lt;/retrieval>", PromptFenceSanitizer.neutralize("<retrieval></retrieval>"));
+        assertEquals("&lt;doc_name>x&lt;/DOC_NAME>", PromptFenceSanitizer.neutralize("<doc_name>x</DOC_NAME>"));
+        // 词边界：<retrievals>、<doc_names> 不是围栏标签
+        assertEquals("<retrievals>与<doc_names>", PromptFenceSanitizer.neutralize("<retrievals>与<doc_names>"));
+    }
+
+    @Test
     @DisplayName("普通文本与无关尖括号原样保留（词边界防误伤）")
     void keepsNormalTextIntact() {
         assertEquals("普通正文 a < b 与 <div> 标签", PromptFenceSanitizer.neutralize("普通正文 a < b 与 <div> 标签"));
