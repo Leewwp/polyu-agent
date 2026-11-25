@@ -110,12 +110,13 @@ python3 make_calibration_sheet.py --dir $RAW --n 20 \
 | `gen_chains.py` / `run_chains.py` / `judge_b.py` / `summarize_b.py` | agent.memory 评测：链生成/跑链/盲评裁判/体积汇总 |
 | `redteam/` | 红队探针回归夹具：`probes-redteam-public-v1.jsonl`（12 题，注入/越狱/完全无关/纯闲聊/诱导编造五类，中英各半）+ `run_probes.py`（/rag/v3/chat SSE 采集）+ `judge_redteam.py`（机械禁例层 + LLM 行为判层，判分合同见脚本 docstring；终判人工合议）——题集 schema 与跑法见 `redteam/README.md` |
 | `profile_assertion/` | 轨迹「调用画像」断言面（judge-free）：`profile_assertor.py` 纯函数比对器（blocks JSON × expected_tool_profile 四要素）+ `sampler.py`（login→/agent/v1/chat 空会话采样→finish.messageId 锚点，批2 live 轮用）+ `replay.py`（本地库历史 run 回放）；合成夹具确定性测试进 CI（backend.yml，零 LLM/零 DB/零 secret），私有题集 gitignored 不入仓——模块文档见 `profile_assertion/` 各脚本 docstring |
-| `gate_votes/` | 门轮不可答面聚合器：`gate_votes.py` 在判据求值之前断言每一遍有效票正好 48（16 题 × 3 个重复号），不足即停（退出码 3、报告写明实际有效票数、不出判定行）；INVALID 票单列、不计入有效票；判分器出错进停止规则并留痕。纯标准库、零 LLM/零网络；`fixtures/` 是两份合成对照（零有效票负对照、48 有效票正对照），`test_gate_votes.py` 是确定性测试——契约见脚本 docstring 与下文「门轮有效票断言」节 |
+| `gate_votes/` | 门轮（gate round，见下文该节）里不可答面题的聚合器：`gate_votes.py` 在判据求值之前断言每一遍有效票正好 48（16 题 × 3 个重复号），不足即停（退出码 3、报告写明实际有效票数、不出判定行）；INVALID 票单列、不计入有效票；判分器出错进停止规则并留痕。纯标准库、零 LLM/零网络；`fixtures/` 是两份合成对照（零有效票负对照、48 有效票正对照），`test_gate_votes.py` 是确定性测试——契约见脚本 docstring 与下文「门轮有效票断言」节 |
 
 ## 门轮有效票断言（gate_votes）
 
-门轮不可答面的聚合只经 `gate_votes/gate_votes.py` 走：**判据求值之前先断言每一遍的有效票正好 48**
-（16 题 × 3 个重复号），任何一遍不足即停——不出过门或不过门的结论。
+门轮（gate round）指决定一次上游变更能否放行的评测轮次；其中有一类题专测系统面对「本不该回答的问题」时是否
+正确拒答，下称不可答面。不可答面的聚合只经 `gate_votes/gate_votes.py` 走：**判据求值之前先断言每一遍的有效票
+正好 48**（16 题 × 3 个重复号），任何一遍不足即停——不出通过或不通过的结论。
 
 ```bash
 # 每遍三个重复号各给一个判分输出文件；同一 (PASS, REPEAT) 可给多个文件（如补判输出），按给定顺序读入
