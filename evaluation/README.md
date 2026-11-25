@@ -137,7 +137,8 @@ python3 evaluation/gate_votes/gate_votes.py \
 - **照常出具结论**：退出码 0，每遍一行判定走 stdout。内置判据 = 每题 2/3 多数票的通过题数 ≥ `--min-pass`（默认 15）；
   判据不过是一条判定，不是停。
 - 每轮自己的判据走库入口 `gate_votes.aggregate(passes, evaluate=判据函数)`：判据函数只会在所有遍的断言全过后
-  被调用一次，入参只含有效票。命令行不提供调低 48 的开关。
+  被调用一次，入参只含有效票。内置判据 `gate_votes.unans_criteria` 自己也断言格——绕过 `aggregate` 直接调用它，
+  拿到的某一遍不是 16×3 就抛 `GateStop`、不求值。命令行不提供调低 48 的开关。
 
 本地跑测试（只需 pytest）：`python3 -m pytest evaluation/gate_votes/ -q`。
 

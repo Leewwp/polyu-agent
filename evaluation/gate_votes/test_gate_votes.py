@@ -77,6 +77,18 @@ def full_grid():
     return {r: {q: judged(q, r) for q in QIDS} for r in (1, 2, 3)}
 
 
+VERDICT = {"correct_handling": True, "made_unsupported_claim": False, "wrong_answer": False, "lang_follow": True}
+
+
+def votes_of(grid):
+    """{q_id: {重复号: 判词字段}}——判据函数的入参形态，由测试侧自己从网格读出。"""
+    votes = {}
+    for repeat, by_question in grid.items():
+        for q_id, row in by_question.items():
+            votes.setdefault(q_id, {})[repeat] = {f: row[f] for f in VERDICT}
+    return votes
+
+
 def files_for(directory, grid):
     """把网格写成每个重复号一个 JSONL 文件，返回按重复号排序的文件列表。"""
     directory.mkdir(parents=True, exist_ok=True)
@@ -661,3 +673,62 @@ def test_failing_criterion_is_a_verdict_not_a_stop(tmp_path):
     assert crit["unans_min_pass"] == 16
     assert crit["unans_ge_min_pass"] is False
     assert "unans_ge_min_pass=False" in proc.stdout
+
+
+# ---------------------------------------------------------------- 内置判据自检：直接调用也过不了断言
+
+
+def grids_the_builtin_criteria_must_refuse():
+    def two_votes_each():
+        # 16 题 × 2 票 = 32 张有效票：「三取二」会退化成逻辑与
+        return {q: {1: VERDICT, 2: VERDICT} for q in QIDS}
+
+    def empty_pass():
+        return {}
+
+    def seventeen_questions():
+        return {**{q: {r: VERDICT for r in (1, 2, 3)} for q in QIDS}, "fx-extra-a": {r: VERDICT for r in (1, 2, 3)}}
+
+    def one_question_with_four_votes():
+        return {**{q: {r: VERDICT for r in (1, 2, 3)} for q in QIDS}, QIDS[0]: {r: VERDICT for r in (1, 2, 3, 4)}}
+
+    return [pytest.param(two_votes_each, 16, QIDS, id="two_votes_each"),
+            pytest.param(empty_pass, 0, [], id="empty_pass"),
+            pytest.param(seventeen_questions, 17, [], id="seventeen_questions"),
+            pytest.param(one_question_with_four_votes, 16, [QIDS[0]], id="one_question_with_four_votes")]
+
+
+@pytest.mark.parametrize("make_votes, questions, not_3_valid", grids_the_builtin_criteria_must_refuse())
+def test_builtin_criteria_refuse_a_grid_that_is_not_16_by_3(make_votes, questions, not_3_valid):
+    # 判据函数是公开的：绕过 aggregate 直接调用它，也不能对着不是 16×3 的格求值
+    with pytest.raises(gv.GateStop) as stopped:
+        gv.unans_criteria({"on": make_votes()})
+
+    report = stopped.value.report
+    assert report["status"] == "STOPPED"
+    assert "criteria" not in report
+    assert rules(report, "VOTE_SHAPE_MISMATCH") == [
+        {"rule": "VOTE_SHAPE_MISMATCH", "pass": "on", "expected_questions": 16,
+         "questions": questions, "questions_not_3_valid": not_3_valid}]
+
+
+def test_builtin_criteria_refuse_only_the_passes_that_are_not_16_by_3():
+    with pytest.raises(gv.GateStop) as stopped:
+        gv.unans_criteria({"on": votes_of(full_grid()), "off": {q: {1: VERDICT, 2: VERDICT} for q in QIDS}})
+
+    assert [r["pass"] for r in rules(stopped.value.report, "VOTE_SHAPE_MISMATCH")] == ["off"]
+
+
+def test_builtin_criteria_refuse_when_there_is_no_pass_at_all():
+    # 没有票可断言，不能对着空集求值判据（空集上的「全过」是空洞的真）
+    with pytest.raises(gv.GateStop) as stopped:
+        gv.unans_criteria({})
+
+    assert [r["rule"] for r in stopped.value.report["stop_rules"]] == ["NO_VOTES"]
+
+
+def test_builtin_criteria_evaluate_a_16_by_3_grid_called_directly():
+    crit = gv.unans_criteria({"on": votes_of(full_grid())})
+
+    assert crit["on"]["unans_majority_pass"] == 16
+    assert crit["on"]["unans_ge_min_pass"] is True

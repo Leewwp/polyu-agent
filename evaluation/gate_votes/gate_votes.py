@@ -41,6 +41,7 @@
     except gate_votes.GateStop as stop:
         report = stop.report
   votes = {遍名: {q_id: {重复号: 四个判词字段}}}，只含有效票。
+  内置判据 unans_criteria 也是公开的：它拿到 votes 后自己再断言一次每一遍都是 16×3 的格，不是就抛 GateStop。
 
 报告 JSON：schema / status / stop_rules / assertion / passes{遍名: valid_votes, questions, invalid, judge_errors,
 missing, superseded{count, votes, resolved_judge_errors}}；求值通过时另有 criteria。
@@ -211,8 +212,35 @@ def _rule_line(rule: dict) -> str:
     return rule["rule"]
 
 
+def _no_votes_rule() -> dict:
+    return {"rule": "NO_VOTES", "expected_valid_votes_per_pass": EXPECTED_VALID_VOTES}
+
+
+def _shape_rule(name: str, questions: int, valid_votes: Mapping) -> dict | None:
+    """这一遍不是「EXPECTED_QUESTIONS 个 q_id、每个在重复号 1..REPEATS 各一张有效票」时，返回 VOTE_SHAPE_MISMATCH 条目。"""
+    wanted = list(range(1, REPEATS + 1))
+    not_3_valid = sorted(q for q, reps in valid_votes.items() if sorted(reps) != wanted)
+    if questions != EXPECTED_QUESTIONS or not_3_valid:
+        return {"rule": "VOTE_SHAPE_MISMATCH", "pass": name, "expected_questions": EXPECTED_QUESTIONS,
+                "questions": questions, "questions_not_3_valid": not_3_valid}
+    return None
+
+
 def unans_criteria(votes_by_pass: Mapping[str, Mapping[str, Mapping[int, dict]]], min_pass: int = UNANS_MIN_PASS) -> dict:
-    """内置判据面（不可答面多数票）：每题三个重复号 2/3 多数 → 通过题数；判据 = 通过题数 ≥ min_pass。"""
+    """内置判据面（不可答面多数票）：每题三个重复号 2/3 多数 → 通过题数；判据 = 通过题数 ≥ min_pass。
+
+    它是公开的，所以自己先断言：votes_by_pass 里有一遍不是 16×3 的格（或一遍都没有），就抛 GateStop、不求值——
+    与 aggregate 是同一条格断言，绕过 aggregate 直接调用它也过不了。
+    """
+    report = _new_report()
+    if not votes_by_pass:
+        report["stop_rules"].append(_no_votes_rule())
+    for name, by_question in votes_by_pass.items():
+        rule = _shape_rule(name, len(by_question), by_question)
+        if rule:
+            report["stop_rules"].append(rule)
+    if report["stop_rules"]:
+        raise GateStop(report)
     out = {}
     for name, by_question in votes_by_pass.items():
         detail, fails = {}, []
@@ -236,14 +264,14 @@ def _new_report() -> dict:
 
 
 def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Callable[[dict], dict] | None = None) -> dict:
-    """单一入口：先对每一遍做有效票断言，全过才求值判据；否则抛 GateStop。
+    """先对每一遍做有效票断言，全过才求值判据；否则抛 GateStop。
 
     passes = {遍名: {重复号: [判分行…]}}。evaluate 只在所有遍的断言全过后被调用一次，
     入参 = {遍名: {q_id: {重复号: 判词字段}}}（只含有效票）。
     """
     report = _new_report()
     if not passes:
-        report["stop_rules"].append({"rule": "NO_VOTES", "expected_valid_votes_per_pass": EXPECTED_VALID_VOTES})
+        report["stop_rules"].append(_no_votes_rule())
         raise GateStop(report)
     votes = {}
     for name, repeats in passes.items():
@@ -258,12 +286,9 @@ def aggregate(passes: Mapping[str, Mapping[int, Sequence[dict]]], evaluate: Call
             report["stop_rules"].append({"rule": "JUDGE_ERROR", "pass": name,
                                          "count": section["judge_errors"]["count"],
                                          "q_ids": section["judge_errors"]["q_ids"]})
-        not_3_valid = sorted(q for q, reps in valid_votes.items() if len(reps) != REPEATS)
-        if section["questions"] != EXPECTED_QUESTIONS or not_3_valid:
-            report["stop_rules"].append({"rule": "VOTE_SHAPE_MISMATCH", "pass": name,
-                                         "expected_questions": EXPECTED_QUESTIONS,
-                                         "questions": section["questions"],
-                                         "questions_not_3_valid": not_3_valid})
+        rule = _shape_rule(name, section["questions"], valid_votes)
+        if rule:
+            report["stop_rules"].append(rule)
     if report["stop_rules"]:
         raise GateStop(report)
     report["status"] = "EVALUATED"
