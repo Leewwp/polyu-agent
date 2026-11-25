@@ -727,6 +727,21 @@ def test_repeat_number_that_is_not_an_integer_is_rejected(tmp_path):
     assert "Traceback" not in proc.stderr
 
 
+def test_usage_error_leaves_an_earlier_report_untouched(tmp_path):
+    # 用法错误（退出码 2）不写报告：上一轮留在同一个 --out 的报告原样还在，仍是 EVALUATED、仍带 criteria。
+    # 所以下游只认「退出码 0 且 status == EVALUATED」，并且每一轮用新的 --out
+    files = files_for(tmp_path / "votes", full_grid())
+    report = tmp_path / "report.json"
+    assert run_and_load({"on": files}, report)[0].returncode == 0
+    before = report.read_text(encoding="utf-8")
+
+    proc = run_cli([("on", "1", files[0]), ("on", "x", files[1]), ("on", "3", files[2])], report)
+
+    assert proc.returncode == 2
+    assert report.read_text(encoding="utf-8") == before
+    assert json.loads(before)["status"] == "EVALUATED"
+
+
 def test_row_without_q_id_is_invalid(tmp_path):
     grid = full_grid()
     grid[1]["fx-unans-06"] = {**judged("fx-unans-06"), "q_id": None}

@@ -137,6 +137,8 @@ python3 evaluation/gate_votes/gate_votes.py \
   题数数的是这一遍出现过的全部 q_id（含只有 INVALID 行的题），比「有效票正好 48」更严：48 票旁边多出一行
   带新 q_id 的 INVALID 也会停。
 - **停**：退出码 3，停窗行走 stderr，报告 `status = "STOPPED"`、写明每遍实际有效票数、没有 `criteria` 键。
+- **只认退出码 0 且报告 `status == "EVALUATED"`，每一轮用新的 `--out` 路径**：用法错误（如 REPEAT 不是整数，退出码 2）
+  不写报告，上一轮留在同一个路径的报告会原样留着——只看报告文件、不看退出码的下游会读到旧的判定。
 - **照常出具结论**：退出码 0，每遍一行判定走 stdout，判定行印出门槛（`min_pass=N`）。内置判据 = 每题 2/3 多数票的
   通过题数 ≥ `--min-pass`（默认 15）；判据不过是一条判定，不是停。
 - 每轮自己的判据走库入口 `gate_votes.aggregate(passes, evaluate=判据函数)`：判据函数只会在所有遍的断言全过后
