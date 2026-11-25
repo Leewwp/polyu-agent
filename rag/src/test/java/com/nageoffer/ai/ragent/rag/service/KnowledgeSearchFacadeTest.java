@@ -21,11 +21,13 @@ import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.rag.config.RAGConfigProperties;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
+import com.nageoffer.ai.ragent.rag.core.prompt.KnowledgeEvidenceRenderer;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
@@ -39,6 +41,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -54,7 +58,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 门面契约：内部 docId 不得随工具结果外泄，近期轮次要喂到改写
+ * 门面契约：知识库作答形态在门面边界分流（默认合成；取 evidence 交回资料原文），
+ * 内部 docId 不得随工具结果外泄，近期轮次要喂到改写
  */
 class KnowledgeSearchFacadeTest {
 
@@ -72,6 +77,7 @@ class KnowledgeSearchFacadeTest {
     private final RetrievalEngine retrievalEngine = mock(RetrievalEngine.class);
     private final RAGPromptService promptService = mock(RAGPromptService.class);
     private final LLMService llmService = mock(LLMService.class);
+    private final KnowledgeEvidenceRenderer evidenceRenderer = mock(KnowledgeEvidenceRenderer.class);
 
     /**
      * 引用开关开着也不能漏：门面这条路不装配来源，锚点只能被抹掉不能被翻译成编号
@@ -251,11 +257,104 @@ class KnowledgeSearchFacadeTest {
     }
 
     private KnowledgeSearchFacade facade(boolean citationEnabled) {
+        return facade(citationEnabled, new SearchChannelProperties(), evidenceRenderer);
+    }
+
+    private KnowledgeSearchFacade facade(boolean citationEnabled, SearchChannelProperties search,
+                                         KnowledgeEvidenceRenderer renderer) {
         RAGConfigProperties properties = new RAGConfigProperties();
         properties.setCitationEnabled(citationEnabled);
         when(guidanceService.detectAmbiguity(anyString(), anyList())).thenReturn(GuidanceDecision.none());
         return new KnowledgeSearchFacade(queryRewriteService, intentResolver, guidanceService, retrievalEngine,
-                new CitationContextEnricher(properties), promptService, llmService, knowledgeDocumentMapper);
+                new CitationContextEnricher(properties), promptService, llmService, knowledgeDocumentMapper,
+                renderer, search);
+    }
+
+    /**
+     * 取 evidence 的门面：渲染器用真的，文档名开关按入参
+     */
+    private KnowledgeSearchFacade evidenceFacade(boolean includeDocName) {
+        SearchChannelProperties search = new SearchChannelProperties();
+        search.setKnowledgeAnswerForm(SearchChannelProperties.KnowledgeAnswerForm.EVIDENCE);
+        search.setIncludeDocName(includeDocName);
+        return facade(false, search, new KnowledgeEvidenceRenderer(search));
+    }
+
+    /**
+     * 开关缺省走合成：资料原文渲染器一次都不碰，答案来自工具内的合成
+     */
+    @Test
+    void synthesizedFormIsTheDefaultAndNeverRendersEvidence() {
+        stubRetrievalHit();
+
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = facade(false).searchWithSources(QUESTION);
+
+        assertEquals("差旅报销上限 800 元", outcome.answer());
+        verify(evidenceRenderer, never()).render(anyList(), anyList());
+    }
+
+    /**
+     * 资料原文：按文档归组的 retrieval 文本，工具内不合成；来源徽章照旧带出，docId 只走旁路
+     */
+    @Test
+    void evidenceFormReturnsSourceTextWithBadgesAndWithoutSynthesis() {
+        stubEvidenceHit();
+
+        KnowledgeSearchFacade.KnowledgeSearchOutcome outcome = evidenceFacade(false).searchWithSources(QUESTION, "zh");
+
+        assertEquals("<retrieval>\n<document>\n差旅报销上限 800 元\n</document>\n</retrieval>", outcome.answer());
+        assertEquals(List.of("doc-a"),
+                outcome.sources().stream().map(KnowledgeSearchFacade.KnowledgeSearchSource::docId).toList());
+        verify(promptService, never()).buildStructuredMessages(
+                any(), anyList(), anyString(), anyList(), anyBoolean(), any());
+        verify(llmService, never()).chat(any());
+    }
+
+    @Test
+    void evidenceFormPutsDocNameFirstOnlyWhenDocNameSwitchIsOn() {
+        stubEvidenceHit();
+
+        String result = evidenceFacade(true).searchWithSources(QUESTION).answer();
+
+        assertEquals("<retrieval>\n<document>\n<doc_name>差旅制度.md</doc_name>\n差旅报销上限 800 元\n</document>\n</retrieval>",
+                result);
+    }
+
+    /**
+     * 规则带意图全路径（叶子可能同名）；没留下资料的子问题，其意图虽仍 eligible，也不输出规则
+     */
+    @Test
+    void evidenceFormLabelsRulesByIntentPathAndSkipsIntentsWithoutEvidence() {
+        stubEvidenceHit();
+        when(intentResolver.mergeKbIntents(anyList())).thenReturn(List.of(
+                rule("kb-1", "数据安全", "手机服务 > 数据安全", "先说要不要备份"),
+                rule("kb-2", "数据安全", "账户服务 > 数据安全", "先确认账号归属"),
+                rule("kb-3", "以旧换新", "售后服务 > 以旧换新", "先说能不能折抵")));
+        when(retrievalEngine.retrieve(anyList())).thenReturn(
+                evidenceHit(Set.of("kb-1", "kb-2", "kb-3"), Set.of("kb-1", "kb-2")));
+
+        String result = evidenceFacade(false).searchWithSources(QUESTION).answer();
+
+        assertTrue(result.contains(
+                "<rules>\n[手机服务 > 数据安全] 先说要不要备份\n[账户服务 > 数据安全] 先确认账号归属\n</rules>"), result);
+        assertFalse(result.contains("以旧换新"), result);
+    }
+
+    /**
+     * 没留下分片：按本轮语言出一句未检索到，渲染器与合成都不碰
+     */
+    @Test
+    void evidenceFormReturnsLocalizedNoticeWhenNothingRetrieved() {
+        stubEvidenceHit();
+        when(retrievalEngine.retrieve(anyList())).thenReturn(RetrievalContext.builder().build());
+
+        assertEquals("未在知识库中检索到与该问题相关的内容。",
+                evidenceFacade(false).searchWithSources(QUESTION, "zh").answer());
+        assertEquals("No relevant content was found in the knowledge base for this question.",
+                evidenceFacade(false).searchWithSources(QUESTION, "en").answer());
+        assertEquals("未在知识库中检索到与该问题相关的内容。",
+                evidenceFacade(false).searchWithSources(QUESTION).answer());
+        verify(llmService, never()).chat(any());
     }
 
     /**
@@ -289,6 +388,38 @@ class KnowledgeSearchFacadeTest {
                 facade(false).searchWithSources(QUESTION, "en").answer());
         assertEquals("未在知识库中检索到与该问题相关的内容。",
                 facade(false).searchWithSources(QUESTION, null).answer());
+    }
+
+    private void stubEvidenceHit() {
+        NodeScore kbNode = NodeScore.builder()
+                .node(IntentNode.builder().id("kb-1").build())
+                .score(1.0D)
+                .build();
+        when(queryRewriteService.rewriteWithSplit(anyString(), anyList()))
+                .thenReturn(new RewriteResult(QUESTION, List.of(QUESTION)));
+        when(intentResolver.resolve(any(RewriteResult.class)))
+                .thenReturn(List.of(new SubQuestionIntent(QUESTION, List.of(kbNode))));
+        when(intentResolver.mergeKbIntents(anyList())).thenReturn(List.of(kbNode));
+        when(retrievalEngine.retrieve(anyList())).thenReturn(evidenceHit(Set.of("kb-1"), Set.of("kb-1")));
+    }
+
+    private static RetrievalContext evidenceHit(Set<String> eligibleIntentIds, Set<String> evidencedIntentIds) {
+        RetrievedChunk chunk = RetrievedChunk.builder()
+                .id("chunk-1").docId("doc-a").docName("差旅制度.md").chunkIndex(0).score(0.9F)
+                .text("差旅报销上限 800 元").build();
+        return RetrievalContext.builder()
+                .contextChunks(List.of(chunk))
+                .intentChunks(Map.of("kb-1", List.of(chunk)))
+                .eligibleIntentIds(eligibleIntentIds)
+                .evidencedIntentIds(evidencedIntentIds)
+                .build();
+    }
+
+    private static NodeScore rule(String id, String name, String fullPath, String snippet) {
+        return NodeScore.builder()
+                .node(IntentNode.builder().id(id).name(name).fullPath(fullPath).promptSnippet(snippet).build())
+                .score(1.0D)
+                .build();
     }
 
     private void stubRetrievalHit() {

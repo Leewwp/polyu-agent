@@ -33,6 +33,7 @@ import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.DefaultContextFormatter;
+import com.nageoffer.ai.ragent.rag.core.prompt.KnowledgeEvidenceRenderer;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.KnowledgeRetrievalResult;
@@ -348,7 +349,8 @@ class KnowledgeToolOffStateSnapshotTest {
             RAGPromptService promptService = new RAGPromptService(templates, prompts, rag);
 
             facade = new KnowledgeSearchFacade(rewrite, intentResolver, guidance, engine,
-                    new CitationContextEnricher(rag), promptService, llm, documents);
+                    new CitationContextEnricher(rag), promptService, llm, documents,
+                    new KnowledgeEvidenceRenderer(search), search);
 
             when(llm.chat(any(ChatRequest.class))).thenAnswer(invocation -> {
                 llmRequests.add(invocation.getArgument(0));

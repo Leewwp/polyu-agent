@@ -26,6 +26,8 @@ import com.nageoffer.ai.ragent.audit.support.BizChangeLogContext;
 import com.nageoffer.ai.ragent.framework.exception.ClientException;
 import com.nageoffer.ai.ragent.rag.config.OrchestrationMode;
 import com.nageoffer.ai.ragent.rag.config.OrchestrationProperties;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties.KnowledgeAnswerForm;
 import com.nageoffer.ai.ragent.rag.controller.request.AgentProfileSaveRequest;
 import com.nageoffer.ai.ragent.rag.controller.request.AgentPromptSaveRequest;
 import com.nageoffer.ai.ragent.rag.controller.vo.AgentProfileListVO;
@@ -65,10 +67,15 @@ public class AgentProfileAdminServiceImpl implements AgentProfileAdminService {
     private final AgentPromptCacheManager cacheManager;
     private final OrchestrationProperties orchestrationProperties;
     private final BizChangeLogContext bizChangeLogContext;
+    /**
+     * 知识库作答形态：KB_ANSWER 在 Agent 档位是否被读取、工具声明的编辑提醒，都随它变
+     */
+    private final SearchChannelProperties searchChannelProperties;
 
     @Override
     public AgentProfileListVO list() {
         OrchestrationMode mode = orchestrationProperties.getMode();
+        KnowledgeAnswerForm answerForm = searchChannelProperties.getKnowledgeAnswerForm();
         Map<String, List<AgentPromptSlot>> configuredSlots = loadConfiguredSlots();
 
         List<AgentProfileVO> agents = agentProfileMapper.selectList(Wrappers.lambdaQuery(AgentProfileDO.class))
@@ -77,7 +84,8 @@ public class AgentProfileAdminServiceImpl implements AgentProfileAdminService {
                         .thenComparing(AgentProfileDO::getCreateTime, Comparator.nullsLast(Comparator.naturalOrder())))
                 .map(each -> {
                     List<AgentPromptSlot> own = configuredSlots.getOrDefault(each.getId(), List.of());
-                    int effective = (int) own.stream().filter(slot -> slot.isEffectiveIn(mode)).count();
+                    int effective = (int) own.stream()
+                            .filter(slot -> slot.isEffectiveIn(mode, answerForm)).count();
                     return AgentProfileVO.builder()
                             .id(each.getId())
                             .name(each.getName())
@@ -94,7 +102,7 @@ public class AgentProfileAdminServiceImpl implements AgentProfileAdminService {
                 .toList();
         return AgentProfileListVO.builder()
                 .mode(mode.name())
-                .effectiveSlotTotal(AgentPromptSlot.effectiveIn(mode).size())
+                .effectiveSlotTotal(AgentPromptSlot.effectiveIn(mode, answerForm).size())
                 .agents(agents)
                 .build();
     }
@@ -221,17 +229,18 @@ public class AgentProfileAdminServiceImpl implements AgentProfileAdminService {
         AgentProfileDO profile = mustLoad(id);
         AgentProfileDO builtin = loadBuiltin();
         OrchestrationMode mode = orchestrationProperties.getMode();
+        KnowledgeAnswerForm answerForm = searchChannelProperties.getKnowledgeAnswerForm();
         Map<String, String> own = agentPromptResolver.loadOwnPrompts(id);
 
         List<AgentPromptConfigVO.Slot> slots = Arrays.stream(AgentPromptSlot.values())
                 .map(slot -> AgentPromptConfigVO.Slot.builder()
                         .slotKey(slot.name())
                         .displayName(slot.getDisplayName())
-                        .editorHint(slot.getEditorHint())
-                        .group(slot.getGroup().name())
-                        .groupName(slot.getGroup().getDisplayName())
-                        .effective(slot.isEffectiveIn(mode))
-                        .inactiveReason(slot.isEffectiveIn(mode) ? null : slot.getInactiveReason())
+                        .editorHint(slot.editorHint(answerForm))
+                        .group(slot.group(answerForm).name())
+                        .groupName(slot.group(answerForm).getDisplayName())
+                        .effective(slot.isEffectiveIn(mode, answerForm))
+                        .inactiveReason(slot.isEffectiveIn(mode, answerForm) ? null : slot.getInactiveReason())
                         .requiredPlaceholders(slot.getRequiredPlaceholders())
                         .content(StrUtil.emptyIfNull(own.get(slot.name())))
                         .build())
