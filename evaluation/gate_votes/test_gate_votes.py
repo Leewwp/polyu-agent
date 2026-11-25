@@ -122,9 +122,27 @@ def test_negative_control_zero_valid_votes_stops_without_verdict(tmp_path):
     assert section["judge_errors"]["count"] == 48
     assert section["judge_errors"]["q_ids"] == QIDS
     assert "criteria" not in body
-    # 停窗时不出任何判定行；有效票数要出现在输出里
+    # 停窗时不出任何判定行（判定行按约定走 stdout，停窗时 stdout 必须是空的）；有效票数要出现在输出里
+    assert proc.stdout == ""
     assert "unans_majority" not in proc.stdout + proc.stderr
     assert "actual_valid_votes=0" in proc.stdout + proc.stderr
+
+
+def test_negative_control_through_the_library_entry_never_calls_the_criteria():
+    # 入库的零有效票夹具再走一遍库入口（docstring 示范的 load_votes + aggregate 组合）：判据函数同样不被调用
+    passes = {"on": {repeat: gv.load_votes(path) for repeat, path in enumerate(control("unans-zero-valid"), 1)}}
+    calls, evaluate = spy()
+
+    with pytest.raises(gv.GateStop) as stopped:
+        gv.aggregate(passes, evaluate=evaluate)
+
+    assert calls == []
+    report = stopped.value.report
+    assert report["status"] == "STOPPED"
+    assert report["passes"]["on"]["valid_votes"] == 0
+    assert rules(report, "VALID_VOTES_SHORT") == [
+        {"rule": "VALID_VOTES_SHORT", "pass": "on", "expected_valid_votes": 48, "actual_valid_votes": 0}]
+    assert "criteria" not in report
 
 
 # ---------------------------------------------------------------- 判分器出错进停止规则
