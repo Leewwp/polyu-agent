@@ -427,13 +427,16 @@ class RetrievalOffStateReplayTest {
 
         JsonNode baselineContexts = baseline.get("contexts");
         JsonNode nowContexts = now.get("contexts");
+        // as-of 开着时上下文带按当天日期算的事实行，只在同一天比；关着时上下文与日期无关，跨日照比
+        boolean asOfEnabled = Boolean.TRUE.equals(environment.getProperty("rag.asof.enabled", Boolean.class));
         boolean sameDay = baseline.path("meta").path("asOfDateHkt").asText()
                 .equals(now.path("meta").path("asOfDateHkt").asText());
+        boolean contextsComparable = sameDay || !asOfEnabled;
         for (JsonNode context : nowContexts) {
             assertFalse(context.get("containsDocNameTag").asBoolean(),
                     () -> "关态下文档名进了回答上下文：" + context.get("id").asText());
         }
-        if (sameDay) {
+        if (contextsComparable) {
             for (int i = 0; i < nowContexts.size(); i++) {
                 JsonNode nowContext = nowContexts.get(i);
                 assertEquals(baselineContexts.get(i).get("sha256").asText(), nowContext.get("sha256").asText(),
@@ -448,8 +451,9 @@ class RetrievalOffStateReplayTest {
         System.out.println(TAG + " baseline chain=" + baseline.path("meta").path("chain"));
         System.out.println(TAG + " baseline summary=" + baseline.path("summary")
                 + "（enrichTotal 随富化在链上的位置变，只记录不比较）");
-        System.out.println(TAG + " contextsCompared=" + sameDay
-                + "（as-of 日期不同时只核文档名不出现，不比上下文哈希）");
+        System.out.println(TAG + " contextsCompared=" + contextsComparable + " asOfEnabled=" + asOfEnabled
+                + " sameDay=" + sameDay
+                + "（as-of 开着且跨日时只核文档名不出现，不比上下文哈希）");
         assertEquals(baseline.get("resultSha256").asText(), resultSha256, "结果摘要与基线不同");
         System.out.println(TAG + " VERIFY OK: " + nowCases.size() + " cases equal to baseline, resultSha256="
                 + resultSha256);
