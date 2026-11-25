@@ -16,12 +16,15 @@
   判词字段残缺、mock 行（judge_error 之外的 mock 行）、没有 q_id（q_id 不是非空字符串）、
   标在重复号 1..3 之外的行（重复号不是 1..3 的整数）。单列（计数 + q_id 清单 + 逐票原因），不计入有效票。
 - 缺格：这一遍出现过的 q_id 在某个重复号下一条行都没有。
+- 数 q_id 的口径（比票面「有效票正好 48」更严，方向是停）：VOTE_SHAPE_MISMATCH 数的是这一遍出现过的全部 q_id——
+  包括只有 INVALID 行的 q_id，没有 q_id 的行也算一个。所以 48 张有效票齐全、旁边多出一行带新 q_id 的 INVALID，
+  也停。
 
 停止规则（每一遍全部查完一并列出；命中任一条 = 停）
 - NO_VOTES：一遍都没有。
 - VALID_VOTES_SHORT：某遍有效票 < 48。
 - JUDGE_ERROR：某遍有未补判的判分器出错（留痕 q_id、重复号、error）。
-- VOTE_SHAPE_MISMATCH：某遍不是恰好 16 个 q_id、每个在重复号 1..3 各有一张有效票。
+- VOTE_SHAPE_MISMATCH：某遍不是恰好 16 个 q_id（口径见上）、每个在重复号 1..3 各有一张有效票。
 - UNREADABLE_INPUT：判分输出读不了（文件打不开，或某一行不是 JSON 对象）。
 
 停 = 判据函数不被调用、报告 status = "STOPPED" 且没有 criteria 键、控制台不出任何判定行、退出码 3。

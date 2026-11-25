@@ -262,6 +262,26 @@ def test_48_valid_votes_that_are_not_a_16_by_3_grid_stops(tmp_path):
     assert "unans_majority" not in proc.stdout + proc.stderr
 
 
+def test_48_valid_votes_beside_a_stray_invalid_row_with_a_new_q_id_stops(tmp_path):
+    # 这比票面更严：48 张有效票齐全，旁边多出一行带新 q_id 的 INVALID——照常停。
+    # 「恰好 16 个 q_id」数的是这一遍出现过的全部 q_id，不只数有有效票的那 16 个
+    grid = full_grid()
+    files = files_for(tmp_path / "votes", grid)
+    rows_file(files[0], list(grid[1].values()) + [invalid("fx-extra-a", "na_tech_fail")])
+
+    proc, body = run_and_load({"on": files}, tmp_path / "report.json")
+
+    assert proc.returncode == 3
+    assert body["passes"]["on"]["valid_votes"] == 48
+    assert rules(body, "VALID_VOTES_SHORT") == []
+    assert rules(body, "VOTE_SHAPE_MISMATCH") == [
+        {"rule": "VOTE_SHAPE_MISMATCH", "pass": "on", "expected_questions": 16, "questions": 17,
+         "questions_not_3_valid": []}]
+    assert body["passes"]["on"]["invalid"]["votes"] == [
+        {"q_id": "fx-extra-a", "repeat": 1, "reason": "row_status=na_tech_fail"}]
+    assert "criteria" not in body
+
+
 # ---------------------------------------------------------------- 缺格：某题在某个重复号下一条行都没有
 
 

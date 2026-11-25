@@ -134,6 +134,8 @@ python3 evaluation/gate_votes/gate_votes.py \
   `row_status == judge_error` 的行不论是否 mock 都算判分器出错，进 `JUDGE_ERROR`。
 - **停止规则**（命中任一条即停）：`VALID_VOTES_SHORT`（有效票 < 48）、`JUDGE_ERROR`（有未补判的判分器出错）、
   `VOTE_SHAPE_MISMATCH`（不是恰好 16 题、每题在重复号 1..3 各一张有效票）、`NO_VOTES`、`UNREADABLE_INPUT`。
+  题数数的是这一遍出现过的全部 q_id（含只有 INVALID 行的题），比「有效票正好 48」更严：48 票旁边多出一行
+  带新 q_id 的 INVALID 也会停。
 - **停**：退出码 3，停窗行走 stderr，报告 `status = "STOPPED"`、写明每遍实际有效票数、没有 `criteria` 键。
 - **照常出具结论**：退出码 0，每遍一行判定走 stdout，判定行印出门槛（`min_pass=N`）。内置判据 = 每题 2/3 多数票的
   通过题数 ≥ `--min-pass`（默认 15）；判据不过是一条判定，不是停。
