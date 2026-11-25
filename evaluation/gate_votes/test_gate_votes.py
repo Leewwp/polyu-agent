@@ -371,6 +371,21 @@ def test_mock_verdict_is_invalid(tmp_path):
     assert "criteria" not in body
 
 
+def test_mock_judge_error_row_is_a_judge_error_not_invalid(tmp_path):
+    # mock 的出错行仍然是判分器出错：进 JUDGE_ERROR（不吞），不归到 INVALID/mock
+    grid = full_grid()
+    grid[2]["fx-unans-05"] = {**judge_error("fx-unans-05"), "mock": True}
+
+    proc, body = run_and_load({"on": files_for(tmp_path / "votes", grid)}, tmp_path / "report.json")
+
+    assert proc.returncode == 3
+    assert rules(body, "JUDGE_ERROR") == [{"rule": "JUDGE_ERROR", "pass": "on", "count": 1, "q_ids": ["fx-unans-05"]}]
+    assert body["passes"]["on"]["judge_errors"]["votes"] == [
+        {"q_id": "fx-unans-05", "repeat": 2, "error": "Connection error."}]
+    assert body["passes"]["on"]["invalid"] == {"count": 0, "q_ids": [], "votes": []}
+    assert body["passes"]["on"]["valid_votes"] == 47
+
+
 def test_judged_row_whose_verdict_field_is_not_bool_is_invalid(tmp_path):
     grid = full_grid()
     grid[3]["fx-unans-13"] = judged("fx-unans-13", correct_handling="true")  # 字符串，不是 bool

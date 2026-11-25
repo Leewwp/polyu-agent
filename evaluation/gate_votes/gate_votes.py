@@ -11,10 +11,10 @@
   按后一条分桶（出错即停，INVALID 不计有效票），被弃的那张有效票留在 superseded.votes。
 - 有效票：该格最后一条行 row_status == "judged"，四个判词字段（correct_handling / made_unsupported_claim /
   wrong_answer / lang_follow）都是 bool，mock 不为真。
-- 判分器出错：该格最后一条行 row_status == "judge_error"。
+- 判分器出错：该格最后一条行 row_status == "judge_error"（不论是否 mock）。
 - INVALID：该格最后一条行既不是有效票也不是判分器出错——na_tech_fail、na_rubric_missing、未知或缺失的状态、
-  判词字段残缺、mock 行、没有 q_id（q_id 不是非空字符串）、标在重复号 1..3 之外的行（重复号不是 1..3 的整数）。
-  单列（计数 + q_id 清单 + 逐票原因），不计入有效票。
+  判词字段残缺、mock 行（judge_error 之外的 mock 行）、没有 q_id（q_id 不是非空字符串）、
+  标在重复号 1..3 之外的行（重复号不是 1..3 的整数）。单列（计数 + q_id 清单 + 逐票原因），不计入有效票。
 - 缺格：这一遍出现过的 q_id 在某个重复号下一条行都没有。
 
 停止规则（每一遍全部查完一并列出；命中任一条 = 停）
@@ -122,18 +122,21 @@ def _q_id(row: dict):
 
 
 def classify(row: dict) -> tuple:
-    """一张行归哪一桶：(桶, INVALID 原因)。有效票与判分器出错的原因为 None。"""
+    """一张行归哪一桶：(桶, INVALID 原因)。有效票与判分器出错的原因为 None。
+
+    mock 行不算有效票（INVALID/mock）；但 row_status == judge_error 的行不论是否 mock 都是判分器出错，进 JUDGE_ERROR。
+    """
     status = row.get("row_status")
     if _q_id(row) is None:
         return INVALID, "no_q_id"
+    if status == STATUS_JUDGE_ERROR:
+        return JUDGE_ERROR, None
     if row.get("mock"):
         return INVALID, "mock"
     if status == STATUS_JUDGED:
         if all(isinstance(row.get(f), bool) for f in VERDICT_FIELDS):
             return VALID, None
         return INVALID, "verdict_fields_not_bool"
-    if status == STATUS_JUDGE_ERROR:
-        return JUDGE_ERROR, None
     return INVALID, f"row_status={status}"
 
 
