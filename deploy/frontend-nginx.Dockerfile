@@ -15,7 +15,7 @@ COPY frontend/ ./
 # VITE_API_BASE_URL 缺省为空=同源相对路径：生产经网关同源转发，无需构建期注入
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 LABEL org.opencontainers.image.source=https://github.com/Leewwp/polyu-agent
 
 ENV TZ=Asia/Shanghai
