@@ -75,7 +75,13 @@ import static org.mockito.Mockito.when;
 
 /**
  * 库里的会话状态有缺结果的工具调用时，加载就补齐：DeepSeek 与 Opus 遇到这种历史都会拒收（2026-11-23 实测）
- * 坏快照由真实停止流程产生、不预先修复，三条读历史的路径各从一份新拷贝开始，第一问就要成功
+ * 三条读历史的路径各从一份新拷贝开始，第一问就要成功
+ *
+ * <p>坏快照的来由按 agentscope 2.0.5（本仓根 pom）记：用户在工具调用流出的途中停止时，框架先给被打断的调用补一条
+ * 「执行前被打断」的出错结果、再追加恢复消息（{@code ReActAgent.handleInterrupt}），新存下的快照不缺结果，
+ * {@code fill} 对它是空操作。缺结果的旧行来自 2.0.2 时期（那时停止流程不补结果）；进程在两次存盘之间退出不走停止流程。
+ * 两个停止流程用例先走真实的停止流程，再从存盘状态里去掉框架补的那条，还原成上游写作时（2.0.2）的坏快照形态；
+ * {@link #shouldSelfHealWhenStoppedWhileCallStreams} 断言的是 2.0.5 停止流程的自愈。
  */
 class AgentMissingToolResultsTest {
 
@@ -83,6 +89,7 @@ class AgentMissingToolResultsTest {
     private static final String SESSION = "c-2002";
     private static final String KEY = "agent_state";
     private static final String RECOVERY = "I noticed that you have interrupted me. What can I do for you?";
+    private static final String FRAMEWORK_INTERRUPTED_RESULT = "Tool execution was interrupted before it could run";
 
     @Test
     void shouldFillCallFollowedByRecoveryMessage() {
@@ -182,6 +189,22 @@ class AgentMissingToolResultsTest {
     }
 
     /**
+     * 2.0.5 的停止流程自己会把被打断的调用补成出错结果：补的结果在位，这样的快照加载时不用再补
+     */
+    @Test
+    void shouldSelfHealWhenStoppedWhileCallStreams() throws Exception {
+        Store store = stoppedStateStore(ProductionModels::deepseek, openAiCall("call_A"));
+
+        AgentState saved = JsonUtils.getJsonCodec().fromJson(store.selectPayload(USER, SESSION, KEY), AgentState.class);
+        assertThat(saved.contextMutable()).extracting(Msg::getRole)
+                .containsExactly(MsgRole.USER, MsgRole.ASSISTANT, MsgRole.TOOL, MsgRole.ASSISTANT);
+        ToolResultBlock supplied = saved.contextMutable().get(2).getFirstContentBlock(ToolResultBlock.class);
+        assertThat(supplied.getId()).isEqualTo("call_A");
+        assertThat(((TextBlock) supplied.getOutput().get(0)).getText()).contains(FRAMEWORK_INTERRUPTED_RESULT);
+        assertThat(AgentMissingToolResults.fill(saved.contextMutable())).as("框架已补过，不再补").isZero();
+    }
+
+    /**
      * 待确认的卡存进库再加载时不能被补齐当成缺结果：放行后工具照常执行一次，请求里调用与结果紧邻
      */
     @Test
@@ -244,10 +267,37 @@ class AgentMissingToolResultsTest {
     }
 
     /**
-     * 第一问：模型吐出工具调用后、流还没结束时用户停止；框架存下的就是坏状态，这里不做任何修复
+     * 第一问：模型吐出工具调用后、流还没结束时用户停止，存盘状态是坏快照：调用后面没有结果，直接跟恢复消息
+     * 2.0.5 的框架在停止流程里已经补了结果，所以先走真实的停止流程，再从存盘状态里去掉框架补的那条，
+     * 还原成上游写作时（2.0.2）的形态；除此之外不做任何修复
      */
     private static Map<String, String> stopWhileCallStreams(Function<Gateway, Model> model, List<String> callStream)
             throws Exception {
+        Store store = stoppedStateStore(model, callStream);
+
+        AgentState saved = JsonUtils.getJsonCodec().fromJson(store.selectPayload(USER, SESSION, KEY), AgentState.class);
+        saved.contextMutable().removeIf(AgentMissingToolResultsTest::isFrameworkSuppliedResult);
+        new PgAgentStateStore(store).save(USER, SESSION, KEY, saved);
+
+        AgentState raw = JsonUtils.getJsonCodec().fromJson(store.selectPayload(USER, SESSION, KEY), AgentState.class);
+        assertThat(AgentMissingToolResults.fill(raw.contextMutable())).as("快照确实是坏的").isEqualTo(1);
+        return Map.copyOf(store.rows);
+    }
+
+    /**
+     * 框架补的那条结果：工具根本没跑到，结果文本是框架写死的那句「执行前被打断」
+     */
+    private static boolean isFrameworkSuppliedResult(Msg msg) {
+        List<ToolResultBlock> results = msg.getContentBlocks(ToolResultBlock.class);
+        return !results.isEmpty() && results.stream().allMatch(result -> result.getOutput().stream()
+                .allMatch(block -> block instanceof TextBlock text
+                        && text.getText().contains(FRAMEWORK_INTERRUPTED_RESULT)));
+    }
+
+    /**
+     * 走真实的停止流程，返回框架存盘后的状态，不做任何处理
+     */
+    private static Store stoppedStateStore(Function<Gateway, Model> model, List<String> callStream) throws Exception {
         CompletableFuture<Void> streamed = new CompletableFuture<>();
         CompletableFuture<Void> resume = new CompletableFuture<>();
         Gateway gateway = new Gateway().thenStream(Flux.concat(
@@ -261,10 +311,7 @@ class AgentMissingToolResultsTest {
         resume.complete(null);
         assertThat(first.get(10, TimeUnit.SECONDS).getTextContent()).isEqualTo(RECOVERY);
         agent.clearStateCache(USER, SESSION);
-
-        AgentState raw = JsonUtils.getJsonCodec().fromJson(store.selectPayload(USER, SESSION, KEY), AgentState.class);
-        assertThat(AgentMissingToolResults.fill(raw.contextMutable())).as("快照确实是坏的").isEqualTo(1);
-        return Map.copyOf(store.rows);
+        return store;
     }
 
     /**
