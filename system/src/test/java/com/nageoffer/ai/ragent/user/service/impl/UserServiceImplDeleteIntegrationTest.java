@@ -194,7 +194,7 @@ class UserServiceImplDeleteIntegrationTest {
      */
     @Test
     void deleteIsCalledThroughTheSpringTransactionProxy() throws Exception {
-        inCommittedDatabase(jdbcUrl(), (jdbc, userService, auditContext, schema) -> {
+        inCommittedDatabase(requireJdbcUrl(), (jdbc, userService, auditContext, schema) -> {
             TransactionAttribute attribute = transactionAttributeOfDelete(userService);
             assertThat(attribute)
                     .as("被测对象应是带事务拦截的 Spring 代理，delete 应在事务拦截器的覆盖之内")
@@ -213,7 +213,7 @@ class UserServiceImplDeleteIntegrationTest {
     @ValueSource(booleans = {true, false})
     void deleteLeavesTheUserWithNoRowInAnyTableAndNoShareSnapshot(boolean emailPresent) throws Exception {
         String email = emailPresent ? EMAIL : null;
-        inCommittedDatabase(jdbcUrl(), (jdbc, userService, auditContext, schema) -> {
+        inCommittedDatabase(requireJdbcUrl(), (jdbc, userService, auditContext, schema) -> {
             seedOneRowPerTableKeyedByUserId(jdbc, email);
             insertUser(jdbc, OTHER_USER_ID, "delete-other", "user", "other@example.com");
             insertSnapshots(jdbc, USER_ID, OWNED_ROWS);
@@ -248,7 +248,7 @@ class UserServiceImplDeleteIntegrationTest {
      */
     @Test
     void deleteRollsBackTheWholeCascadeWhenALaterStepFails() throws Exception {
-        inCommittedDatabase(jdbcUrl(), (jdbc, userService, auditContext, schema) -> {
+        inCommittedDatabase(requireJdbcUrl(), (jdbc, userService, auditContext, schema) -> {
             seedOneRowPerTableKeyedByUserId(jdbc, EMAIL);
             insertUser(jdbc, OTHER_USER_ID, "delete-other", "user", "other@example.com");
             insertSnapshots(jdbc, USER_ID, OWNED_ROWS);
@@ -476,7 +476,10 @@ class UserServiceImplDeleteIntegrationTest {
                 .isEmpty();
     }
 
-    private static String jdbcUrl() {
+    /**
+     * 系统属性里的 JDBC 连接串；未设置即跳过本用例
+     */
+    private static String requireJdbcUrl() {
         String url = System.getProperty(JDBC_URL_PROPERTY);
         assumeTrue(url != null && !url.isBlank(),
                 "Set " + JDBC_URL_PROPERTY + " to run PostgreSQL integration test");
