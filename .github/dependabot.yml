@@ -69,8 +69,9 @@ updates:
       - dependency-name: react-markdown
         versions: [">=10"]
       # 不升 major：TS 7 移除 baseUrl 并禁止非相对路径，本仓用 @/ 别名（#558 CI 实证）；需要专门迁移，有驱动再评估。
+      # TS 6 同样走专项、无升级驱动（#603 关闭，维护者 2026-11-26 裁定，同 Tailwind 4 的处置）。本条由 >=6 覆盖原 >=7。
       - dependency-name: typescript
-        versions: [">=7"]
+        versions: [">=6"]
       # 不升 major：Tailwind 4 换了配置模型，要专项迁移；本仓是 v3 的配置形态（frontend/tailwind.config.cjs +
       # postcss 插件），无升级驱动（#592 关闭）。
       - dependency-name: tailwindcss
