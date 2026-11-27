@@ -78,7 +78,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 关态证明①：知识库工具在关态（知识库作答形态取默认的「合成」）下，工具返回文本与提示组装结果逐字节等于改动前。
+ * 关态证明①（#574）：知识库工具在关态（知识库作答形态取默认的「合成」）下，工具返回文本与提示组装结果逐字节等于参照树上的结果。
  * <p>
  * 链路是真的，模型调用与通道扇出是确定性桩，零模型调用、不连库：
  * {@link RetrievalEngine} → {@link DefaultContextFormatter}（仓内 context-format.st，含本仓的日期标记与 as-of 事实行）
@@ -94,11 +94,14 @@ import static org.mockito.Mockito.when;
  * <p>
  * 唯一不逐字节比较的是系统提示里由服务器时钟生成的「当前日期（香港时间）」行：它每天不同，快照里换成固定记号后再比。
  * <p>
- * 基线如实固定改动前的行为，包括不好看的地方：带意图答题规则时首个资料块的内部 docId 没被抹掉（见
+ * 基线如实固定参照树上的行为，包括不好看的地方：带意图答题规则时首个资料块的内部 docId 没被抹掉（见
  * {@link #offStateModelVisibleTextCarriesNoCitationMarkers()}）。证明的对象是「有没有变」，不是「对不对」。
  * <p>
  * 基线：{@code rag/src/test/resources/knowledge-tool-snapshot/off-state-baseline.json}，每个场景一行 JSON。
- * 重新生成要显式给 {@code -Dragent.knowledge-snapshot.update=true}，且只能在本证明的参照树上做；
+ * 参照树是 3523a4f7，即 #574 所说的「引入作答形态开关之前」。那棵树已经含更早一次上游改动（d8fdc35d，精排与回答上下文带文档名），
+ * 所以文档名开着的那一个场景（{@code hit-en-intent-template-docname-on}）的基线带 {@code <doc_name>} 行，
+ * 反映的是那次改动带来的行为，不是这次上游同步之前的行为；其余八个场景文档名都是关的。
+ * 重新生成基线要显式给 {@code -Dragent.knowledge-snapshot.update=true}，且只能在参照树 3523a4f7 上做；
  * 被测代码改动之后重新生成基线等于把要证明的东西当成前提。
  */
 class KnowledgeToolOffStateSnapshotTest {

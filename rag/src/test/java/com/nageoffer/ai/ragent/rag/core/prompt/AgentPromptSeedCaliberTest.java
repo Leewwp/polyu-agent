@@ -69,6 +69,12 @@ class AgentPromptSeedCaliberTest {
      */
     private static final String PROD_EFFECTIVE_TOOL_DESCRIPTION_MD5 = "cf73f8a24b6611b862df6cdb0d7fbe09";
 
+    /**
+     * 内置助手 AGENT_MAIN 人设的 md5：1872 字、5292 字节，与引入作答形态开关之前（4b63db50）种子里的同一行逐字节相同。
+     * 整篇钉住而不只查标记句：标记句还在时规则本体照样可能被改，例如「原样全文输出……」那一句被删，两个标记句都不受影响
+     */
+    private static final String BUILTIN_ASSISTANT_PERSONA_MD5 = "260862c3cb2f351e3f5e974a9dbf7651";
+
     /** 资料原文形态的提示词稿所在的智能体行：非内置、不激活，不参与任何回落 */
     private static final String DRAFT_AGENT_ID = "2126005175029207041";
 
@@ -107,6 +113,7 @@ class AgentPromptSeedCaliberTest {
         assertTrue(personaRow.content().contains("工具描述声明其返回是面向用户的成品内容时"),
                 "合成形态下人设要保留「成品内容原样全文输出」这一条");
         assertFalse(personaRow.content().contains("读资料作答"), "资料原文形态的人设（主 Agent 自己读资料作答）不该出现在默认形态下的内置助手上");
+        assertEquals(BUILTIN_ASSISTANT_PERSONA_MD5, md5(personaRow.content()), "内置助手的人设应与引入作答形态开关之前的那一份逐字节相同");
     }
 
     @Test
