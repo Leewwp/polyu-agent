@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.agent.trace;
 
+import com.nageoffer.ai.ragent.agent.model.AnthropicMessagesChatModel;
+import io.agentscope.core.model.Model;
 import io.opentelemetry.api.common.AttributeKey;
 
 /**
@@ -53,6 +55,11 @@ public final class GenAiAttributes {
     public static final AttributeKey<String> PROVIDER_NAME = AttributeKey.stringKey("gen_ai.provider.name");
 
     /**
+     * 模型名，官方 chat span 写的也是这把键；摘要节点不经官方那层，只能自己写
+     */
+    public static final AttributeKey<String> REQUEST_MODEL = AttributeKey.stringKey("gen_ai.request.model");
+
+    /**
      * 是否流式，规范脚注写明「未设即视为非流式」，我方全程流式，漏写就是把语义说反
      */
     public static final AttributeKey<Boolean> REQUEST_STREAM = AttributeKey.booleanKey("gen_ai.request.stream");
@@ -70,10 +77,16 @@ public final class GenAiAttributes {
     public static final String TOOL_TYPE_FUNCTION = "function";
 
     /**
-     * 本仓统一走 OpenAI 协议的客户端，即使 base-url 指向兼容网关也按协议口径记 openai
+     * 按协议口径记：base-url 指向兼容网关也记 openai，只有走 Anthropic 原生入口的记 anthropic
      */
     public static final String PROVIDER_OPENAI = "openai";
 
+    public static final String PROVIDER_ANTHROPIC = "anthropic";
+
     private GenAiAttributes() {
+    }
+
+    public static String providerOf(Model model) {
+        return model instanceof AnthropicMessagesChatModel ? PROVIDER_ANTHROPIC : PROVIDER_OPENAI;
     }
 }

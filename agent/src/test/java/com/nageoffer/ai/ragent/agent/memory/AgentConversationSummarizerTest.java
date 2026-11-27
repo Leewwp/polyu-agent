@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.agent.memory;
 import com.nageoffer.ai.ragent.agent.config.AgentProperties;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
+import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
@@ -51,6 +52,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AgentConversationSummarizerTest {
+
+    private static final RuntimeContext RUN = RuntimeContext.builder().userId("u-1").sessionId("c-1").build();
 
     private static final List<Msg> MATERIAL = List.of(Msg.builder()
             .name("user")
@@ -96,21 +99,21 @@ class AgentConversationSummarizerTest {
                 已起草邮件""";
         answer(" \n" + summary + "\n ");
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isEqualTo(summary);
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isEqualTo(summary);
     }
 
     @Test
     void shouldAcceptSummaryInAnyFormat() {
         answer("邮件已起草，尚未发出，等待用户确认");
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isEqualTo("邮件已起草，尚未发出，等待用户确认");
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isEqualTo("邮件已起草，尚未发出，等待用户确认");
     }
 
     @Test
     void shouldRejectEmptyResponseStream() {
         when(model.stream(anyList(), any(), any())).thenReturn(Flux.empty());
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
@@ -122,21 +125,21 @@ class AgentConversationSummarizerTest {
         answer(summary);
 
         assertThat(summary.length()).isGreaterThan(targetChars);
-        assertThat(summarizer.summarize(MATERIAL, null)).isEqualTo(summary);
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isEqualTo(summary);
     }
 
     @Test
     void shouldRejectBlankSummary() {
         answer(" \n\t ");
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
     void shouldRejectNullSummary() {
         answer(null);
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
@@ -144,14 +147,14 @@ class AgentConversationSummarizerTest {
         when(model.stream(anyList(), any(), any()))
                 .thenReturn(Flux.error(new IllegalStateException("模型调用超时")));
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
     void shouldRejectSummaryCutByOutputLimit() {
         when(model.stream(anyList(), any(), any())).thenReturn(Flux.just(response("## 当前进度\n邮件已起", "length")));
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
@@ -161,7 +164,7 @@ class AgentConversationSummarizerTest {
             when(model.stream(anyList(), any(), any()))
                     .thenReturn(Flux.just(response("## 当前进度\n邮件已起草，未发出", finishReason)));
 
-            assertThat(summarizer.summarize(MATERIAL, null)).as(String.valueOf(finishReason)).isNull();
+            assertThat(summarizer.summarize(MATERIAL, null, RUN)).as(String.valueOf(finishReason)).isNull();
         }
     }
 
@@ -170,7 +173,7 @@ class AgentConversationSummarizerTest {
         Msg question = userMsg("2026-10-04 12:34:56.789", "左耳没声音");
         answer("## 当前进度\n无");
 
-        summarizer.summarize(List.of(question), "## 当前进度\n旧摘要");
+        summarizer.summarize(List.of(question), "## 当前进度\n旧摘要", RUN);
 
         List<Msg> messages = captureMessages();
         assertThat(messages).extracting(Msg::getRole)
@@ -196,7 +199,7 @@ class AgentConversationSummarizerTest {
                 .build();
         answer("## 当前进度\n无");
 
-        summarizer.summarize(List.of(toolUse, toolResult), null);
+        summarizer.summarize(List.of(toolUse, toolResult), null, RUN);
 
         assertThat(captureMessages()).containsSubsequence(toolUse, toolResult);
         verify(model).stream(anyList(), isNull(), any());
@@ -214,12 +217,35 @@ class AgentConversationSummarizerTest {
                 .build();
         answer("## 当前进度\n无");
 
-        summarizer.summarize(List.of(userMsg("2026-10-04 12:34:56.789", "先别提交"), reply, thinkingOnly), null);
+        summarizer.summarize(List.of(userMsg("2026-10-04 12:34:56.789", "先别提交"), reply, thinkingOnly), null, RUN);
 
         List<Msg> messages = captureMessages();
         assertThat(messages).hasSize(4);
         assertThat(messages.get(2).getContent()).hasSize(1).allMatch(TextBlock.class::isInstance);
         assertThat(messages.get(2).getTimestamp()).isEqualTo("2026-10-04 12:35:00.000");
+    }
+
+    /**
+     * 工具调用的元数据里存着 Claude 的思考原块与 Gemini 的签名，跟着进摘要请求就等于思考又发了一遍
+     */
+    @Test
+    void shouldDropToolCallMetadataFromMaterial() {
+        Msg call = Msg.builder().name("assistant").role(MsgRole.ASSISTANT)
+                .content(ToolUseBlock.builder().id("call-1").name("query_order")
+                        .input(Map.of("order_no", "BT1")).content("{\"order_no\":\"BT1\"}")
+                        .metadata(Map.of("anthropicThinkingBlocks", List.of(Map.of("type", "thinking", "signature", "SIG")),
+                                "thoughtSignature", "SIG2"))
+                        .build())
+                .build();
+        answer("## 当前进度\n无");
+
+        summarizer.summarize(List.of(userMsg("2026-10-04 12:34:56.789", "查订单"), call), null, RUN);
+
+        ToolUseBlock sent = captureMessages().get(2).getFirstContentBlock(ToolUseBlock.class);
+        assertThat(sent.getMetadata()).isNullOrEmpty();
+        assertThat(sent.getId()).isEqualTo("call-1");
+        assertThat(sent.getName()).isEqualTo("query_order");
+        assertThat(sent.getInput()).containsEntry("order_no", "BT1");
     }
 
     @Test
@@ -228,7 +254,7 @@ class AgentConversationSummarizerTest {
                 .content(ThinkingBlock.builder().thinking("再想想").build())
                 .build();
 
-        assertThat(summarizer.summarize(List.of(userMsg("", " \n "), thinkingOnly), "## 当前进度\n旧摘要")).isNull();
+        assertThat(summarizer.summarize(List.of(userMsg("", " \n "), thinkingOnly), "## 当前进度\n旧摘要", RUN)).isNull();
         verifyNoInteractions(model, promptResolver);
     }
 
@@ -237,7 +263,7 @@ class AgentConversationSummarizerTest {
         when(model.stream(anyList(), any(), any())).thenReturn(Flux.just(
                 response("## 当前进度\n邮件", null), response("已起草，未发出", "stop")));
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isEqualTo("## 当前进度\n邮件已起草，未发出");
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isEqualTo("## 当前进度\n邮件已起草，未发出");
     }
 
     @Test
@@ -245,7 +271,7 @@ class AgentConversationSummarizerTest {
         when(model.stream(anyList(), any(), any())).thenReturn(Flux.just(
                 response("## 当前进度\n邮件已起", "length"), response("草", null)));
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isNull();
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isNull();
     }
 
     @Test
@@ -258,7 +284,7 @@ class AgentConversationSummarizerTest {
                 .build();
         when(model.stream(anyList(), any(), any())).thenReturn(Flux.just(response));
 
-        assertThat(summarizer.summarize(MATERIAL, null)).isEqualTo("## 当前进度\n邮件已起草，尚未发出");
+        assertThat(summarizer.summarize(MATERIAL, null, RUN)).isEqualTo("## 当前进度\n邮件已起草，尚未发出");
     }
 
     @Test
@@ -266,7 +292,7 @@ class AgentConversationSummarizerTest {
         agentProperties.setMaxRetries(1);
         answer("邮件已起草，尚未发出");
 
-        summarizer.summarize(MATERIAL, null);
+        summarizer.summarize(MATERIAL, null, RUN);
 
         GenerateOptions options = captureOptions();
         assertThat(options.getStream()).isFalse();
@@ -276,11 +302,33 @@ class AgentConversationSummarizerTest {
     }
 
     @Test
+    void shouldDisableThinkingForHunyuan() {
+        agentProperties.getChat().setProvider("hunyuan");
+        answer("邮件已起草，尚未发出");
+
+        summarizer.summarize(MATERIAL, null, RUN);
+
+        assertThat(captureOptions().getAdditionalBodyParams()).containsEntry("thinking", Map.of("type", "disabled"));
+    }
+
+    @Test
+    void shouldLowerReasoningEffortForKimiInsteadOfDisablingThinking() {
+        agentProperties.getChat().setProvider("kimi");
+        answer("邮件已起草，尚未发出");
+
+        summarizer.summarize(MATERIAL, null, RUN);
+
+        GenerateOptions options = captureOptions();
+        assertThat(options.getReasoningEffort()).isEqualTo("low");
+        assertThat(options.getAdditionalBodyParams()).doesNotContainKey("thinking");
+    }
+
+    @Test
     void shouldNotSendThinkingParamToOtherProviders() {
         agentProperties.getChat().setProvider("bailian");
         answer("邮件已起草，尚未发出");
 
-        summarizer.summarize(MATERIAL, null);
+        summarizer.summarize(MATERIAL, null, RUN);
 
         assertThat(captureOptions().getAdditionalBodyParams()).doesNotContainKey("thinking");
     }

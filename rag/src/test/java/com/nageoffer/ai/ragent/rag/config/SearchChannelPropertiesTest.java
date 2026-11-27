@@ -20,15 +20,57 @@ package com.nageoffer.ai.ragent.rag.config;
 import com.nageoffer.ai.ragent.rag.constant.RAGConstant;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.BindException;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
+import org.springframework.core.env.MapPropertySource;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 检索预算三段值 {@code recallBudget / candidateLimit / contextTopK} 的解析与漏斗不变式校验
  */
 class SearchChannelPropertiesTest {
+
+    @Test
+    @DisplayName("知识库作答形态缺省为 synthesized；rag.search.knowledge-answer-form=evidence 经绑定器生效")
+    void knowledgeAnswerFormBinds() {
+        SearchChannelProperties defaults = new SearchChannelProperties();
+        assertEquals(SearchChannelProperties.KnowledgeAnswerForm.SYNTHESIZED, defaults.getKnowledgeAnswerForm());
+        assertFalse(defaults.isEvidenceAnswer(), "缺省即合成形态");
+
+        SearchChannelProperties bound = bind("rag.search.knowledge-answer-form", "evidence");
+        assertEquals(SearchChannelProperties.KnowledgeAnswerForm.EVIDENCE, bound.getKnowledgeAnswerForm());
+        assertTrue(bound.isEvidenceAnswer());
+
+        assertFalse(bind("rag.search.knowledge-answer-form", "SYNTHESIZED").isEvidenceAnswer(), "绑定不分大小写");
+    }
+
+    @Test
+    @DisplayName("知识库作答形态留空按合成算；写成两个取值以外的，绑定失败（启动即停，不悄悄回落）")
+    void knowledgeAnswerFormRejectsUnknownValues() {
+        SearchChannelProperties blank = bind("rag.search.knowledge-answer-form", "");
+        assertFalse(blank.isEvidenceAnswer(), "留空等于没配");
+
+        assertThrows(BindException.class, () -> bind("rag.search.knowledge-answer-form", "raw"));
+    }
+
+    private static SearchChannelProperties bind(String key, String value) {
+        Map<String, Object> source = new HashMap<>();
+        // 同级带一个有值的键：只有被测键且取值为空时整个对象都绑不出来，那是绑定器的行为、不是缺省
+        source.put("rag.search.default-top-k", "10");
+        source.put(key, value);
+        return new Binder(ConfigurationPropertySources.from(new MapPropertySource("probe", source)))
+                .bind("rag.search", Bindable.of(SearchChannelProperties.class)).get();
+    }
 
     @Test
     @DisplayName("recallBudget 默认取绝对值，=0 时回退 contextTopK，>0 用显式值")

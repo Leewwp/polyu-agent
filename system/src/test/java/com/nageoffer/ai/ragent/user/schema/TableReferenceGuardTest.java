@@ -53,11 +53,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       按前缀拼出来的表名守卫确认不了；</li>
  *   <li>表名比较不区分大小写（PostgreSQL 对不带引号的标识符不区分大小写）。</li>
  * </ul>
- * 不参与扫描：注释（行注释、块注释、Javadoc）、测试代码、各模块 src/main/java 之外的 Java
- * （如 resources/initializer 下的上游初始化工具：不参与编译、没有被任何 pom 引用，
- * 其 SQL 里的演示表不在现行 schema）、resources/database/upgrades 下的历史迁移脚本、
- * YAML 与 properties 等非 Java 文件。遇到无法收尾的字面量或注释时直接报错并指出文件与行号，
- * 不跳过文件后半段。
+ * 不参与扫描：注释（行注释、块注释、Javadoc）、测试代码、各模块 src/main/java 之外的 Java（不在编译面内）、
+ * resources/database/upgrades 下的历史迁移脚本、YAML 与 properties 等非 Java 文件。
+ * 遇到无法收尾的字面量或注释时直接报错并指出文件与行号，不跳过文件后半段。
  * <p>
  * <b>已知边界</b>：
  * <ul>

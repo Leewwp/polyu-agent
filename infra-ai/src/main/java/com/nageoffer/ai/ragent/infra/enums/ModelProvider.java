@@ -59,6 +59,26 @@ public enum ModelProvider {
     MINIMAX("minimax"),
 
     /**
+     * 腾讯云 TokenHub（混元 Hy 系列）
+     */
+    HUNYUAN("hunyuan"),
+
+    /**
+     * 月之暗面 Kimi 开放平台
+     */
+    KIMI("kimi"),
+
+    /**
+     * ZenMux 聚合网关
+     */
+    ZENMUX("zenmux"),
+
+    /**
+     * ZenMux 的 Anthropic Messages 入口，端点、鉴权头与请求格式都和 OpenAI 入口不同
+     */
+    ZENMUX_ANTHROPIC("zenmux-anthropic"),
+
+    /**
      * 空实现，用于测试或占位
      */
     NOOP("noop");

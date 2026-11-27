@@ -65,8 +65,8 @@ class AdminSurfaceContractTest {
     private static final String[] USER_FACING_PATTERNS = {
             // RAGChatController：/rag/v3/chat（L34/#95 起为 POST body，GET 查询串形态已移除）、/rag/v3/stop
             "/rag/v3/**",
-            // RAGSettingsController 引擎档位迷你端点（登录态可读，只返 {type}；
-            // 同 controller 的 /rag/settings 整体仍是管理面——精确模式不吞子路径）
+            // SystemSettingsController（agent 模块）引擎档位迷你端点（登录态可读，只返 {type}；
+            // 同 controller 的 /system/settings 整体仍是管理面——精确模式不吞子路径）
             "/rag/settings/engine",
             // AgentChatController / AgentConversationController / AgentMetaController
             "/agent/v1/**",
@@ -119,6 +119,15 @@ class AdminSurfaceContractTest {
         assertThat(paths).as("rag 模块哨兵缺失——扫描面疑丢 rag 控制器").contains("/rag/v3/chat", "/rag/v3/stop");
         assertThat(paths).as("agent 模块哨兵缺失——扫描面疑丢 agent 控制器").contains("/agent/v1/chat", "/agent/v1/chat/confirm");
         assertThat(paths).as("system 模块哨兵缺失——扫描面疑丢 system 控制器").contains("/auth/login", "/users");
+    }
+
+    @Test
+    void 系统设置整表端点只走管理面清单_不得归入另外两集合() {
+        // 该端点返回后端地址、供应商配置与模型名，须 admin 角色：归入用户面白名单或公开排除表，
+        // 会让全量契约在管理面清单漏项时照样通过
+        assertThat(coveredBy(USER_FACING_PATTERNS, "/system/settings")).isFalse();
+        assertThat(coveredBy(SaTokenConfig.PUBLIC_EXCLUDE_PATTERNS, "/system/settings")).isFalse();
+        assertThat(unclassifiedPath("/system/settings")).isEmpty();
     }
 
     @Test

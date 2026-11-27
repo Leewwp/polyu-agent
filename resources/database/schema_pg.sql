@@ -1,5 +1,5 @@
 -- PostgreSQL Schema for Ragent
--- Converted from MySQL schema_table.sql
+-- Converted from the MySQL schema; the MySQL script itself is not kept in this repository
 
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;

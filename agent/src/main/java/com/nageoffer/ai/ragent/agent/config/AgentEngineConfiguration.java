@@ -19,11 +19,19 @@ package com.nageoffer.ai.ragent.agent.config;
 
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.agent.dao.mapper.AgentStateMapper;
+import com.nageoffer.ai.ragent.agent.model.AnthropicMessagesChatModel;
+import com.nageoffer.ai.ragent.agent.model.OpenAIStreamCompletionTransport;
+import com.nageoffer.ai.ragent.agent.model.ZenMuxFormatter;
+import com.nageoffer.ai.ragent.agent.model.ZenMuxGeminiThoughtSignatureTransport;
 import com.nageoffer.ai.ragent.agent.state.PgAgentStateStore;
 import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.infra.enums.ModelProvider;
+import io.agentscope.core.model.Model;
+import io.agentscope.core.model.transport.HttpTransport;
+import io.agentscope.core.model.transport.HttpTransportFactory;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import io.agentscope.extensions.model.openai.compat.deepseek.DeepSeekFormatter;
+import io.agentscope.extensions.model.openai.compat.kimi.KimiFormatter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,11 +46,16 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AgentEngineConfiguration {
 
+    /**
+     * 签名搬运只对这个上游验证过，GPT 等别的上游的加密推理不能被改写成 Gemini 格式
+     */
+    private static final String GEMINI_FAMILY = "google/";
+
     private final AgentProperties agentProperties;
     private final AIModelProperties aiModelProperties;
 
     @Bean
-    public OpenAIChatModel agentChatModel() {
+    public Model agentChatModel() {
         AgentProperties.Chat chat = agentProperties.getChat();
         if (chat == null || StrUtil.isBlank(chat.getProvider()) || StrUtil.isBlank(chat.getModel())) {
             throw new IllegalStateException("agent.chat.provider / agent.chat.model 未配置");
@@ -58,6 +71,9 @@ public class AgentEngineConfiguration {
             throw new IllegalStateException("供应商缺少 url 或 endpoints.chat: " + chat.getProvider());
         }
 
+        if (ModelProvider.ZENMUX_ANTHROPIC.matches(chat.getProvider())) {
+            return new AnthropicMessagesChatModel(provider.getUrl() + endpointPath, provider.getApiKey(), chat.getModel());
+        }
         OpenAIChatModel.Builder builder = OpenAIChatModel.builder()
                 .baseUrl(provider.getUrl())
                 .endpointPath(endpointPath)
@@ -65,9 +81,20 @@ public class AgentEngineConfiguration {
                 .modelName(chat.getModel())
                 .stream(true)
                 // 兼容端点普遍无法同时处理 response_format 与工具调用，统一走 generate_response 兜底
-                .nativeStructuredOutputWithTools(false);
+                .nativeStructuredOutputWithTools(false)
+                .httpTransport(openAiTransport(chat.getProvider(), chat.getModel(), HttpTransportFactory.getDefault()));
         applyProviderFormatter(builder, chat.getProvider());
         return builder.build();
+    }
+
+    /**
+     * 所有供应商都校验流是否完整，避免拿半截参数执行工具；ZenMux 上的 Gemini 还要在内层搬思考签名的位置
+     */
+    static HttpTransport openAiTransport(String providerId, String model, HttpTransport base) {
+        HttpTransport transport = ModelProvider.ZENMUX.matches(providerId) && model.startsWith(GEMINI_FAMILY)
+                ? new ZenMuxGeminiThoughtSignatureTransport(base)
+                : base;
+        return new OpenAIStreamCompletionTransport(transport, providerId);
     }
 
     /*
@@ -81,10 +108,19 @@ public class AgentEngineConfiguration {
      * 兼容性注意：文档要求带 tools 时完整回传历史思考
      * 上述筛选当前实测未报错，但不属于协议保证
      * 若服务端收紧校验，因缺失 reasoning_content 返回 400，可回退通用 formatter，恢复全量回传
+     *
+     * Kimi 的 formatter 在通用实现上摘掉固定的采样参数（temperature 等传了就报错），
+     * reasoning_content 照通用实现全量回传，正是 K3 系要求的
+     *
+     * ZenMux 是聚合网关，用 model 前缀区分上游：openai/ 系按推理模型摘掉采样参数，并补 service_tier
      */
     private void applyProviderFormatter(OpenAIChatModel.Builder builder, String providerId) {
         if (ModelProvider.DEEP_SEEK.matches(providerId)) {
             builder.formatter(new DeepSeekFormatter());
+        } else if (ModelProvider.KIMI.matches(providerId)) {
+            builder.formatter(new KimiFormatter());
+        } else if (ModelProvider.ZENMUX.matches(providerId)) {
+            builder.formatter(new ZenMuxFormatter());
         }
     }
 

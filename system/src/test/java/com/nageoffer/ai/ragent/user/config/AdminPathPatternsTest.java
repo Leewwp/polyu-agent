@@ -71,13 +71,22 @@ class AdminPathPatternsTest {
                 "/knowledge-base/kb1/docs/upload",
                 "/agents/tree",
                 "/admin/users",
-                "/rag/settings",
+                "/system/settings",
                 "/rag/traces/run1",
                 "/users/42");
         for (String endpoint : adminEndpoints) {
             assertTrue(coveredByAdminPatterns(endpoint),
                     "管理面清单未覆盖端点: " + endpoint);
         }
+    }
+
+    @Test
+    void 系统设置整表端点落在管理面清单内_引擎档位迷你端点不被吞() {
+        // SystemSettingsController（agent 模块）：整表 GET /system/settings 须 admin 角色；
+        // 同控制器的 GET /rag/settings/engine 只返 {type}、登录态可读——管理面清单用精确模式，不得吞掉子路径
+        assertTrue(coveredByAdminPatterns("/system/settings"), "管理面清单未覆盖端点: /system/settings");
+        assertFalse(coveredByAdminPatterns("/rag/settings/engine"),
+                "管理面清单吞掉了登录态可读的迷你端点: /rag/settings/engine");
     }
 
     @Test

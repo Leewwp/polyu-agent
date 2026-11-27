@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.rag.core.prompt;
 
 import com.nageoffer.ai.ragent.rag.config.OrchestrationMode;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties.KnowledgeAnswerForm;
 import lombok.Getter;
 
 import java.util.Arrays;
@@ -44,13 +45,15 @@ public enum AgentPromptSlot {
             Set.of()),
 
     /**
-     * 唯一一个不进对话消息的槽位：它随工具定义下发，模型在调用前就要读懂
+     * 唯一一个不进对话消息的槽位：它随工具定义下发，模型在调用前就要读懂。
+     * 编辑提醒随知识库作答形态变，见 {@link #editorHint}
      */
-    KNOWLEDGE_TOOL_DESCRIPTION("知识库工具声明", Group.AGENT,
+    KNOWLEDGE_TOOL_DESCRIPTION("知识库问答", Group.AGENT,
             Set.of(OrchestrationMode.AGENT),
             "WorkFlow 模式不注册原生知识库工具",
             Set.of(),
-            "模型靠它判断要不要查知识库，此时还看不到检索结果；写清这个库覆盖哪类问题，不必在这里规定回答风格"),
+            "这段是发给主 Agent 的知识库工具声明，工具返回资料原文：写清这个库覆盖哪类问题、返回什么格式、"
+                    + "主 Agent 怎么读资料作答；资料边界守多严写在 Agent人设里"),
 
     AGENT_CONTEXT_COMPACTION("Agent上下文压缩", Group.AGENT,
             Set.of(OrchestrationMode.AGENT),
@@ -78,11 +81,12 @@ public enum AgentPromptSlot {
                     + "「记住」「忘掉」「清空全部」三类场景都要写到，具体记什么忘什么由抽取环节判断"),
 
     /**
-     * 两种架构共用：WorkFlow 下由主链路合成，Agent 下由 RAG Tool 内部合成
+     * WorkFlow 下由主链路合成；Agent 下只有知识库作答形态取「合成」时才由知识库工具在内部读取，
+     * 生效与否见 {@link #isEffectiveIn}
      */
-    KB_ANSWER("知识库应答", Group.COMMON,
-            Set.of(OrchestrationMode.WORKFLOW, OrchestrationMode.AGENT),
-            null,
+    KB_ANSWER("知识库应答", Group.WORKFLOW,
+            Set.of(OrchestrationMode.WORKFLOW),
+            "Agent 模式下知识库工具不写答案：工具说明改「知识库问答」，回答要求改「Agent人设」",
             Set.of()),
 
     /**
@@ -119,6 +123,12 @@ public enum AgentPromptSlot {
      */
     private final String editorHint;
 
+    /**
+     * 合成形态下知识库工具交回成品答案，工具声明的编辑提醒与资料原文形态不同
+     */
+    private static final String SYNTHESIZED_TOOL_EDITOR_HINT =
+            "模型靠它判断要不要查知识库，此时还看不到检索结果；写清这个库覆盖哪类问题，不必在这里规定回答风格";
+
     AgentPromptSlot(String displayName, Group group, Set<OrchestrationMode> effectiveModes,
                     String inactiveReason, Set<String> requiredPlaceholders) {
         this(displayName, group, effectiveModes, inactiveReason, requiredPlaceholders, null);
@@ -134,17 +144,45 @@ public enum AgentPromptSlot {
         this.editorHint = editorHint;
     }
 
-    public boolean isEffectiveIn(OrchestrationMode mode) {
+    /**
+     * 编辑器上方的写法提醒。KNOWLEDGE_TOOL_DESCRIPTION 的提醒随知识库作答形态变，其余槽位与形态无关
+     */
+    public String editorHint(KnowledgeAnswerForm answerForm) {
+        if (this == KNOWLEDGE_TOOL_DESCRIPTION && answerForm != KnowledgeAnswerForm.EVIDENCE) {
+            return SYNTHESIZED_TOOL_EDITOR_HINT;
+        }
+        return editorHint;
+    }
+
+    /**
+     * 当前架构与知识库作答形态下真正会被读取的槽位。
+     * 只有一处随作答形态变：KB_ANSWER 在合成形态下由 Agent 的知识库工具在内部读取，两种架构都生效；
+     * 资料原文形态下工具不写答案，它只在 WorkFlow 生效
+     */
+    public boolean isEffectiveIn(OrchestrationMode mode, KnowledgeAnswerForm answerForm) {
+        if (this == KB_ANSWER && mode == OrchestrationMode.AGENT && answerForm != KnowledgeAnswerForm.EVIDENCE) {
+            return true;
+        }
         return effectiveModes.contains(mode);
     }
 
     /**
-     * 当前架构下真正会被读取的槽位，控制台拿它当覆盖率的分母
+     * 当前架构与作答形态下真正会被读取的槽位，控制台拿它当覆盖率的分母
      */
-    public static List<AgentPromptSlot> effectiveIn(OrchestrationMode mode) {
+    public static List<AgentPromptSlot> effectiveIn(OrchestrationMode mode, KnowledgeAnswerForm answerForm) {
         return Arrays.stream(values())
-                .filter(slot -> slot.isEffectiveIn(mode))
+                .filter(slot -> slot.isEffectiveIn(mode, answerForm))
                 .toList();
+    }
+
+    /**
+     * 控制台分栏。KB_ANSWER 合成形态下两种架构都读，归「通用」；资料原文形态下只有 WorkFlow 读，归「WorkFlow专属」
+     */
+    public Group group(KnowledgeAnswerForm answerForm) {
+        if (this == KB_ANSWER && answerForm != KnowledgeAnswerForm.EVIDENCE) {
+            return Group.COMMON;
+        }
+        return group;
     }
 
     public static Optional<AgentPromptSlot> find(String key) {

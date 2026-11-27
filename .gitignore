@@ -101,3 +101,9 @@ evaluation/profile_assertion/fixtures-private/
 
 # 用户本地工作目录（简历副本等，2026-11-12 误扫进提交后补防线）
 .tmp-resume/
+
+### Frontend build outputs ###
+# tsc -b emits these next to the sources; Vite would load vite.config.js ahead of vite.config.ts
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

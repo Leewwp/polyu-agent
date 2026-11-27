@@ -21,15 +21,19 @@ import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
+import com.nageoffer.ai.ragent.rag.config.SearchChannelProperties;
 import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
+import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScoreFilters;
 import com.nageoffer.ai.ragent.rag.core.prompt.AnswerLanguageRules;
+import com.nageoffer.ai.ragent.rag.core.prompt.KnowledgeEvidenceRenderer;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieval.RetrievalEngine;
 import com.nageoffer.ai.ragent.rag.core.retrieval.channel.RetrievalScopeResolver;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.nageoffer.ai.ragent.knowledge.dao.mapper.KnowledgeDocumentMapper;
@@ -38,6 +42,7 @@ import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.core.source.CitationContextEnricher;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
+import com.nageoffer.ai.ragent.rag.trace.KnowledgeSearchSpans;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -47,10 +52,12 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 知识检索门面：Agent 模式下 rag 对外的唯一检索窄口
- * 改写 -> KB 意图解析 -> 歧义引导 -> 多通道检索 -> KB_ANSWER 合成，返回可直接引用的答案文本
+ * 改写 -> KB 意图解析 -> 歧义引导 -> 多通道检索 -> 按知识库作答形态分流（{@code rag.search.knowledge-answer-form}）：
+ * synthesized（默认）用 KB_ANSWER 槽在工具内合成一段成品答案；evidence 交回按文档归组的资料原文，由主 Agent 读后作答
  * 引用/来源装配定死不走，与 rag.citation.enabled 无关
  * 不带任何会话历史：主 Agent 已消解过指代，合成阶段也只依据本次证据
  */
@@ -85,16 +92,19 @@ public class KnowledgeSearchFacade {
     private final RAGPromptService promptService;
     private final LLMService llmService;
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
+    private final KnowledgeEvidenceRenderer evidenceRenderer;
+    private final SearchChannelProperties searchChannelProperties;
 
     /**
-     * 检索并合成答案，供主 Agent 的 search_knowledge 工具调用
+     * 检索并交回主 Agent 作答所需的文本，供 search_knowledge 工具调用：
+     * 合成形态下是工具内合成的成品答案，资料原文形态下是 {@code <retrieval>} 资料原文
      */
     public String search(String query) {
         return searchWithSources(query).answer();
     }
 
     /**
-     * 检索并合成答案，同时带出结构化来源（docId 按纪律不进模型上下文，仅供前端徽章旁路消费）
+     * 同 {@link #search(String)}，同时带出结构化来源（docId 按纪律不进模型上下文，仅供前端徽章旁路消费）
      * 歧义引导与空检索路径 sources 为空；未判定语言的旧调用等价于不约束
      */
     public KnowledgeSearchOutcome searchWithSources(String query) {
@@ -106,11 +116,19 @@ public class KnowledgeSearchFacade {
      */
     public KnowledgeSearchOutcome searchWithSources(String query, String answerLanguage) {
         // 不喂历史：主 Agent 手握完整对话，传进来的已是消解过、且被它有意收窄的查询
-        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(query, List.of());
-        List<SubQuestionIntent> subIntents = filterKbOnly(intentResolver.resolve(rewriteResult));
+        RewriteResult rewriteResult = KnowledgeSearchSpans.trace("query_rewrite", () -> {
+            RewriteResult result = queryRewriteService.rewriteWithSplit(query, List.of());
+            KnowledgeSearchSpans.count(KnowledgeSearchSpans.SUB_QUESTION_COUNT, CollUtil.size(result.subQuestions()));
+            return result;
+        });
+        List<SubQuestionIntent> subIntents = filterKbOnly(KnowledgeSearchSpans.trace("intent_resolve", () -> {
+            List<SubQuestionIntent> resolved = intentResolver.resolve(rewriteResult);
+            KnowledgeSearchSpans.count(KnowledgeSearchSpans.INTENT_COUNT, intentResolver.mergeKbIntents(resolved).size());
+            return resolved;
+        }));
 
-        GuidanceDecision guidance = guidanceService.detectAmbiguity(
-                rewriteResult.rewrittenQuestion(), subIntents);
+        GuidanceDecision guidance = KnowledgeSearchSpans.trace("guidance",
+                () -> guidanceService.detectAmbiguity(rewriteResult.rewrittenQuestion(), subIntents));
         if (guidance.isPrompt()) {
             log.info("Agent 知识库检索命中歧义引导，跳过检索与答案合成, question={}",
                     rewriteResult.rewrittenQuestion());
@@ -118,6 +136,11 @@ public class KnowledgeSearchFacade {
         }
 
         RetrievalContext retrievalCtx = retrievalEngine.retrieve(subIntents);
+        if (searchChannelProperties.isEvidenceAnswer()) {
+            return renderEvidence(retrievalCtx, subIntents, answerLanguage);
+        }
+
+        // 以下为合成形态（默认）：这一段的输出由 KnowledgeToolOffStateSnapshotTest 的快照钉住，改之前先看它
         if (!retrievalCtx.hasKb()) {
             // 空检索文案是接近终答的文本：按本轮语言出，英文提问不再收固定中文
             return new KnowledgeSearchOutcome(emptyResultNotice(answerLanguage), List.of());
@@ -142,6 +165,36 @@ public class KnowledgeSearchFacade {
                 .thinking(false)
                 .build());
         return new KnowledgeSearchOutcome(answer, collectSources(retrievalCtx));
+    }
+
+    /**
+     * 资料原文形态：检索引擎选中的分片按文档归组交回主 Agent，工具内不合成；
+     * 一份分片都没留下时按本轮语言出一句未检索到。来源徽章照旧带出，docId 只走旁路
+     */
+    private KnowledgeSearchOutcome renderEvidence(RetrievalContext retrievalCtx,
+                                                  List<SubQuestionIntent> subIntents,
+                                                  String answerLanguage) {
+        if (retrievalCtx.getContextChunks().isEmpty()) {
+            return new KnowledgeSearchOutcome(emptyResultNotice(answerLanguage), List.of());
+        }
+        return new KnowledgeSearchOutcome(
+                evidenceRenderer.render(retrievalCtx.getContextChunks(), answerRules(subIntents, retrievalCtx)),
+                collectSources(retrievalCtx));
+    }
+
+    /**
+     * 留下了资料的子问题所命中意图的答题规则，带意图全路径：叶子可能同名，正文又已跨子问题合并，只写名字分不清规则管谁
+     */
+    private List<String> answerRules(List<SubQuestionIntent> subIntents, RetrievalContext retrievalCtx) {
+        Set<String> evidenced = retrievalCtx.getEvidencedIntentIds();
+        return intentResolver.mergeKbIntents(subIntents).stream()
+                .map(NodeScore::getNode)
+                .filter(node -> node != null && evidenced.contains(node.getId()))
+                .filter(node -> StrUtil.isNotBlank(node.getPromptSnippet()))
+                .map(node -> "[" + StrUtil.blankToDefault(node.getFullPath(), node.getName()) + "] "
+                        + node.getPromptSnippet().trim())
+                .distinct()
+                .toList();
     }
 
     /**
@@ -245,7 +298,8 @@ public class KnowledgeSearchFacade {
     }
 
     /**
-     * 工具结果：answer 进模型上下文，sources 走旁路（stash -> 块 JSON），两者出口不同
+     * 工具结果：answer 进模型上下文（合成形态=成品答案，资料原文形态=retrieval 资料原文），
+     * sources 走旁路（stash -> 块 JSON），两者出口不同
      */
     public record KnowledgeSearchOutcome(String answer, List<KnowledgeSearchSource> sources) {
     }

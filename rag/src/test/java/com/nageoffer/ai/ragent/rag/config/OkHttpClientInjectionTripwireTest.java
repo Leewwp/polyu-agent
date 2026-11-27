@@ -95,7 +95,7 @@ class OkHttpClientInjectionTripwireTest {
             }
         }
         assertThat(offenders)
-                .as("rag main 禁自建 OkHttpClient——一律注入 sync/guardedHttpClient bean（issue #125）")
+                .as("rag main 禁自建 OkHttpClient——一律注入 sync/guardedHttpClient/jevHttpClient bean（issue #125）")
                 .isEmpty();
     }
 

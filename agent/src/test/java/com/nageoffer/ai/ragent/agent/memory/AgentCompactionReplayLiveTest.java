@@ -24,6 +24,7 @@ import com.nageoffer.ai.ragent.agent.dao.mapper.AgentContextCompactionMapper;
 import com.nageoffer.ai.ragent.infra.config.AIModelProperties;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptResolver;
 import com.nageoffer.ai.ragent.rag.core.prompt.AgentPromptSlot;
+import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.model.Model;
@@ -61,7 +62,7 @@ import static org.mockito.Mockito.mock;
 
 /**
  * 记忆摘要回归的离线重放：拿实跑存下的压缩前上下文，换上仓库里的压缩提示词，走生产压缩器逐代重压
- * 由 resources/regression/agent-compaction/run.sh --replay 驱动，产物交回回归台判定，普通单测不触发
+ * 手动启用的摘要历史重放实验，普通单测不触发
  * 切点、素材渲染、模型与预算全走生产代码和 application.yaml，只有提示词改读文件、落库换成假的
  */
 @EnabledIfEnvironmentVariable(named = "RAGENT_COMPACTION_REPLAY_SOURCE", matches = ".+")
@@ -190,7 +191,8 @@ class AgentCompactionReplayLiveTest {
                 int failures = 0;
                 while (compacted == null && failures < MAX_ATTEMPTS) {
                     List<Msg> working = new ArrayList<>(messages);
-                    if (compactor.compactInPlace(working, "replay", session.getFileName().toString())) {
+                    if (compactor.compactInPlace(working, RuntimeContext.builder()
+                            .userId("replay").sessionId(session.getFileName().toString()).build())) {
                         compacted = working;
                     } else {
                         failures++;
@@ -241,9 +243,9 @@ class AgentCompactionReplayLiveTest {
         }
 
         @Override
-        public String summarize(List<Msg> material, String existingSummary) {
+        public String summarize(List<Msg> material, String existingSummary, RuntimeContext context) {
             materialChars = AgentContextChars.total(material);
-            summary = super.summarize(material, existingSummary);
+            summary = super.summarize(material, existingSummary, context);
             return summary;
         }
     }

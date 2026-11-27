@@ -5,7 +5,7 @@ import { api } from "@/services/api";
 export type EngineType = "workflow" | "agent";
 
 interface EngineSettingsVO {
-  /** 迷你端点只返 {type}（裸 EngineSettings，非 /rag/settings 整表的 {engine:{...}} 包装） */
+  /** 迷你端点只返 {type}（裸 EngineSettings，非 /system/settings 整表的 {engine:{...}} 包装） */
   type: string;
 }
 

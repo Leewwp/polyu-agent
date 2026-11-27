@@ -95,7 +95,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
             "/mappings",
             "/mappings/**",
             "/admin/**",
-            "/rag/settings",
+            // 系统配置整表（agent 模块 SystemSettingsController）：精确模式，不含同控制器的
+            // 登录态迷你端点 /rag/settings/engine（归 AdminSurfaceContractTest 的用户面白名单）
+            "/system/settings",
             "/rag/traces/**",
             "/rag/eval",
             "/rag/eval/**",

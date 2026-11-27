@@ -71,10 +71,32 @@ public class SearchChannelProperties implements InitializingBean {
     private Evidence evidence = new Evidence();
 
     /**
+     * 精排与回答上下文是否带文档名：精排副本正文前补一行文档名，回答上下文每份资料首行放一次 {@code <doc_name>}
+     * 文档名原样取 doc_name，关闭即两处都不带；来源摘录与测评 contexts 保留原文，但进上下文的片段和排名会变
+     */
+    private boolean includeDocName = true;
+
+    /**
+     * 知识库作答形态：Agent 档位下 search_knowledge 把什么交回主 Agent（#574）
+     * <p>
+     * {@link KnowledgeAnswerForm#SYNTHESIZED}（默认）：工具内用 KB_ANSWER 槽把命中资料合成一段成品答案再交回；
+     * {@link KnowledgeAnswerForm#EVIDENCE}：交回资料原文（按文档归组的分片与意图答题规则），由主 Agent 读后作答。
+     * 两种形态下约束回答的提示词不同，转 evidence 之前主 Agent 的人设要先对齐
+     */
+    private KnowledgeAnswerForm knowledgeAnswerForm = KnowledgeAnswerForm.SYNTHESIZED;
+
+    /**
      * 解析召回扇出基数：优先使用显式 recallBudget，未配置（<=0）时回退到最终条数
      */
     public int resolveRecallBudget(int contextTopK) {
         return recallBudget > 0 ? recallBudget : contextTopK;
+    }
+
+    /**
+     * 知识库工具是否交回资料原文；缺省（未配置或留空）按合成算
+     */
+    public boolean isEvidenceAnswer() {
+        return knowledgeAnswerForm == KnowledgeAnswerForm.EVIDENCE;
     }
 
     /**
@@ -133,6 +155,16 @@ public class SearchChannelProperties implements InitializingBean {
                             + "高于 1 会让全部证据被闸门丢弃、KB 侧恒为空；关闭闸门请填 0",
                     minRerankScore));
         }
+    }
+
+    /**
+     * 知识库作答形态，取值 {@code rag.search.knowledge-answer-form}；写成这两个值以外的，绑定失败、启动即停
+     */
+    public enum KnowledgeAnswerForm {
+        /** 工具内用 KB_ANSWER 槽合成一段成品答案后交回 */
+        SYNTHESIZED,
+        /** 交回资料原文，由主 Agent 读后作答 */
+        EVIDENCE
     }
 
     /**
