@@ -968,11 +968,11 @@ ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- #576 资料原文形态的提示词稿（PolyU Guide）：主 Agent 人设与知识库工具声明两槽
--- 底稿是上游 idx 27 的内置助手两槽；纪律条目从两份 KB_ANSWER 迁入（PolyU Guide 自有一份全部迁入；
--- 内置助手一份里与它相容的迁入，互斥的与依赖合成形态输入结构的没有迁，逐条清单见 AgentPromptSeedCaliberTest 的对照表资源）。
--- 知识库作答形态默认是合成（rag.search.knowledge-answer-form），所以内置助手两槽保持合成口径，这份稿单独成行：
+-- 纪律条目取自两份 KB_ANSWER：PolyU Guide 自有的一份全部在内；内置助手的一份里与资料原文形态相容的在内，
+-- 互斥的、依赖合成形态输入结构的不在内。逐条对照见 AgentPromptSeedCaliberTest 的对照表资源。
+-- 知识库作答形态默认是合成（rag.search.knowledge-answer-form=synthesized），所以内置助手两槽是合成口径，这份稿单独成行：
 -- builtin=0、active=0，不参与任何回落；取用方式是把两槽内容写到要用的智能体自己的槽上，或把激活标志切到这一行。
--- 不进生产：生产要转默认开时，经后台槽位管理人工对齐。
+-- 不进生产：生产要转成资料原文形态时，经后台槽位管理人工对齐。
 -- ============================================================================
 INSERT INTO t_agent_profile (id, name, description, avatar, builtin, active, create_time, update_time, deleted)
 VALUES ('2126005175029207041', 'PolyU Guide（资料原文形态提示词稿）', 'PolyU Guide 的资料原文形态提示词稿：主 Agent 人设与知识库工具声明两槽（#576）。只供门轮开态在本地库取用；默认形态是合成，不启用', 'orbit-blue', 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
