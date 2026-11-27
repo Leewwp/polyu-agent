@@ -95,7 +95,7 @@ public class KnowledgeEvidenceRenderer {
             if (i > 0 && !adjacent(previous, chunk.getChunkIndex())) {
                 out.append(GAP).append('\n');
             }
-            // 与 WorkFlow 的 joinDocBody 同一个中和器（O8）：资料原文里的字面标签不能闭合或伪造外层围栏
+            // 与 WorkFlow 的 joinDocBody 同一个中和器：资料原文里的字面标签不能闭合或伪造外层围栏
             out.append(PromptFenceSanitizer.neutralize(StrUtil.emptyIfNull(chunk.getText()).strip())).append('\n');
             previous = chunk.getChunkIndex();
         }

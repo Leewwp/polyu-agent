@@ -48,10 +48,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 种子里提示词槽的口径守卫，加「生产 KB_ANSWER 纪律条目 → 迁入位置」对照表的逐条核对
  * <p>
- * 上游 idx 27 让知识库工具无条件改交资料原文，并把内置助手的工具声明与人设改成了资料原文口径。
- * 本仓以开关收编（rag.search.knowledge-answer-form，默认 synthesized）：合成形态下工具内仍用 KB_ANSWER 合成成品答案。
- * 种子若留着资料原文口径的工具声明，全新空库在默认形态下就是「声明说返回的不是成品答案、实际返回的是成品答案」，
- * 所以内置助手两槽保持合成口径，资料原文形态的提示词稿另成一行。
+ * 知识库作答形态由 {@code rag.search.knowledge-answer-form} 分流，默认 synthesized：工具内用 KB_ANSWER 把命中资料
+ * 合成一段成品答案再交回主 Agent；取 evidence 时交回资料原文，由主 Agent 读后作答。两种形态对提示词的要求不同，
+ * 所以种子里分成两处。内置助手（各智能体空槽的回落终点）的两槽是合成口径：工具声明说返回的是成品答案，人设保留
+ * 「成品内容原样全文输出」的规则，两槽各按 md5 钉住；它若留着资料原文口径的工具声明，全新空库在默认形态下就是
+ * 「声明说返回的不是成品答案、实际返回的是成品答案」。资料原文形态的提示词稿另成一行：不内置、不激活，不参与回落。
  * <p>
  * 资料原文形态下 Agent 链不再读 KB_ANSWER，回答纪律要迁到主 Agent 的提示里。对照表资源
  * {@code agent-prompt-seed/discipline-mapping.json} 是评审过的快照（每条的落点片段、标为迁不进去的行、

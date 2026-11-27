@@ -484,10 +484,10 @@ rag:
     evidence:
       min-rerank-score: 0.40  # 整批最高精排分低于此值则整批丢弃，0=关闭；随 reranker 而变，换模型看「检索归因 - 精排分布」重测。2026-09-06 由 0.2 上调：18 行探针实测精排分=主题相关度而非可答性，0.40 恰拦唯一"库内全无相关"行（0.39）且距最低合法行 0.44 余 0.04；主观脏行（0.49–0.81）与可答 gold（0.73–0.95）区间交叠，靠分数拦不住——拒答归提示词层（规则①④）
     # 精排与回答上下文带文档名（原样取 doc_name）：同模板文档的续块正文没有产品名，靠它分辨片段属于哪篇；来源摘录与测评 contexts 保留原文，但进上下文的片段和排名会变，测评分数随之变化
-    include-doc-name: false  # 本仓显式关（上游默认开）：生产 KB_ANSWER 带「不报文档名」规则，打开会改精排名次与回答上下文，须另过门轮
+    include-doc-name: false  # 代码默认开，这里显式关：生产 KB_ANSWER 带「不报文档名」规则，打开会改精排名次与回答上下文，要打开须另行安排一轮评测验证
     # 知识库作答形态（Agent 档位下 search_knowledge 把什么交回主 Agent）：synthesized=工具内用 KB_ANSWER 槽合成一段成品答案再交回；
     # evidence=交回资料原文（<retrieval>：按文档归组的分片与意图答题规则），由主 Agent 读后作答。写成这两个值以外的，启动即停
-    knowledge-answer-form: synthesized  # 本仓默认 synthesized：转 evidence 前主 Agent 的人设要先对齐（约束回答的纪律从 KB_ANSWER 迁进人设），并过门轮
+    knowledge-answer-form: synthesized  # 本仓默认 synthesized：转 evidence 前主 Agent 的人设要先对齐（约束回答的纪律从 KB_ANSWER 迁进人设），并先过一轮评测验证
 
   trace:
     enabled: true

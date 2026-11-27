@@ -140,7 +140,7 @@ public class KnowledgeSearchFacade {
             return renderEvidence(retrievalCtx, subIntents, answerLanguage);
         }
 
-        // 以下为合成形态（默认）：与引入开关之前逐字节相同，改动前先看关态证明①的快照
+        // 以下为合成形态（默认）：这一段的输出由 KnowledgeToolOffStateSnapshotTest 的快照钉住，改之前先看它
         if (!retrievalCtx.hasKb()) {
             // 空检索文案是接近终答的文本：按本轮语言出，英文提问不再收固定中文
             return new KnowledgeSearchOutcome(emptyResultNotice(answerLanguage), List.of());

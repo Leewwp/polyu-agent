@@ -77,7 +77,7 @@ public class SearchChannelProperties implements InitializingBean {
     private boolean includeDocName = true;
 
     /**
-     * 知识库作答形态：Agent 档位下 search_knowledge 把什么交回主 Agent（上游窗 idx 27 以开关收编，#574）
+     * 知识库作答形态：Agent 档位下 search_knowledge 把什么交回主 Agent（#574）
      * <p>
      * {@link KnowledgeAnswerForm#SYNTHESIZED}（默认）：工具内用 KB_ANSWER 槽把命中资料合成一段成品答案再交回；
      * {@link KnowledgeAnswerForm#EVIDENCE}：交回资料原文（按文档归组的分片与意图答题规则），由主 Agent 读后作答。

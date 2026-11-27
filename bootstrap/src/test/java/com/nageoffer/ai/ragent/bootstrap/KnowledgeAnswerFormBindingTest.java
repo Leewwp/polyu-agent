@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 知识库作答形态开关（#574）：本仓 application.yaml 必须显式写出 {@code rag.search.knowledge-answer-form=synthesized}。
- * 上游窗 idx 27「以开关收编」落在这一键上——键丢了或值被动过，主 Agent 拿到的就不再是成品答案。
+ * 合成与资料原文两种形态靠这一键分流：键丢了就只剩 Java 缺省可依，值被动过，主 Agent 拿到的就不再是成品答案。
  * 钉两头：yaml 的值经真实绑定器进属性类仍是合成；取 evidence 的覆盖路径确实绑得进去。
  */
 class KnowledgeAnswerFormBindingTest {

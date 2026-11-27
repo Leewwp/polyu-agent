@@ -35,6 +35,7 @@ import java.time.Duration;
  * API 基址）——受信是承重分类：LightRag 默认 127.0.0.1:9621，GuardedDns 会拒绝回环，
  * 给它「补守卫」会改崩图引擎；{@code guardedHttpClient}＝承载不可信 URL 的出站抓取面
  * （URL/资讯/飞书内容/MinerU 预签名），连接层经 {@link GuardedDns} 复校解析地址。
+ * 第三个 bean {@code jevHttpClient}（Jev 结构化判断）归受信类：端点来自配置；自带独立连接池，不挂 {@link GuardedDns}。
  * 派生配方（newBuilder().dns(...)）只允许存在于本类。
  */
 @Configuration
