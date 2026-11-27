@@ -85,7 +85,8 @@ class ReplyCompletenessTest {
         Throwable failure = catchThrowable(() -> agent.call("查订单",
                 RuntimeContext.builder().userId("u-1").sessionId("c-1").build()).block(Duration.ofSeconds(10)));
 
-        assertThat(tools.executed).as("实际执行的工具").containsExactlyElementsOf(executed);
+        // 并行调用的工具由 SDK 并发执行，先后不保证；每个调用的工具名与参数都要对上，只是不比顺序
+        assertThat(tools.executed).as("实际执行的工具").containsExactlyInAnyOrderElementsOf(executed);
         switch (outcome) {
             case ANSWERED -> assertThat(failure).isNull();
             case INCOMPLETE -> assertThat(ExceptionUtil.getCausedBy(failure, ModelException.class)).isNotNull();
