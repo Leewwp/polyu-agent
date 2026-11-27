@@ -46,10 +46,13 @@ jobs:
       # 安装，不入 evaluation/requirements.txt（评测依赖管理面零增量）。
       # 版本钉死 8.3.5（本地基线验证版本）：不钉版时上游每次发版都可能改变
       # 收集/断言行为，质量门会出现零代码变更的无码漂移红。
-      - name: Profile assertion deterministic tests (synthetic fixtures, zero LLM/DB)
+      # #578/#599：门轮有效票聚合器（evaluation/gate_votes/）的确定性测试与上面同类
+      # （聚合器本体纯标准库，夹具为合成判分行、无题面，零 secret/零 DB/零 LLM/零网络），
+      # 同一步一并进本门。
+      - name: Evaluation deterministic tests (profile assertion + gate votes; synthetic fixtures, zero LLM/DB)
         run: |
           python3 -m pip install --disable-pip-version-check --quiet pytest==8.3.5
-          python3 -m pytest evaluation/profile_assertion/ -q
+          python3 -m pytest evaluation/profile_assertion/ evaluation/gate_votes/ -q
 
       - name: Package (skip tests)
         run: ./mvnw -DskipTests package

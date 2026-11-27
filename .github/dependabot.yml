@@ -29,6 +29,15 @@ updates:
       # 显式接管 guava 与那 7 个降版构件后再升。
       - dependency-name: org.apache.tika:tika-bom
         versions: [">=3.3"]
+      # 暂不升：Boot 4.2.0 的 BOM 把它托管的 otel 稳定构件从 1.62.0 抬到 1.68.0，而 alpha 伴生件 opentelemetry-api-incubator
+      # 不受任何 BOM 托管、停在 1.61.0-alpha；它调用的 io.opentelemetry.api.internal.ConfigUtil 自 opentelemetry-api 1.67.0 起
+      # 被移除，agent trace 一组测试 NoClassDefFoundError（#555 CI 实证）。属性 spring-boot.version 由 spring-boot-dependencies
+      # （BOM 导入）与 spring-boot-maven-plugin 两处共用，dependabot 按这两个构件名各查一次，所以两条都写。
+      # 解冻条件：agentscope-core 发出对着 otel 1.68 编译的版本、上游采用、或出现安全告警。
+      - dependency-name: org.springframework.boot:spring-boot-dependencies
+        versions: [">=4.2"]
+      - dependency-name: org.springframework.boot:spring-boot-maven-plugin
+        versions: [">=4.2"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -60,8 +69,13 @@ updates:
       - dependency-name: react-markdown
         versions: [">=10"]
       # 不升 major：TS 7 移除 baseUrl 并禁止非相对路径，本仓用 @/ 别名（#558 CI 实证）；需要专门迁移，有驱动再评估。
+      # TS 6 同样走专项、无升级驱动（#603 关闭，维护者 2026-11-26 裁定，同 Tailwind 4 的处置）。本条由 >=6 覆盖原 >=7。
       - dependency-name: typescript
-        versions: [">=7"]
+        versions: [">=6"]
+      # 不升 major：Tailwind 4 换了配置模型，要专项迁移；本仓是 v3 的配置形态（frontend/tailwind.config.cjs +
+      # postcss 插件），无升级驱动（#592 关闭）。
+      - dependency-name: tailwindcss
+        versions: [">=4"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

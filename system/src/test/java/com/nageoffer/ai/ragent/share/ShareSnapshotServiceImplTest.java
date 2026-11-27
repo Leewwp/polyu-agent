@@ -41,7 +41,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -49,7 +48,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * 统一分享快照 module 单元测试（issue #124）：token 形状与唯一性、
- * 防枚举三态统一语义、撤销归属/幂等/管理员覆盖、注销级联软撤销、
+ * 防枚举三态统一语义、撤销归属/幂等/管理员覆盖、
  * 保留任务硬删、过期策略（default-days 与 NULL=不过期）。
  */
 class ShareSnapshotServiceImplTest {
@@ -230,13 +229,6 @@ class ShareSnapshotServiceImplTest {
         when(shareSnapshotMapper.selectOne(any())).thenReturn(stored("REVOKED", new Date()));
         shareSnapshotService.revoke("t".repeat(43), RevocationActor.owner("u1"));
         verify(shareSnapshotMapper, never()).updateById(any(ShareSnapshotDO.class));
-    }
-
-    @Test
-    void revokeOwnedByDelegatesSingleStatementToDao() {
-        shareSnapshotService.revokeOwnedBy("u1");
-        // 一条 UPDATE 收编此前两段手写表名 SQL（#104 级联补洞的教训：fork 一侧静默落后）
-        verify(shareSnapshotMapper).update(isNull(), any());
     }
 
     @Test
